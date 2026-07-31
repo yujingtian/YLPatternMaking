@@ -1,0 +1,31 @@
+# ============================================================
+# 牛仔裤打版尺寸单（单位：cm）
+# 用法：ylpattern draft --size 本文件 --svg out/sheet.svg
+# ============================================================
+
+[measurements]
+waist      = 74    # 腰围（成品）
+hip        = 100    # 臀围 = 净臀围 + 放松量（影响框架宽度：H前 = H/4 − Δ）
+knee       = 54    # 膝围
+hem        = 47    # 裤口（脚口围）
+front_rise = 30    # 前浪（前裆长，腰顶沿前裆弯量至裆点；立裆线高度由臀围推导，不用本值）
+back_rise  = 44    # 后浪（后立裆长，应大于前浪）
+outseam    = 102   # 裤长（外侧缝长；腰围线高度 = 裤长）
+thigh      = 62    # 大腿围
+
+[options]
+# 前后片臀围单侧调节量 Δ，0~2.0，见 前后片臀围推导.md §四：
+#   标准女装 1.0 / 翘臀 1.2~1.5 / 男装 0.5~0.75 / 高弹 0.3~0.5 / 宽松 0~0.5
+delta               = 1.0
+front_crotch_adjust = 0.0         # 前小裆修正量（紧身牛仔裤取 -0.5 ~ -1.0）
+
+# 直裆深 = 臀围 × rise_ratio + rise_adjust（默认 H/4）
+rise_ratio          = 0.25
+rise_adjust         = 3.0
+
+# 腰头类型：straight = 直腰头（打版时扣除腰头宽）
+#           curved   = 弯腰头（与前片一体绘制再裁出）
+waistband_type      = "straight"
+
+fit                 = "regular"   # 版型：skinny 紧身 / slim 修身 / regular 标准 / loose 宽松
+seam_allowance      = 1.0         # 默认缝份宽度

@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: ylpattern
+Version: 0.1.0
+Summary: 牛仔裤数字化打版系统：函数即绘制步骤，流程编排，先画后裁
+Requires-Python: >=3.10
+Provides-Extra: dxf
+Requires-Dist: ezdxf>=1.1; extra == "dxf"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"
