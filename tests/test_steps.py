@@ -1,18 +1,18 @@
-"""步骤与流程测试：前片基础框架（M1）。
+"""步骤与流程测试：前片基础框架（M1）+ 裆部结构。
 
-金标（H=96, Δ=1.0, outseam=102，直裆深 = H/4 = 24）：
-  脚口线 y=0；立裆线 y=102−24=78；臀围线 y=78+24/3=86；
-  膝线 y=(0+78)/2+3=42；腰线 y=102；
+金标（H=96, Δ=1.0, outseam=102，直裆深 = H/4 = 24，直腰头扣腰头宽 4）：
+  脚口线 y=0；立裆线 y=102−24=78（直裆深为人体量，不扣腰头）；
+  臀围线 y=78+24/3=86；膝线 y=(0+78)/2+3=42；腰线 y=102−4=98；
   臀围宽度点 x=H/4−Δ=23；内侧缝线 x=23。
   前小裆宽顶点：x = 23 + 96/20 = 27.8，y = 立裆线 78。
-  前中内收点：x = 23 − (96−70)/16 = 21.375，y = 腰线 102。
+  前中内收点：x = 23 − (96−70)/16 = 21.375，y = 腰线 98。
 """
 
 import pytest
 
 from ylpattern.flows.front_flow import FRONT_FLOW
 from ylpattern.flows.runner import FlowRunner
-from ylpattern.params import Measurements, PatternOptions
+from ylpattern.params import Measurements, PatternOptions, WaistbandType
 
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
@@ -35,7 +35,14 @@ def test_refline_heights(ctx):
     assert ctx.line("front.crotch_line").a.y == 78.0
     assert ctx.line("front.hip_line").a.y == 86.0
     assert ctx.line("front.knee_line").a.y == 42.0
-    assert ctx.line("front.waist_line").a.y == 102.0
+    assert ctx.line("front.waist_line").a.y == 98.0   # 直腰头扣腰头宽 4
+
+
+def test_curved_waistband_keeps_full_length():
+    o = PatternOptions(delta=1.0, waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    assert ctx.line("front.waist_line").a.y == 102.0  # 弯腰头一体绘制，不扣
+    assert ctx.line("front.crotch_line").a.y == 78.0  # 立裆线不受影响
 
 
 def test_hip_width_point(ctx):
@@ -64,7 +71,67 @@ def test_front_crotch_vertex_with_adjust():
 def test_front_center_intake_point(ctx):
     pt = ctx.point("front.center_intake_point")
     assert pt.x == pytest.approx(21.375)  # 23 − (96−70)/16
-    assert pt.y == 102.0                  # 落在腰线上
+    assert pt.y == 98.0                   # 落在腰线上（直腰头已扣 4）
+
+
+def test_front_rise_composite(ctx):
+    # 拐点 B = 臀围线 ∩ 内侧缝线 = (23, 86)
+    b = ctx.point("front.hip_inner_point")
+    assert (b.x, b.y) == (23.0, 86.0)
+
+    # 弧线端点 = B 与前小裆宽顶点 C = (27.8, 78)
+    arc = ctx.curve("front.rise_curve")
+    assert arc.point_at(0) == b
+    assert arc.point_at(1) == ctx.point("front.crotch_vertex")
+
+    # C¹ 连续：起点切线沿前中斜线方向；终点切线水平（前浪绘制.md §1.2）
+    a0 = ctx.point("front.center_intake_point")
+    d_ab = (b - a0).normalized()
+    t0 = arc.tangent_at(0).normalized()
+    assert t0.dx == pytest.approx(d_ab.dx)
+    assert t0.dy == pytest.approx(d_ab.dy)
+    assert arc.tangent_at(1).dy == pytest.approx(0.0)
+
+
+def test_front_rise_length_closure(ctx):
+    # 弧长闭合：前中斜线长 + 裆弯弧长 = 前浪 − 腰头宽 = 25 − 4 = 21
+    # （前浪为含腰头成衣量，直腰头扣除；前浪绘制.md §4）
+    slant = ctx.line("front.rise_slant")
+    arc = ctx.curve("front.rise_curve")
+    assert slant.length + arc.length() == pytest.approx(
+        M.front_rise - O.waistband_width)
+    # 前浪顶点在斜线延长方向上
+    a = ctx.point("front.rise_top_point")
+    b = ctx.point("front.hip_inner_point")
+    assert slant.a == a and slant.b == b
+    # 前浪线为结构线（实线渲染），非参考线
+    assert ctx.sheet.get("front.rise_slant").role == "struct"
+
+
+def test_front_rise_closure_curved_waistband():
+    # 弯腰头一体绘制：闭合目标 = 前浪原值 25
+    o = PatternOptions(delta=1.0, waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    total = ctx.line("front.rise_slant").length + ctx.curve("front.rise_curve").length()
+    assert total == pytest.approx(M.front_rise)
+
+
+def test_rise_on_pattern_deduction():
+    # 前浪/后浪统一扣除口径：直腰头 − 腰头宽，弯腰头原值（注意点 1）
+    straight = PatternOptions(waistband_type=WaistbandType.STRAIGHT,
+                              waistband_width=4.0)
+    assert straight.rise_on_pattern(25) == 21.0   # 前浪
+    assert straight.rise_on_pattern(33) == 29.0   # 后浪
+    curved = PatternOptions(waistband_type=WaistbandType.CURVED)
+    assert curved.rise_on_pattern(25) == 25.0
+    assert curved.rise_on_pattern(33) == 33.0
+
+
+def test_front_rise_too_short_raises():
+    m = Measurements(waist=70, hip=96, knee=46, hem=36,
+                     front_rise=5, back_rise=33, outseam=102, thigh=58)
+    with pytest.raises(ValueError, match="无法闭合"):
+        FlowRunner(m, O).run(FRONT_FLOW)
 
 
 def test_front_center_intake_with_adjust():

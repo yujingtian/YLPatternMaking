@@ -23,6 +23,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         delta: float = 1.0, front_crotch_adjust: float = 0.0,
         rise_ratio: float = 0.25, rise_adjust: float = 0.0,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
+        waistband_width: float = 4.0,
         seam_allowance: float = 1.0,
         svg: str = "out/sheet.svg",
         until: str | None = None,
@@ -36,6 +37,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         rise_ratio       直裆深系数（直裆深 = H × ratio + adjust，默认 H/4）
         rise_adjust      直裆深修正量（cm）
         waistband_type   腰头类型："straight" 直腰头 / "curved" 弯腰头（打版流程.md 注意点 1）
+        waistband_width  腰头宽（cm）；直腰头打版时从裤长中扣除，弯腰头忽略
         svg              SVG 输出路径
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
@@ -51,6 +53,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        rise_ratio=rise_ratio,
                        rise_adjust=rise_adjust,
                        waistband_type=WaistbandType(waistband_type),
+                       waistband_width=waistband_width,
                        seam_allowance=seam_allowance)
 
     runner = FlowRunner(m, o)

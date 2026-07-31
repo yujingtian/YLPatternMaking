@@ -28,8 +28,8 @@ class DraftContext:
         return el
 
     def add_line(self, name: str, geom: LineSegment, step: str,
-                 basis: str = "", label: str = "") -> NamedLine:
-        el = NamedLine(name, geom, step, basis, label)
+                 basis: str = "", label: str = "", role: str = "ref") -> NamedLine:
+        el = NamedLine(name, geom, step, basis, label, role)
         self.sheet.add(el)
         return el
 

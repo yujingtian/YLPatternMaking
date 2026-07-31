@@ -40,14 +40,25 @@ class PatternOptions:
     rise_ratio: float = 0.25               # 直裆深系数（H 的比例，默认 H/4）
     rise_adjust: float = 0.0               # 直裆深修正量（cm）
     waistband_type: WaistbandType = WaistbandType.STRAIGHT
+    waistband_width: float = 4.0           # 腰头宽（直腰头打版时从版顶扣除，注意点 1）
     fit: Fit = Fit.REGULAR
     seam_allowance: float = 1.0            # 默认缝份
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.delta <= 2.0:
             raise ValueError(f"Δ={self.delta} 超出常规范围 0~2.0 cm")
+        if self.waistband_width < 0:
+            raise ValueError("腰头宽不能为负数")
         if self.seam_allowance <= 0:
             raise ValueError("缝份必须为正数")
+
+    def rise_on_pattern(self, rise: float) -> float:
+        """版上浪长：前浪/后浪均为含腰头的成衣量（自腰头顶量起），
+        直腰头打版时统一扣除腰头宽；弯腰头一体绘制，不扣。
+        前片、后片步骤一律经本方法换算，保证扣除口径一致（注意点 1）。"""
+        if self.waistband_type is WaistbandType.STRAIGHT:
+            return rise - self.waistband_width
+        return rise
 
     @classmethod
     def from_file(cls, path: str) -> "PatternOptions":

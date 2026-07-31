@@ -53,3 +53,34 @@ def crotch_curve(start: Point, end: Point, *,
     chord = end - start
     p2 = end - chord.normalized().scale(chord.length / 3 * tension)
     return CubicBezier(start, p1, p2, end)
+
+
+def front_rise(a: Point, b: Point, c: Point, *,
+               target_length: float,
+               handle_ratio: float = 1 / 3) -> tuple[Point, CubicBezier]:
+    """前浪复合线：斜线 AB + 裆弯凹弧 BC，按总前浪长闭合反推 A 点。
+
+    依据 前浪绘制.md：
+      - 弧线 BC 起点切线沿 AB 延伸方向（B 点无折角），终点切线水平（贴立裆线）；
+      - 控制柄长 k1 = k2 = |B−C| × handle_ratio（§4 标准控制柄）；
+      - 弧长闭合：L_AB = target_length − ArcLength(BC)，
+        A 沿 AB 反方向移动至 A_new（§4 方案"延伸点 A"）。
+
+    参数：
+        a              前中内收点（初始位置，仅用于确定斜线方向）
+        b              臀围线内缝点（拐点）
+        c              前小裆宽顶点（底裆点）
+        target_length  目标总前浪长（cm，即量体的前浪尺寸）
+        handle_ratio   控制柄长 / 弦长比例（默认 1/3，前浪绘制.md §4）
+
+    返回：(a_new, 弧线 BC)；斜线段由调用方以 a_new、b 构造。
+    """
+    d_ab = (b - a).normalized()
+    k = b.distance_to(c) * handle_ratio
+    arc = CubicBezier(b, b + d_ab.scale(k), c + Vector(-k, 0.0), c)
+    l_ab = target_length - arc.length()
+    if l_ab <= 0:
+        raise ValueError(
+            f"前浪长 {target_length:.2f} 小于裆弯弧长 {arc.length():.2f}，"
+            "无法闭合：请加大前浪或减小裆宽/直裆深")
+    return b + d_ab.scale(-l_ab), arc

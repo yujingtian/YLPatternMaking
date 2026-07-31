@@ -15,6 +15,8 @@ MARGIN = 30.0  # 画布边距 px
 _STYLE = """<style>
   .refline  { stroke: #999; stroke-width: 0.8; stroke-dasharray: 5 4; }
   .reflabel { fill: #888; font: 9px monospace; }
+  .structline { stroke: #2c3e50; stroke-width: 1.5; fill: none; }
+  .structlabel { fill: #2c3e50; font: 9px monospace; }
   .pt       { fill: #c0392b; }
   .ptlabel  { fill: #c0392b; font: 9px monospace; }
   .curve    { stroke: #2c3e50; stroke-width: 1.5; fill: none; }
@@ -64,6 +66,8 @@ def render_sheet(sheet: DraftSheet) -> str:
     # 图层：参考线
     parts.append('<g id="reference">')
     for line in sheet.lines:
+        if line.role != "ref":
+            continue
         a, b = line.geom.a, line.geom.b
         parts.append(
             f'<line class="refline" x1="{sx(a.x):.1f}" y1="{_sy(a.y, top):.1f}" '
@@ -82,6 +86,21 @@ def render_sheet(sheet: DraftSheet) -> str:
                 f'<text class="reflabel" x="{sx(a.x) + 4:.1f}" '
                 f'y="{_sy(a.y, top) - 3:.1f}">{text}</text>')
     parts.append('</g>')
+
+    # 图层：结构线（实线，压在参考线之上）
+    struct_lines = [ln for ln in sheet.lines if ln.role == "struct"]
+    if struct_lines:
+        parts.append('<g id="struct">')
+        for line in struct_lines:
+            a, b = line.geom.a, line.geom.b
+            parts.append(
+                f'<line class="structline" x1="{sx(a.x):.1f}" y1="{_sy(a.y, top):.1f}" '
+                f'x2="{sx(b.x):.1f}" y2="{_sy(b.y, top):.1f}"/>')
+            text = line.label or line.name
+            mx, my = sx((a.x + b.x) / 2), _sy((a.y + b.y) / 2, top)
+            parts.append(
+                f'<text class="structlabel" x="{mx + 4:.1f}" y="{my - 4:.1f}">{text}</text>')
+        parts.append('</g>')
 
     # 图层：曲线
     if sheet.curves:

@@ -22,6 +22,7 @@ run(
     rise_ratio=0.25, # 直裆深系数（直裆深 = 臀围 × 系数 + 调整量）
     rise_adjust=4.0, # 直裆深调整量（cm，加深取正、改浅取负）
     waistband_type="straight",  # 腰头类型："straight" 直腰头 / "curved" 弯腰头
+    waistband_width=4.0,        # 腰头宽（直腰头从裤长中扣除；弯腰头忽略）
 
     # ---- 输出 ----
     svg="out/sheet.svg",

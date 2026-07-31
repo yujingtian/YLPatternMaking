@@ -29,6 +29,7 @@ class NamedLine:
     step: str
     basis: str = ""
     label: str = ""
+    role: str = "ref"    # 线型角色：ref 参考线（虚线）/ struct 结构线（实线）
 
 
 @dataclass(frozen=True)

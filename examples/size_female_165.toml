@@ -26,6 +26,7 @@ rise_adjust         = 3.0
 # 腰头类型：straight = 直腰头（打版时扣除腰头宽）
 #           curved   = 弯腰头（与前片一体绘制再裁出）
 waistband_type      = "straight"
+waistband_width     = 4.0         # 腰头宽（直腰头打版时从裤长中扣除；弯腰头忽略）
 
 fit                 = "regular"   # 版型：skinny 紧身 / slim 修身 / regular 标准 / loose 宽松
 seam_allowance      = 1.0         # 默认缝份宽度
