@@ -5,7 +5,8 @@
   臀围线 y=78+24/3=86；膝线 y=(0+78)/2+3=42；腰线 y=102−4=98；
   臀围宽度点 x=H/4−Δ=23；内侧缝线 x=23。
   前小裆宽顶点：x = 23 + 96/20 = 27.8，y = 立裆线 78。
-  前中内收点：x = 23 − (96−70)/16 = 21.375，y = 腰线 98。
+  前中内收点：x = 23 − (96−70)/4×0.2 = 21.7，y = 腰线 98。
+  基础腰围外缝顶点：x = 21.7 − 70/4 = 4.2，y = 腰线 98。
 """
 
 import pytest
@@ -70,7 +71,7 @@ def test_front_crotch_vertex_with_adjust():
 
 def test_front_center_intake_point(ctx):
     pt = ctx.point("front.center_intake_point")
-    assert pt.x == pytest.approx(21.375)  # 23 − (96−70)/16
+    assert pt.x == pytest.approx(21.7)  # 23 − (96−70)/4×0.2
     assert pt.y == 98.0                   # 落在腰线上（直腰头已扣 4）
 
 
@@ -127,6 +128,30 @@ def test_rise_on_pattern_deduction():
     assert curved.rise_on_pattern(33) == 33.0
 
 
+def test_front_waist_outseam_base_point(ctx):
+    pt = ctx.point("front.waist_outseam_base_point")
+    assert pt.x == pytest.approx(4.2)  # 21.7 − 70/4
+    assert pt.y == 98.0                  # 落在腰围基础线上
+
+
+def test_front_waist_outseam_point_with_balance_and_dart():
+    # balance=0.5（前减）+ 前省 2：T前 = 17.5 − 0.5 + 2 = 19 → x = 21.7 − 19 = 2.7
+    o = PatternOptions(delta=1.0, waist_balance=0.5, front_waist_dart=2.0)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    pt = ctx.point("front.waist_outseam_base_point")
+    assert pt.x == pytest.approx(2.7)
+
+
+def test_front_side_intake_point(ctx):
+    # ΔX = 23 − 17.5 − 1.3 = 4.2，自外侧缝参考线（x=0）向内量
+    pt = ctx.point("front.side_intake_point")
+    assert pt.x == pytest.approx(4.2)
+    assert pt.y == 98.0
+    # 母公式与"内收点锚定"两种算法同源：与基础腰围外缝顶点重合
+    base = ctx.point("front.waist_outseam_base_point")
+    assert pt.x == pytest.approx(base.x)
+
+
 def test_front_rise_too_short_raises():
     m = Measurements(waist=70, hip=96, knee=46, hem=36,
                      front_rise=5, back_rise=33, outseam=102, thigh=58)
@@ -138,7 +163,7 @@ def test_front_center_intake_with_adjust():
     o = PatternOptions(delta=1.0, front_intake_adjust=-0.5)
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
     pt = ctx.point("front.center_intake_point")
-    assert pt.x == pytest.approx(21.875)  # 23 − 1.625 + 0.5
+    assert pt.x == pytest.approx(22.2)  # 23 − (1.3 − 0.5)
 
 
 def test_until_interrupt():

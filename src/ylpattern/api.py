@@ -21,6 +21,7 @@ from .params import Measurements, PatternOptions, WaistbandType
 def run(*, waist: float, hip: float, knee: float, hem: float,
         front_rise: float, back_rise: float, outseam: float, thigh: float,
         delta: float = 1.0, front_crotch_adjust: float = 0.0,
+        front_intake_adjust: float = 0.0,
         rise_ratio: float = 0.25, rise_adjust: float = 0.0,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
         waistband_width: float = 4.0,
@@ -34,6 +35,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
     参数：
         waist ~ thigh    八项核心尺寸（cm），含义见 examples/size_female_165.toml
         delta            前后片臀围单侧调节量 Δ（推导文档 §四）
+        front_intake_adjust  前中内收修正量（内收量 = (H−W)/4 × 系数 + 本值；高腰取正、低腰取负）
         rise_ratio       直裆深系数（直裆深 = H × ratio + adjust，默认 H/4）
         rise_adjust      直裆深修正量（cm）
         waistband_type   腰头类型："straight" 直腰头 / "curved" 弯腰头（打版流程.md 注意点 1）
@@ -50,6 +52,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                      outseam=outseam, thigh=thigh)
     o = PatternOptions(delta=delta,
                        front_crotch_adjust=front_crotch_adjust,
+                       front_intake_adjust=front_intake_adjust,
                        rise_ratio=rise_ratio,
                        rise_adjust=rise_adjust,
                        waistband_type=WaistbandType(waistband_type),

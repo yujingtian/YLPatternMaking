@@ -146,16 +146,18 @@ def draw_front_crotch_width(ctx: DraftContext) -> NamedPoint:
 
 def draw_front_center_intake(ctx: DraftContext) -> NamedPoint:
     """前中内收点：腰围线与内侧缝参考线交点（腰围内缝顶点）向侧缝方向内收。
-    内收量 = (H − W)/16 + 修正量（前中内收量推导.md §三.2；H、W 均为成品尺寸）。
+    内收量 = (H − W)/4 × 系数 + 修正量（前中内收量推导.md §三.2；H、W 均为成品尺寸）。
     依据：打版流程.md 前片步骤 2。"""
     m, o = ctx.measurements, ctx.options
     d = waist_f.front_center_intake(m.hip, m.waist,
+                                    ratio=o.front_intake_ratio,
                                     adjust=o.front_intake_adjust)
     x = ctx.line("front.inner_seam_refline").a.x - d
     y = ctx.line("front.waist_line").a.y
     return ctx.add_point("front.center_intake_point", Point(x, y),
                          step="draw_front_center_intake",
-                         basis=f"内收量 = ({m.hip} − {m.waist})/16 + "
+                         basis=f"内收量 = ({m.hip} − {m.waist})/4 × "
+                               f"{o.front_intake_ratio} + "
                                f"{o.front_intake_adjust} = {d:.2f}",
                          label="前中内收点")
 
@@ -193,3 +195,44 @@ def draw_front_rise(ctx: DraftContext) -> NamedCurve:
                          step="draw_front_rise",
                          basis="裆弯凹弧：起点切线沿前中斜线、终点切线水平（前浪绘制.md §3）",
                          label="前浪弧线")
+
+
+# ---------- 阶段 4：真实腰围线 ----------
+
+def draw_front_waist_outseam_point(ctx: DraftContext) -> NamedPoint:
+    """基础腰围外缝顶点：从前中内收点沿腰围基础线向侧缝方向量前片腰围长 T前。
+    T前 = W/4 − balance + V前省（调节量前减后加；腰围推导.md §三.2）。
+    标准牛仔裤 balance=0、V前省=0。
+    该点为暂定位置（打版流程.md：后面可能会变），画腰省/侧缝弧时可能修正。
+    依据：打版流程.md 前片步骤 3（绘制真实腰围线）。"""
+    m, o = ctx.measurements, ctx.options
+    t = waist_f.waist_front_target(m.waist, o.waist_balance, o.front_waist_dart)
+    a0 = ctx.point("front.center_intake_point")
+    y = ctx.line("front.waist_line").a.y
+    return ctx.add_point("front.waist_outseam_base_point",
+                         Point(a0.x - t, y),
+                         step="draw_front_waist_outseam_point",
+                         basis=f"T前 = {m.waist}/4 − {o.waist_balance} + "
+                               f"{o.front_waist_dart} = {t:.2f}，自前中内收点量取",
+                         label="基础腰围外缝顶点")
+
+
+def draw_front_side_intake_point(ctx: DraftContext) -> NamedPoint:
+    """前片侧缝内收点：腰围基础线上，自外侧缝参考线（x=0）向内量侧缝内收量 ΔX。
+    ΔX = 前片臀宽 − 前片纸样腰宽 − 前中收斜（前片侧缝内收推导.md §二.1 母公式）。
+    与基础腰围外缝顶点同源（锚点不同、算式等价），该点为侧缝起翘/画弧的基准。
+    依据：打版流程.md 前片步骤 3（寻找前片侧缝内收点）。"""
+    m, o = ctx.measurements, ctx.options
+    front_hip = hip_f.hip_front(m.hip, o.delta)
+    front_waist = waist_f.waist_front_target(m.waist, o.waist_balance,
+                                             o.front_waist_dart)
+    slant = waist_f.front_center_intake(m.hip, m.waist,
+                                        ratio=o.front_intake_ratio,
+                                        adjust=o.front_intake_adjust)
+    dx = waist_f.side_seam_intake_front(front_hip, front_waist, slant)
+    y = ctx.line("front.waist_line").a.y
+    return ctx.add_point("front.side_intake_point", Point(dx, y),
+                         step="draw_front_side_intake_point",
+                         basis=f"ΔX = {front_hip:.2f} − {front_waist:.2f} − "
+                               f"{slant:.2f} = {dx:.2f}（母公式）",
+                         label="前片侧缝内收点")

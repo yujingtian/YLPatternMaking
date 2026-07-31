@@ -2,8 +2,9 @@
 
 阶段 1（M1）：建立基础参考线与"大矩形"框架 —— 打版流程.md 前片步骤 1。
 阶段 2：裆部结构 —— 打版流程.md 前片步骤 2（前小裆宽、前中内收点）。
-阶段 3：前浪弧线 —— 打版流程.md 前片步骤 3（前浪绘制.md）。
-后续阶段随打版文档补全逐步扩充：腰/侧缝/内缝/脚口。
+阶段 3：前浪弧线 —— 打版流程.md 前片步骤 2（前浪绘制.md）。
+阶段 4：真实腰围线 —— 打版流程.md 前片步骤 3（牛仔裤前后片腰围推导.md）。
+后续阶段随打版文档补全逐步扩充：侧缝/内缝/脚口。
 """
 
 from ..steps import front_steps as fs
@@ -23,4 +24,7 @@ FRONT_FLOW = [
     fs.draw_front_center_intake,
     # —— 阶段 3：前浪弧线 ——
     fs.draw_front_rise,
+    # —— 阶段 4：真实腰围线 ——
+    fs.draw_front_waist_outseam_point,
+    fs.draw_front_side_intake_point,
 ]
