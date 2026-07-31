@@ -2,7 +2,7 @@
 
 对应 打版流程.md「前片打版实操坐标化步骤」：
   1. 建立基础参考线与"大矩形"框架（M1 已实现）
-  2. 裆部结构：前小裆宽（已实现）；裆湾弧线等待补
+  2. 裆部结构：前小裆宽、前中内收点（已实现）；裆湾弧线等待补
   3. 腰、侧缝、内缝、脚口（随文档补全逐步扩充）
 
 约束（设计文档 §5.3）：
@@ -17,6 +17,7 @@ from ..draft import DraftContext, NamedLine, NamedPoint
 from ..formulas import hip as hip_f
 from ..formulas import leg as leg_f
 from ..formulas import crotch as crotch_f
+from ..formulas import waist as waist_f
 from ..geometry import LineSegment, Point
 
 _STEP = __name__  # 步骤来源标记，由 FlowRunner 替换为函数名
@@ -132,3 +133,19 @@ def draw_front_crotch_width(ctx: DraftContext) -> NamedPoint:
                          step="draw_front_crotch_width",
                          basis=f"W小裆 = {m.hip}/20 + {o.front_crotch_adjust} = {w:.2f}",
                          label="前小裆宽顶点")
+
+
+def draw_front_center_intake(ctx: DraftContext) -> NamedPoint:
+    """前中内收点：腰围线与内侧缝参考线交点（腰围内缝顶点）向侧缝方向内收。
+    内收量 = (H − W)/16 + 修正量（前中内收量推导.md §三.2；H、W 均为成品尺寸）。
+    依据：打版流程.md 前片步骤 2。"""
+    m, o = ctx.measurements, ctx.options
+    d = waist_f.front_center_intake(m.hip, m.waist,
+                                    adjust=o.front_intake_adjust)
+    x = ctx.line("front.inner_seam_refline").a.x - d
+    y = ctx.line("front.waist_line").a.y
+    return ctx.add_point("front.center_intake_point", Point(x, y),
+                         step="draw_front_center_intake",
+                         basis=f"内收量 = ({m.hip} − {m.waist})/16 + "
+                               f"{o.front_intake_adjust} = {d:.2f}",
+                         label="前中内收点")

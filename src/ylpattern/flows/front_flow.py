@@ -19,4 +19,5 @@ FRONT_FLOW = [
     fs.draw_inner_seam_refline,
     # —— 阶段 2：裆部结构 ——
     fs.draw_front_crotch_width,
+    fs.draw_front_center_intake,
 ]
