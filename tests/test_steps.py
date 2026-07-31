@@ -4,6 +4,7 @@
   脚口线 y=0；立裆线 y=102−24=78；臀围线 y=78+24/3=86；
   膝线 y=(0+78)/2+3=42；腰线 y=102；
   臀围宽度点 x=H/4−Δ=23；内侧缝线 x=23。
+  前小裆宽顶点：x = 23 + 96/20 = 27.8，y = 立裆线 78。
 """
 
 import pytest
@@ -44,6 +45,19 @@ def test_hip_width_point(ctx):
 def test_inner_seam_refline_completes_frame(ctx):
     assert ctx.line("front.inner_seam_refline").a.x == 23.0
     assert ctx.line("front.outseam_refline").a.x == 0.0
+
+
+def test_front_crotch_vertex(ctx):
+    pt = ctx.point("front.crotch_vertex")
+    assert pt.x == pytest.approx(27.8)   # 23 + 96/20
+    assert pt.y == 78.0                  # 落在立裆线上
+
+
+def test_front_crotch_vertex_with_adjust():
+    o = PatternOptions(delta=1.0, front_crotch_adjust=-0.5)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    pt = ctx.point("front.crotch_vertex")
+    assert pt.x == pytest.approx(27.3)   # 23 + 4.8 − 0.5
 
 
 def test_until_interrupt():

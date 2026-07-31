@@ -1,8 +1,9 @@
 """前片绘制步骤：每个函数对应手工打版的一笔。
 
 对应 打版流程.md「前片打版实操坐标化步骤」：
-  1. 建立基础参考线与"大矩形"框架（本文件 M1 已实现）
-  2. 裆部结构 / 3. 腰、侧缝、内缝、脚口（随文档补全逐步扩充）
+  1. 建立基础参考线与"大矩形"框架（M1 已实现）
+  2. 裆部结构：前小裆宽（已实现）；裆湾弧线等待补
+  3. 腰、侧缝、内缝、脚口（随文档补全逐步扩充）
 
 约束（设计文档 §5.3）：
   - 一个函数只画一个元素；
@@ -115,3 +116,19 @@ def draw_inner_seam_refline(ctx: DraftContext) -> NamedLine:
                             x=x, length=ctx.measurements.outseam),
                         step="draw_inner_seam_refline",
                         basis="过臀围宽度点的铅锤线", label="内侧缝参考线")
+
+
+# ---------- 阶段 2：裆部结构 ----------
+
+def draw_front_crotch_width(ctx: DraftContext) -> NamedPoint:
+    """前小裆宽顶点：立裆线上，从内侧缝参考线（前中基准）向裆湾方向延长 W小裆。
+    W小裆 = H/20 + 修正量（前裆宽推导.md；前后片臀围推导.md §三.2）。
+    依据：打版流程.md 前片步骤 2。"""
+    m, o = ctx.measurements, ctx.options
+    w = hip_f.crotch_front_width(m.hip, o.front_crotch_adjust)
+    x = ctx.line("front.inner_seam_refline").a.x + w
+    y = ctx.line("front.crotch_line").a.y
+    return ctx.add_point("front.crotch_vertex", Point(x, y),
+                         step="draw_front_crotch_width",
+                         basis=f"W小裆 = {m.hip}/20 + {o.front_crotch_adjust} = {w:.2f}",
+                         label="前小裆宽顶点")
