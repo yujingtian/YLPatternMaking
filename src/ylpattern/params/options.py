@@ -42,6 +42,9 @@ class PatternOptions:
     front_waist_dart: float = 0.0          # 前片省量/褶量 V前省（牛仔裤 0；西裤 1.5~2.5）
     side_intake_k_waist: float = 1.0       # 侧缝内收推导的 k_waist（前减后加，常取 1.0~1.5）
     side_rise: float = 0.0                 # 侧缝腰头抬高量 h（0 = 外缝顶点压腰围基础线，0~1.5）
+    outseam_bulge: float = 0.3             # 外侧缝弧外凸量（微微凸，0.2~0.5）
+    waist_curve_sag: float = 0.3           # 真实腰围线弧下凹量 c（腰头绘制推导.md §3，0.3~0.5）
+    waist_rect_len: float = 1.2            # 腰弧侧缝端直角修正段长 l_rect（推导.md §3，1.0~1.5）
     rise_ratio: float = 0.25               # 直裆深系数（H 的比例，默认 H/4）
     rise_adjust: float = 0.0               # 直裆深修正量（cm）
     waistband_type: WaistbandType = WaistbandType.STRAIGHT

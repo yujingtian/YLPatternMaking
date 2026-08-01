@@ -26,4 +26,5 @@ FRONT_FLOW = [
     fs.draw_front_rise,
     # —— 阶段 4：真实腰围线 ——
     fs.draw_front_waistline,
+    fs.draw_front_waist_outseam_curves,
 ]

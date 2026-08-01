@@ -20,7 +20,7 @@ from ..formulas import hip as hip_f
 from ..formulas import leg as leg_f
 from ..formulas import crotch as crotch_f
 from ..formulas import waist as waist_f
-from ..geometry import LineSegment, Point
+from ..geometry import CubicBezier, LineSegment, Point, Vector
 from ..params import WaistbandType
 
 _STEP = __name__  # 步骤来源标记，由 FlowRunner 替换为函数名
@@ -200,12 +200,13 @@ def draw_front_rise(ctx: DraftContext) -> NamedCurve:
 # ---------- 阶段 4：真实腰围线 ----------
 
 def draw_front_waistline(ctx: DraftContext) -> NamedLine:
-    """真实腰围线：从腰头内缝顶点（前浪顶点 A）向侧缝方向画腰围长 L 的直线，
-    终点为腰围外缝顶点 B，B 高出腰围基础线 h（侧缝抬高量，动态参数）。
+    """真实腰围线（构造直线）：从腰头内缝顶点（前浪顶点 A）向侧缝方向画
+    腰围长 L 的直线，终点为基础腰围外缝顶点 B0，B0 高出腰围基础线 h（动态参数）。
 
     自顶向下约束（腰头绘制推导.md §4.2）：|AB| = L 恒定，
     x_b = x_a − sqrt(L² − (h+d)²)，d = 前中下落量（前浪闭合自然推出）。
     L = W/4 − balance + V前省（腰围推导.md §三.2）。
+    本步产物为构造线；最终轮廓由 draw_front_waist_outseam_curves 的弧线取代。
     依据：打版流程.md 前片步骤 3（绘制真实腰围线）。"""
     m, o = ctx.measurements, ctx.options
     a = ctx.point("front.rise_top_point")
@@ -222,5 +223,48 @@ def draw_front_waistline(ctx: DraftContext) -> NamedLine:
                   label="腰围外缝顶点")
     return ctx.add_line("front.waistline", LineSegment(b, a),
                         step="draw_front_waistline",
-                        basis=f"|AB| = 腰长 {waist_len:.2f}（腰头绘制推导.md §4.2）",
-                        label="真实腰围线", role="struct")
+                        basis=f"|AB| = 腰长 {waist_len:.2f}（腰头绘制推导.md §4.2，构造线）",
+                        label="真实腰围线", role="ref")
+
+
+def draw_front_waist_outseam_curves(ctx: DraftContext) -> NamedCurve:
+    """腰部轮廓弧：外侧缝微凸弧（臀围线外缝顶点→腰围外缝顶点）
+    + 真实腰围线微凹弧（腰围外缝顶点→腰头内缝顶点）。
+
+    约束（打版流程.md 前片步骤 3 第二条）：
+      - 腰弧在 B 点切线 ⟂ 侧缝弧切线（90° 直角法则，前片侧缝内收推导.md §四）；
+      - 腰弧下凹量 c（腰头绘制推导.md §5 P2）。
+    腰长按两端点直线距离闭合（上一步直线约束已保证），
+    弧长自然略长于腰长，不做补偿（§5 的内收微调不启用）。
+    """
+    m, o = ctx.measurements, ctx.options
+    a = ctx.point("front.rise_top_point")
+    b = ctx.point("front.waist_side_point")
+    hip_out = Point(ctx.line("front.outseam_refline").a.x,
+                    ctx.line("front.hip_line").a.y)
+    waist_len = waist_f.waist_front_target(m.waist, o.waist_balance,
+                                           o.front_waist_dart)
+
+    # 微凸外缝弧：弦朝 B 的左手法向为 −X（向外），bulge 取正
+    s_arc = curves.arc_through(hip_out, b, bulge=o.outseam_bulge)
+
+    t_w = s_arc.tangent_at(1).normalized().perpendicular()
+    # 两个垂直方向中取朝向 A 的一侧（90° 直角切入）
+    if t_w.dx * (a.x - b.x) + t_w.dy * (a.y - b.y) < 0:
+        t_w = t_w.scale(-1)
+    p1 = b + t_w.scale(o.waist_rect_len)          # §5 P1：直角修正段
+    p2 = Point(a.x - waist_len / 3, a.y - o.waist_curve_sag)  # §5 P2：倾斜 + 下凹
+    w_arc = CubicBezier(b, p1, p2, a)
+
+    ctx.add_point("front.hip_outseam_point", hip_out,
+                  step="draw_front_waist_outseam_curves",
+                  basis="臀围线 ∩ 外侧缝参考线", label="臀围线外缝顶点")
+    ctx.add_curve("front.outseam_arc", s_arc,
+                  step="draw_front_waist_outseam_curves",
+                  basis=f"微凸外缝弧，凸量 {o.outseam_bulge}",
+                  label="外侧缝弧线")
+    return ctx.add_curve("front.waistline_arc", w_arc,
+                         step="draw_front_waist_outseam_curves",
+                         basis="微凹腰弧：B 点切线 ⟂ 侧缝弧切线（90° 法则），"
+                               f"下凹 {o.waist_curve_sag}（腰长按端点直线距离闭合）",
+                         label="真实腰围线弧")

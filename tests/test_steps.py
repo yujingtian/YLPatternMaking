@@ -161,18 +161,18 @@ def test_unknown_element_error_message(ctx):
 
 
 def test_front_waistline(ctx):
-    # 真实腰围线：从腰头内缝顶点（前浪顶点）出发，长度 = W/4 = 17.5
+    # 真实腰围线（构造直线）：从腰头内缝顶点出发，长度 = W/4 = 17.5
     line = ctx.line("front.waistline")
     a = ctx.point("front.rise_top_point")
     assert line.b == a                          # 终点锚在腰头内缝顶点
     assert line.length == pytest.approx(17.5)   # 腰长约束恒定（腰头绘制推导.md §4.2）
-    # h=0（默认）：外缝顶点压在腰围基础线上
+    # h=0（默认）：基础外缝顶点压在腰围基础线上
     b = ctx.point("front.waist_side_point")
     assert line.a == b
     assert b.y == pytest.approx(98.0)
     assert b.x < a.x                            # 向侧缝方向延伸
-    # 真实腰围线为结构线（实线）
-    assert ctx.sheet.get("front.waistline").role == "struct"
+    # 直线阶段为构造线（最终轮廓由弧线取代）
+    assert ctx.sheet.get("front.waistline").role == "ref"
 
 
 def test_front_waistline_side_rise():
@@ -189,3 +189,41 @@ def test_front_waistline_impossible_raises():
     o = PatternOptions(delta=1.0, side_rise=30.0)
     with pytest.raises(ValueError, match="无法构成腰线"):
         FlowRunner(M, o).run(FRONT_FLOW)
+
+
+def test_front_waist_outseam_curves(ctx):
+    a = ctx.point("front.rise_top_point")
+    b = ctx.point("front.waist_side_point")
+    w_arc = ctx.curve("front.waistline_arc")
+    s_arc = ctx.curve("front.outseam_arc")
+
+    # 端点：腰弧 B→A；侧缝弧 臀围线外缝顶点(0, 86) → B
+    assert w_arc.point_at(0) == b
+    assert w_arc.point_at(1) == a
+    assert s_arc.point_at(0) == ctx.point("front.hip_outseam_point")
+    assert s_arc.point_at(1) == b
+
+    # 腰长按端点直线距离闭合 = 17.5；弧长自然略长，不补偿
+    assert a.distance_to(b) == pytest.approx(17.5)
+    assert w_arc.length() > 17.5
+
+    # 90° 直角法则：腰弧起点切线 ⟂ 侧缝弧终点切线
+    t_w = w_arc.tangent_at(0).normalized()
+    t_s = s_arc.tangent_at(1).normalized()
+    dot = t_w.dx * t_s.dx + t_w.dy * t_s.dy
+    assert abs(dot) < 1e-3
+
+    # 侧缝弧向外（−X）微凸：弧中点在弦的左侧
+    mid = s_arc.point_at(0.5)
+    chord_mid = s_arc.point_at(0).midpoint(s_arc.point_at(1))
+    assert mid.x < chord_mid.x
+
+
+def test_front_waist_outseam_curves_side_rise():
+    # h=1.0 时端点直线距离仍恒等于 17.5，B 抬到基础线上方 1cm
+    o = PatternOptions(delta=1.0, side_rise=1.0)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    a = ctx.point("front.rise_top_point")
+    b = ctx.point("front.waist_side_point")
+    assert a.distance_to(b) == pytest.approx(17.5)
+    assert b.y == pytest.approx(99.0)
