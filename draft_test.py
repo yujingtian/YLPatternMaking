@@ -23,6 +23,9 @@ run(
     rise_adjust=4.0, # 直裆深调整量（cm，加深取正、改浅取负）
     waistband_type="straight",  # 腰头类型："straight" 直腰头 / "curved" 弯腰头
     waistband_width=4.0,        # 腰头宽（直腰头从裤长中扣除；弯腰头忽略）
+    side_rise=1.0,              # 侧缝腰头抬高量（0 = 腰围外缝顶点压基础线，常取 0~1.5）
+    waist_balance=1.5,          # 前后片腰围调节量（前片减、后片加；平分取 0）
+    front_waist_dart=3.0,       # 前片省量/褶量（标准牛仔裤 0；西裤 1.5~3.0）
 
     # ---- 输出 ----
     svg="out/sheet.svg",

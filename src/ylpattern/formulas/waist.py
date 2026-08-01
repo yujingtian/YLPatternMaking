@@ -3,6 +3,8 @@
 经验系数仅作默认参数，调用方（步骤层）通过 PatternOptions 覆盖。
 """
 
+import math
+
 
 def front_center_intake(hip: float, waist: float,
                         ratio: float = 0.2, adjust: float = 0.0) -> float:
@@ -51,3 +53,27 @@ def side_seam_intake_front(front_hip: float, front_waist: float,
     W_front_waist + S_dart = W/4 − k_waist + S_dart。
     """
     return front_hip - front_waist - front_slant
+
+
+def waistline_horizontal_span(waist_len: float, side_rise: float,
+                              fc_drop: float) -> float:
+    """真实腰围线水平跨度：sqrt(L² − (h+d)²)（腰头绘制推导.md §4.2）。
+
+    自顶向下约束：腰头内缝顶点 A 到腰围外缝顶点 B 的直线距离恒等于
+    单片前腰长 L，B 高出腰围基础线 h（侧缝抬高量，动态参数）：
+
+        x_b = x_a − sqrt(L² − (h + d)²)
+
+    参数（cm）：
+        waist_len  单片前腰长 L（见 waist_front_target）
+        side_rise  侧缝腰头抬高量 h（0 = 顶点压在腰围基础线上）
+        fc_drop    前中下落量 d（A 低于腰围基础线的量；A 高出时为负）
+
+    边界（§6.2）：L ≤ h + d 时高度差超出斜边长，无法构成腰线。
+    """
+    delta_y = side_rise + fc_drop
+    if waist_len <= delta_y:
+        raise ValueError(
+            f"腰长 {waist_len:.2f} ≤ 高差 {delta_y:.2f}（h={side_rise} + "
+            f"d={fc_drop:.2f}），无法构成腰线：请减小侧缝抬高量或加大腰长")
+    return math.sqrt(waist_len ** 2 - delta_y ** 2)

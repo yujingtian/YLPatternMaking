@@ -41,3 +41,18 @@ def test_side_seam_intake_front_cases():
     assert abs(waist.side_seam_intake_front(23.0, 17.0 + 2.5, 1.0) - 2.5) < 1e-9
     # 案例 3：k_hip=1.5 / k_waist=0.5 → 3.8
     assert abs(waist.side_seam_intake_front(22.5, 17.5, 1.2) - 3.8) < 1e-9
+
+
+def test_waistline_horizontal_span():
+    # 腰头绘制推导.md §7 伪代码示例：L=20, h=1.0, d=1.3 → sqrt(400 − 5.29) ≈ 19.867
+    span = waist.waistline_horizontal_span(20.0, 1.0, 1.3)
+    assert abs(span - 19.8666) < 1e-3
+    # h=0、d=0 时退化为水平线：跨度 = 腰长
+    assert abs(waist.waistline_horizontal_span(18.5, 0.0, 0.0) - 18.5) < 1e-9
+
+
+def test_waistline_horizontal_span_raises():
+    # 边界（§6.2）：L ≤ h + d 无法构成腰线
+    import pytest
+    with pytest.raises(ValueError, match="无法构成腰线"):
+        waist.waistline_horizontal_span(2.0, 1.0, 1.3)

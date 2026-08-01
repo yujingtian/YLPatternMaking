@@ -158,3 +158,34 @@ def test_trace_records_steps():
 def test_unknown_element_error_message(ctx):
     with pytest.raises(KeyError, match="版上不存在元素"):
         ctx.point("front.no_such_point")
+
+
+def test_front_waistline(ctx):
+    # 真实腰围线：从腰头内缝顶点（前浪顶点）出发，长度 = W/4 = 17.5
+    line = ctx.line("front.waistline")
+    a = ctx.point("front.rise_top_point")
+    assert line.b == a                          # 终点锚在腰头内缝顶点
+    assert line.length == pytest.approx(17.5)   # 腰长约束恒定（腰头绘制推导.md §4.2）
+    # h=0（默认）：外缝顶点压在腰围基础线上
+    b = ctx.point("front.waist_side_point")
+    assert line.a == b
+    assert b.y == pytest.approx(98.0)
+    assert b.x < a.x                            # 向侧缝方向延伸
+    # 真实腰围线为结构线（实线）
+    assert ctx.sheet.get("front.waistline").role == "struct"
+
+
+def test_front_waistline_side_rise():
+    # h=1.0：外缝顶点抬到基础线上方 1cm，腰长仍恒等于 17.5
+    o = PatternOptions(delta=1.0, side_rise=1.0)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    b = ctx.point("front.waist_side_point")
+    assert b.y == pytest.approx(99.0)
+    assert ctx.line("front.waistline").length == pytest.approx(17.5)
+
+
+def test_front_waistline_impossible_raises():
+    # 抬高量超过腰长所能容纳的高差 → 报错（腰头绘制推导.md §6.2）
+    o = PatternOptions(delta=1.0, side_rise=30.0)
+    with pytest.raises(ValueError, match="无法构成腰线"):
+        FlowRunner(M, o).run(FRONT_FLOW)

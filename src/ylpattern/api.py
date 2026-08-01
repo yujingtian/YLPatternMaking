@@ -25,6 +25,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         rise_ratio: float = 0.25, rise_adjust: float = 0.0,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
         waistband_width: float = 4.0,
+        side_rise: float = 0.0,
+        waist_balance: float = 0.0, front_waist_dart: float = 0.0,
         seam_allowance: float = 1.0,
         svg: str = "out/sheet.svg",
         until: str | None = None,
@@ -40,6 +42,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         rise_adjust      直裆深修正量（cm）
         waistband_type   腰头类型："straight" 直腰头 / "curved" 弯腰头（打版流程.md 注意点 1）
         waistband_width  腰头宽（cm）；直腰头打版时从裤长中扣除，弯腰头忽略
+        side_rise        侧缝腰头抬高量 h（0 = 腰围外缝顶点压基础线，常取 0~1.5）
+        waist_balance    前后片腰围调节量（前减后加；平分 0，常取 1.0~1.5）
+        front_waist_dart 前片省量/褶量 V前省（标准牛仔裤 0；西裤 1.5~3.0）
         svg              SVG 输出路径
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
@@ -57,6 +62,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        rise_adjust=rise_adjust,
                        waistband_type=WaistbandType(waistband_type),
                        waistband_width=waistband_width,
+                       side_rise=side_rise,
+                       waist_balance=waist_balance,
+                       front_waist_dart=front_waist_dart,
                        seam_allowance=seam_allowance)
 
     runner = FlowRunner(m, o)

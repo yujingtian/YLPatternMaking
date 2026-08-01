@@ -195,3 +195,32 @@ def draw_front_rise(ctx: DraftContext) -> NamedCurve:
                          step="draw_front_rise",
                          basis="裆弯凹弧：起点切线沿前中斜线、终点切线水平（前浪绘制.md §3）",
                          label="前浪弧线")
+
+
+# ---------- 阶段 4：真实腰围线 ----------
+
+def draw_front_waistline(ctx: DraftContext) -> NamedLine:
+    """真实腰围线：从腰头内缝顶点（前浪顶点 A）向侧缝方向画腰围长 L 的直线，
+    终点为腰围外缝顶点 B，B 高出腰围基础线 h（侧缝抬高量，动态参数）。
+
+    自顶向下约束（腰头绘制推导.md §4.2）：|AB| = L 恒定，
+    x_b = x_a − sqrt(L² − (h+d)²)，d = 前中下落量（前浪闭合自然推出）。
+    L = W/4 − balance + V前省（腰围推导.md §三.2）。
+    依据：打版流程.md 前片步骤 3（绘制真实腰围线）。"""
+    m, o = ctx.measurements, ctx.options
+    a = ctx.point("front.rise_top_point")
+    waist_y = ctx.line("front.waist_line").a.y
+    fc_drop = waist_y - a.y          # 前中下落量 d（A 低于基础线为正）
+    waist_len = waist_f.waist_front_target(m.waist, o.waist_balance,
+                                           o.front_waist_dart)
+    span = waist_f.waistline_horizontal_span(waist_len, o.side_rise, fc_drop)
+    b = Point(a.x - span, waist_y + o.side_rise)
+    ctx.add_point("front.waist_side_point", b,
+                  step="draw_front_waistline",
+                  basis=f"x = {a.x:.2f} − sqrt({waist_len:.2f}² − "
+                        f"({o.side_rise}+{fc_drop:.2f})²)，h = {o.side_rise}",
+                  label="腰围外缝顶点")
+    return ctx.add_line("front.waistline", LineSegment(b, a),
+                        step="draw_front_waistline",
+                        basis=f"|AB| = 腰长 {waist_len:.2f}（腰头绘制推导.md §4.2）",
+                        label="真实腰围线", role="struct")
