@@ -21,13 +21,9 @@ front_crotch_adjust = 0.0         # 前小裆修正量（紧身牛仔裤取 -0.5
 front_intake_ratio  = 0.2         # 前中内收系数（内收量 = (H−W)/4 × 系数；低腰款可取 0.15）
 front_intake_adjust = 0.0         # 前中内收修正量（在系数算式结果上再加减；高腰取正、低腰取负）
 
-# 腰围结构：成品腰宽 T前 = W/4 − waist_balance + front_waist_dart（调节量前减后加，同臀围 Δ）
-waist_balance       = 1.5         # 前后片腰围调节量（前片减、后片加；平分取 0，常取 1.0~1.5）
-front_waist_dart    = 3.0         # 前片省量/褶量 V前省（标准牛仔裤 0；西裤/褶裥款 1.5~3.0）
-
 # 直裆深 = 臀围 × rise_ratio + rise_adjust（默认 H/4）
 rise_ratio          = 0.25
-rise_adjust         = 3.0
+rise_adjust         = 4.0
 
 # 腰头类型：straight = 直腰头（打版时扣除腰头宽）
 #           curved   = 弯腰头（与前片一体绘制再裁出）

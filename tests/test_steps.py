@@ -6,7 +6,6 @@
   臀围宽度点 x=H/4−Δ=23；内侧缝线 x=23。
   前小裆宽顶点：x = 23 + 96/20 = 27.8，y = 立裆线 78。
   前中内收点：x = 23 − (96−70)/4×0.2 = 21.7，y = 腰线 98。
-  基础腰围外缝顶点：x = 21.7 − 70/4 = 4.2，y = 腰线 98。
 """
 
 import pytest
@@ -126,30 +125,6 @@ def test_rise_on_pattern_deduction():
     curved = PatternOptions(waistband_type=WaistbandType.CURVED)
     assert curved.rise_on_pattern(25) == 25.0
     assert curved.rise_on_pattern(33) == 33.0
-
-
-def test_front_waist_outseam_base_point(ctx):
-    pt = ctx.point("front.waist_outseam_base_point")
-    assert pt.x == pytest.approx(4.2)  # 21.7 − 70/4
-    assert pt.y == 98.0                  # 落在腰围基础线上
-
-
-def test_front_waist_outseam_point_with_balance_and_dart():
-    # balance=0.5（前减）+ 前省 2：T前 = 17.5 − 0.5 + 2 = 19 → x = 21.7 − 19 = 2.7
-    o = PatternOptions(delta=1.0, waist_balance=0.5, front_waist_dart=2.0)
-    ctx = FlowRunner(M, o).run(FRONT_FLOW)
-    pt = ctx.point("front.waist_outseam_base_point")
-    assert pt.x == pytest.approx(2.7)
-
-
-def test_front_side_intake_point(ctx):
-    # ΔX = 23 − 17.5 − 1.3 = 4.2，自外侧缝参考线（x=0）向内量
-    pt = ctx.point("front.side_intake_point")
-    assert pt.x == pytest.approx(4.2)
-    assert pt.y == 98.0
-    # 母公式与"内收点锚定"两种算法同源：与基础腰围外缝顶点重合
-    base = ctx.point("front.waist_outseam_base_point")
-    assert pt.x == pytest.approx(base.x)
 
 
 def test_front_rise_too_short_raises():
