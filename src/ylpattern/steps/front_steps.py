@@ -4,7 +4,9 @@
   1. 建立基础参考线与"大矩形"框架（M1 已实现）
   2. 裆部结构：前小裆宽、前中内收点（已实现）
   3. 前浪弧线（已实现）
-  4. 腰、侧缝、内缝、脚口（随文档补全逐步扩充）
+  4. 真实腰围线（已实现）
+  5. 裤中线（已实现）
+  6. 侧缝、内缝、脚口（随文档补全逐步扩充）
 
 约束（设计文档 §5.3）：
   - 一个函数只画一个元素（前浪为斜线+凹弧复合线，作为同一步骤的多个上版）；
@@ -268,3 +270,27 @@ def draw_front_waist_outseam_curves(ctx: DraftContext) -> NamedCurve:
                          basis="微凹腰弧：B 点切线 ⟂ 侧缝弧切线（90° 法则），"
                                f"下凹 {o.waist_curve_sag}（腰长按端点直线距离闭合）",
                          label="真实腰围线弧")
+
+
+# ---------- 阶段 5：裤中线 ----------
+
+def draw_front_crease_line(ctx: DraftContext) -> NamedLine:
+    """前片裤中线（烫迹线/丝缕线）：立裆线上从前侧缝（外侧缝参考线）向裆端
+    量取 X = 前横裆总宽/2 + e 定点，过该点作垂直于脚口线的直线，
+    下抵脚口线、上抵腰围线（前后片裤中线推导.md §二）。
+    依据：打版流程.md 前片步骤 4（绘制裤中线）。"""
+    m, o = ctx.measurements, ctx.options
+    x = leg_f.crease_front_x(m.hip, o.delta, o.front_crotch_adjust,
+                             o.front_crease_e)
+    crotch_y = ctx.line("front.crotch_line").a.y
+    waist_y = ctx.line("front.waist_line").a.y
+    ctx.add_point("front.crease_point", Point(x, crotch_y),
+                  step="draw_front_crease_line",
+                  basis=f"X = (H前 + W小裆)/2 + e = {x:.2f}"
+                        f"（裤中线推导.md §二.1，e = {o.front_crease_e}）",
+                  label="裤中线立裆点")
+    return ctx.add_line("front.crease_line",
+                        LineSegment(Point(x, 0.0), Point(x, waist_y)),
+                        step="draw_front_crease_line",
+                        basis="过裤中线立裆点作脚口线垂线，脚口线 → 腰围线",
+                        label="裤中线")

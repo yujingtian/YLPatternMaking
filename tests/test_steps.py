@@ -6,6 +6,7 @@
   臀围宽度点 x=H/4−Δ=23；内侧缝线 x=23。
   前小裆宽顶点：x = 23 + 96/20 = 27.8，y = 立裆线 78。
   前中内收点：x = 23 − (96−70)/4×0.2 = 21.7，y = 腰线 98。
+  裤中线立裆点：x = (23 + 4.8)/2 = 13.9，y = 78；裤中线 (13.9, 0) → (13.9, 98)。
 """
 
 import pytest
@@ -227,3 +228,29 @@ def test_front_waist_outseam_curves_side_rise():
     b = ctx.point("front.waist_side_point")
     assert a.distance_to(b) == pytest.approx(17.5)
     assert b.y == pytest.approx(99.0)
+
+
+def test_front_crease_line(ctx):
+    # 裤中线立裆点：X = 前横裆总宽/2 = (23 + 4.8)/2 = 13.9（裤中线推导.md §二.1）
+    pt = ctx.point("front.crease_point")
+    assert pt.x == pytest.approx(13.9)
+    assert pt.y == 78.0                       # 落在立裆线上
+    # 裤中线为过该点的铅锤线：下抵脚口线、上抵腰围线
+    line = ctx.line("front.crease_line")
+    assert (line.a.x, line.b.x) == (pt.x, pt.x)
+    assert (line.a.y, line.b.y) == (0.0, 98.0)
+
+
+def test_front_crease_line_with_e():
+    # 自定义调节量 e = -0.5（修身显瘦，裤中线推导.md §五）：x = 13.9 − 0.5
+    o = PatternOptions(delta=1.0, front_crease_e=-0.5)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    assert ctx.point("front.crease_point").x == pytest.approx(13.4)
+
+
+def test_crease_front_x_formula():
+    # 公式层金标：X = (H/4 − Δ + H/20)/2 + e（裤中线推导.md §二.1）
+    from ylpattern.formulas import leg as leg_f
+    assert leg_f.crease_front_x(96, 1.0) == pytest.approx(13.9)
+    assert leg_f.crease_front_x(96, 1.0, crotch_adjust=-0.5,
+                                e=0.5) == pytest.approx(14.15)

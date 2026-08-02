@@ -47,6 +47,7 @@ class PatternOptions:
     waist_rect_len: float = 1.2            # 腰弧侧缝端直角修正段长 l_rect（推导.md §3，1.0~1.5）
     rise_ratio: float = 0.25               # 直裆深系数（H 的比例，默认 H/4）
     rise_adjust: float = 0.0               # 直裆深修正量（cm）
+    front_crease_e: float = 0.0            # 前片裤中线调节量 e（裤中线推导.md §五，常规 0；修身 -0.5~-0.8）
     waistband_type: WaistbandType = WaistbandType.STRAIGHT
     waistband_width: float = 4.0           # 腰头宽（直腰头打版时从版顶扣除，注意点 1）
     fit: Fit = Fit.REGULAR
