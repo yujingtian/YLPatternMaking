@@ -8,7 +8,11 @@
   前中内收点：x = 23 − (96−70)/4×0.2 = 21.7，y = 腰线 98。
   裤中线立裆点：x = (23 + 4.8)/2 = 13.9，y = 78；裤中线 (13.9, 0) → (13.9, 98)。
   膝围点：d = (46/2 − 1)/2 = 11 → (2.9, 42)、(24.9, 42)；
-  脚口点：d = (36/2 − 1)/2 = 8.5 → (5.4, 0)、(22.4, 0)，连线长 = 前片脚口宽 17。
+  脚口点：d = (36/2 − 1)/2 = 8.5 → (5.4, 0)、(22.4, 0)，浅弧相连（默认弧高 0 = 直线，弦长 17）。
+  外缝（α=0.1）：小腿弧 (2.9,42)→(5.4,0)，Q_mid=(4.15−0.25, 21)=(3.9, 21)；
+    大腿弧 (0,86)→(2.9,42)，Q1=(−0.15, 78)。
+  内缝（与外缝轴对称 x=13.9）：小腿弧 (24.9,42)→(22.4,0)，P_mid=(23.9, 21)；
+    大腿弧 (27.8,78)→(24.9,42)，P1=(27.8−0.2×2.9, 78−0.28×36)=(27.22, 67.92)。
 """
 
 import pytest
@@ -281,12 +285,26 @@ def test_front_knee_hem_points(ctx):
 
 
 def test_front_hem_line_struct(ctx):
-    # 脚口内外缝顶点连线 = 前片脚口宽 17，为结构线（实线）
-    line = ctx.line("front.hem")
-    assert line.a == ctx.point("front.hem_outseam_point")
-    assert line.b == ctx.point("front.hem_inseam_point")
-    assert line.length == pytest.approx(17.0)
-    assert ctx.sheet.get("front.hem").role == "struct"
+    # 脚口内外缝顶点以浅弧相连；默认弧高 0 → 退化为直线，弦长 = 前片脚口宽 17
+    hem = ctx.curve("front.hem")
+    assert hem.point_at(0) == ctx.point("front.hem_outseam_point")
+    assert hem.point_at(1) == ctx.point("front.hem_inseam_point")
+    assert hem.length() == pytest.approx(17.0)
+    mid = hem.point_at(0.5)
+    assert mid.y == pytest.approx(0.0)     # 弧顶压在弦上（直线）
+    assert mid.x == pytest.approx(13.9)    # 裤中线处
+
+
+def test_front_hem_arc_with_sag():
+    # 弧高 0.5（前脚口上凹）：弧顶精确抬高 0.5，端点不动，弧长略大于弦长
+    o = PatternOptions(delta=1.0, hem_arc_sag=0.5)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    hem = ctx.curve("front.hem")
+    assert hem.point_at(0).y == 0.0
+    assert hem.point_at(1).y == 0.0
+    assert hem.point_at(0.5).y == pytest.approx(0.5)
+    assert hem.point_at(0.5).x == pytest.approx(13.9)
+    assert hem.length() > 17.0
 
 
 def test_front_knee_hem_widths_with_adjust():
@@ -302,3 +320,58 @@ def test_front_knee_hem_widths_with_adjust():
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
     assert ctx.point("front.hem_inseam_point").x == pytest.approx(x_c + 8.625)
     assert ctx.point("front.knee_inseam_point").x == pytest.approx(x_c + 11.0)
+
+
+def test_outseam_curves(ctx):
+    lower = ctx.curve("front.outseam_lower")
+    upper = ctx.curve("front.outseam_upper")
+    # 小腿弧：膝围外缝点 → 脚口外缝顶点
+    assert lower.point_at(0) == ctx.point("front.knee_outseam_point")
+    assert lower.point_at(1) == ctx.point("front.hem_outseam_point")
+    # 大腿弧：臀围外缝顶点 → 膝围外缝点
+    assert upper.point_at(0) == ctx.point("front.hip_outseam_point")
+    assert upper.point_at(1) == ctx.point("front.knee_outseam_point")
+    # Q1 = (X臀 − δx, 立裆线高) = (−0.15, 78)（前片弧线推导.md §五）
+    assert upper.p1.x == pytest.approx(-0.15)
+    assert upper.p1.y == pytest.approx(78.0)
+    # 膝口 C1 连续：大腿弧终点切线 ∥ 小腿弧起点切线（推导.md §六）
+    assert upper.angle_with(lower) == pytest.approx(0.0)
+
+
+def test_inseam_curves(ctx):
+    lower = ctx.curve("front.inseam_lower")
+    upper = ctx.curve("front.inseam_upper")
+    # 小腿弧：膝围内缝点 → 脚口内缝顶点
+    assert lower.point_at(0) == ctx.point("front.knee_inseam_point")
+    assert lower.point_at(1) == ctx.point("front.hem_inseam_point")
+    # 大腿弧：前小裆宽顶点 → 膝围内缝点
+    assert upper.point_at(0) == ctx.point("front.crotch_vertex")
+    assert upper.point_at(1) == ctx.point("front.knee_inseam_point")
+    # P1 = (X裆 − k1·ΔX, Y裆 − ky·ΔY) = (27.22, 67.92)（推导.md §四）
+    assert upper.p1.x == pytest.approx(27.22)
+    assert upper.p1.y == pytest.approx(67.92)
+    # 膝口 C1 连续
+    assert upper.angle_with(lower) == pytest.approx(0.0)
+
+
+def test_lower_leg_curves_mirror_symmetric(ctx):
+    # 内缝小腿弧 = 外缝小腿弧关于裤中线 x=13.9 的轴对称（打版流程.md 步骤 6）
+    x_c = ctx.line("front.crease_line").a.x
+    out = ctx.curve("front.outseam_lower")
+    ins = ctx.curve("front.inseam_lower")
+    for op, ip in ((out.p0, ins.p0), (out.p1, ins.p1),
+                   (out.p2, ins.p2), (out.p3, ins.p3)):
+        assert op.x + ip.x == pytest.approx(2 * x_c)
+        assert op.y == pytest.approx(ip.y)
+
+
+def test_lower_leg_alpha_zero_is_straight():
+    # α=0（直筒）：P_mid 退化为弦中点，曲线成 100% 直线（推导.md §三 表格）
+    o = PatternOptions(delta=1.0, calf_arc_alpha=0.0)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    lower = ctx.curve("front.outseam_lower")
+    mid = lower.point_at(0.5)
+    chord_mid = ctx.point("front.knee_outseam_point").midpoint(
+        ctx.point("front.hem_outseam_point"))
+    assert mid.x == pytest.approx(chord_mid.x)
+    assert mid.y == pytest.approx(chord_mid.y)

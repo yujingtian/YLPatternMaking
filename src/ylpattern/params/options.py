@@ -50,6 +50,13 @@ class PatternOptions:
     front_crease_e: float = 0.0            # 前片裤中线调节量 e（裤中线推导.md §五，常规 0；修身 -0.5~-0.8）
     knee_adjust: float = 1.0               # 膝围前后片调整量 δ（前减后加，脚口膝围推导.md §三.1；高弹 0.5~0.75）
     hem_adjust: float = 1.0                # 脚口前后片调整量 δ（前减后加，§三.1；微喇/阔腿可微调）
+    calf_arc_alpha: float = 0.10           # 小腿段弧弓高系数 α（前片弧线推导.md §三，0.08~0.12；0 = 直筒直线）
+    inseam_arc_k1: float = 0.20            # 内缝大腿段小裆弯度 k1（§四，0.15~0.25）
+    inseam_arc_ky: float = 0.28            # 内缝大腿段纵向系数 ky（§四）
+    inseam_arc_k2: float = 0.35            # 内缝大腿段切线柄长系数（k2 = 本值×ΔY，§四）
+    outseam_arc_dx: float = 0.15           # 外缝大腿段大转子外凸 δx（§五，0.1~0.2；顺直 0）
+    outseam_arc_m2: float = 0.40           # 外缝大腿段切线柄长系数（m2 = 本值×ΔY，§五）
+    hem_arc_sag: float = 0.0               # 脚口弧高（0 = 直线；正值向上凹入裤片，常取 0.3~0.8）
     waistband_type: WaistbandType = WaistbandType.STRAIGHT
     waistband_width: float = 4.0           # 腰头宽（直腰头打版时从版顶扣除，注意点 1）
     fit: Fit = Fit.REGULAR

@@ -29,6 +29,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         waist_balance: float = 0.0, front_waist_dart: float = 0.0,
         front_crease_e: float = 0.0,
         knee_adjust: float = 1.0, hem_adjust: float = 1.0,
+        calf_arc_alpha: float = 0.10,
+        inseam_arc_k1: float = 0.20, inseam_arc_ky: float = 0.28,
+        inseam_arc_k2: float = 0.35,
+        outseam_arc_dx: float = 0.15, outseam_arc_m2: float = 0.40,
+        hem_arc_sag: float = 0.0,
         seam_allowance: float = 1.0,
         svg: str = "out/sheet.svg",
         until: str | None = None,
@@ -50,6 +55,13 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_crease_e   前片裤中线调节量 e（常规 0；修身 -0.5~-0.8，裤中线推导.md §五）
         knee_adjust      膝围前后片调整量 δ（前减后加，前片膝围宽 = K/2 − δ；高弹 0.5~0.75）
         hem_adjust       脚口前后片调整量 δ（前减后加，前片脚口宽 = B/2 − δ）
+        calf_arc_alpha   小腿段弧弓高系数 α（0.08~0.12；0 = 直筒直线，前片弧线推导.md §三）
+        inseam_arc_k1    内缝大腿段小裆弯度 k1（0.15~0.25，越大越早往膝口收，§四）
+        inseam_arc_ky    内缝大腿段纵向系数 ky（越大弯曲点越靠下，§四）
+        inseam_arc_k2    内缝大腿段膝口切线柄长系数（k2 = 本值×ΔY，§四）
+        outseam_arc_dx   外缝大腿段大转子外凸 δx（0.1~0.2；顺直 0，§五）
+        outseam_arc_m2   外缝大腿段膝口切线柄长系数（m2 = 本值×ΔY，§五）
+        hem_arc_sag      脚口弧高（0 = 直线；正值向上凹入裤片，常取 0.3~0.8）
         svg              SVG 输出路径
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
@@ -73,6 +85,13 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        front_crease_e=front_crease_e,
                        knee_adjust=knee_adjust,
                        hem_adjust=hem_adjust,
+                       calf_arc_alpha=calf_arc_alpha,
+                       inseam_arc_k1=inseam_arc_k1,
+                       inseam_arc_ky=inseam_arc_ky,
+                       inseam_arc_k2=inseam_arc_k2,
+                       outseam_arc_dx=outseam_arc_dx,
+                       outseam_arc_m2=outseam_arc_m2,
+                       hem_arc_sag=hem_arc_sag,
                        seam_allowance=seam_allowance)
 
     runner = FlowRunner(m, o)

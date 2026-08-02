@@ -84,3 +84,69 @@ def front_rise(a: Point, b: Point, c: Point, *,
             f"前浪长 {target_length:.2f} 小于裆弯弧长 {arc.length():.2f}，"
             "无法闭合：请加大前浪或减小裆宽/直裆深")
     return b + d_ab.scale(-l_ab), arc
+
+
+def lower_leg_mid(knee: Point, hem: Point, alpha: float) -> Point:
+    """小腿段中介控制点 P_mid/Q_mid（前片弧线推导.md §三）。
+
+    M = 膝口与脚口的直线中点，横向自适应补偿 α·(X膝 − X脚口)：
+    Δx = 0（直筒）时退化为中点，曲线成 100% 直线；
+    Δx > 0（上宽下窄）向肌肉侧微凸；Δx < 0（喇叭）微凹展开。
+    """
+    m = knee.midpoint(hem)
+    return Point(m.x + alpha * (knee.x - hem.x), m.y)
+
+
+def sag_curve(end_a: Point, end_b: Point, *, sag: float) -> CubicBezier:
+    """过两端点的浅弧，弧顶（t=0.5）精确偏离弦 sag cm（正值向左手法向凸）。
+
+    对称控制点位于弦的 1/4、3/4 处，偏移 4/3·sag（三次贝塞尔中点
+    偏移 = 3/4 × 控制点偏移）；sag = 0 时退化为直线。
+    用于脚口弧等需要"弧高"语义精确的场合（区别于 arc_through 的
+    bulge 经验系数）。
+    """
+    normal = (end_b - end_a).normalized().perpendicular()
+    ctrl = normal.scale(sag * 4 / 3)
+    p1 = end_a.lerp(end_b, 0.25) + ctrl
+    p2 = end_a.lerp(end_b, 0.75) + ctrl
+    return CubicBezier(end_a, p1, p2, end_b)
+
+
+def lower_leg_curve(knee: Point, hem: Point, mid: Point) -> CubicBezier:
+    """小腿段自适应二次贝塞尔（膝口 → 脚口），升阶为三次返回（§三）。
+
+    二次曲线 (knee, mid, hem) 升阶：
+    P1 = knee + 2/3·(mid − knee)，P2 = hem + 2/3·(mid − hem)。
+    """
+    p1 = knee + (mid - knee).scale(2 / 3)
+    p2 = hem + (mid - hem).scale(2 / 3)
+    return CubicBezier(knee, p1, p2, hem)
+
+
+def thigh_inseam_curve(crotch: Point, knee: Point, mid: Point, *,
+                       k1: float, ky: float, k2_ratio: float) -> CubicBezier:
+    """内缝大腿段三次贝塞尔（前小裆顶点 → 膝围内缝点，前片弧线推导.md §四）。
+
+    P1 = (X裆 − k1·ΔX, Y裆 − ky·ΔY) 控制小裆弧弯度急缓；
+    P2 锁死在 mid → knee 射线延伸方向上（k2 = k2_ratio·ΔY），
+    与小腿段膝口切线严格共线（C1 连续，§六）。
+    """
+    dx = crotch.x - knee.x
+    dy = crotch.y - knee.y
+    p1 = Point(crotch.x - k1 * dx, crotch.y - ky * dy)
+    p2 = knee + (knee - mid).normalized().scale(k2_ratio * dy)
+    return CubicBezier(crotch, p1, p2, knee)
+
+
+def thigh_outseam_curve(hip: Point, crotch_y: float, knee: Point,
+                        mid: Point, *,
+                        delta_x: float, m2_ratio: float) -> CubicBezier:
+    """外缝大腿段三次贝塞尔（臀围外缝顶点 → 膝围外缝点，前片弧线推导.md §五）。
+
+    Q1 = (X臀 − δx, 立裆线高) 控制大转子外凸饱满度（δx=0 为顺直）；
+    Q2 锁死在 mid → knee 射线延伸方向上（m2 = m2_ratio·ΔY），
+    与小腿段膝口切线严格共线（C1 连续，§六）。
+    """
+    q1 = Point(hip.x - delta_x, crotch_y)
+    q2 = knee + (knee - mid).normalized().scale(m2_ratio * (crotch_y - knee.y))
+    return CubicBezier(hip, q1, q2, knee)

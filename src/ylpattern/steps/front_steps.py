@@ -7,7 +7,7 @@
   4. 真实腰围线（已实现）
   5. 裤中线（已实现）
   6. 膝围、脚口宽度（已实现）
-  7. 侧缝、内缝（随文档补全逐步扩充）
+  7. 外缝、内缝线（已实现）
 
 约束（设计文档 §5.3）：
   - 一个函数只画一个元素（前浪为斜线+凹弧复合线，作为同一步骤的多个上版）；
@@ -299,11 +299,12 @@ def draw_front_crease_line(ctx: DraftContext) -> NamedLine:
 
 # ---------- 阶段 6：膝围、脚口宽度 ----------
 
-def draw_front_knee_hem_widths(ctx: DraftContext) -> NamedLine:
+def draw_front_knee_hem_widths(ctx: DraftContext) -> NamedCurve:
     """膝围/脚口内外缝顶点：以裤中线为对称轴向两侧各延伸片宽一半。
     前片膝围宽 K前 = K/2 − δ、前片脚口宽 B前 = B/2 − δ
     （先平分再前减后加，脚口膝围外缝点推导.md §三.1）。
-    脚口内外缝顶点直线相连为脚口结构线；膝围只定点、不连线。
+    脚口内外缝顶点以浅弧相连为脚口结构线，弧高 hem_arc_sag
+    （0 = 直线，正值向上凹入裤片）；膝围只定点、不连线。
     依据：打版流程.md 前片步骤 5（确定膝围和脚口宽度）。"""
     m, o = ctx.measurements, ctx.options
     x_c = ctx.line("front.crease_line").a.x
@@ -327,7 +328,71 @@ def draw_front_knee_hem_widths(ctx: DraftContext) -> NamedLine:
                            step="draw_front_knee_hem_widths",
                            basis=f"d前脚 = {d_hem:.2f}（内缝方向 +X）",
                            label="脚口内缝顶点")
-    return ctx.add_line("front.hem", LineSegment(hem_out.geom, hem_in.geom),
-                        step="draw_front_knee_hem_widths",
-                        basis="脚口内外缝顶点连线（打版流程.md 步骤 5）",
-                        label="脚口线", role="struct")
+    return ctx.add_curve("front.hem",
+                         curves.sag_curve(hem_out.geom, hem_in.geom,
+                                          sag=o.hem_arc_sag),
+                         step="draw_front_knee_hem_widths",
+                         basis=f"脚口内外缝顶点浅弧相连，弧高 {o.hem_arc_sag}"
+                               "（打版流程.md 步骤 5）",
+                         label="脚口线")
+
+
+# ---------- 阶段 7：外缝、内缝线 ----------
+
+def draw_front_outseam_curves(ctx: DraftContext) -> NamedCurve:
+    """外侧缝线（复合线，同一步骤两笔）：
+    小腿段（膝围外缝点 → 脚口外缝顶点）：自适应二次贝塞尔，几乎是直线、
+    微微内凹，弧度由 α 控制（前片弧线推导.md §三）；
+    大腿段（臀围外缝顶点 → 膝围外缝点）：三次贝塞尔，膝口与小腿段
+    切线共线（C1），上端微凸顺势衔接臀→腰外缝弧（§五）。
+    依据：打版流程.md 前片步骤 6（外缝绘制）。"""
+    o = ctx.options
+    knee = ctx.point("front.knee_outseam_point")
+    hem = ctx.point("front.hem_outseam_point")
+    hip = ctx.point("front.hip_outseam_point")
+    crotch_y = ctx.line("front.crotch_line").a.y
+    q_mid = curves.lower_leg_mid(knee, hem, o.calf_arc_alpha)
+    ctx.add_curve("front.outseam_lower",
+                  curves.lower_leg_curve(knee, hem, q_mid),
+                  step="draw_front_outseam_curves",
+                  basis=f"自适应二次贝塞尔（升阶三次），α = {o.calf_arc_alpha}（推导.md §三）",
+                  label="外缝小腿弧")
+    return ctx.add_curve("front.outseam_upper",
+                         curves.thigh_outseam_curve(
+                             hip, crotch_y, knee, q_mid,
+                             delta_x=o.outseam_arc_dx,
+                             m2_ratio=o.outseam_arc_m2),
+                         step="draw_front_outseam_curves",
+                         basis=f"三次贝塞尔：δx = {o.outseam_arc_dx}，"
+                               f"m2 = {o.outseam_arc_m2}×ΔY，膝口 C1 共线（推导.md §五）",
+                         label="外缝大腿弧")
+
+
+def draw_front_inseam_curves(ctx: DraftContext) -> NamedCurve:
+    """内侧缝线（复合线，同一步骤两笔）：
+    小腿段（膝围内缝点 → 脚口内缝顶点）：与外缝小腿段关于裤中线轴对称
+    （同一 α 公式在两侧自动镜像，前片弧线推导.md §三）；
+    大腿段（前小裆宽顶点 → 膝围内缝点）：三次贝塞尔，微微凹入，
+    膝口与小腿段切线共线（C1，§四）。
+    依据：打版流程.md 前片步骤 6（内缝绘制）。"""
+    o = ctx.options
+    knee = ctx.point("front.knee_inseam_point")
+    hem = ctx.point("front.hem_inseam_point")
+    crotch = ctx.point("front.crotch_vertex")
+    p_mid = curves.lower_leg_mid(knee, hem, o.calf_arc_alpha)
+    ctx.add_curve("front.inseam_lower",
+                  curves.lower_leg_curve(knee, hem, p_mid),
+                  step="draw_front_inseam_curves",
+                  basis=f"自适应二次贝塞尔（升阶三次），α = {o.calf_arc_alpha}，"
+                        "与外缝关于裤中线轴对称（推导.md §三）",
+                  label="内缝小腿弧")
+    return ctx.add_curve("front.inseam_upper",
+                         curves.thigh_inseam_curve(
+                             crotch, knee, p_mid,
+                             k1=o.inseam_arc_k1,
+                             ky=o.inseam_arc_ky,
+                             k2_ratio=o.inseam_arc_k2),
+                         step="draw_front_inseam_curves",
+                         basis=f"三次贝塞尔：k1 = {o.inseam_arc_k1}，ky = {o.inseam_arc_ky}，"
+                               f"k2 = {o.inseam_arc_k2}×ΔY，膝口 C1 共线（推导.md §四）",
+                         label="内缝大腿弧")
