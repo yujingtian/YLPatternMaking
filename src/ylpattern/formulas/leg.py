@@ -25,3 +25,23 @@ def crease_front_x(hip: float, delta: float,
     （+e 增大距侧缝距离，即向内缝方向）相反；公式层以 §二.1 为准。
     """
     return (hip_front(hip, delta) + crotch_front_width(hip, crotch_adjust)) / 2 + e
+
+
+def knee_front(knee: float, adjust: float = 1.0) -> float:
+    """前片膝围宽。K前 = K/2 − δ（先平分再前减，脚口膝围外缝点推导.md §三.1）。"""
+    return knee / 2 - adjust
+
+
+def knee_back(knee: float, adjust: float = 1.0) -> float:
+    """后片膝围宽。K后 = K/2 + δ（先平分再后加，§三.1）。"""
+    return knee / 2 + adjust
+
+
+def hem_front(hem: float, adjust: float = 1.0) -> float:
+    """前片脚口宽。B前 = B/2 − δ（§三.1）。"""
+    return hem / 2 - adjust
+
+
+def hem_back(hem: float, adjust: float = 1.0) -> float:
+    """后片脚口宽。B后 = B/2 + δ（§三.1）。"""
+    return hem / 2 + adjust

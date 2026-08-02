@@ -7,6 +7,8 @@
   前小裆宽顶点：x = 23 + 96/20 = 27.8，y = 立裆线 78。
   前中内收点：x = 23 − (96−70)/4×0.2 = 21.7，y = 腰线 98。
   裤中线立裆点：x = (23 + 4.8)/2 = 13.9，y = 78；裤中线 (13.9, 0) → (13.9, 98)。
+  膝围点：d = (46/2 − 1)/2 = 11 → (2.9, 42)、(24.9, 42)；
+  脚口点：d = (36/2 − 1)/2 = 8.5 → (5.4, 0)、(22.4, 0)，连线长 = 前片脚口宽 17。
 """
 
 import pytest
@@ -254,3 +256,49 @@ def test_crease_front_x_formula():
     assert leg_f.crease_front_x(96, 1.0) == pytest.approx(13.9)
     assert leg_f.crease_front_x(96, 1.0, crotch_adjust=-0.5,
                                 e=0.5) == pytest.approx(14.15)
+
+
+def test_knee_hem_width_formulas():
+    # 公式层金标：前片 = 总/2 − δ，后片 = 总/2 + δ（先平分再前减后加，推导.md §三.1）
+    from ylpattern.formulas import leg as leg_f
+    assert leg_f.knee_front(46, 1.0) == 22.0
+    assert leg_f.knee_back(46, 1.0) == 24.0
+    assert leg_f.hem_front(36, 1.0) == 17.0
+    assert leg_f.hem_back(36, 1.0) == 19.0
+
+
+def test_front_knee_hem_points(ctx):
+    # 膝围点关于裤中线 x=13.9 对称，d前膝 = (46/2 − 1)/2 = 11
+    ko = ctx.point("front.knee_outseam_point")
+    ki = ctx.point("front.knee_inseam_point")
+    assert (ko.x, ko.y) == (pytest.approx(2.9), 42.0)
+    assert (ki.x, ki.y) == (pytest.approx(24.9), 42.0)
+    # 脚口点同理，d前脚 = (36/2 − 1)/2 = 8.5
+    ho = ctx.point("front.hem_outseam_point")
+    hi = ctx.point("front.hem_inseam_point")
+    assert (ho.x, ho.y) == (pytest.approx(5.4), 0.0)
+    assert (hi.x, hi.y) == (pytest.approx(22.4), 0.0)
+
+
+def test_front_hem_line_struct(ctx):
+    # 脚口内外缝顶点连线 = 前片脚口宽 17，为结构线（实线）
+    line = ctx.line("front.hem")
+    assert line.a == ctx.point("front.hem_outseam_point")
+    assert line.b == ctx.point("front.hem_inseam_point")
+    assert line.length == pytest.approx(17.0)
+    assert ctx.sheet.get("front.hem").role == "struct"
+
+
+def test_front_knee_hem_widths_with_adjust():
+    # 膝围、脚口调整量独立传入（推导.md §五.1）：
+    # knee_adjust=0.5 → d前膝 = (46/2 − 0.5)/2 = 11.25；hem_adjust 默认 1.0 → d前脚 = 8.5 不变
+    o = PatternOptions(delta=1.0, knee_adjust=0.5)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    x_c = ctx.line("front.crease_line").a.x
+    assert ctx.point("front.knee_inseam_point").x == pytest.approx(x_c + 11.25)
+    assert ctx.point("front.hem_inseam_point").x == pytest.approx(x_c + 8.5)
+    # hem_adjust=0.75 → d前脚 = (36/2 − 0.75)/2 = 8.625；d前膝 默认 11 不变
+    o = PatternOptions(delta=1.0, hem_adjust=0.75)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    assert ctx.point("front.hem_inseam_point").x == pytest.approx(x_c + 8.625)
+    assert ctx.point("front.knee_inseam_point").x == pytest.approx(x_c + 11.0)

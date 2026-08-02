@@ -48,6 +48,8 @@ class PatternOptions:
     rise_ratio: float = 0.25               # 直裆深系数（H 的比例，默认 H/4）
     rise_adjust: float = 0.0               # 直裆深修正量（cm）
     front_crease_e: float = 0.0            # 前片裤中线调节量 e（裤中线推导.md §五，常规 0；修身 -0.5~-0.8）
+    knee_adjust: float = 1.0               # 膝围前后片调整量 δ（前减后加，脚口膝围推导.md §三.1；高弹 0.5~0.75）
+    hem_adjust: float = 1.0                # 脚口前后片调整量 δ（前减后加，§三.1；微喇/阔腿可微调）
     waistband_type: WaistbandType = WaistbandType.STRAIGHT
     waistband_width: float = 4.0           # 腰头宽（直腰头打版时从版顶扣除，注意点 1）
     fit: Fit = Fit.REGULAR

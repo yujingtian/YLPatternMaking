@@ -6,7 +6,8 @@
   3. 前浪弧线（已实现）
   4. 真实腰围线（已实现）
   5. 裤中线（已实现）
-  6. 侧缝、内缝、脚口（随文档补全逐步扩充）
+  6. 膝围、脚口宽度（已实现）
+  7. 侧缝、内缝（随文档补全逐步扩充）
 
 约束（设计文档 §5.3）：
   - 一个函数只画一个元素（前浪为斜线+凹弧复合线，作为同一步骤的多个上版）；
@@ -294,3 +295,39 @@ def draw_front_crease_line(ctx: DraftContext) -> NamedLine:
                         step="draw_front_crease_line",
                         basis="过裤中线立裆点作脚口线垂线，脚口线 → 腰围线",
                         label="裤中线")
+
+
+# ---------- 阶段 6：膝围、脚口宽度 ----------
+
+def draw_front_knee_hem_widths(ctx: DraftContext) -> NamedLine:
+    """膝围/脚口内外缝顶点：以裤中线为对称轴向两侧各延伸片宽一半。
+    前片膝围宽 K前 = K/2 − δ、前片脚口宽 B前 = B/2 − δ
+    （先平分再前减后加，脚口膝围外缝点推导.md §三.1）。
+    脚口内外缝顶点直线相连为脚口结构线；膝围只定点、不连线。
+    依据：打版流程.md 前片步骤 5（确定膝围和脚口宽度）。"""
+    m, o = ctx.measurements, ctx.options
+    x_c = ctx.line("front.crease_line").a.x
+    knee_y = ctx.line("front.knee_line").a.y
+    d_knee = leg_f.knee_front(m.knee, o.knee_adjust) / 2
+    d_hem = leg_f.hem_front(m.hem, o.hem_adjust) / 2
+
+    ctx.add_point("front.knee_outseam_point", Point(x_c - d_knee, knee_y),
+                  step="draw_front_knee_hem_widths",
+                  basis=f"d前膝 = ({m.knee}/2 − {o.knee_adjust})/2 = {d_knee:.2f}（裤中线对称，推导.md §三.2）",
+                  label="膝围外缝点")
+    ctx.add_point("front.knee_inseam_point", Point(x_c + d_knee, knee_y),
+                  step="draw_front_knee_hem_widths",
+                  basis=f"d前膝 = {d_knee:.2f}（内缝方向 +X）",
+                  label="膝围内缝点")
+    hem_out = ctx.add_point("front.hem_outseam_point", Point(x_c - d_hem, 0.0),
+                            step="draw_front_knee_hem_widths",
+                            basis=f"d前脚 = ({m.hem}/2 − {o.hem_adjust})/2 = {d_hem:.2f}（裤中线对称，推导.md §三.2）",
+                            label="脚口外缝顶点")
+    hem_in = ctx.add_point("front.hem_inseam_point", Point(x_c + d_hem, 0.0),
+                           step="draw_front_knee_hem_widths",
+                           basis=f"d前脚 = {d_hem:.2f}（内缝方向 +X）",
+                           label="脚口内缝顶点")
+    return ctx.add_line("front.hem", LineSegment(hem_out.geom, hem_in.geom),
+                        step="draw_front_knee_hem_widths",
+                        basis="脚口内外缝顶点连线（打版流程.md 步骤 5）",
+                        label="脚口线", role="struct")

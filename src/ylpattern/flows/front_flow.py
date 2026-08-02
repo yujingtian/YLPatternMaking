@@ -5,7 +5,8 @@
 阶段 3：前浪弧线 —— 打版流程.md 前片步骤 2（前浪绘制.md）。
 阶段 4：真实腰围线 —— 打版流程.md 前片步骤 3（腰头绘制推导.md）。
 阶段 5：裤中线 —— 打版流程.md 前片步骤 4（前后片裤中线推导.md）。
-后续阶段随打版文档补全逐步扩充：侧缝/内缝/脚口。
+阶段 6：膝围、脚口宽度 —— 打版流程.md 前片步骤 5（脚口膝围外缝点推导.md）。
+后续阶段随打版文档补全逐步扩充：侧缝/内缝。
 """
 
 from ..steps import front_steps as fs
@@ -30,4 +31,6 @@ FRONT_FLOW = [
     fs.draw_front_waist_outseam_curves,
     # —— 阶段 5：裤中线 ——
     fs.draw_front_crease_line,
+    # —— 阶段 6：膝围、脚口宽度 ——
+    fs.draw_front_knee_hem_widths,
 ]
