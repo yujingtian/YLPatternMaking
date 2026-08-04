@@ -26,6 +26,7 @@ from __future__ import annotations
 from ..draft import DraftContext, NamedLine, NamedPoint
 from ..formulas import hip as hip_f
 from ..formulas import crotch as crotch_f
+from ..formulas import waist as waist_f
 from ..geometry import LineSegment, Point
 from ..params import WaistbandType
 
@@ -189,3 +190,22 @@ def draw_back_crotch_width(ctx: DraftContext) -> NamedPoint:
                          basis=f"W大裆 = {m.hip}/10 + {o.back_crotch_adjust} = "
                                f"{w:.2f}，落裆线高度（落裆推导.md §3.2）",
                          label="后大裆宽顶点")
+
+
+def draw_back_center_intake(ctx: DraftContext) -> NamedPoint:
+    """后中内收点（腰头倒量点）：先量版上实际臀腰高 H_v（后腰围线 −
+    后臀围线），按比例折算内收量 D_h = H_v × X/15，再从腰围内缝顶点
+    向裤片主体方向（−X）水平量取 D_h。
+    15:X 为斜率比例：斜率锁定、内收量随实际臀腰高浮动
+    （后中内收点推导.md §一 核心公式、§三 三步定位法第 2 步）。
+    依据：打版流程.md 后片步骤 2（寻找后中内收点）。"""
+    o = ctx.options
+    h_v = ctx.line("back.waist_line").a.y - ctx.line("back.hip_line").a.y
+    d = waist_f.back_center_intake(h_v, o.back_intake)
+    x = ctx.line("back.inner_seam_refline").a.x - d
+    y = ctx.line("back.waist_line").a.y
+    return ctx.add_point("back.center_intake_point", Point(x, y),
+                         step="draw_back_center_intake",
+                         basis=f"D_h = {h_v:.2f} × {o.back_intake}/15 = "
+                               f"{d:.2f}（后中内收点推导.md §一）",
+                         label="后中内收点")

@@ -26,6 +26,7 @@ BACK_FLOW = [
     bs.draw_back_inner_seam_refline,
     # —— 阶段 2：绘制后浪 ——
     bs.draw_back_crotch_width,
+    bs.draw_back_center_intake,
 ]
 
 # 整版流程：先前片、后后片（后片步骤读取前片共享基准线）

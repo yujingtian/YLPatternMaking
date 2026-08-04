@@ -18,6 +18,23 @@ def front_center_intake(hip: float, waist: float,
     return (hip - waist) / 4 * ratio + adjust
 
 
+def back_center_intake(h_v: float, intake: float = 2.5,
+                       base: float = 15.0) -> float:
+    """后中实际内收量 D_h = H_v × X/15（后中内收点推导.md §一 核心公式）。
+
+    15:X 是斜率比例（几何角度比），非绝对数字：X 为比例倒量模数，
+    按版型调取系数表（§二：宽松 1.5~2、标准 2.5~3、紧身 3.5~4.5）；
+    H_v 为版上实际臀腰高（后臀围线到后腰围线的垂直距离），
+    实际内收量按同比例折算 —— 斜率锁定，内收量随尺寸单浮动。
+
+    参数（cm）：
+        h_v     实际臀腰高（后腰围线 y − 后臀围线 y）
+        intake  比例倒量模数 X
+        base    比例参照模数（名义臀腰距 15）
+    """
+    return h_v * intake / base
+
+
 def waist_front_finished(waist: float, balance: float = 0.0) -> float:
     """单侧前片成品腰宽：W/4 − balance（前减后加）。
 

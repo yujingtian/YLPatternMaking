@@ -13,6 +13,8 @@
   水平参考线 x 区间均为 [33, 58]，与前片 [0, 23] 互不重叠。
   后大裆宽顶点：W大裆 = 96/10 = 9.6 → x = 58 + 9.6 = 67.6，
   y = 落裆线 77.04（大裆尖落在落裆线上，落裆推导.md §3.2 准则 1）。
+  后中内收点：H_v = 腰线 98 − 臀围线 86 = 12，D_h = 12 × 2.5/15 = 2.0
+  → x = 58 − 2.0 = 56.0，y = 腰线 98（斜率锁定，内收量随臀腰高折算）。
 """
 
 import pytest
@@ -115,3 +117,16 @@ def test_back_crotch_vertex_with_adjust():
     o = PatternOptions(delta=1.0, back_crotch_adjust=0.5)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     assert ctx.point("back.crotch_vertex").x == pytest.approx(68.1)
+
+
+def test_back_center_intake_point(ctx):
+    pt = ctx.point("back.center_intake_point")
+    assert pt.x == pytest.approx(56.0)  # 58 − 12×2.5/15 = 58 − 2.0
+    assert pt.y == 98.0                 # 落在腰线上
+
+
+def test_back_center_intake_adjustable():
+    # X = 4.0（紧身/提臀档 3.5~4.5）：D_h = 12 × 4/15 = 3.2 → x = 54.8
+    o = PatternOptions(delta=1.0, back_intake=4.0)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    assert ctx.point("back.center_intake_point").x == pytest.approx(54.8)

@@ -1,7 +1,9 @@
-"""腰部公式金标测试：前中内收量（前中内收量推导.md §三.2）。
+"""腰部公式金标测试：前中内收量（前中内收量推导.md §三.2）、
+后中内收量（后中内收点推导.md §一）。
 
-金标：内收量 = (成品臀围 H − 成品腰围 W)/4 × 系数（默认 0.2）。
+金标：前中内收量 = (成品臀围 H − 成品腰围 W)/4 × 系数（默认 0.2）。
   H=96, W=70 → 26/4 × 0.2 = 1.3（中腰区间 1.0~1.5 的参考算式值）。
+后中内收量 D_h = H_v × X/15（斜率比例折算，文档示例直接转金标）。
 """
 
 from ylpattern.formulas import waist
@@ -56,3 +58,15 @@ def test_waistline_horizontal_span_raises():
     import pytest
     with pytest.raises(ValueError, match="无法构成腰线"):
         waist.waistline_horizontal_span(2.0, 1.0, 1.3)
+
+
+def test_back_center_intake_doc_examples():
+    # 后中内收点推导.md §一 计算示例（斜率比 15:2.5，D_h = H_v × 2.5/15）
+    assert abs(waist.back_center_intake(15.0) - 2.5) < 1e-9   # H_v=15 → 2.5
+    assert abs(waist.back_center_intake(12.0) - 2.0) < 1e-9   # H_v=12（中低腰）→ 2.0
+    assert abs(waist.back_center_intake(18.0) - 3.0) < 1e-9   # H_v=18（超高腰）→ 3.0
+
+
+def test_back_center_intake_ratio():
+    # 紧身/提臀档 X=4.0（§二 系数表）：H_v=15 → 15 × 4/15 = 4.0
+    assert abs(waist.back_center_intake(15.0, intake=4.0) - 4.0) < 1e-9

@@ -39,6 +39,7 @@ class PatternOptions:
     back_crotch_adjust: float = 0.0        # 后大裆修正（坐姿伸展加深取正，§三.2）
     front_intake_ratio: float = 0.2        # 前中内收系数（内收量 = (H−W)/4 × 系数，低腰 0.15）
     front_intake_adjust: float = 0.0       # 前中内收修正（高腰加大、低腰减小）
+    back_intake: float = 2.5               # 后中内收比例模数 X（实际内收 = 臀腰高×X/15；宽松 1.5~2、标准 2.5~3、紧身 3.5~4.5）
     waist_balance: float = 0.0             # 腰围前后片调节量（前减后加，同臀围 Δ；平分 0）
     front_waist_dart: float = 0.0          # 前片省量/褶量 V前省（牛仔裤 0；西裤 1.5~2.5）
     side_intake_k_waist: float = 1.0       # 侧缝内收推导的 k_waist（前减后加，常取 1.0~1.5）
