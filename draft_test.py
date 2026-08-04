@@ -19,6 +19,8 @@ run(
 
     # ---- 版型选项 ----
     delta=1.5,       # 前后片臀围调节量（女装标准 1.0 / 男装 0.5~0.75）
+    front_crotch_adjust=0.0,  # 前小裆修正量（紧身牛仔裤取 -0.5 ~ -1.0）
+    back_crotch_adjust=0.0,   # 后大裆修正量（坐姿伸展加深取正，常规 0）
     rise_ratio=0.25, # 直裆深系数（直裆深 = 臀围 × 系数 + 调整量）
     rise_adjust=4.0, # 直裆深调整量（cm，加深取正、改浅取负）
     waistband_type="straight",  # 腰头类型："straight" 直腰头 / "curved" 弯腰头

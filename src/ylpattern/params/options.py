@@ -36,6 +36,7 @@ DELTA_PRESETS: dict[str, tuple[float, str]] = {
 class PatternOptions:
     delta: float = 1.0                     # 前后片臀围单侧调节量 Δ（推导文档 §四）
     front_crotch_adjust: float = 0.0       # 前小裆修正（紧身款 -0.5~-1.0，§三.2）
+    back_crotch_adjust: float = 0.0        # 后大裆修正（坐姿伸展加深取正，§三.2）
     front_intake_ratio: float = 0.2        # 前中内收系数（内收量 = (H−W)/4 × 系数，低腰 0.15）
     front_intake_adjust: float = 0.0       # 前中内收修正（高腰加大、低腰减小）
     waist_balance: float = 0.0             # 腰围前后片调节量（前减后加，同臀围 Δ；平分 0）

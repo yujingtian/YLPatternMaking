@@ -22,6 +22,13 @@ def test_crotch_front_adjust():
     assert abs(hip.crotch_front_width(96, adjust=-0.5) - 4.3) < 1e-9
 
 
+def test_crotch_back_adjust():
+    # 后大裆加深修正 +0.5：9.6 + 0.5 = 10.1
+    assert abs(hip.crotch_back_width(96, adjust=0.5) - 10.1) < 1e-9
+    # 修正量透传后片总宽：25.0 + 10.1 = 35.1
+    assert abs(hip.back_total_width(96, 1.0, adjust=0.5) - 35.1) < 1e-9
+
+
 def test_total_widths():
     assert abs(hip.front_total_width(96, 1.0) - 27.8) < 1e-9
     assert abs(hip.back_total_width(96, 1.0) - 34.6) < 1e-9

@@ -20,9 +20,9 @@ def crotch_front_width(hip: float, adjust: float = 0.0) -> float:
     return hip / 20 + adjust
 
 
-def crotch_back_width(hip: float) -> float:
-    """后大裆宽。W大裆 = H/10（§三.2）。"""
-    return hip / 10
+def crotch_back_width(hip: float, adjust: float = 0.0) -> float:
+    """后大裆宽。W大裆 = H/10 + 修正量（§三.2，坐姿伸展加深取正）。"""
+    return hip / 10 + adjust
 
 
 def front_total_width(hip: float, delta: float, adjust: float = 0.0) -> float:
@@ -30,6 +30,6 @@ def front_total_width(hip: float, delta: float, adjust: float = 0.0) -> float:
     return hip_front(hip, delta) + crotch_front_width(hip, adjust)
 
 
-def back_total_width(hip: float, delta: float) -> float:
+def back_total_width(hip: float, delta: float, adjust: float = 0.0) -> float:
     """后片底裆横向总宽 = H后 + W大裆（§三.3）。"""
-    return hip_back(hip, delta) + crotch_back_width(hip)
+    return hip_back(hip, delta) + crotch_back_width(hip, adjust)
