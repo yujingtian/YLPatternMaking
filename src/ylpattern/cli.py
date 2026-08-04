@@ -12,7 +12,7 @@ import sys
 
 from .exporters import report as report_exp
 from .exporters import svg as svg_exp
-from .flows.front_flow import FRONT_FLOW
+from .flows.back_flow import FULL_FLOW
 from .flows.runner import FlowRunner
 from .params import Measurements, PatternOptions
 
@@ -23,11 +23,11 @@ def _cmd_draft(args: argparse.Namespace) -> int:
 
     runner = FlowRunner(m, o)
     want_trace = bool(args.trace)
-    ctx = runner.run(FRONT_FLOW, until=args.until, trace=want_trace)
+    ctx = runner.run(FULL_FLOW, until=args.until, trace=want_trace)
 
     if args.until and not any(t.startswith(f"[{args.until}]")
                               for t in runner.trace_log) \
-            and args.until not in [f.__name__ for f in FRONT_FLOW]:
+            and args.until not in [f.__name__ for f in FULL_FLOW]:
         print(f"警告：流程中不存在步骤 '{args.until}'，已执行全部步骤",
               file=sys.stderr)
 

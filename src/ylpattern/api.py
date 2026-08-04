@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from .draft import DraftContext
 from .exporters import svg as svg_exp
-from .flows.front_flow import FRONT_FLOW
+from .flows.back_flow import FULL_FLOW
 from .flows.runner import FlowRunner
 from .params import Measurements, PatternOptions, WaistbandType
 
@@ -24,6 +24,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_crotch_adjust: float = 0.0,
         front_intake_adjust: float = 0.0,
         rise_ratio: float = 0.25, rise_adjust: float = 0.0,
+        crotch_drop_adjust: float = 0.0,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
         waistband_width: float = 4.0,
         side_rise: float = 0.0,
@@ -35,12 +36,13 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         inseam_arc_k2: float = 0.35,
         outseam_arc_dx: float = 0.15, outseam_arc_m2: float = 0.40,
         hem_arc_sag: float = 0.0,
+        piece_gap: float = 10.0,
         seam_allowance: float = 1.0,
         svg: str = "out/sheet.svg",
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
-    """录入尺寸参数，执行前片绘制流程并生成 SVG。
+    """录入尺寸参数，执行整版绘制流程（前片 + 后片）并生成 SVG。
 
     参数：
         waist ~ thigh    八项核心尺寸（cm），含义见 examples/size_female_165.toml
@@ -50,6 +52,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_intake_adjust  前中内收修正量（内收量 = (H−W)/4 × 系数 + 本值；高腰取正、低腰取负）
         rise_ratio       直裆深系数（直裆深 = H × ratio + adjust，默认 H/4）
         rise_adjust      直裆深修正量（cm）
+        crotch_drop_adjust 后片落裆调节量 Δc（落裆量 = H/100 + Δc；高弹取负、宽松取正）
         waistband_type   腰头类型："straight" 直腰头 / "curved" 弯腰头（打版流程.md 注意点 1）
         waistband_width  腰头宽（cm）；直腰头打版时从裤长中扣除，弯腰头忽略
         side_rise        侧缝腰头抬高量 h（0 = 腰围外缝顶点压基础线，常取 0~1.5）
@@ -65,6 +68,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         outseam_arc_dx   外缝大腿段大转子外凸 δx（0.1~0.2；顺直 0，§五）
         outseam_arc_m2   外缝大腿段膝口切线柄长系数（m2 = 本值×ΔY，§五）
         hem_arc_sag      脚口弧高（0 = 直线；正值向上凹入裤片，常取 0.3~0.8）
+        piece_gap        前后片排版间距（后片整体置于前片右侧，分开不重叠）
         svg              SVG 输出路径
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
@@ -81,6 +85,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        front_intake_adjust=front_intake_adjust,
                        rise_ratio=rise_ratio,
                        rise_adjust=rise_adjust,
+                       crotch_drop_adjust=crotch_drop_adjust,
                        waistband_type=WaistbandType(waistband_type),
                        waistband_width=waistband_width,
                        side_rise=side_rise,
@@ -96,10 +101,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        outseam_arc_dx=outseam_arc_dx,
                        outseam_arc_m2=outseam_arc_m2,
                        hem_arc_sag=hem_arc_sag,
+                       piece_gap=piece_gap,
                        seam_allowance=seam_allowance)
 
     runner = FlowRunner(m, o)
-    ctx = runner.run(FRONT_FLOW, until=until, trace=bool(trace))
+    ctx = runner.run(FULL_FLOW, until=until, trace=bool(trace))
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")
