@@ -130,3 +130,46 @@ def test_back_center_intake_adjustable():
     o = PatternOptions(delta=1.0, back_intake=4.0)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     assert ctx.point("back.center_intake_point").x == pytest.approx(54.8)
+
+
+def test_back_rise_composite(ctx):
+    # 拐点 B = 臀围线 ∩ 内侧缝线 = (58, 86)
+    b = ctx.point("back.hip_inner_point")
+    assert (b.x, b.y) == (58.0, 86.0)
+
+    # 弧线端点 = B 与后大裆宽顶点 C = (67.6, 77.04)
+    arc = ctx.curve("back.rise_curve")
+    assert arc.point_at(0) == b
+    assert arc.point_at(1) == ctx.point("back.crotch_vertex")
+
+    # C¹ 连续：起点切线沿后中斜线方向；终点切线水平（后浪绘制.md §1.2）
+    a0 = ctx.point("back.center_intake_point")
+    d_ab = (b - a0).normalized()
+    t0 = arc.tangent_at(0).normalized()
+    assert t0.dx == pytest.approx(d_ab.dx)
+    assert t0.dy == pytest.approx(d_ab.dy)
+    assert arc.tangent_at(1).dy == pytest.approx(0.0)
+
+
+def test_back_rise_length_closure(ctx):
+    # 弧长闭合：后中斜线长 + 大裆弯弧长 = 后浪 − 腰头宽 = 33 − 4 = 29
+    # （后浪为含腰头成衣量，直腰头扣除；后浪绘制.md §4）
+    slant = ctx.line("back.rise_slant")
+    arc = ctx.curve("back.rise_curve")
+    assert slant.length + arc.length() == pytest.approx(
+        M.back_rise - O.waistband_width)
+    # 后浪顶点在斜线延长方向上（延伸量即后翘）
+    a = ctx.point("back.rise_top_point")
+    b = ctx.point("back.hip_inner_point")
+    assert slant.a == a and slant.b == b
+    # 后浪线为结构线（实线渲染），非参考线
+    assert ctx.sheet.get("back.rise_slant").role == "struct"
+
+
+def test_back_rise_closure_curved_waistband():
+    # 弯腰头一体绘制：闭合目标 = 后浪原值 33
+    o = PatternOptions(delta=1.0, waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    slant = ctx.line("back.rise_slant")
+    arc = ctx.curve("back.rise_curve")
+    assert slant.length + arc.length() == pytest.approx(M.back_rise)

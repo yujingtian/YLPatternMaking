@@ -50,6 +50,8 @@ class PatternOptions:
     rise_ratio: float = 0.25               # 直裆深系数（H 的比例，默认 H/4）
     rise_adjust: float = 0.0               # 直裆深修正量（cm）
     crotch_drop_adjust: float = 0.0        # 后片落裆调节量 Δc（落裆推导.md §2.2，-0.4~+0.3）
+    back_rise_alpha: float = 0.40          # 后浪上控制柄系数 α（0.38~0.42，后浪绘制.md §3.1）
+    back_rise_beta: float = 0.50           # 后浪下控制柄系数 β（0.48~0.55，紧身提臀 0.55，§3.1）
     front_crease_e: float = 0.0            # 前片裤中线调节量 e（裤中线推导.md §五，常规 0；修身 -0.5~-0.8）
     knee_adjust: float = 1.0               # 膝围前后片调整量 δ（前减后加，脚口膝围推导.md §三.1；高弹 0.5~0.75）
     hem_adjust: float = 1.0                # 脚口前后片调整量 δ（前减后加，§三.1；微喇/阔腿可微调）

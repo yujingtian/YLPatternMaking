@@ -86,6 +86,43 @@ def front_rise(a: Point, b: Point, c: Point, *,
     return b + d_ab.scale(-l_ab), arc
 
 
+def back_rise(a: Point, b: Point, c: Point, *,
+              target_length: float,
+              alpha: float = 0.40, beta: float = 0.50
+              ) -> tuple[Point, CubicBezier]:
+    """后浪复合线：后中斜线 AB + 大裆弯深凹弧 BC，按总后浪长闭合反推 A 点。
+
+    依据 后浪绘制.md：
+      - 弧线 BC 起点切线严格共线于 AB 延伸方向（B 点无折角，§1.2），
+        终点切线水平（平行立裆线，§1.2）；
+      - 控制柄 k1 = α·|B−C|、k2 = β·|B−C|（§3.1：后裆弯深于前浪，
+        α∈[0.38,0.42]、β∈[0.48,0.55]，紧身提臀 β 取 0.55）；
+      - 弧长闭合：L_AB = target_length − ArcLength(BC)，
+        A 沿 AB 反方向延伸至 A_new（§4 反推点 A 延伸法；
+        延伸量即后翘高的自然结果）。
+
+    参数：
+        a              后中内收点（初始位置，仅用于确定斜线方向）
+        b              臀围线内缝点（拐点）
+        c              后大裆宽顶点（底裆点）
+        target_length  目标总后浪长（cm，即量体的后浪尺寸）
+        alpha          上控制柄系数（k1/弦长，§3.1）
+        beta           下控制柄系数（k2/弦长，§3.1）
+
+    返回：(a_new, 弧线 BC)；斜线段由调用方以 a_new、b 构造。
+    """
+    d_ab = (b - a).normalized()
+    chord = b.distance_to(c)
+    arc = CubicBezier(b, b + d_ab.scale(alpha * chord),
+                      c + Vector(-beta * chord, 0.0), c)
+    l_ab = target_length - arc.length()
+    if l_ab <= 0:
+        raise ValueError(
+            f"后浪长 {target_length:.2f} 小于大裆弯弧长 {arc.length():.2f}，"
+            "无法闭合：请加大后浪或减小裆宽/直裆深")
+    return b + d_ab.scale(-l_ab), arc
+
+
 def lower_leg_mid(knee: Point, hem: Point, alpha: float) -> Point:
     """小腿段中介控制点 P_mid/Q_mid（前片弧线推导.md §三）。
 

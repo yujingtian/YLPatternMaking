@@ -27,6 +27,7 @@ BACK_FLOW = [
     # —— 阶段 2：绘制后浪 ——
     bs.draw_back_crotch_width,
     bs.draw_back_center_intake,
+    bs.draw_back_rise,
 ]
 
 # 整版流程：先前片、后后片（后片步骤读取前片共享基准线）

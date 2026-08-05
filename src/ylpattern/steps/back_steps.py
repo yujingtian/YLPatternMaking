@@ -2,7 +2,7 @@
 
 对应 打版流程.md「后片打版实操坐标化步骤」：
   1. 建立基础参考线与"大矩形"框架（已实现）
-  2. 绘制后浪：后大裆宽顶点（已实现）
+  2. 绘制后浪：后大裆宽顶点、后中内收点、后浪弧线（已实现）
 
 与前片的关系（同一全局坐标系的一张 DraftSheet，前后片分开排版）：
   - 后片整体置于前片右侧：后片外侧缝参考线 x = 前片内侧缝参考线 x
@@ -23,7 +23,8 @@
 
 from __future__ import annotations
 
-from ..draft import DraftContext, NamedLine, NamedPoint
+from ..draft import DraftContext, NamedCurve, NamedLine, NamedPoint
+from ..draft import curves
 from ..formulas import hip as hip_f
 from ..formulas import crotch as crotch_f
 from ..formulas import waist as waist_f
@@ -209,3 +210,43 @@ def draw_back_center_intake(ctx: DraftContext) -> NamedPoint:
                          basis=f"D_h = {h_v:.2f} × {o.back_intake}/15 = "
                                f"{d:.2f}（后中内收点推导.md §一）",
                          label="后中内收点")
+
+
+def draw_back_rise(ctx: DraftContext) -> NamedCurve:
+    """后浪弧线：后中斜线（后浪顶点→臀围线内缝点）+ 大裆弯深凹弧
+    （→后大裆宽顶点）。拐点切线连续、底裆点切线水平，控制柄
+    k1 = α·|BC|、k2 = β·|BC|（深于前浪），总长按后浪尺寸闭合
+    反推后浪顶点（后浪绘制.md §1~§4；延伸量即后翘的自然结果）。
+    后浪为含腰头的成衣量：闭合目标统一经 rise_on_pattern 换算
+    （直腰头扣腰头宽、弯腰头不扣，与前片扣除口径一致，注意点 1）。
+    依据：打版流程.md 后片步骤 2（绘制后浪弧线）。"""
+    m, o = ctx.measurements, ctx.options
+    a0 = ctx.point("back.center_intake_point")
+    b = Point(ctx.line("back.inner_seam_refline").a.x,
+              ctx.line("back.hip_line").a.y)
+    c = ctx.point("back.crotch_vertex")
+    target = o.rise_on_pattern(m.back_rise)
+    if o.waistband_type is WaistbandType.STRAIGHT:
+        basis_len = f"后浪 {m.back_rise} − 腰头宽 {o.waistband_width} = {target:.2f}"
+    else:
+        basis_len = f"后浪 {m.back_rise}（弯腰头一体绘制，不扣）"
+    a, arc = curves.back_rise(a0, b, c, target_length=target,
+                              alpha=o.back_rise_alpha,
+                              beta=o.back_rise_beta)
+    ctx.add_point("back.hip_inner_point", b,
+                  step="draw_back_rise",
+                  basis="臀围线 ∩ 内侧缝参考线", label="后臀围线内缝点")
+    ctx.add_point("back.rise_top_point", a,
+                  step="draw_back_rise",
+                  basis=f"{basis_len} 闭合反推（后浪绘制.md §4）",
+                  label="后浪顶点")
+    ctx.add_line("back.rise_slant", LineSegment(a, b),
+                 step="draw_back_rise",
+                 basis="后中斜线（后浪绘制.md §1 上段）", label="后中斜线",
+                 role="struct")
+    return ctx.add_curve("back.rise_curve", arc,
+                         step="draw_back_rise",
+                         basis=f"大裆弯深凹弧：k1 = {o.back_rise_alpha}·|BC|，"
+                               f"k2 = {o.back_rise_beta}·|BC|，起点切线沿"
+                               "后中斜线、终点切线水平（后浪绘制.md §3）",
+                         label="后浪弧线")

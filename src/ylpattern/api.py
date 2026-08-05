@@ -24,6 +24,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_crotch_adjust: float = 0.0,
         front_intake_adjust: float = 0.0,
         back_intake: float = 2.5,
+        back_rise_alpha: float = 0.40, back_rise_beta: float = 0.50,
         rise_ratio: float = 0.25, rise_adjust: float = 0.0,
         crotch_drop_adjust: float = 0.0,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
@@ -52,6 +53,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_crotch_adjust  后大裆修正量（坐姿伸展加深取正，常规 0）
         front_intake_adjust  前中内收修正量（内收量 = (H−W)/4 × 系数 + 本值；高腰取正、低腰取负）
         back_intake      后中内收比例模数 X（实际内收 = 臀腰高×X/15；宽松 1.5~2、标准 2.5~3、紧身 3.5~4.5）
+        back_rise_alpha 后浪大裆弯上控制柄系数 α（0.38~0.42，后浪绘制.md §3.1）
+        back_rise_beta  后浪大裆弯下控制柄系数 β（0.48~0.55，紧身提臀 0.55，§3.1）
         rise_ratio       直裆深系数（直裆深 = H × ratio + adjust，默认 H/4）
         rise_adjust      直裆深修正量（cm）
         crotch_drop_adjust 后片落裆调节量 Δc（落裆量 = H/100 + Δc；高弹取负、宽松取正）
@@ -86,6 +89,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        back_crotch_adjust=back_crotch_adjust,
                        front_intake_adjust=front_intake_adjust,
                        back_intake=back_intake,
+                       back_rise_alpha=back_rise_alpha,
+                       back_rise_beta=back_rise_beta,
                        rise_ratio=rise_ratio,
                        rise_adjust=rise_adjust,
                        crotch_drop_adjust=crotch_drop_adjust,

@@ -13,7 +13,7 @@ run(
     knee=54,         # 膝围
     hem=47,          # 裤口
     front_rise=30,   # 前浪
-    back_rise=44,    # 后浪
+    back_rise=41,    # 后浪
     outseam=102,     # 裤长
     thigh=62,        # 大腿围
 
@@ -24,6 +24,8 @@ run(
     front_intake_adjust=0.0,  # 前中内收修正量（高腰取正、低腰取负）
     back_intake=2.5,          # 后中内收比例模数 X（实际内收 = 实际臀腰高 × X/15；
                               #   宽松 1.5~2.0 / 标准 2.5~3.0 / 紧身提臀 3.5~4.5）
+    back_rise_alpha=0.40,     # 后浪大裆弯上控制柄系数（0.38~0.42）
+    back_rise_beta=0.50,      # 后浪大裆弯下控制柄系数（0.48~0.55；紧身提臀取 0.55）
     rise_ratio=0.25, # 直裆深系数（直裆深 = 臀围 × 系数 + 调整量）
     rise_adjust=4.0, # 直裆深调整量（cm，加深取正、改浅取负）
     crotch_drop_adjust=0.0,   # 后片落裆调节量 Δc（落裆量 = H/100 + Δc；
