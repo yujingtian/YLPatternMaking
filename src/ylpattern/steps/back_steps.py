@@ -3,6 +3,9 @@
 对应 打版流程.md「后片打版实操坐标化步骤」：
   1. 建立基础参考线与"大矩形"框架（已实现）
   2. 绘制后浪：后大裆宽顶点、后中内收点、后浪弧线（已实现）
+  3. 绘制后片腰头（已实现）
+  4. 绘制后臀围线（已实现）
+  5. 裤中线（已实现）
 
 与前片的关系（同一全局坐标系的一张 DraftSheet，前后片分开排版）：
   - 后片整体置于前片右侧：后片外侧缝参考线 x = 前片内侧缝参考线 x
@@ -27,6 +30,7 @@ from ..draft import DraftContext, NamedCurve, NamedLine, NamedPoint
 from ..draft import curves
 from ..formulas import hip as hip_f
 from ..formulas import crotch as crotch_f
+from ..formulas import leg as leg_f
 from ..formulas import waist as waist_f
 from ..geometry import CubicBezier, LineSegment, Point
 from ..params import WaistbandType
@@ -355,3 +359,35 @@ def draw_back_hip_final(ctx: DraftContext) -> NamedLine:
                         basis=f"|内缝顶点→外缝顶点| = 后臀围长 {hip_len:.2f}"
                               "（内高外低，虚线连接，推导.md §一.3）",
                         label="最终后臀围线", role="ref")
+
+
+# ---------- 阶段 5：裤中线 ----------
+
+def draw_back_crease_line(ctx: DraftContext) -> NamedLine:
+    """后片裤中线（烫迹线/丝缕线）：继承前片裤中线距前侧缝的距离 X前，
+    加外侧缝单边放大量 Δ = (后脚口总宽 − 前脚口总宽)/2，再加后片自定义
+    调节量 e_back，从后外侧缝参考线向裆端量取 X后 = X前 + Δ + e_back
+    定点（立裆线上）；过该点作垂直于脚口线的直线，下抵脚口线、
+    上抵腰围线（场景 B：CAD 独立制图法，前后片裤中线推导.md §三/§四；
+    切勿平分后横裆，§一.2）。
+    依据：打版流程.md 后片步骤 5（裤中线）。"""
+    m, o = ctx.measurements, ctx.options
+    x_front = (ctx.point("front.crease_point").x
+               - ctx.line("front.outseam_refline").a.x)
+    expansion = (leg_f.hem_back(m.hem, o.hem_adjust)
+                 - leg_f.hem_front(m.hem, o.hem_adjust)) / 2
+    x_local = leg_f.crease_back_x(x_front, expansion, o.back_crease_e)
+    x = _origin_x(ctx) + x_local
+    crotch_y = ctx.line("back.crotch_line").a.y
+    waist_y = ctx.line("back.waist_line").a.y
+    ctx.add_point("back.crease_point", Point(x, crotch_y),
+                  step="draw_back_crease_line",
+                  basis=f"X后 = X前 {x_front:.2f} + Δ {expansion:.2f} + "
+                        f"e {o.back_crease_e} = {x_local:.2f}"
+                        "（裤中线推导.md §三 场景 B）",
+                  label="后裤中线立裆点")
+    return ctx.add_line("back.crease_line",
+                        LineSegment(Point(x, 0.0), Point(x, waist_y)),
+                        step="draw_back_crease_line",
+                        basis="过后裤中线立裆点作脚口线垂线，脚口线 → 腰围线",
+                        label="后裤中线")

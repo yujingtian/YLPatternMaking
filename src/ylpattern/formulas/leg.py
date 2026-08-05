@@ -27,6 +27,24 @@ def crease_front_x(hip: float, delta: float,
     return (hip_front(hip, delta) + crotch_front_width(hip, crotch_adjust)) / 2 + e
 
 
+def crease_back_x(front_crease_x: float, side_expansion: float,
+                  e: float = 0.0) -> float:
+    """后片裤中线距后侧缝（后外侧缝参考线）的距离。
+
+    X后 = X前 + Δ + e_back（场景 B：CAD 独立制图法，
+        前后片裤中线推导.md §三；打版流程.md 后片步骤 5）
+
+    - X前 = 前片裤中线距前侧缝的距离（继承前片坐标，切勿平分后横裆）；
+    - Δ = 外侧缝单边放大量 = (后脚口总宽 − 前脚口总宽) / 2（§四）；
+    - e_back = 后片自定义调节量（§五；常规与 e_front 相同，
+      偏平臀/特大臀峰/提臀造型时独立设定）。
+
+    注：符号方向与前片一致（+e 增大距侧缝距离，即向内缝方向），
+    与 §五 实战规范的符号方向相反；公式层以公式字面为准。
+    """
+    return front_crease_x + side_expansion + e
+
+
 def knee_front(knee: float, adjust: float = 1.0) -> float:
     """前片膝围宽。K前 = K/2 − δ（先平分再前减，脚口膝围外缝点推导.md §三.1）。"""
     return knee / 2 - adjust

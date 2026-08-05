@@ -33,6 +33,8 @@ BACK_FLOW = [
     bs.draw_back_waistband_arc,
     # —— 阶段 4：绘制后臀围线 ——
     bs.draw_back_hip_final,
+    # —— 阶段 5：裤中线 ——
+    bs.draw_back_crease_line,
 ]
 
 # 整版流程：先前片、后后片（后片步骤读取前片共享基准线）

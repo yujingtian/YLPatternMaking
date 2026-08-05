@@ -15,6 +15,9 @@
   y = 落裆线 77.04（大裆尖落在落裆线上，落裆推导.md §3.2 准则 1）。
   后中内收点：H_v = 腰线 98 − 臀围线 86 = 12，D_h = 12 × 2.5/15 = 2.0
   → x = 58 − 2.0 = 56.0，y = 腰线 98（斜率锁定，内收量随臀腰高折算）。
+  后裤中线立裆点：X后 = X前 13.9 + Δ 1.0 + e 0 = 14.9
+  （Δ = (后脚口 19 − 前脚口 17)/2 = 1.0，裤中线推导.md §三 场景 B）
+  → x = 33 + 14.9 = 47.9，y = 78；后裤中线 (47.9, 0) → (47.9, 98)。
 """
 
 import pytest
@@ -233,3 +236,44 @@ def test_back_hip_final(ctx):
 
     # 最终后臀围线为虚线（参考线），非结构线
     assert ctx.sheet.get("back.hip_line_final").role == "ref"
+
+
+def test_back_crease_line(ctx):
+    # 后裤中线立裆点：X后 = X前 13.9 + Δ 1.0 + e 0 = 14.9
+    # （Δ = (后脚口 19 − 前脚口 17)/2 = hem_adjust = 1.0，推导.md §三 场景 B）
+    pt = ctx.point("back.crease_point")
+    assert pt.x == pytest.approx(47.9)      # 后片原点 33 + 14.9
+    assert pt.y == 78.0                     # 落在后立裆线上
+    # 后裤中线为过该点的铅锤线：下抵脚口线、上抵腰围线
+    line = ctx.line("back.crease_line")
+    assert (line.a.x, line.b.x) == (pt.x, pt.x)
+    assert (line.a.y, line.b.y) == (0.0, 98.0)
+
+
+def test_back_crease_line_independent_e():
+    # 前后片调节量分别独立录入：
+    # front_crease_e=-0.5 → X前 = 13.4；back_crease_e=+0.5
+    # → X后 = 13.4 + 1.0 + 0.5 = 14.9（后片不受前片 e 的符号影响，各自生效）
+    o = PatternOptions(delta=1.0, front_crease_e=-0.5, back_crease_e=0.5)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    assert ctx.point("front.crease_point").x == pytest.approx(13.4)
+    assert ctx.point("back.crease_point").x == pytest.approx(47.9)
+    # 仅后片 e：X后 = 13.9 + 1.0 − 0.5 = 14.4 → x = 47.4，前片不动
+    o = PatternOptions(delta=1.0, back_crease_e=-0.5)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    assert ctx.point("front.crease_point").x == pytest.approx(13.9)
+    assert ctx.point("back.crease_point").x == pytest.approx(47.4)
+
+
+def test_back_crease_line_follows_hem_adjust():
+    # hem_adjust=1.25 → Δ = 1.25 → X后 = 13.9 + 1.25 = 15.15 → x = 48.15
+    o = PatternOptions(delta=1.0, hem_adjust=1.25)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    assert ctx.point("back.crease_point").x == pytest.approx(48.15)
+
+
+def test_crease_back_x_formula():
+    # 公式层金标：X后 = X前 + Δ + e（裤中线推导.md §三 场景 B）
+    from ylpattern.formulas import leg as leg_f
+    assert leg_f.crease_back_x(13.9, 1.0) == pytest.approx(14.9)
+    assert leg_f.crease_back_x(13.9, 1.0, e=-0.5) == pytest.approx(14.4)
