@@ -65,7 +65,8 @@ class PatternOptions:
     inseam_arc_k2: float = 0.35            # 内缝大腿段切线柄长系数（k2 = 本值×ΔY，§四）
     outseam_arc_dx: float = 0.15           # 外缝大腿段大转子外凸 δx（§五，0.1~0.2；顺直 0）
     outseam_arc_m2: float = 0.40           # 外缝大腿段切线柄长系数（m2 = 本值×ΔY，§五）
-    hem_arc_sag: float = 0.0               # 脚口弧高（0 = 直线；正值向上凹入裤片，常取 0.3~0.8）
+    front_hem_arc_sag: float = 0.0         # 前片脚口弧高（0 = 直线；正值向下凸出裤片，常取 0.3~0.8）
+    back_hem_arc_sag: float = 0.0          # 后片脚口弧高（口径同前片，前后片独立录入）
     piece_gap: float = 10.0                # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
     waistband_type: WaistbandType = WaistbandType.STRAIGHT
     waistband_width: float = 4.0           # 腰头宽（直腰头打版时从版顶扣除，注意点 1）

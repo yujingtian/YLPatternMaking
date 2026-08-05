@@ -18,6 +18,8 @@
   后裤中线立裆点：X后 = X前 13.9 + Δ 1.0 + e 0 = 14.9
   （Δ = (后脚口 19 − 前脚口 17)/2 = 1.0，裤中线推导.md §三 场景 B）
   → x = 33 + 14.9 = 47.9，y = 78；后裤中线 (47.9, 0) → (47.9, 98)。
+  后膝围点：d = (46/2 + 1)/2 = 12 → (35.9, 42)、(59.9, 42)；
+  后脚口点：d = (36/2 + 1)/2 = 9.5 → (38.4, 0)、(57.4, 0)，浅弧相连（默认弧高 0 = 直线，弦长 19）。
 """
 
 import pytest
@@ -277,3 +279,51 @@ def test_crease_back_x_formula():
     from ylpattern.formulas import leg as leg_f
     assert leg_f.crease_back_x(13.9, 1.0) == pytest.approx(14.9)
     assert leg_f.crease_back_x(13.9, 1.0, e=-0.5) == pytest.approx(14.4)
+
+
+def test_back_knee_hem_points(ctx):
+    # 后膝围点关于后裤中线 x=47.9 对称，d后膝 = (46/2 + 1)/2 = 12
+    ko = ctx.point("back.knee_outseam_point")
+    ki = ctx.point("back.knee_inseam_point")
+    assert (ko.x, ko.y) == (pytest.approx(35.9), 42.0)
+    assert (ki.x, ki.y) == (pytest.approx(59.9), 42.0)
+    # 后脚口点同理，d后脚 = (36/2 + 1)/2 = 9.5
+    ho = ctx.point("back.hem_outseam_point")
+    hi = ctx.point("back.hem_inseam_point")
+    assert (ho.x, ho.y) == (pytest.approx(38.4), 0.0)
+    assert (hi.x, hi.y) == (pytest.approx(57.4), 0.0)
+
+
+def test_back_hem_line_struct(ctx):
+    # 脚口内外缝顶点以浅弧相连；默认弧高 0 → 退化为直线，弦长 = 后片脚口宽 19
+    hem = ctx.curve("back.hem")
+    assert hem.point_at(0) == ctx.point("back.hem_outseam_point")
+    assert hem.point_at(1) == ctx.point("back.hem_inseam_point")
+    assert hem.length() == pytest.approx(19.0)
+    mid = hem.point_at(0.5)
+    assert mid.y == pytest.approx(0.0)     # 弧顶压在弦上（直线）
+    assert mid.x == pytest.approx(47.9)    # 后裤中线处
+
+
+def test_back_knee_hem_widths_with_adjust():
+    # 调整量独立传入（前减后加，推导.md §三.1）：
+    # knee_adjust=0.5 → d后膝 = (46/2 + 0.5)/2 = 11.75；hem_adjust=1.5 → d后脚 = 9.75
+    o = PatternOptions(delta=1.0, knee_adjust=0.5, hem_adjust=1.5)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    x_c = ctx.line("back.crease_line").a.x
+    assert ctx.point("back.knee_inseam_point").x == pytest.approx(x_c + 11.75)
+    assert ctx.point("back.hem_inseam_point").x == pytest.approx(x_c + 9.75)
+
+
+def test_back_hem_arc_with_sag():
+    # 弧高 0.5（后脚口向下凸）：弧顶精确下移 0.5，端点不动，弧长略大于弦长；
+    # 前后片弧高独立录入：back_hem_arc_sag 不影响前片脚口（仍为直线）
+    o = PatternOptions(delta=1.0, back_hem_arc_sag=0.5)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    hem = ctx.curve("back.hem")
+    assert hem.point_at(0).y == 0.0
+    assert hem.point_at(1).y == 0.0
+    assert hem.point_at(0.5).y == pytest.approx(-0.5)
+    assert hem.point_at(0.5).x == pytest.approx(47.9)
+    assert hem.length() > 19.0
+    assert ctx.curve("front.hem").point_at(0.5).y == pytest.approx(0.0)

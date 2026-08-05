@@ -296,13 +296,13 @@ def test_front_hem_line_struct(ctx):
 
 
 def test_front_hem_arc_with_sag():
-    # 弧高 0.5（前脚口上凹）：弧顶精确抬高 0.5，端点不动，弧长略大于弦长
-    o = PatternOptions(delta=1.0, hem_arc_sag=0.5)
+    # 弧高 0.5（前脚口向下凸）：弧顶精确下移 0.5，端点不动，弧长略大于弦长
+    o = PatternOptions(delta=1.0, front_hem_arc_sag=0.5)
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
     hem = ctx.curve("front.hem")
     assert hem.point_at(0).y == 0.0
     assert hem.point_at(1).y == 0.0
-    assert hem.point_at(0.5).y == pytest.approx(0.5)
+    assert hem.point_at(0.5).y == pytest.approx(-0.5)
     assert hem.point_at(0.5).x == pytest.approx(13.9)
     assert hem.length() > 17.0
 

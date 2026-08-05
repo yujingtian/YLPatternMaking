@@ -305,8 +305,8 @@ def draw_front_knee_hem_widths(ctx: DraftContext) -> NamedCurve:
     """膝围/脚口内外缝顶点：以裤中线为对称轴向两侧各延伸片宽一半。
     前片膝围宽 K前 = K/2 − δ、前片脚口宽 B前 = B/2 − δ
     （先平分再前减后加，脚口膝围外缝点推导.md §三.1）。
-    脚口内外缝顶点以浅弧相连为脚口结构线，弧高 hem_arc_sag
-    （0 = 直线，正值向上凹入裤片）；膝围只定点、不连线。
+    脚口内外缝顶点以浅弧相连为脚口结构线，弧高 front_hem_arc_sag
+    （0 = 直线，正值向下凸出裤片，符合日常脚口形态）；膝围只定点、不连线。
     依据：打版流程.md 前片步骤 5（确定膝围和脚口宽度）。"""
     m, o = ctx.measurements, ctx.options
     x_c = ctx.line("front.crease_line").a.x
@@ -332,10 +332,10 @@ def draw_front_knee_hem_widths(ctx: DraftContext) -> NamedCurve:
                            label="脚口内缝顶点")
     return ctx.add_curve("front.hem",
                          curves.sag_curve(hem_out.geom, hem_in.geom,
-                                          sag=o.hem_arc_sag),
+                                          sag=-o.front_hem_arc_sag),
                          step="draw_front_knee_hem_widths",
-                         basis=f"脚口内外缝顶点浅弧相连，弧高 {o.hem_arc_sag}"
-                               "（打版流程.md 步骤 5）",
+                         basis=f"脚口内外缝顶点浅弧相连，弧高 {o.front_hem_arc_sag}"
+                               "（正值向下凸，打版流程.md 步骤 5）",
                          label="脚口线")
 
 

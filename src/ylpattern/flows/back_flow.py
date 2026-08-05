@@ -35,6 +35,8 @@ BACK_FLOW = [
     bs.draw_back_hip_final,
     # —— 阶段 5：裤中线 ——
     bs.draw_back_crease_line,
+    # —— 阶段 6：膝围、脚口宽度 ——
+    bs.draw_back_knee_hem_widths,
 ]
 
 # 整版流程：先前片、后后片（后片步骤读取前片共享基准线）

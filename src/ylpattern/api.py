@@ -39,7 +39,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         inseam_arc_k1: float = 0.20, inseam_arc_ky: float = 0.28,
         inseam_arc_k2: float = 0.35,
         outseam_arc_dx: float = 0.15, outseam_arc_m2: float = 0.40,
-        hem_arc_sag: float = 0.0,
+        front_hem_arc_sag: float = 0.0, back_hem_arc_sag: float = 0.0,
         piece_gap: float = 10.0,
         seam_allowance: float = 1.0,
         svg: str = "out/sheet.svg",
@@ -80,7 +80,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         inseam_arc_k2    内缝大腿段膝口切线柄长系数（k2 = 本值×ΔY，§四）
         outseam_arc_dx   外缝大腿段大转子外凸 δx（0.1~0.2；顺直 0，§五）
         outseam_arc_m2   外缝大腿段膝口切线柄长系数（m2 = 本值×ΔY，§五）
-        hem_arc_sag      脚口弧高（0 = 直线；正值向上凹入裤片，常取 0.3~0.8）
+        front_hem_arc_sag  前片脚口弧高（0 = 直线；正值向下凸出裤片，常取 0.3~0.8）
+        back_hem_arc_sag   后片脚口弧高（口径同前片，前后片独立录入）
         piece_gap        前后片排版间距（后片整体置于前片右侧，分开不重叠）
         svg              SVG 输出路径
         until            执行到指定步骤（含）停止，用于看中间状态
@@ -120,7 +121,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        inseam_arc_k2=inseam_arc_k2,
                        outseam_arc_dx=outseam_arc_dx,
                        outseam_arc_m2=outseam_arc_m2,
-                       hem_arc_sag=hem_arc_sag,
+                       front_hem_arc_sag=front_hem_arc_sag,
+                       back_hem_arc_sag=back_hem_arc_sag,
                        piece_gap=piece_gap,
                        seam_allowance=seam_allowance)
 

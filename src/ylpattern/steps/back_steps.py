@@ -6,6 +6,7 @@
   3. 绘制后片腰头（已实现）
   4. 绘制后臀围线（已实现）
   5. 裤中线（已实现）
+  6. 确定后片膝围和脚口宽度（已实现）
 
 与前片的关系（同一全局坐标系的一张 DraftSheet，前后片分开排版）：
   - 后片整体置于前片右侧：后片外侧缝参考线 x = 前片内侧缝参考线 x
@@ -391,3 +392,43 @@ def draw_back_crease_line(ctx: DraftContext) -> NamedLine:
                         step="draw_back_crease_line",
                         basis="过后裤中线立裆点作脚口线垂线，脚口线 → 腰围线",
                         label="后裤中线")
+
+
+# ---------- 阶段 6：膝围、脚口宽度 ----------
+
+def draw_back_knee_hem_widths(ctx: DraftContext) -> NamedCurve:
+    """后片膝围/脚口内外缝顶点：以后裤中线为对称轴向两侧各延伸片宽一半。
+    后片膝围宽 K后 = K/2 + δ、后片脚口宽 B后 = B/2 + δ
+    （先平分再前减后加，脚口膝围外缝点推导.md §三.1）。
+    脚口内外缝顶点以浅弧相连为脚口结构线，弧高 back_hem_arc_sag
+    （0 = 直线，正值向下凸出裤片，与前片独立录入）；膝围只定点、不连线。
+    依据：打版流程.md 后片步骤 6（确定后片膝围和脚口宽度）。"""
+    m, o = ctx.measurements, ctx.options
+    x_c = ctx.line("back.crease_line").a.x
+    knee_y = ctx.line("back.knee_line").a.y
+    d_knee = leg_f.knee_back(m.knee, o.knee_adjust) / 2
+    d_hem = leg_f.hem_back(m.hem, o.hem_adjust) / 2
+
+    ctx.add_point("back.knee_outseam_point", Point(x_c - d_knee, knee_y),
+                  step="draw_back_knee_hem_widths",
+                  basis=f"d后膝 = ({m.knee}/2 + {o.knee_adjust})/2 = {d_knee:.2f}（裤中线对称，推导.md §三.1）",
+                  label="后膝围外缝点")
+    ctx.add_point("back.knee_inseam_point", Point(x_c + d_knee, knee_y),
+                  step="draw_back_knee_hem_widths",
+                  basis=f"d后膝 = {d_knee:.2f}（内缝方向 +X）",
+                  label="后膝围内缝点")
+    hem_out = ctx.add_point("back.hem_outseam_point", Point(x_c - d_hem, 0.0),
+                            step="draw_back_knee_hem_widths",
+                            basis=f"d后脚 = ({m.hem}/2 + {o.hem_adjust})/2 = {d_hem:.2f}（裤中线对称，推导.md §三.1）",
+                            label="后脚口外缝顶点")
+    hem_in = ctx.add_point("back.hem_inseam_point", Point(x_c + d_hem, 0.0),
+                           step="draw_back_knee_hem_widths",
+                           basis=f"d后脚 = {d_hem:.2f}（内缝方向 +X）",
+                           label="后脚口内缝顶点")
+    return ctx.add_curve("back.hem",
+                         curves.sag_curve(hem_out.geom, hem_in.geom,
+                                          sag=-o.back_hem_arc_sag),
+                         step="draw_back_knee_hem_widths",
+                         basis=f"脚口内外缝顶点浅弧相连，弧高 {o.back_hem_arc_sag}"
+                               "（正值向下凸，打版流程.md 后片步骤 6）",
+                         label="后脚口线")
