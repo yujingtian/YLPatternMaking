@@ -13,7 +13,7 @@ run(
     knee=54,         # 膝围
     hem=47,          # 裤口
     front_rise=30,   # 前浪
-    back_rise=41,    # 后浪
+    back_rise=40,    # 后浪
     outseam=102,     # 裤长
     thigh=62,        # 大腿围
 
@@ -33,8 +33,13 @@ run(
     waistband_type="straight",  # 腰头类型："straight" 直腰头 / "curved" 弯腰头
     waistband_width=4.0,        # 腰头宽（直腰头从裤长中扣除；弯腰头忽略）
     side_rise=1.0,              # 侧缝腰头抬高量（0 = 腰围外缝顶点压基础线，常取 0~1.5）
+    front_waist_curve_sag=0.4,  # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5）
+    back_waist_curve_sag=0.4,   # 后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5）
+                                #   （0 = 无额外下凹，但 90° 正交平顺段的弯曲仍在，非直线）
     waist_balance=1.5,          # 前后片腰围调节量（前片减、后片加；平分取 0）
     front_waist_dart=3.0,       # 前片省量/褶量（标准牛仔裤 0；西裤 1.5~3.0）
+    back_waist_dart=3.0,        # 后片省量/约克转移量（后腰长 = W/4 + balance + 本值；
+                                #   约克步骤前 0；Yoke 转移 2.5~4.0）
     front_crease_e=0.0,         # 前片裤中线调节量（常规 0；修身 -0.5~-0.8）
     knee_adjust=2.5,            # 膝围前后片调整量（前片膝围宽 = 膝围/2 − 本值；高弹 0.5~0.75）
     hem_adjust=2.5,             # 脚口前后片调整量（前片脚口宽 = 裤口/2 − 本值）

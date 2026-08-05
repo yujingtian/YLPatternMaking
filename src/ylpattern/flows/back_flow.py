@@ -28,6 +28,9 @@ BACK_FLOW = [
     bs.draw_back_crotch_width,
     bs.draw_back_center_intake,
     bs.draw_back_rise,
+    # —— 阶段 3：绘制后片腰头 ——
+    bs.draw_back_waistline,
+    bs.draw_back_waistband_arc,
 ]
 
 # 整版流程：先前片、后后片（后片步骤读取前片共享基准线）

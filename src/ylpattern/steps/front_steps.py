@@ -256,7 +256,9 @@ def draw_front_waist_outseam_curves(ctx: DraftContext) -> NamedCurve:
     if t_w.dx * (a.x - b.x) + t_w.dy * (a.y - b.y) < 0:
         t_w = t_w.scale(-1)
     p1 = b + t_w.scale(o.waist_rect_len)          # §5 P1：直角修正段
-    p2 = Point(a.x - waist_len / 3, a.y - o.waist_curve_sag)  # §5 P2：倾斜 + 下凹
+    # §5 P2：倾斜 + 下凹（距 A 1/3 弦长处；补偿 P1 偏离，弧中点下凹 = sag）
+    p2 = curves.waist_sag_p2(b, a, p1, at=2 / 3,
+                             sag=o.front_waist_curve_sag)
     w_arc = CubicBezier(b, p1, p2, a)
 
     ctx.add_point("front.hip_outseam_point", hip_out,
@@ -269,7 +271,7 @@ def draw_front_waist_outseam_curves(ctx: DraftContext) -> NamedCurve:
     return ctx.add_curve("front.waistline_arc", w_arc,
                          step="draw_front_waist_outseam_curves",
                          basis="微凹腰弧：B 点切线 ⟂ 侧缝弧切线（90° 法则），"
-                               f"下凹 {o.waist_curve_sag}（腰长按端点直线距离闭合）",
+                               f"下凹 {o.front_waist_curve_sag}（腰长按端点直线距离闭合）",
                          label="真实腰围线弧")
 
 

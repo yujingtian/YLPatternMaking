@@ -28,7 +28,7 @@ from ..draft import curves
 from ..formulas import hip as hip_f
 from ..formulas import crotch as crotch_f
 from ..formulas import waist as waist_f
-from ..geometry import LineSegment, Point
+from ..geometry import CubicBezier, LineSegment, Point
 from ..params import WaistbandType
 
 _STEP = __name__  # 步骤来源标记，由 FlowRunner 替换为函数名
@@ -250,3 +250,71 @@ def draw_back_rise(ctx: DraftContext) -> NamedCurve:
                                f"k2 = {o.back_rise_beta}·|BC|，起点切线沿"
                                "后中斜线、终点切线水平（后浪绘制.md §3）",
                          label="后浪弧线")
+
+
+# ---------- 阶段 3：绘制后片腰头 ----------
+
+def draw_back_waistline(ctx: DraftContext) -> NamedLine:
+    """后腰头构造（定长斜截法，后腰头绘制推导.md §一）：
+    起翘等高辅助线（与前片腰围外缝顶点等高、平行于后腰围基础线）
+    + 以后浪顶点为圆心、后腰长 L 为半径斜截辅助线，交点即后腰头
+    外缝顶点 B；|AB| = L 为构造直线约束（A = 后浪顶点）。
+    L = W/4 + balance + V后省（腰围推导.md §三.2，前减后加口径）。
+    本步产物为构造线；最终轮廓由 draw_back_waistband_arc 的弧线取代。
+    依据：打版流程.md 后片步骤 3。"""
+    m, o = ctx.measurements, ctx.options
+    a = ctx.point("back.rise_top_point")
+    waist_y = ctx.line("back.waist_line").a.y
+    aux_y = ctx.point("front.waist_side_point").y   # 与前片起翘等高
+    bc_drop = waist_y - a.y          # 后中落差（A 高出基础线为负）
+    waist_len = waist_f.waist_back_target(m.waist, o.waist_balance,
+                                          o.back_waist_dart)
+    span = waist_f.waistline_horizontal_span(waist_len, aux_y - waist_y,
+                                             bc_drop)
+    b = Point(a.x - span, aux_y)
+    ctx.add_line("back.waist_aux_line",
+                 LineSegment.horizontal(y=aux_y, x0=_origin_x(ctx),
+                                        length=_frame_width(ctx)),
+                 step="draw_back_waistline",
+                 basis="与前片腰围外缝顶点等高的起翘辅助线"
+                       "（后腰头绘制推导.md §一.1）",
+                 label="后腰起翘辅助线")
+    ctx.add_point("back.waist_side_point", b,
+                  step="draw_back_waistline",
+                  basis=f"x = {a.x:.2f} − sqrt({waist_len:.2f}² − "
+                        f"({aux_y - a.y:.2f})²)（定长斜截，推导.md §一.2）",
+                  label="后腰头外缝顶点")
+    return ctx.add_line("back.waistline", LineSegment(b, a),
+                        step="draw_back_waistline",
+                        basis=f"|AB| = 后腰长 {waist_len:.2f}（后腰头绘制推导.md"
+                              " §一.2，构造线）",
+                        label="后腰头构造线", role="ref")
+
+
+def draw_back_waistband_arc(ctx: DraftContext) -> NamedCurve:
+    """后腰头线弧（后腰头绘制推导.md §一.3 形态优化）：
+    以构造弦 AB 为基准微微下凹（贴合腰背背弓），后浪顶点 A 处切线
+    与后中斜线严格 90° 正交（保留直角平顺段，保证左右后片后中缝合
+    后腰上口平滑无尖角）；外缝端 B 沿弦向顺出，待后侧缝弧线步骤
+    圆顺过渡。腰长按两端点直线距离闭合（上一步构造线已保证）。
+    依据：打版流程.md 后片步骤 3。"""
+    m, o = ctx.measurements, ctx.options
+    a = ctx.point("back.rise_top_point")
+    b = ctx.point("back.waist_side_point")
+    waist_len = waist_f.waist_back_target(m.waist, o.waist_balance,
+                                          o.back_waist_dart)
+    # A 点切线 ⟂ 后中斜线（90° 正交，推导.md §一.3 核心要点）
+    rise_dir = (ctx.point("back.hip_inner_point") - a).normalized()
+    t_a = rise_dir.perpendicular()
+    if t_a.dx * (b.x - a.x) + t_a.dy * (b.y - a.y) < 0:
+        t_a = t_a.scale(-1)          # 取朝向 B 的一侧
+    p1 = a + t_a.scale(o.waist_rect_len)          # §二 直角平顺段
+    # 弦中点下凹（补偿 P1 偏离，弧中点下凹 = sag，与前片同口径）
+    p2 = curves.waist_sag_p2(a, b, p1, at=0.5,
+                             sag=o.back_waist_curve_sag)
+    return ctx.add_curve("back.waistline_arc", CubicBezier(a, p1, p2, b),
+                         step="draw_back_waistband_arc",
+                         basis="微凹后腰弧：A 点切线 ⟂ 后中斜线（90° 正交），"
+                               f"弦中点下凹 {o.back_waist_curve_sag}"
+                               "（后腰头绘制推导.md §一.3）",
+                         label="后腰头线弧")

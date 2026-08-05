@@ -70,3 +70,11 @@ def test_back_center_intake_doc_examples():
 def test_back_center_intake_ratio():
     # 紧身/提臀档 X=4.0（§二 系数表）：H_v=15 → 15 × 4/15 = 4.0
     assert abs(waist.back_center_intake(15.0, intake=4.0) - 4.0) < 1e-9
+
+
+def test_waist_back_target():
+    # 前减后加：平分（balance=0）70/4 = 17.5；balance=0.5 → 18.0（后片加）
+    assert abs(waist.waist_back_target(70) - 17.5) < 1e-9
+    assert abs(waist.waist_back_target(70, balance=0.5) - 18.0) < 1e-9
+    # 约克转移量 V后省 3.0：17.5 + 3.0 = 20.5（腰围推导.md §三.2、§五）
+    assert abs(waist.waist_back_target(70, dart=3.0) - 20.5) < 1e-9

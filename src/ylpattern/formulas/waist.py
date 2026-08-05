@@ -55,6 +55,24 @@ def waist_front_target(waist: float, balance: float = 0.0,
     return waist_front_finished(waist, balance) + dart
 
 
+def waist_back_finished(waist: float, balance: float = 0.0) -> float:
+    """单侧后片成品腰宽：W/4 + balance（前减后加，与前片同向）。
+
+    调节量口径与臀围 Δ 一致（前片 = W/4 − balance，见 waist_front_finished）。
+    """
+    return waist / 4 + balance
+
+
+def waist_back_target(waist: float, balance: float = 0.0,
+                      dart: float = 0.0) -> float:
+    """后片腰部目标画线宽（后腰长）：W后成品 + V后省（腰围推导.md §三.2）。
+
+    dart（V后省）为后片省量/约克转移量：标准牛仔裤由后约克 Yoke 承担
+    （2.5~4.0，约克步骤前取 0）；西裤直省 2.0~3.0（推导.md §五）。
+    """
+    return waist_back_finished(waist, balance) + dart
+
+
 def side_seam_intake_front(front_hip: float, front_waist: float,
                            front_slant: float) -> float:
     """前片侧缝内收量（母公式，前片侧缝内收推导.md §二.1）：

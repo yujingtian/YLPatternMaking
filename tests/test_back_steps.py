@@ -173,3 +173,41 @@ def test_back_rise_closure_curved_waistband():
     slant = ctx.line("back.rise_slant")
     arc = ctx.curve("back.rise_curve")
     assert slant.length + arc.length() == pytest.approx(M.back_rise)
+
+
+def test_back_waistline(ctx):
+    # 起翘辅助线与前片腰围外缝顶点等高（side_rise=0 → 腰线 98）
+    aux = ctx.line("back.waist_aux_line")
+    assert aux.a.y == ctx.point("front.waist_side_point").y == 98.0
+
+    # 定长斜截：|AB| = 后腰长 = 70/4 + 0 + 0 = 17.5，B 在辅助线上
+    a = ctx.point("back.rise_top_point")
+    b = ctx.point("back.waist_side_point")
+    assert b.y == 98.0
+    assert a.distance_to(b) == pytest.approx(17.5)
+    # 构造线为参考线（虚线），非最终轮廓
+    assert ctx.sheet.get("back.waistline").role == "ref"
+
+
+def test_back_waistband_arc(ctx):
+    a = ctx.point("back.rise_top_point")
+    b = ctx.point("back.waist_side_point")
+    arc = ctx.curve("back.waistline_arc")
+    assert arc.point_at(0) == a
+    assert arc.point_at(1) == b
+
+    # A 点切线与后中斜线 90° 正交（后腰头绘制推导.md §一.3 核心要点）
+    rise_dir = (ctx.point("back.hip_inner_point") - a).normalized()
+    t0 = arc.tangent_at(0).normalized()
+    dot = t0.dx * rise_dir.dx + t0.dy * rise_dir.dy
+    assert dot == pytest.approx(0.0, abs=1e-9)
+
+    # 微微下凹：弧中点相对弦的下凹量精确 = sag（0.3），P1 正交段的
+    # 偏离已被 P2 补偿（curves.waist_sag_p2，前后片同口径）
+    d = (b - a).normalized()
+    n = d.perpendicular()
+    if n.dy > 0:
+        n = n.scale(-1)          # 取朝下的法向
+    pt = arc.point_at(0.5)
+    dev = (pt - a).dx * n.dx + (pt - a).dy * n.dy
+    assert dev == pytest.approx(O.back_waist_curve_sag)

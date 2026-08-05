@@ -30,7 +30,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
         waistband_width: float = 4.0,
         side_rise: float = 0.0,
+        front_waist_curve_sag: float = 0.3, back_waist_curve_sag: float = 0.3,
         waist_balance: float = 0.0, front_waist_dart: float = 0.0,
+        back_waist_dart: float = 0.0,
         front_crease_e: float = 0.0,
         knee_adjust: float = 1.0, hem_adjust: float = 1.0,
         calf_arc_alpha: float = 0.10,
@@ -61,8 +63,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         waistband_type   腰头类型："straight" 直腰头 / "curved" 弯腰头（打版流程.md 注意点 1）
         waistband_width  腰头宽（cm）；直腰头打版时从裤长中扣除，弯腰头忽略
         side_rise        侧缝腰头抬高量 h（0 = 腰围外缝顶点压基础线，常取 0~1.5）
+        front_waist_curve_sag  前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5；
+                               0 = 无额外下凹，90° 正交平顺段的弯曲仍在）
+        back_waist_curve_sag   后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，同上）
         waist_balance    前后片腰围调节量（前减后加；平分 0，常取 1.0~1.5）
         front_waist_dart 前片省量/褶量 V前省（标准牛仔裤 0；西裤 1.5~3.0）
+        back_waist_dart 后片省量/约克转移量 V后省（约克步骤前 0；Yoke 2.5~4.0）
         front_crease_e   前片裤中线调节量 e（常规 0；修身 -0.5~-0.8，裤中线推导.md §五）
         knee_adjust      膝围前后片调整量 δ（前减后加，前片膝围宽 = K/2 − δ；高弹 0.5~0.75）
         hem_adjust       脚口前后片调整量 δ（前减后加，前片脚口宽 = B/2 − δ）
@@ -97,8 +103,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        waistband_type=WaistbandType(waistband_type),
                        waistband_width=waistband_width,
                        side_rise=side_rise,
+                       front_waist_curve_sag=front_waist_curve_sag,
+                       back_waist_curve_sag=back_waist_curve_sag,
                        waist_balance=waist_balance,
                        front_waist_dart=front_waist_dart,
+                       back_waist_dart=back_waist_dart,
                        front_crease_e=front_crease_e,
                        knee_adjust=knee_adjust,
                        hem_adjust=hem_adjust,

@@ -149,6 +149,32 @@ def sag_curve(end_a: Point, end_b: Point, *, sag: float) -> CubicBezier:
     return CubicBezier(end_a, p1, p2, end_b)
 
 
+def waist_sag_p2(p0: Point, p3: Point, p1: Point, *, at: float,
+                 sag: float) -> Point:
+    """腰弧下凹控制点 P2：令弧参数中点（t=0.5）相对弦 P0P3 的下凹量
+    精确等于 sag。
+
+    三次贝塞尔中点偏差 = 3/8 ×（P1 偏差 + P2 偏差），故
+    P2 偏差 = 8/3·sag − P1 偏差 —— 自动补偿直角平顺段（P1）对弦的
+    偏离，保证前/后片同一 sag 值得到同一视觉凹度（前后片弦斜率、
+    正交段方向都不同，不补偿则同一 sag 实际凹度可差数倍）。
+
+    参数：
+        p0, p3  弧两端点（弦）
+        p1      已确定的起点侧控制点（90° 正交平顺段）
+        at      P2 在弦上的落点位置（弦长比例 0~1，决定凹峰偏位）
+        sag     弧中点相对弦的下凹量（cm，0 = 中点压弦）
+    """
+    d = (p3 - p0).normalized()
+    n = d.perpendicular()
+    if n.dy > 0:
+        n = n.scale(-1)                      # 取下凹侧（朝 −Y）法向
+    dev_p1 = (p1 - p0).dx * n.dx + (p1 - p0).dy * n.dy
+    dev_p2 = sag * 8 / 3 - dev_p1
+    on_chord = p0.lerp(p3, at)
+    return on_chord + n.scale(dev_p2)
+
+
 def lower_leg_curve(knee: Point, hem: Point, mid: Point) -> CubicBezier:
     """小腿段自适应二次贝塞尔（膝口 → 脚口），升阶为三次返回（§三）。
 
