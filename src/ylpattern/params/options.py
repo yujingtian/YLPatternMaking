@@ -65,6 +65,16 @@ class PatternOptions:
     inseam_arc_k2: float = 0.35            # 内缝大腿段切线柄长系数（k2 = 本值×ΔY，§四）
     outseam_arc_dx: float = 0.15           # 外缝大腿段大转子外凸 δx（§五，0.1~0.2；顺直 0）
     outseam_arc_m2: float = 0.40           # 外缝大腿段切线柄长系数（m2 = 本值×ΔY，§五）
+    back_calf_arc_alpha: float = 0.10      # 后片小腿段弧弓高系数 α（后片弧线推导.md §二，0.08~0.12；0 = 直筒直线）
+    back_inseam_arc_k1: float = 0.30       # 后内缝大腿段大裆弯度 k1（§三，0.25~0.35，大于前片留运动空间）
+    back_inseam_arc_ky: float = 0.30       # 后内缝大腿段纵向系数 ky（§三，= 0.30）
+    back_inseam_arc_k2: float = 0.35       # 后内缝大腿段切线柄长系数（k2 = 本值×ΔY，§三）
+    back_outseam_arc_dx: float = 0.15      # 后外缝大腿段臀侧饱满度 δx（§四，0.1~0.25；顺直 0）
+    back_outseam_arc_m2: float = 0.40      # 后外缝大腿段切线柄长系数（m2 = 本值×ΔY，§四）
+    back_hipwaist_arc_dx1: float = 0.15    # 臀侧凸出多少（§五，0~0.3；0 = 顺直不凸，越大越往外鼓）
+    back_hipwaist_arc_k1: float = 0.40     # 臀侧凸感延续多高（§五，0.35~0.45；越大越晚往腰头弯）
+    back_hipwaist_arc_dx2: float = 0.0     # 腰头角点凸出多少（§五，0~0.3；0 = 竖直顺直进角，越大角点越鼓）
+    back_hipwaist_arc_k2: float = 0.25     # 多早往腰头收（§五，0.20~0.30；越大上段越早内缩、末端笔直进角）
     front_hem_arc_sag: float = 0.0         # 前片脚口弧高（0 = 直线；正值向下凸出裤片，常取 0.3~0.8）
     back_hem_arc_sag: float = 0.0          # 后片脚口弧高（口径同前片，前后片独立录入）
     piece_gap: float = 10.0                # 前后片排版间距（后片整体置于前片右侧，分开不重叠）

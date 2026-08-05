@@ -20,6 +20,8 @@
   → x = 33 + 14.9 = 47.9，y = 78；后裤中线 (47.9, 0) → (47.9, 98)。
   后膝围点：d = (46/2 + 1)/2 = 12 → (35.9, 42)、(59.9, 42)；
   后脚口点：d = (36/2 + 1)/2 = 9.5 → (38.4, 0)、(57.4, 0)，浅弧相连（默认弧高 0 = 直线，弦长 19）。
+  后外缝：Q1 = (X臀 − 0.15, 78) ≈ (32.59, 78)；内缝 P1 = (67.6 − 0.3×7.7, 77.04 − 0.3×35.04)
+  = (65.29, 66.528)；膝口 C1 连续（后片弧线推导.md §三/§四）。
 """
 
 import pytest
@@ -327,3 +329,95 @@ def test_back_hem_arc_with_sag():
     assert hem.point_at(0.5).x == pytest.approx(47.9)
     assert hem.length() > 19.0
     assert ctx.curve("front.hem").point_at(0.5).y == pytest.approx(0.0)
+
+
+# ---------- 阶段 7：外缝、内缝线 ----------
+
+def test_back_outseam_curves(ctx):
+    lower = ctx.curve("back.outseam_lower")
+    upper = ctx.curve("back.outseam_upper")
+    # 小腿弧：膝围外缝点 → 脚口外缝顶点
+    assert lower.point_at(0) == ctx.point("back.knee_outseam_point")
+    assert lower.point_at(1) == ctx.point("back.hem_outseam_point")
+    # 大腿弧：臀围外缝顶点 → 膝围外缝点
+    assert upper.point_at(0) == ctx.point("back.hip_outseam_point")
+    assert upper.point_at(1) == ctx.point("back.knee_outseam_point")
+    # Q1 = (X臀 − δx, 立裆线高) ≈ (32.735 − 0.15, 78)（后片弧线推导.md §四）
+    assert upper.p1.x == pytest.approx(32.585, abs=0.01)
+    assert upper.p1.y == pytest.approx(78.0)
+    # 膝口 C1 连续：大腿弧终点切线 ∥ 小腿弧起点切线（推导.md §一）
+    assert upper.angle_with(lower) == pytest.approx(0.0)
+
+
+def test_back_inseam_curves(ctx):
+    lower = ctx.curve("back.inseam_lower")
+    upper = ctx.curve("back.inseam_upper")
+    # 小腿弧：膝围内缝点 → 脚口内缝顶点
+    assert lower.point_at(0) == ctx.point("back.knee_inseam_point")
+    assert lower.point_at(1) == ctx.point("back.hem_inseam_point")
+    # 大腿弧：后大裆宽顶点 → 膝围内缝点
+    assert upper.point_at(0) == ctx.point("back.crotch_vertex")
+    assert upper.point_at(1) == ctx.point("back.knee_inseam_point")
+    # P1 = (X裆 − k1·ΔX, Y裆 − ky·ΔY) = (67.6 − 0.3×7.7, 77.04 − 0.3×35.04)
+    #    = (65.29, 66.528)（推导.md §三）
+    assert upper.p1.x == pytest.approx(65.29)
+    assert upper.p1.y == pytest.approx(66.528)
+    # 膝口 C1 连续
+    assert upper.angle_with(lower) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_back_lower_leg_curves_mirror_symmetric(ctx):
+    # 内/外缝小腿弧关于后裤中线 x=47.9 轴对称（同一 α 公式两侧自动镜像）
+    x_c = ctx.line("back.crease_line").a.x
+    out = ctx.curve("back.outseam_lower")
+    ins = ctx.curve("back.inseam_lower")
+    for op, ip in ((out.p0, ins.p0), (out.p1, ins.p1),
+                   (out.p2, ins.p2), (out.p3, ins.p3)):
+        assert op.x + ip.x == pytest.approx(2 * x_c)
+        assert op.y == pytest.approx(ip.y)
+
+
+def test_back_arc_params_customizable():
+    # 弧线形态参数独立录入：k1 0.30→0.35 → P1.x = 67.6 − 0.35×7.7 = 64.905；
+    # δx 0.15→0.25 → Q1.x = X臀 − 0.25；前片弧线参数不受影响
+    o = PatternOptions(delta=1.0, back_inseam_arc_k1=0.35,
+                       back_outseam_arc_dx=0.25)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    assert ctx.curve("back.inseam_upper").p1.x == pytest.approx(64.905)
+    hip_x = ctx.point("back.hip_outseam_point").x
+    assert ctx.curve("back.outseam_upper").p1.x == pytest.approx(hip_x - 0.25)
+    # 前片仍用前片默认值（k1 = 0.20、δx = 0.15）
+    assert ctx.curve("front.inseam_upper").p1.x == pytest.approx(27.22)
+
+
+def test_back_hip_waist_outseam_arc(ctx):
+    # 髋腰侧缝段：最终臀围外缝顶点 → 后腰头外缝顶点（后片弧线推导.md §五）
+    c = ctx.curve("back.outseam_hip_waist")
+    assert c.point_at(0) == ctx.point("back.hip_outseam_point")
+    assert c.point_at(1) == ctx.point("back.waist_side_point")
+    # ΔY = 98 − 86 = 12：
+    # W1 = (X臀 − δx1, Y臀 + k1·ΔY) = (32.735 − 0.15, 86 + 0.4×12) = (32.585, 90.8)
+    # （本坐标系外缝朝 −X，δx1 取负使正值向外凸，§五 + 坐标系适配）
+    assert c.p1.x == pytest.approx(32.585, abs=0.01)
+    assert c.p1.y == pytest.approx(90.8)
+    # W2 = (X腰 − δx2, Y腰 − k2·ΔY) = (37.2675 − 0, 98 − 0.25×12) = (37.2675, 95.0)
+    waist = ctx.point("back.waist_side_point")
+    assert c.p2.x == pytest.approx(waist.x)
+    assert c.p2.y == pytest.approx(95.0)
+
+
+def test_back_hip_waist_arc_params_customizable():
+    # §五 四参数独立录入：k1 0.40→0.45 → W1.y = 86 + 0.45×12 = 91.4；
+    # k2 0.25→0.30 → W2.y = 98 − 0.30×12 = 94.4；
+    # δx1 0.15→0.3（骨盆外凸）、δx2 0→0.1（腰头凸量，正值均向外缝侧凸）
+    o = PatternOptions(delta=1.0, back_hipwaist_arc_dx1=0.3,
+                       back_hipwaist_arc_k1=0.45,
+                       back_hipwaist_arc_dx2=0.1, back_hipwaist_arc_k2=0.30)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    c = ctx.curve("back.outseam_hip_waist")
+    hip = ctx.point("back.hip_outseam_point")
+    waist = ctx.point("back.waist_side_point")
+    assert c.p1.x == pytest.approx(hip.x - 0.3)
+    assert c.p1.y == pytest.approx(91.4)
+    assert c.p2.x == pytest.approx(waist.x - 0.1)
+    assert c.p2.y == pytest.approx(94.4)

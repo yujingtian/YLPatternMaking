@@ -7,6 +7,7 @@
   4. 绘制后臀围线（已实现）
   5. 裤中线（已实现）
   6. 确定后片膝围和脚口宽度（已实现）
+  7. 外缝、内缝线绘制（已实现）
 
 与前片的关系（同一全局坐标系的一张 DraftSheet，前后片分开排版）：
   - 后片整体置于前片右侧：后片外侧缝参考线 x = 前片内侧缝参考线 x
@@ -432,3 +433,84 @@ def draw_back_knee_hem_widths(ctx: DraftContext) -> NamedCurve:
                          basis=f"脚口内外缝顶点浅弧相连，弧高 {o.back_hem_arc_sag}"
                                "（正值向下凸，打版流程.md 后片步骤 6）",
                          label="后脚口线")
+
+
+# ---------- 阶段 7：外缝、内缝线 ----------
+
+def draw_back_outseam_curves(ctx: DraftContext) -> NamedCurve:
+    """后片外侧缝线（复合线，同一步骤三笔）：
+    小腿段（膝围外缝点 → 脚口外缝顶点）：自适应二次贝塞尔，几乎是直线、
+    微凸贴合小腿后侧肌肉弧度，弧度由 α 控制（后片弧线推导.md §二）；
+    大腿段（臀围外缝顶点 → 膝围外缝点）：三次贝塞尔，膝口与小腿段
+    切线共线（C1），上端控制后臀侧包容饱满度（§四）；
+    髋腰段（臀围外缝顶点 → 后腰头外缝顶点）：三次贝塞尔，拟合骨盆至
+    腰口的微凸平滑过渡（§五）。
+    依据：打版流程.md 后片步骤 7（外缝绘制）。"""
+    o = ctx.options
+    knee = ctx.point("back.knee_outseam_point")
+    hem = ctx.point("back.hem_outseam_point")
+    hip = ctx.point("back.hip_outseam_point")
+    waist = ctx.point("back.waist_side_point")
+    crotch_y = ctx.line("back.crotch_line").a.y
+    q_mid = curves.lower_leg_mid(knee, hem, o.back_calf_arc_alpha)
+    ctx.add_curve("back.outseam_lower",
+                  curves.lower_leg_curve(knee, hem, q_mid),
+                  step="draw_back_outseam_curves",
+                  basis=f"自适应二次贝塞尔（升阶三次），α = {o.back_calf_arc_alpha}"
+                        "（后片弧线推导.md §二）",
+                  label="后外缝小腿弧")
+    ctx.add_curve("back.outseam_upper",
+                  curves.thigh_outseam_curve(
+                      hip, crotch_y, knee, q_mid,
+                      delta_x=o.back_outseam_arc_dx,
+                      m2_ratio=o.back_outseam_arc_m2),
+                  step="draw_back_outseam_curves",
+                  basis=f"三次贝塞尔：δx = {o.back_outseam_arc_dx}，"
+                        f"m2 = {o.back_outseam_arc_m2}×ΔY，膝口 C1 共线（§四）",
+                  label="后外缝大腿弧")
+    return ctx.add_curve("back.outseam_hip_waist",
+                         curves.hip_waist_outseam_curve(
+                             hip, waist,
+                             dx1=-o.back_hipwaist_arc_dx1,
+                             k1=o.back_hipwaist_arc_k1,
+                             dx2=o.back_hipwaist_arc_dx2,
+                             k2=o.back_hipwaist_arc_k2),
+                         step="draw_back_outseam_curves",
+                         basis=f"三次贝塞尔：δx1 = {o.back_hipwaist_arc_dx1}，"
+                               f"k1 = {o.back_hipwaist_arc_k1}，"
+                               f"δx2 = {o.back_hipwaist_arc_dx2}，"
+                               f"k2 = {o.back_hipwaist_arc_k2}（§五；"
+                               "本坐标系外缝朝 −X，δx1 取负、δx2 取正，"
+                               "均使正值向外凸）",
+                         label="后外缝髋腰弧")
+
+
+def draw_back_inseam_curves(ctx: DraftContext) -> NamedCurve:
+    """后片内侧缝线（复合线，同一步骤两笔）：
+    小腿段（膝围内缝点 → 脚口内缝顶点）：自适应二次贝塞尔（同一 α 公式
+    在两侧自动镜像，后片弧线推导.md §二）；
+    大腿段（后大裆宽顶点 → 膝围内缝点）：三次贝塞尔，保留较强曲率与
+    运动空间留量，膝口与小腿段切线共线（C1，§三）。
+    依据：打版流程.md 后片步骤 7（内缝绘制）。"""
+    o = ctx.options
+    knee = ctx.point("back.knee_inseam_point")
+    hem = ctx.point("back.hem_inseam_point")
+    crotch = ctx.point("back.crotch_vertex")
+    p_mid = curves.lower_leg_mid(knee, hem, o.back_calf_arc_alpha)
+    ctx.add_curve("back.inseam_lower",
+                  curves.lower_leg_curve(knee, hem, p_mid),
+                  step="draw_back_inseam_curves",
+                  basis=f"自适应二次贝塞尔（升阶三次），α = {o.back_calf_arc_alpha}"
+                        "（后片弧线推导.md §二）",
+                  label="后内缝小腿弧")
+    return ctx.add_curve("back.inseam_upper",
+                         curves.thigh_inseam_curve(
+                             crotch, knee, p_mid,
+                             k1=o.back_inseam_arc_k1,
+                             ky=o.back_inseam_arc_ky,
+                             k2_ratio=o.back_inseam_arc_k2),
+                         step="draw_back_inseam_curves",
+                         basis=f"三次贝塞尔：k1 = {o.back_inseam_arc_k1}，"
+                               f"ky = {o.back_inseam_arc_ky}，"
+                               f"k2 = {o.back_inseam_arc_k2}×ΔY，膝口 C1 共线（§三）",
+                         label="后内缝大腿弧")

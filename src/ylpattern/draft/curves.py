@@ -213,3 +213,23 @@ def thigh_outseam_curve(hip: Point, crotch_y: float, knee: Point,
     q1 = Point(hip.x - delta_x, crotch_y)
     q2 = knee + (knee - mid).normalized().scale(m2_ratio * (crotch_y - knee.y))
     return CubicBezier(hip, q1, q2, knee)
+
+
+def hip_waist_outseam_curve(hip: Point, waist: Point, *,
+                            dx1: float, k1: float,
+                            dx2: float, k2: float) -> CubicBezier:
+    """髋腰侧缝段三次贝塞尔（最终臀围外缝顶点 → 后腰头外缝顶点，
+    后片弧线推导.md §五）。
+
+    W1 = (X臀 + δx1, Y臀 + k1·ΔY) 控制骨盆外圆弧饱满度
+    （δx1 ≈ 0~0.3，k1 ∈ [0.35, 0.45]，ΔY = Y腰 − Y臀）；
+    W2 = (X腰 − δx2, Y腰 − k2·ΔY) 控制腰头收边顺直度
+    （δx2 = 0，k2 ∈ [0.20, 0.30]）。
+
+    注：δx 的"向外"方向按推导文档自身坐标系（外缝朝 +X）书写；
+    调用方坐标系若外缝朝 −X，需取负传入（见 back_steps 调用处）。
+    """
+    dy = waist.y - hip.y
+    w1 = Point(hip.x + dx1, hip.y + k1 * dy)
+    w2 = Point(waist.x - dx2, waist.y - k2 * dy)
+    return CubicBezier(hip, w1, w2, waist)
