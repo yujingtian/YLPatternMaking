@@ -318,3 +318,40 @@ def draw_back_waistband_arc(ctx: DraftContext) -> NamedCurve:
                                f"弦中点下凹 {o.back_waist_curve_sag}"
                                "（后腰头绘制推导.md §一.3）",
                          label="后腰头线弧")
+
+
+# ---------- 阶段 4：绘制后臀围线 ----------
+
+def draw_back_hip_final(ctx: DraftContext) -> NamedLine:
+    """最终后臀围线（最终后臀围线推导.md §一，三步法）：
+    1) 后臀围内缝顶点沿后中斜线同距上移 —— 上移向量 = 后中内收点→后浪
+       顶点的位移 d（与后腰起翘同步，立体包容臀大肌凸量）；
+    2) 定长斜截：以上移后的内缝顶点为圆心、后臀围长 H后为半径，斜截
+       原始后臀围水平基础线，交点即最终后臀围外缝顶点（外缝点回落
+       基础线，保证与前片侧缝臀围零高差拼接）；
+    3) 两点虚线相连，内高外低，弦长严格 = H后。
+    依据：打版流程.md 后片步骤 4。"""
+    m, o = ctx.measurements, ctx.options
+    a0 = ctx.point("back.center_intake_point")
+    a = ctx.point("back.rise_top_point")
+    move = a - a0                          # 后中斜线上的起翘位移
+    b = ctx.point("back.hip_inner_point") + move
+    hip_y = ctx.line("back.hip_line").a.y
+    hip_len = hip_f.hip_back(m.hip, o.delta)
+    span = hip_f.back_hip_line_span(hip_len, b.y - hip_y)
+    out = Point(b.x - span, hip_y)
+    ctx.add_point("back.hip_inner_final", b,
+                  step="draw_back_hip_final",
+                  basis=f"沿后中斜线上移 {move.length:.2f}"
+                        "（与后腰起翘同距，推导.md §一.1）",
+                  label="最终后臀围内缝顶点")
+    ctx.add_point("back.hip_outseam_point", out,
+                  step="draw_back_hip_final",
+                  basis=f"x = {b.x:.2f} − sqrt({hip_len:.2f}² − "
+                        f"({b.y - hip_y:.2f})²)（定长斜截，推导.md §一.2）",
+                  label="最终后臀围外缝顶点")
+    return ctx.add_line("back.hip_line_final", LineSegment(b, out),
+                        step="draw_back_hip_final",
+                        basis=f"|内缝顶点→外缝顶点| = 后臀围长 {hip_len:.2f}"
+                              "（内高外低，虚线连接，推导.md §一.3）",
+                        label="最终后臀围线", role="ref")

@@ -38,5 +38,19 @@ def test_hip_closure():
     # 校验：2×(H前+H后) = H
     assert abs(2 * (hip.hip_front(96, 1.0) + hip.hip_back(96, 1.0)) - 96) < 1e-9
 
+
+def test_back_hip_line_span():
+    # 定长斜截（最终后臀围线推导.md §一.2）：L=25, 上移量 3 → sqrt(625−9)
+    assert abs(hip.back_hip_line_span(25.0, 3.0) - 616 ** 0.5) < 1e-9
+    # 不上移时退化为水平线：跨度 = 后臀围长
+    assert abs(hip.back_hip_line_span(25.0, 0.0) - 25.0) < 1e-9
+
+
+def test_back_hip_line_span_raises():
+    # 上移量超过后臀围长 → 无法斜截
+    import pytest
+    with pytest.raises(ValueError, match="无法斜截"):
+        hip.back_hip_line_span(25.0, 26.0)
+
 if __name__ == "__main__":
     test_hip_front_back()

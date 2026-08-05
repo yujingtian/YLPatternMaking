@@ -211,3 +211,25 @@ def test_back_waistband_arc(ctx):
     pt = arc.point_at(0.5)
     dev = (pt - a).dx * n.dx + (pt - a).dy * n.dy
     assert dev == pytest.approx(O.back_waist_curve_sag)
+
+
+def test_back_hip_final(ctx):
+    a0 = ctx.point("back.center_intake_point")
+    a = ctx.point("back.rise_top_point")
+    b0 = ctx.point("back.hip_inner_point")
+    b = ctx.point("back.hip_inner_final")
+    out = ctx.point("back.hip_outseam_point")
+
+    # 上移量一致：内缝顶点位移 = 后中内收点→后浪顶点的位移（同向量）
+    assert b.x - b0.x == pytest.approx(a.x - a0.x)
+    assert b.y - b0.y == pytest.approx(a.y - a0.y)
+
+    # 外缝顶点回落原始臀围基础线（y=86，与前片侧缝零高差拼接）
+    assert out.y == ctx.line("back.hip_line").a.y == 86.0
+
+    # 弦长严格 = 后臀围长 H后 = 25（内高外低）
+    assert b.distance_to(out) == pytest.approx(25.0)
+    assert b.y > out.y
+
+    # 最终后臀围线为虚线（参考线），非结构线
+    assert ctx.sheet.get("back.hip_line_final").role == "ref"

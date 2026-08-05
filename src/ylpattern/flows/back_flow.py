@@ -31,6 +31,8 @@ BACK_FLOW = [
     # —— 阶段 3：绘制后片腰头 ——
     bs.draw_back_waistline,
     bs.draw_back_waistband_arc,
+    # —— 阶段 4：绘制后臀围线 ——
+    bs.draw_back_hip_final,
 ]
 
 # 整版流程：先前片、后后片（后片步骤读取前片共享基准线）
