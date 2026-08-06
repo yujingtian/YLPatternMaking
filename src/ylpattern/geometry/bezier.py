@@ -8,6 +8,16 @@ from dataclasses import dataclass
 from .point import Point, Vector
 
 
+def p1_influence(t: float) -> float:
+    """三次贝塞尔控制点 P1 的基函数值 3(1−t)²t。
+
+    曲线对控制点坐标是线性的：P1.x 平移 Δ 时，参数 t 处的曲线点
+    x 平移恰为 p1_influence(t)·Δ（y 不受影响，t_at_y 不变），
+    用于"让曲线在指定高度精确过某 x"的单步精确解（毗围闭环修正）。
+    """
+    return 3 * (1 - t) ** 2 * t
+
+
 @dataclass(frozen=True)
 class CubicBezier:
     p0: Point   # 起点
@@ -56,3 +66,37 @@ class CubicBezier:
         dot = v1.dx * v2.dx + v1.dy * v2.dy
         cos = max(-1.0, min(1.0, dot / (v1.length * v2.length)))
         return math.degrees(math.acos(cos))
+
+    def t_at_y(self, y: float, *, tol: float = 1e-9) -> float:
+        """求曲线与水平线 y 的交点参数 t（采样定位 + 二分）。
+
+        要求曲线在交点附近 y 随 t 单调（打版大腿段/裆弯弧均满足）。
+        无交点时抛 ValueError。
+        """
+        n = 64
+        pts = self.sample(n)
+        bracket: tuple[float, float] | None = None
+        for i in range(n + 1):
+            if abs(pts[i].y - y) <= tol:
+                return i / n
+            if i < n and (pts[i].y - y) * (pts[i + 1].y - y) < 0:
+                bracket = (i / n, (i + 1) / n)
+                break
+        if bracket is None:
+            raise ValueError(
+                f"曲线 y 区间 [{pts[0].y:.2f}, {pts[-1].y:.2f}] 内"
+                f"不存在水平线 y={y:.2f} 的交点")
+        lo, hi = bracket
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            if abs(self.point_at(mid).y - y) <= tol:
+                return mid
+            if (self.point_at(lo).y - y) * (self.point_at(mid).y - y) < 0:
+                hi = mid
+            else:
+                lo = mid
+        return (lo + hi) / 2
+
+    def point_at_y(self, y: float) -> Point:
+        """曲线与水平线 y 的交点（要求交点附近 y 单调）。"""
+        return self.point_at(self.t_at_y(y))

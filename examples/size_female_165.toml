@@ -11,7 +11,7 @@ hem        = 47    # 裤口（脚口围）
 front_rise = 30    # 前浪（前裆长，腰顶沿前裆弯量至裆点；立裆线高度由臀围推导，不用本值）
 back_rise  = 40    # 后浪（后立裆长，应大于前浪）
 outseam    = 103   # 裤长（外侧缝长；腰围线高度 = 裤长）
-thigh      = 62    # 大腿围
+thigh      = 63.5    # 大腿围
 
 [options]
 # 前后片臀围单侧调节量 Δ，0~2.0，见 前后片臀围推导.md §四：
@@ -86,3 +86,19 @@ back_waist_curve_sag  = 0.4     # 后片腰头线弧额外下凹量（贴合腰�
 fit                 = "regular"   # 版型：skinny 紧身 / slim 修身 / regular 标准 / loose 宽松
 seam_allowance      = 1.0         # 默认缝份宽度
 piece_gap           = 10.0        # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
+
+# ---- 毗围限制（可选步骤，打版流程.md 后片步骤 8；前后片毗围推导.md §三） ----
+# 大腿围（measurements.thigh）未录入或填 0 时整步自动跳过，以下参数全部无效
+thigh_limit           = true   # 毗围闭环修正开关：true = 测量后按双轨分流整版重跑至收敛；
+                                #   false = 只画毗围测量线（basis 记录实测/目标/ΔW），不修正
+thigh_measure_offset  = 0.0     # 实测下移量 d（0 = 立裆深线直量；常规实测 2.54）
+# —— 闭环控制参数（默认值即推导.md §三 规范值，可按需覆盖）——
+thigh_piece_split_max = 0.2     # 片间分配分界：|ΔW| ≤ 本值平分，否则大差量比（§三.1）
+thigh_front_share     = 0.2    # 大差量前片分配比（后片 = 1 − 本值；红线：严禁 50:50）
+thigh_dual_track_min  = 0.3     # 双轨分流阈值：|ΔW| ≤ 本值单动侧缝，否则内外联动（§三.2）
+thigh_front_crotch_coef = 0.09  # 前小裆尖调拨系数（ΔX前 = 本值×ΔW）
+thigh_back_crotch_coef  = 0.21  # 后大裆尖调拨系数（ΔX后 = 本值×ΔW）
+thigh_front_crotch_max  = 0.4   # 前小裆累计调整上限（防卡耻骨，极值红线）
+thigh_back_crotch_max   = 1.0   # 后大裆累计调整上限（防下蹲崩破，极值红线）
+thigh_max_iter        = 6       # 闭环最大迭代轮数（侧缝被钳后仅靠裆宽收敛慢，可加大）
+thigh_tol             = 0.3    # 闭环收敛容差（|ΔW| ≤ 本值即判定达标）

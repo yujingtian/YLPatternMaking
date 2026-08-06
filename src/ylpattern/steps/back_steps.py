@@ -8,6 +8,7 @@
   5. 裤中线（已实现）
   6. 确定后片膝围和脚口宽度（已实现）
   7. 外缝、内缝线绘制（已实现）
+  8. 毗围限制（已实现：测量上版；闭环修正由 flows/closure.py 驱动）
 
 与前片的关系（同一全局坐标系的一张 DraftSheet，前后片分开排版）：
   - 后片整体置于前片右侧：后片外侧缝参考线 x = 前片内侧缝参考线 x
@@ -514,3 +515,77 @@ def draw_back_inseam_curves(ctx: DraftContext) -> NamedCurve:
                                f"ky = {o.back_inseam_arc_ky}，"
                                f"k2 = {o.back_inseam_arc_k2}×ΔY，膝口 C1 共线（§三）",
                          label="后内缝大腿弧")
+
+
+# ---------- 阶段 8：毗围限制 ----------
+
+def draw_back_thigh_limit(ctx: DraftContext) -> NamedLine | None:
+    """毗围线（前后片同一步骤测量上版）：立裆深线下移 d 的水平线上，
+    量取前后片外缝交点至裆端的宽度，即前、后片毗围。
+
+    可选步骤：大腿围未录入（thigh = 0）时整步跳过，不上版任何元素
+    （"如果有毗围才需要做限制"，打版流程.md 后片步骤 8）。
+
+    d = 0（偏移量为 0，打版流程.md 后片步骤 8 基准情形）：
+      前毗围线 = 前直裆深线∩外缝线 → 前小裆宽顶点；
+      后毗围线 = 后直裆深线∩外缝线 → 后大裆宽顶点（斜量即推导.md §二
+      的 W_b0，sqrt(L_b² + d_drop²) 勾股校验关系自然成立）。
+    d > 0（先偏移再测量，推导.md §一 实测下移量 d）：内端改取测量线与
+      内边界的交点 —— 前片取前内缝大腿弧；后片按高度取后浪弧
+      （测量线在裆尖上方）或后内缝大腿弧（在裆尖下方）。
+
+    本步只测量上版（可选步骤的"测量"一笔）；ΔW 的双轨分流闭环修正
+    （推导.md §三）由 flows/closure.py 驱动整版重跑落地，
+    thigh_limit 开启时生效。
+    依据：打版流程.md 后片步骤 8（毗围限制）。"""
+    m, o = ctx.measurements, ctx.options
+    if m.thigh <= 0:
+        return None                     # 未录入大腿围，可选步骤跳过
+    d = o.thigh_measure_offset
+    measure_y = ctx.line("back.crotch_line").a.y - d
+
+    # 前片：外缝交点 → 裆端（d=0 即前小裆宽顶点）
+    f_out = ctx.curve("front.outseam_upper").point_at_y(measure_y)
+    f_in = (ctx.point("front.crotch_vertex") if d == 0
+            else ctx.curve("front.inseam_upper").point_at_y(measure_y))
+    # 后片：外缝交点 → 后大裆宽顶点（d=0 斜量）/ 内边界交点（d>0）
+    b_out = ctx.curve("back.outseam_upper").point_at_y(measure_y)
+    if d == 0:
+        b_in = ctx.point("back.crotch_vertex")
+    else:
+        vertex = ctx.point("back.crotch_vertex")
+        b_in = (ctx.curve("back.rise_curve") if measure_y > vertex.y
+                else ctx.curve("back.inseam_upper")).point_at_y(measure_y)
+
+    ctx.add_point("front.thigh_outseam_point", f_out,
+                  step="draw_back_thigh_limit",
+                  basis=f"前外缝大腿弧 ∩ 测量线 y = {measure_y:.2f}（d = {d}）",
+                  label="前毗围外缝点")
+    ctx.add_point("back.thigh_outseam_point", b_out,
+                  step="draw_back_thigh_limit",
+                  basis=f"后外缝大腿弧 ∩ 测量线 y = {measure_y:.2f}（d = {d}）",
+                  label="后毗围外缝点")
+    if d > 0:
+        ctx.add_point("front.thigh_inseam_point", f_in,
+                      step="draw_back_thigh_limit",
+                      basis=f"前内缝大腿弧 ∩ 测量线 y = {measure_y:.2f}",
+                      label="前毗围内缝点")
+        ctx.add_point("back.thigh_inseam_point", b_in,
+                      step="draw_back_thigh_limit",
+                      basis=f"后片内边界 ∩ 测量线 y = {measure_y:.2f}",
+                      label="后毗围内缝点")
+
+    w_f = f_out.distance_to(f_in)
+    w_b = b_out.distance_to(b_in)
+    dw = m.thigh - (w_f + w_b)
+    ctx.add_line("front.thigh_line", LineSegment(f_out, f_in),
+                 step="draw_back_thigh_limit",
+                 basis=f"实测前毗围 {w_f:.2f}（d = {d}，"
+                       "打版流程.md 后片步骤 8）",
+                 label="前毗围线")
+    return ctx.add_line("back.thigh_line", LineSegment(b_out, b_in),
+                        step="draw_back_thigh_limit",
+                        basis=f"实测后毗围 {w_b:.2f}；合计 {w_f + w_b:.2f} / "
+                              f"目标 {m.thigh}，ΔW = {dw:+.2f}"
+                              "（前后片毗围推导.md §三）",
+                        label="后毗围线")

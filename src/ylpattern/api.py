@@ -13,13 +13,12 @@ from __future__ import annotations
 
 from .draft import DraftContext
 from .exporters import svg as svg_exp
-from .flows.back_flow import FULL_FLOW
-from .flows.runner import FlowRunner
+from .flows.closure import run_with_thigh_closure
 from .params import Measurements, PatternOptions, WaistbandType
 
 
 def run(*, waist: float, hip: float, knee: float, hem: float,
-        front_rise: float, back_rise: float, outseam: float, thigh: float,
+        front_rise: float, back_rise: float, outseam: float, thigh: float = 0.0,
         delta: float = 1.0, front_crotch_adjust: float = 0.0,
         back_crotch_adjust: float = 0.0,
         front_intake_adjust: float = 0.0,
@@ -46,6 +45,14 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_hipwaist_arc_dx1: float = 0.15, back_hipwaist_arc_k1: float = 0.40,
         back_hipwaist_arc_dx2: float = 0.0, back_hipwaist_arc_k2: float = 0.25,
         front_hem_arc_sag: float = 0.0, back_hem_arc_sag: float = 0.0,
+        thigh_limit: bool = False, thigh_measure_offset: float = 0.0,
+        thigh_piece_split_max: float = 0.2, thigh_front_share: float = 0.2,
+        thigh_dual_track_min: float = 0.3,
+        thigh_front_crotch_coef: float = 0.09,
+        thigh_back_crotch_coef: float = 0.21,
+        thigh_front_crotch_max: float = 0.4,
+        thigh_back_crotch_max: float = 1.0,
+        thigh_max_iter: int = 6, thigh_tol: float = 0.3,
         piece_gap: float = 10.0,
         seam_allowance: float = 1.0,
         svg: str = "out/sheet.svg",
@@ -55,7 +62,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
     """录入尺寸参数，执行整版绘制流程（前片 + 后片）并生成 SVG。
 
     参数：
-        waist ~ thigh    八项核心尺寸（cm），含义见 examples/size_female_165.toml
+        waist ~ outseam  七项核心尺寸（cm），含义见 examples/size_female_165.toml
+        thigh            大腿围（可选；0 = 未录入，毗围限制自动跳过，
+                         打版流程.md 后片步骤 8）
         delta            前后片臀围单侧调节量 Δ（推导文档 §四）
         front_crotch_adjust 前小裆修正量（紧身款 -0.5~-1.0）
         back_crotch_adjust  后大裆修正量（坐姿伸展加深取正，常规 0）
@@ -98,6 +107,17 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_hipwaist_arc_k2   多早往腰头收（0.20~0.30；越大上段越早内缩、末端笔直进角，§五）
         front_hem_arc_sag  前片脚口弧高（0 = 直线；正值向下凸出裤片，常取 0.3~0.8）
         back_hem_arc_sag   后片脚口弧高（口径同前片，前后片独立录入）
+        thigh_limit        毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8；
+                           开启后按 前后片毗围推导.md §三 双轨分流整版重跑至收敛）
+        thigh_measure_offset  毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54）
+        thigh_piece_split_max  片间分配分界（|ΔW| ≤ 本值平分，否则大差量比，§三.1）
+        thigh_front_share  大差量前片分配比（后片 = 1 − 本值；红线严禁 50:50，§三.1）
+        thigh_dual_track_min  双轨分流阈值（|ΔW| ≤ 本值单动侧缝，否则内外联动，§三.2）
+        thigh_front_crotch_coef / thigh_back_crotch_coef
+                           前/后裆尖调拨系数（ΔX = 系数×ΔW，默认 0.09 / 0.21，§三.2）
+        thigh_front_crotch_max / thigh_back_crotch_max
+                           前/后裆尖累计调整上限（防卡耻骨 0.4 / 防下蹲崩破 1.0，§三.2）
+        thigh_max_iter / thigh_tol  闭环最大迭代轮数（默认 3）/ 收敛容差（默认 0.05）
         piece_gap        前后片排版间距（后片整体置于前片右侧，分开不重叠）
         svg              SVG 输出路径
         until            执行到指定步骤（含）停止，用于看中间状态
@@ -149,23 +169,33 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        back_hipwaist_arc_k2=back_hipwaist_arc_k2,
                        front_hem_arc_sag=front_hem_arc_sag,
                        back_hem_arc_sag=back_hem_arc_sag,
+                       thigh_limit=thigh_limit,
+                       thigh_measure_offset=thigh_measure_offset,
+                       thigh_piece_split_max=thigh_piece_split_max,
+                       thigh_front_share=thigh_front_share,
+                       thigh_dual_track_min=thigh_dual_track_min,
+                       thigh_front_crotch_coef=thigh_front_crotch_coef,
+                       thigh_back_crotch_coef=thigh_back_crotch_coef,
+                       thigh_front_crotch_max=thigh_front_crotch_max,
+                       thigh_back_crotch_max=thigh_back_crotch_max,
+                       thigh_max_iter=thigh_max_iter, thigh_tol=thigh_tol,
                        piece_gap=piece_gap,
                        seam_allowance=seam_allowance)
 
-    runner = FlowRunner(m, o)
-    ctx = runner.run(FULL_FLOW, until=until, trace=bool(trace))
+    ctx, trace_text = run_with_thigh_closure(m, o, until=until,
+                                             trace=bool(trace))
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")
 
     if trace:
         with open(trace, "w", encoding="utf-8") as fp:
-            fp.write(runner.trace_text())
+            fp.write(trace_text)
         print(f"追踪记录已输出:{trace}")
     if report:
         from .exporters import report as report_exp
         with open(report, "w", encoding="utf-8") as fp:
-            fp.write(report_exp.render_report(ctx.sheet, m, o,
-                                              runner.trace_text()))
+            fp.write(report_exp.render_report(ctx.sheet, m, ctx.options,
+                                              trace_text))
         print(f"报表已输出:{report}")
     return ctx

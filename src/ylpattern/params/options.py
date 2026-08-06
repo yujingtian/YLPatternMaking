@@ -77,6 +77,18 @@ class PatternOptions:
     back_hipwaist_arc_k2: float = 0.25     # 多早往腰头收（§五，0.20~0.30；越大上段越早内缩、末端笔直进角）
     front_hem_arc_sag: float = 0.0         # 前片脚口弧高（0 = 直线；正值向下凸出裤片，常取 0.3~0.8）
     back_hem_arc_sag: float = 0.0          # 后片脚口弧高（口径同前片，前后片独立录入）
+    thigh_limit: bool = False              # 毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8）
+    thigh_measure_offset: float = 0.0      # 毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54，前后片毗围推导.md §一）
+    # —— 毗围闭环修正控制参数（前后片毗围推导.md §三，默认值即文档规范值） ——
+    thigh_piece_split_max: float = 0.2     # 片间分配分界：|ΔW| ≤ 本值平分，否则按大差量比（§三.1）
+    thigh_front_share: float = 0.2         # 大差量前片分配比（后片 = 1 − 本值；红线：严禁 50:50，§三.1）
+    thigh_dual_track_min: float = 0.3      # 双轨分流阈值：|ΔW| ≤ 本值单动侧缝，否则内外联动（§三.2）
+    thigh_front_crotch_coef: float = 0.09  # 前小裆尖调拨系数（ΔX前 = 本值×ΔW，§三.2）
+    thigh_back_crotch_coef: float = 0.21   # 后大裆尖调拨系数（ΔX后 = 本值×ΔW，§三.2）
+    thigh_front_crotch_max: float = 0.4    # 前小裆累计调整上限（防卡耻骨，极值红线，§三.2）
+    thigh_back_crotch_max: float = 1.0     # 后大裆累计调整上限（防下蹲崩破，极值红线，§三.2）
+    thigh_max_iter: int = 6                # 闭环最大迭代轮数（§三.3；侧缝被钳后仅靠裆宽收敛慢，可加大）
+    thigh_tol: float = 0.3                 # 闭环收敛容差（§三.3；|ΔW| ≤ 本值即判定达标）
     piece_gap: float = 10.0                # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
     waistband_type: WaistbandType = WaistbandType.STRAIGHT
     waistband_width: float = 4.0           # 腰头宽（直腰头打版时从版顶扣除，注意点 1）
@@ -90,6 +102,19 @@ class PatternOptions:
             raise ValueError("腰头宽不能为负数")
         if self.seam_allowance <= 0:
             raise ValueError("缝份必须为正数")
+        if self.thigh_measure_offset < 0:
+            raise ValueError("毗围实测下移量 d 不能为负数")
+        if not 0.0 < self.thigh_front_share < 1.0:
+            raise ValueError(f"大差量前片分配比须在 (0, 1) 内，得到 {self.thigh_front_share}")
+        for name in ("thigh_piece_split_max", "thigh_dual_track_min",
+                     "thigh_front_crotch_coef", "thigh_back_crotch_coef",
+                     "thigh_front_crotch_max", "thigh_back_crotch_max"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} 不能为负数，得到 {getattr(self, name)}")
+        if self.thigh_max_iter < 1:
+            raise ValueError(f"闭环最大迭代轮数必须 ≥ 1，得到 {self.thigh_max_iter}")
+        if self.thigh_tol <= 0:
+            raise ValueError(f"闭环收敛容差必须为正数，得到 {self.thigh_tol}")
 
     def rise_on_pattern(self, rise: float) -> float:
         """版上浪长：前浪/后浪均为含腰头的成衣量（自腰头顶量起），

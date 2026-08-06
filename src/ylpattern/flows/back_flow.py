@@ -40,6 +40,8 @@ BACK_FLOW = [
     # —— 阶段 7：外缝、内缝线 ——
     bs.draw_back_outseam_curves,
     bs.draw_back_inseam_curves,
+    # —— 阶段 8：毗围限制（测量上版；闭环修正见 flows/closure.py） ——
+    bs.draw_back_thigh_limit,
 ]
 
 # 整版流程：先前片、后后片（后片步骤读取前片共享基准线）

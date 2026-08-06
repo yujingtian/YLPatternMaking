@@ -13,7 +13,7 @@ import sys
 from .exporters import report as report_exp
 from .exporters import svg as svg_exp
 from .flows.back_flow import FULL_FLOW
-from .flows.runner import FlowRunner
+from .flows.closure import run_with_thigh_closure
 from .params import Measurements, PatternOptions
 
 
@@ -21,12 +21,12 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     m = Measurements.from_file(args.size)
     o = PatternOptions.from_file(args.size)
 
-    runner = FlowRunner(m, o)
     want_trace = bool(args.trace)
-    ctx = runner.run(FULL_FLOW, until=args.until, trace=want_trace)
+    ctx, trace_text = run_with_thigh_closure(m, o, until=args.until,
+                                             trace=want_trace)
 
     if args.until and not any(t.startswith(f"[{args.until}]")
-                              for t in runner.trace_log) \
+                              for t in trace_text.splitlines()) \
             and args.until not in [f.__name__ for f in FULL_FLOW]:
         print(f"警告：流程中不存在步骤 '{args.until}'，已执行全部步骤",
               file=sys.stderr)
@@ -36,15 +36,15 @@ def _cmd_draft(args: argparse.Namespace) -> int:
         print(f"SVG 已输出：{args.svg}")
     if want_trace:
         with open(args.trace, "w", encoding="utf-8") as fp:
-            fp.write(runner.trace_text())
+            fp.write(trace_text)
         print(f"追踪记录已输出：{args.trace}")
     if args.report:
         with open(args.report, "w", encoding="utf-8") as fp:
             fp.write(report_exp.render_report(
-                ctx.sheet, m, o, runner.trace_text()))
+                ctx.sheet, m, ctx.options, trace_text))
         print(f"报表已输出：{args.report}")
     if not (args.svg or args.trace or args.report):
-        print(report_exp.render_report(ctx.sheet, m, o, runner.trace_text()))
+        print(report_exp.render_report(ctx.sheet, m, ctx.options, trace_text))
     return 0
 
 

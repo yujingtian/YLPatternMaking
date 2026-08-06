@@ -22,13 +22,16 @@ class Measurements:
     front_rise: float   # 前浪
     back_rise: float    # 后浪
     outseam: float      # 裤长（外侧缝长）
-    thigh: float        # 大腿围
+    thigh: float = 0.0  # 大腿围（0 = 未录入：毗围限制为可选步骤，
+                        #   无毗围尺寸则自动跳过，打版流程.md 后片步骤 8）
 
     def __post_init__(self) -> None:
         for f in ("waist", "hip", "knee", "hem", "front_rise",
-                  "back_rise", "outseam", "thigh"):
+                  "back_rise", "outseam"):
             if getattr(self, f) <= 0:
                 raise ValueError(f"尺寸 {f} 必须为正数，得到 {getattr(self, f)}")
+        if self.thigh < 0:
+            raise ValueError(f"大腿围不能为负数（0 = 未录入），得到 {self.thigh}")
         if self.hip <= self.waist:
             raise ValueError(f"臀围({self.hip})应大于腰围({self.waist})，请检查尺寸单")
         if self.back_rise <= self.front_rise:
