@@ -78,3 +78,18 @@ def test_waist_back_target():
     assert abs(waist.waist_back_target(70, balance=0.5) - 18.0) < 1e-9
     # 约克转移量 V后省 3.0：17.5 + 3.0 = 20.5（腰围推导.md §三.2、§五）
     assert abs(waist.waist_back_target(70, dart=3.0) - 20.5) < 1e-9
+
+
+def test_dart_center_ratios():
+    # 打版流程.md 后片步骤 9：1 个省腰头两等分（t=1/2）；
+    # 2 个省三等分（t=1/3、2/3）
+    assert waist.dart_center_ratios(1) == (0.5,)
+    r1, r2 = waist.dart_center_ratios(2)
+    assert abs(r1 - 1 / 3) < 1e-9 and abs(r2 - 2 / 3) < 1e-9
+
+
+def test_dart_center_ratios_raises():
+    import pytest
+    with pytest.raises(ValueError, match="省数"):
+        waist.dart_center_ratios(3)
+

@@ -90,6 +90,20 @@ def side_seam_intake_front(front_hip: float, front_waist: float,
     return front_hip - front_waist - front_slant
 
 
+def dart_center_ratios(count: int) -> tuple[float, ...]:
+    """省中点在腰头直线上的等分比例 t（打版流程.md 后片步骤 9）。
+
+    1 个省：腰头两等分，中点 t = 1/2；
+    2 个省：腰头三等分，两个中间点 t = 1/3、2/3。
+    t 自腰头内缝端（后中）向腰头外缝端量取。
+    """
+    if count == 1:
+        return (0.5,)
+    if count == 2:
+        return (1 / 3, 2 / 3)
+    raise ValueError(f"后片省数只支持 1 或 2，得到 {count}")
+
+
 def waistline_horizontal_span(waist_len: float, side_rise: float,
                               fc_drop: float) -> float:
     """真实腰围线水平跨度：sqrt(L² − (h+d)²)（腰头绘制推导.md §4.2）。

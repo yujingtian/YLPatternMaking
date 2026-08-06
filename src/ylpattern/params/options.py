@@ -42,7 +42,15 @@ class PatternOptions:
     back_intake: float = 2.5               # 后中内收比例模数 X（实际内收 = 臀腰高×X/15；宽松 1.5~2、标准 2.5~3、紧身 3.5~4.5）
     waist_balance: float = 0.0             # 腰围前后片调节量（前减后加，同臀围 Δ；平分 0）
     front_waist_dart: float = 0.0          # 前片省量/褶量 V前省（牛仔裤 0；西裤 1.5~2.5）
-    back_waist_dart: float = 0.0           # 后片省量/约克转移量 V后省（约克步骤前 0；Yoke 2.5~4.0）
+    back_waist_dart: float = 0.0           # 后片省量/约克转移量 V后省（约克步骤前 0；Yoke 2.5~4.0；
+                                           #   后腰长容位，与绘制的腰省相互独立）
+    back_dart: bool = False                # 后片腰省绘制开关（可选步骤，打版流程.md 后片步骤 9；
+                                           #   只画省，不动腰头）
+    back_dart_count: int = 1               # 后片省数（1 = 腰头两等分取中点；2 = 三等分取两个中点）
+    back_dart_width: tuple[float, ...] | float = (2.0,)
+                                           # 每个省的省量列表（默认 2cm，顺序同省中点：后中 → 侧缝）；
+                                           # 写单个值则各省共用；省量为 0 的省不绘制
+    back_dart_length: float = 11.0         # 省中线长（省中点沿腰头直线垂线向内，默认 11cm）
     side_intake_k_waist: float = 1.0       # 侧缝内收推导的 k_waist（前减后加，常取 1.0~1.5）
     side_rise: float = 0.0                 # 侧缝腰头抬高量 h（0 = 外缝顶点压腰围基础线，0~1.5）
     outseam_bulge: float = 0.3             # 外侧缝弧外凸量（微微凸，0.2~0.5）
@@ -104,6 +112,24 @@ class PatternOptions:
             raise ValueError("缝份必须为正数")
         if self.thigh_measure_offset < 0:
             raise ValueError("毗围实测下移量 d 不能为负数")
+        if self.back_dart_count not in (1, 2):
+            raise ValueError(f"后片省数只支持 1 或 2，得到 {self.back_dart_count}")
+        # 省量归一化为元组：标量 → 单元素；单元素且两个省 → 广播共用
+        widths = self.back_dart_width
+        if isinstance(widths, (int, float)):
+            widths = (float(widths),)
+        else:
+            widths = tuple(float(w) for w in widths)
+        if len(widths) == 1 and self.back_dart_count == 2:
+            widths = widths * 2
+        if len(widths) != self.back_dart_count:
+            raise ValueError(f"省量个数须等于省数 {self.back_dart_count}，"
+                             f"得到 {len(widths)} 个")
+        if any(w < 0 for w in widths):
+            raise ValueError(f"省量不能为负数，得到 {widths}")
+        object.__setattr__(self, "back_dart_width", widths)
+        if self.back_dart_length <= 0:
+            raise ValueError(f"省中线长必须为正数，得到 {self.back_dart_length}")
         if not 0.0 < self.thigh_front_share < 1.0:
             raise ValueError(f"大差量前片分配比须在 (0, 1) 内，得到 {self.thigh_front_share}")
         for name in ("thigh_piece_split_max", "thigh_dual_track_min",

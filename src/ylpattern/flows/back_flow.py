@@ -42,6 +42,8 @@ BACK_FLOW = [
     bs.draw_back_inseam_curves,
     # —— 阶段 8：毗围限制（测量上版；闭环修正见 flows/closure.py） ——
     bs.draw_back_thigh_limit,
+    # —— 阶段 9：后片绘制省（可选步骤，开关开启且 V后省 > 0 才绘制） ——
+    bs.draw_back_darts,
 ]
 
 # 整版流程：先前片、后后片（后片步骤读取前片共享基准线）

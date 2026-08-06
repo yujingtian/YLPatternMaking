@@ -9,6 +9,7 @@
   6. 确定后片膝围和脚口宽度（已实现）
   7. 外缝、内缝线绘制（已实现）
   8. 毗围限制（已实现：测量上版；闭环修正由 flows/closure.py 驱动）
+  9. 后片绘制省（已实现：可选步骤，开关开启且 V后省 > 0 才绘制）
 
 与前片的关系（同一全局坐标系的一张 DraftSheet，前后片分开排版）：
   - 后片整体置于前片右侧：后片外侧缝参考线 x = 前片内侧缝参考线 x
@@ -266,7 +267,8 @@ def draw_back_waistline(ctx: DraftContext) -> NamedLine:
     起翘等高辅助线（与前片腰围外缝顶点等高、平行于后腰围基础线）
     + 以后浪顶点为圆心、后腰长 L 为半径斜截辅助线，交点即后腰头
     外缝顶点 B；|AB| = L 为构造直线约束（A = 后浪顶点）。
-    L = W/4 + balance + V后省（腰围推导.md §三.2，前减后加口径）。
+    L = W/4 + balance + V后省（腰围推导.md §三.2，前减后加口径；
+    V后省即 back_waist_dart，为腰头容位/约克转移量，与是否绘制省无关）。
     本步产物为构造线；最终轮廓由 draw_back_waistband_arc 的弧线取代。
     依据：打版流程.md 后片步骤 3。"""
     m, o = ctx.measurements, ctx.options
@@ -589,3 +591,65 @@ def draw_back_thigh_limit(ctx: DraftContext) -> NamedLine | None:
                               f"目标 {m.thigh}，ΔW = {dw:+.2f}"
                               "（前后片毗围推导.md §三）",
                         label="后毗围线")
+
+
+# ---------- 阶段 9：后片绘制省 ----------
+
+def draw_back_darts(ctx: DraftContext) -> NamedLine | None:
+    """后片腰省（打版流程.md 后片步骤 9，可选步骤）：
+    开关 back_dart 开启且至少一个省量 > 0 才绘制，否则整步跳过。
+
+    省中点：将腰头直线（A 后浪顶点 → B 后腰头外缝顶点的构造弦）等分 ——
+    1 个省两等分取中点（t = 1/2），2 个省三等分取两个中间点
+    （t = 1/3、2/3）；
+    省中线：自省中点作腰头直线的垂线，朝裤片内部量取省长
+    back_dart_length（默认 11cm），端点即省尖；
+    省口：省量逐省配置（back_dart_width 列表，顺序同省中点：后中 → 侧缝；
+    写单个值则各省共用；省量为 0 的省不绘制），自省中点沿腰头直线两侧
+    各取半个省量得省口两点，与省尖相连成等腰三角形（省中线为对称轴）。
+    绘省不动腰头：后腰长由 back_waist_dart（容位/约克转移量）决定，
+    与本步绘制的省相互独立（后腰可以有容位）。
+    依据：打版流程.md 后片步骤 9。"""
+    o = ctx.options
+    widths = o.back_dart_width            # __post_init__ 已归一化为元组
+    if not o.back_dart or all(w <= 0 for w in widths):
+        return None                     # 开关关闭或全部省量为 0，可选步骤跳过
+    a = ctx.point("back.rise_top_point")
+    b = ctx.point("back.waist_side_point")
+    d = (b - a).normalized()            # 腰头直线方向（后中 → 侧缝）
+    n = d.perpendicular()
+    if n.dy > 0:
+        n = n.scale(-1)                 # 省尖朝裤片内部（腰头下方）
+    last: NamedLine | None = None
+    for i, (t, w) in enumerate(
+            zip(waist_f.dart_center_ratios(o.back_dart_count), widths), 1):
+        if w <= 0:
+            continue                    # 省量为 0 的省不绘制
+        half = w / 2
+        c = a.lerp(b, t)
+        apex = c + n.scale(o.back_dart_length)
+        p_in = c + d.scale(-half)       # 省口内侧点（朝后中 A）
+        p_out = c + d.scale(half)       # 省口外侧点（朝侧缝 B）
+        ctx.add_point(f"back.dart{i}_center", c,
+                      step="draw_back_darts",
+                      basis=f"腰头直线 {o.back_dart_count + 1} 等分点 "
+                            f"t = {t:.4f}（打版流程.md 后片步骤 9）",
+                      label=f"省{i}中点")
+        ctx.add_point(f"back.dart{i}_apex", apex,
+                      step="draw_back_darts",
+                      basis=f"省中点沿腰头垂线向内 {o.back_dart_length}",
+                      label=f"省{i}尖")
+        ctx.add_line(f"back.dart{i}_center_line", LineSegment(c, apex),
+                     step="draw_back_darts",
+                     basis="腰头直线垂线（省中线，对称轴）",
+                     label=f"省{i}中线", role="ref")
+        ctx.add_line(f"back.dart{i}_leg_inner", LineSegment(apex, p_in),
+                     step="draw_back_darts",
+                     basis=f"省尖 → 省口内侧点（省中点两侧各 {half:.2f}）",
+                     label=f"省{i}内侧边", role="struct")
+        last = ctx.add_line(f"back.dart{i}_leg_outer", LineSegment(apex, p_out),
+                            step="draw_back_darts",
+                            basis=f"省尖 → 省口外侧点（省量 {w:.2f}，"
+                                  "等腰三角形）",
+                            label=f"省{i}外侧边", role="struct")
+    return last

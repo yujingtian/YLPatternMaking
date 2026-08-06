@@ -32,6 +32,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_waist_curve_sag: float = 0.3, back_waist_curve_sag: float = 0.3,
         waist_balance: float = 0.0, front_waist_dart: float = 0.0,
         back_waist_dart: float = 0.0,
+        back_dart: bool = False, back_dart_count: int = 1,
+        back_dart_width: float | list[float] | tuple[float, ...] = 2.0,
+        back_dart_length: float = 11.0,
         front_crease_e: float = 0.0, back_crease_e: float = 0.0,
         knee_adjust: float = 1.0, hem_adjust: float = 1.0,
         calf_arc_alpha: float = 0.10,
@@ -83,7 +86,15 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_waist_curve_sag   后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，同上）
         waist_balance    前后片腰围调节量（前减后加；平分 0，常取 1.0~1.5）
         front_waist_dart 前片省量/褶量 V前省（标准牛仔裤 0；西裤 1.5~3.0）
-        back_waist_dart 后片省量/约克转移量 V后省（约克步骤前 0；Yoke 2.5~4.0）
+        back_waist_dart 后片省量/约克转移量 V后省（约克步骤前 0；Yoke 2.5~4.0；
+                        后腰长容位，与绘制的腰省相互独立）
+        back_dart        后片腰省绘制开关（可选步骤，打版流程.md 后片步骤 9；
+                         只画省，不动腰头）
+        back_dart_count  后片省数（1 = 腰头两等分取中点；2 = 三等分取两个中点）
+        back_dart_width  每个省的省量（默认 2cm；列表逐省控制，顺序同省中点：
+                         后中 → 侧缝，个数须等于省数；写单个值则各省共用；
+                         省量为 0 的省不绘制）
+        back_dart_length 省中线长（默认 11cm）
         front_crease_e   前片裤中线调节量 e（常规 0；修身 -0.5~-0.8，裤中线推导.md §五）
         back_crease_e    后片裤中线调节量 e（常规与 front_crease_e 一致；
                          偏平臀/特大臀峰/提臀造型时独立设定，§五）
@@ -147,6 +158,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        waist_balance=waist_balance,
                        front_waist_dart=front_waist_dart,
                        back_waist_dart=back_waist_dart,
+                       back_dart=back_dart,
+                       back_dart_count=back_dart_count,
+                       back_dart_width=back_dart_width,
+                       back_dart_length=back_dart_length,
                        front_crease_e=front_crease_e,
                        back_crease_e=back_crease_e,
                        knee_adjust=knee_adjust,
