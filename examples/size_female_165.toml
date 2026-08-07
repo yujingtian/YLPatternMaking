@@ -82,6 +82,27 @@ back_hipwaist_arc_k2  = 0.1      # 多早往腰头收：越大上段越早内缩
 front_hem_arc_sag   = 0.0         # 前片脚口弧高（0 = 直线；正值向下凸，常取 0.3~0.8）
 back_hem_arc_sag    = 0.0         # 后片脚口弧高（口径同前片，前后片独立录入）
 
+# ---- 前口袋：挖削嵌入式（INSET）主切口（可选步骤，前口袋绘制.md §二、§三）----
+# 先画后裁：只把挖除区边界（腰弧子段 + 袋口母线 + 侧缝直线）上版为结构线，
+# 布尔裁减待裁切层实现；P1/P2 沿弧相对定位，随尺码联动
+front_pocket            = false   # 主切口绘制开关
+front_pocket_p1_dist    = 8.5     # P1 锚点：腰弧上自腰外缝顶点朝前浪顶点的弧长距离（cm）
+front_pocket_p2_drop    = 7.5     # P2 锚点：外缝弧上自腰外缝顶点向下的弧长深度（cm）
+front_pocket_dart_width = 2.0     # 腰头吃省总宽 ΔW（cm，§三.1，常规 1.5~2.5；共线渐变撇削：
+                                  #   P1′ = P1 沿腰弧朝前浪顶点量取 ΔW（省顶点在腰头线上），
+                                  #   切削线 = 设计净线 + (P1′−P1)·(1−t)ⁿ，侧缝端衰减至 0；
+                                  #   0 = 不吃省）
+front_pocket_paring_n   = 2.0     # 撇削衰减幂指数 n（常规 1.5~2.0；越大吃量越集中在腰头端）
+front_pocket_mouth_bulge = 0.5    # 袋口母线弧高（bulge 模式；正值向裤片内侧凹入加深勺口；0 = 直口）
+front_pocket_mouth_bulge_at = 0.5 # 袋口弧顶位置（bulge 模式；弦长比例 0~1，默认中点；最低点偏侧缝端取 0.6~0.7）
+front_pocket_mouth_mode = "bulge" # 袋口净线模式："bulge" 弧高式 / "tangent" 两端垂直式
+                                  #   / "polyline" 折角式（带倒角折线：P1 → 折角 K → P2）
+front_pocket_mouth_h1   = 3.0     # 腰头端切线柄长（tangent 模式，cm；P1 端切线 ⟂ 腰弧切线）
+front_pocket_mouth_h2   = 3.0     # 侧缝端切线柄长（tangent 模式，cm；P2 端切线 ⟂ 外缝弧切线）
+front_pocket_mouth_corners = [[0.55, 1.5]]
+                                  # 折角列表（polyline 模式；每角 = [弦上位置 0~1, 内推深度 cm]，
+                                  #   按位置严格递增，可多个；空列表 = 直袋口）
+
 # 腰头类型：straight = 直腰头（打版时扣除腰头宽）
 #           curved   = 弯腰头（与前片一体绘制再裁出）
 waistband_type      = "straight"

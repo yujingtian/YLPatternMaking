@@ -85,6 +85,34 @@ class PatternOptions:
     back_hipwaist_arc_k2: float = 0.25     # 多早往腰头收（§五，0.20~0.30；越大上段越早内缩、末端笔直进角）
     front_hem_arc_sag: float = 0.0         # 前片脚口弧高（0 = 直线；正值向下凸出裤片，常取 0.3~0.8）
     back_hem_arc_sag: float = 0.0          # 后片脚口弧高（口径同前片，前后片独立录入）
+    # —— 前口袋：挖削嵌入式（INSET）主切口（前口袋绘制.md §二、§三） ——
+    front_pocket: bool = False             # 前口袋主切口绘制开关（可选步骤；只画切口边界，
+                                           #   不做布尔裁除——先画后裁，裁切层未建）
+    front_pocket_p1_dist: float = 8.5      # P1 锚点：腰弧上自腰外缝顶点朝前浪顶点的弧长距离（cm，§二）
+    front_pocket_p2_drop: float = 7.5      # P2 锚点：外缝弧上自腰外缝顶点向下的弧长深度（cm，§二）
+    front_pocket_dart_width: float = 2.0   # 腰头吃省总宽 ΔW_dart（cm，§三.1，常规 1.5~2.5；
+                                           #   P1′ = P1 沿腰弧朝前浪顶点量取，省顶点落在腰头线上；
+                                           #   袋口线按 V·(1−t)ⁿ 共线渐变偏置，侧缝端衰减至 0；
+                                           #   0 = 不吃省，切削线 = 设计净线）
+    front_pocket_paring_n: float = 2.0     # 撇削衰减幂指数 n（§三.1，常规 1.5~2.0；
+                                           #   越大吃量越集中在腰头端）
+    front_pocket_mouth_bulge: float = 0.5  # 袋口母线 C(t) 弧高（bulge 模式；正值向裤片内侧凹入
+                                           #   加深勺口；0 = 直口）
+    front_pocket_mouth_bulge_at: float = 0.5
+                                           # 袋口弧顶位置（bulge 模式；弦长比例 0~1，0 = 腰头端、
+                                           #   1 = 侧缝端；中点 0.5；最低点偏侧缝端取 0.6~0.7）
+    front_pocket_mouth_mode: str = "bulge" # 袋口净线模式（§二 曲线控制函数）：
+                                           #   "bulge"    = 弧高式（bulge / bulge_at 控制）
+                                           #   "tangent"  = 两端垂直式：P1 端切线 ⟂ 腰弧切线、
+                                           #                P2 端切线 ⟂ 外缝弧切线（h1/h2 控制）
+                                           #   "polyline" = 折角式（带倒角折线：P1 → 折角 K → P2，
+                                           #                corner_at / corner_depth 控制）
+    front_pocket_mouth_h1: float = 3.0     # 腰头端切线柄长（tangent 模式，cm；越大勺口越深）
+    front_pocket_mouth_h2: float = 3.0     # 侧缝端切线柄长（tangent 模式，cm）
+    front_pocket_mouth_corners: tuple[tuple[float, float], ...] = ((0.55, 1.5),)
+                                           # 折角列表（polyline 模式；每个折角 = (弦上位置 0~1,
+                                           #   内推深度 cm)，按位置严格递增，可多个；
+                                           #   空列表 = 直袋口）
     thigh_limit: bool = False              # 毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8）
     thigh_measure_offset: float = 0.0      # 毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54，前后片毗围推导.md §一）
     # —— 毗围闭环修正控制参数（前后片毗围推导.md §三，默认值即文档规范值） ——
@@ -141,6 +169,40 @@ class PatternOptions:
             raise ValueError(f"闭环最大迭代轮数必须 ≥ 1，得到 {self.thigh_max_iter}")
         if self.thigh_tol <= 0:
             raise ValueError(f"闭环收敛容差必须为正数，得到 {self.thigh_tol}")
+        if self.front_pocket_p1_dist <= 0:
+            raise ValueError(f"P1 弧长距离必须为正数，得到 {self.front_pocket_p1_dist}")
+        if self.front_pocket_p2_drop <= 0:
+            raise ValueError(f"P2 弧长深度必须为正数，得到 {self.front_pocket_p2_drop}")
+        if not 0.0 <= self.front_pocket_dart_width <= 6.0:
+            raise ValueError(f"腰头吃省总宽建议在 0~6.0 cm 内（常规 1.5~2.5），"
+                             f"得到 {self.front_pocket_dart_width}")
+        if not 1.0 <= self.front_pocket_paring_n <= 3.0:
+            raise ValueError(f"撇削衰减幂指数 n 建议在 1.0~3.0 内（常规 1.5~2.0），"
+                             f"得到 {self.front_pocket_paring_n}")
+        if abs(self.front_pocket_mouth_bulge) > 5.0:
+            raise ValueError(f"袋口母线弧高绝对值不超过 5.0，得到 {self.front_pocket_mouth_bulge}")
+        if not 0.0 < self.front_pocket_mouth_bulge_at < 1.0:
+            raise ValueError(f"袋口弧顶位置须在 (0, 1) 内，"
+                             f"得到 {self.front_pocket_mouth_bulge_at}")
+        if self.front_pocket_mouth_mode not in ("bulge", "tangent", "polyline"):
+            raise ValueError(f"袋口净线模式只支持 bulge / tangent / polyline，"
+                             f"得到 {self.front_pocket_mouth_mode!r}")
+        for name in ("front_pocket_mouth_h1", "front_pocket_mouth_h2"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} 切线柄长必须为正数，"
+                                 f"得到 {getattr(self, name)}")
+        # 折角列表归一化为元组，逐角校验，位置须严格递增
+        corners = tuple((float(u), float(d))
+                        for u, d in self.front_pocket_mouth_corners)
+        for u, d in corners:
+            if not 0.0 < u < 1.0:
+                raise ValueError(f"折角位置须在 (0, 1) 内，得到 {corners}")
+            if not 0.0 <= d <= 5.0:
+                raise ValueError(f"折角内推深度建议在 0~5.0 cm 内，得到 {corners}")
+        if any(corners[i + 1][0] <= corners[i][0]
+               for i in range(len(corners) - 1)):
+            raise ValueError(f"折角位置须按弦上比例严格递增，得到 {corners}")
+        object.__setattr__(self, "front_pocket_mouth_corners", corners)
 
     def rise_on_pattern(self, rise: float) -> float:
         """版上浪长：前浪/后浪均为含腰头的成衣量（自腰头顶量起），

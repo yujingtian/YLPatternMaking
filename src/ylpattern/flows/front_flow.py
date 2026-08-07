@@ -7,9 +7,11 @@
 阶段 5：裤中线 —— 打版流程.md 前片步骤 4（前后片裤中线推导.md）。
 阶段 6：膝围、脚口宽度 —— 打版流程.md 前片步骤 5（脚口膝围外缝点推导.md）。
 阶段 7：外缝、内缝线 —— 打版流程.md 前片步骤 6（前片弧线推导.md）。
+阶段 8：前口袋（可选步骤）—— 打版流程.md「前口袋打版过程」（前口袋绘制.md §二、§三）。
 """
 
 from ..steps import front_steps as fs
+from ..steps import front_pocket_steps as fps
 
 FRONT_FLOW = [
     # —— 阶段 1：五条水平参考线 + 大矩形框架 ——
@@ -36,4 +38,6 @@ FRONT_FLOW = [
     # —— 阶段 7：外缝、内缝线 ——
     fs.draw_front_outseam_curves,
     fs.draw_front_inseam_curves,
+    # —— 阶段 8：前口袋（可选步骤，开关开启才绘制；先画后裁，不动其他元素） ——
+    fps.draw_front_pocket,
 ]

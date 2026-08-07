@@ -78,6 +78,24 @@ run(
     front_hem_arc_sag=0.0, # 前片脚口弧高（0 = 直线；正值向下凸，常取 0.3~0.8）
     back_hem_arc_sag=0.0,  # 后片脚口弧高（口径同前片，前后片独立录入）
 
+    # ---- 前口袋（挖削嵌入式主切口，可选步骤，前口袋绘制.md §二、§三）----
+    front_pocket=True,              # 主切口绘制开关（先画后裁，不做布尔裁除）
+    front_pocket_p1_dist=8,       # P1：腰弧上自腰外缝顶点朝前浪顶点的弧长距离（cm）
+    front_pocket_p2_drop=7.5,       # P2：外缝弧上自腰外缝顶点向下的弧长深度（cm）
+    front_pocket_dart_width=1.5,    # 腰头吃省总宽（cm，常规 1.5~2.5；共线渐变撇削，
+                                    #   腰头端最大、向侧缝端衰减至 0；0 = 不吃省）
+    front_pocket_paring_n=1.5,      # 撇削衰减幂指数（常规 1.5~2.0）
+    front_pocket_mouth_bulge=0,   # 袋口母线弧高（bulge 模式；正值向裤片内侧凹入加深勺口；0 = 直口）
+    front_pocket_mouth_bulge_at=0.5,  # 袋口弧顶位置（bulge 模式；弦长比例 0~1；中点 0.5，
+                                      #   最低点偏侧缝端取 0.6~0.7）
+    front_pocket_mouth_mode="tangent",  # 袋口净线模式："bulge" 弧高式 / "tangent" 两端垂直式
+                                      #   / "polyline" 折角式（带倒角折线）
+    front_pocket_mouth_h1=8.0,    # 腰头端切线柄长（tangent 模式，P1 端切线 ⟂ 腰弧切线）
+    front_pocket_mouth_h2=3.0,    # 侧缝端切线柄长（tangent 模式，P2 端切线 ⟂ 外缝弧切线）
+    front_pocket_mouth_corners=[(0.3, 2), (0.6, 3)],
+                                  # 折角列表（polyline 模式；每角 = (弦上位置, 内推深度cm)，
+                                  #   按位置严格递增，可多个；空列表 = 直袋口）
+
     # ---- 排版 ----
     piece_gap=10.0,        # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
 

@@ -48,6 +48,17 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_hipwaist_arc_dx1: float = 0.15, back_hipwaist_arc_k1: float = 0.40,
         back_hipwaist_arc_dx2: float = 0.0, back_hipwaist_arc_k2: float = 0.25,
         front_hem_arc_sag: float = 0.0, back_hem_arc_sag: float = 0.0,
+        front_pocket: bool = False,
+        front_pocket_p1_dist: float = 8.5,
+        front_pocket_p2_drop: float = 7.5,
+        front_pocket_dart_width: float = 2.0,
+        front_pocket_paring_n: float = 2.0,
+        front_pocket_mouth_bulge: float = 0.5,
+        front_pocket_mouth_bulge_at: float = 0.5,
+        front_pocket_mouth_mode: str = "bulge",
+        front_pocket_mouth_h1: float = 3.0,
+        front_pocket_mouth_h2: float = 3.0,
+        front_pocket_mouth_corners: list | tuple = ((0.55, 1.5),),
         thigh_limit: bool = False, thigh_measure_offset: float = 0.0,
         thigh_piece_split_max: float = 0.2, thigh_front_share: float = 0.2,
         thigh_dual_track_min: float = 0.3,
@@ -118,6 +129,23 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_hipwaist_arc_k2   多早往腰头收（0.20~0.30；越大上段越早内缩、末端笔直进角，§五）
         front_hem_arc_sag  前片脚口弧高（0 = 直线；正值向下凸出裤片，常取 0.3~0.8）
         back_hem_arc_sag   后片脚口弧高（口径同前片，前后片独立录入）
+        front_pocket       前口袋（挖削嵌入式主切口）绘制开关（可选步骤，
+                           打版流程.md「前口袋打版过程」；先画后裁，不做布尔裁除）
+        front_pocket_p1_dist   P1 锚点：腰弧上自腰外缝顶点朝前浪顶点的弧长距离（cm）
+        front_pocket_p2_drop   P2 锚点：外缝弧上自腰外缝顶点向下的弧长深度（cm）
+        front_pocket_dart_width  腰头吃省总宽 ΔW（cm，前口袋绘制.md §三.1，常规 1.5~2.5；
+                           共线渐变撇削：省顶点 P1′ = P1 沿腰弧朝前浪顶点量取 ΔW（落在腰头线上），
+                           切削线 = 设计净线 + (P1′−P1)·(1−t)ⁿ，侧缝端衰减至 0；0 = 不吃省）
+        front_pocket_paring_n  撇削衰减幂指数 n（常规 1.5~2.0；越大吃量越集中在腰头端）
+        front_pocket_mouth_bulge  袋口母线弧高（bulge 模式；正值向裤片内侧凹入加深勺口；0 = 直口）
+        front_pocket_mouth_bulge_at  袋口弧顶位置（bulge 模式；弦长比例 0~1，默认中点 0.5；
+                           袋口最低点偏侧缝端取 0.6~0.7）
+        front_pocket_mouth_mode  袋口净线模式："bulge" 弧高式 / "tangent" 两端垂直式 /
+                           "polyline" 折角式（带倒角折线：P1 → 折角 K → P2）
+        front_pocket_mouth_h1 / front_pocket_mouth_h2
+                           腰头端 / 侧缝端切线柄长（tangent 模式，cm，默认 3.0）
+        front_pocket_mouth_corners  折角列表（polyline 模式；每个折角 = (弦上位置 0~1,
+                           内推深度 cm)，按位置严格递增，可多个；空列表 = 直袋口）
         thigh_limit        毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8；
                            开启后按 前后片毗围推导.md §三 双轨分流整版重跑至收敛）
         thigh_measure_offset  毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54）
@@ -184,6 +212,17 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        back_hipwaist_arc_k2=back_hipwaist_arc_k2,
                        front_hem_arc_sag=front_hem_arc_sag,
                        back_hem_arc_sag=back_hem_arc_sag,
+                       front_pocket=front_pocket,
+                       front_pocket_p1_dist=front_pocket_p1_dist,
+                       front_pocket_p2_drop=front_pocket_p2_drop,
+                       front_pocket_dart_width=front_pocket_dart_width,
+                       front_pocket_paring_n=front_pocket_paring_n,
+                       front_pocket_mouth_bulge=front_pocket_mouth_bulge,
+                       front_pocket_mouth_bulge_at=front_pocket_mouth_bulge_at,
+                       front_pocket_mouth_mode=front_pocket_mouth_mode,
+                       front_pocket_mouth_h1=front_pocket_mouth_h1,
+                       front_pocket_mouth_h2=front_pocket_mouth_h2,
+                       front_pocket_mouth_corners=front_pocket_mouth_corners,
                        thigh_limit=thigh_limit,
                        thigh_measure_offset=thigh_measure_offset,
                        thigh_piece_split_max=thigh_piece_split_max,

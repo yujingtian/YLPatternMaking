@@ -49,3 +49,14 @@ class Point:
         """线性插值，t=0 在 self，t=1 在 other。"""
         return Point(self.x + (other.x - self.x) * t,
                      self.y + (other.y - self.y) * t)
+
+    def rotate_around(self, center: "Point", angle_deg: float) -> "Point":
+        """绕 center 旋转 angle_deg 度（逆时针为正，标准旋转矩阵）。
+
+        前腰省转移（前口袋绘制.md §三.1）：P′ = A + R(γ)·(P − A)。
+        """
+        rad = math.radians(angle_deg)
+        c, s = math.cos(rad), math.sin(rad)
+        v = self - center
+        return Point(center.x + v.dx * c - v.dy * s,
+                     center.y + v.dx * s + v.dy * c)

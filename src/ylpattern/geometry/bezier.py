@@ -100,3 +100,58 @@ class CubicBezier:
     def point_at_y(self, y: float) -> Point:
         """曲线与水平线 y 的交点（要求交点附近 y 单调）。"""
         return self.point_at(self.t_at_y(y))
+
+    def t_at_length(self, s: float, *, tol: float = 1e-9) -> float:
+        """按弧长定位参数 t：曲线自 t=0 起弧长为 s 处的参数（采样定位 + 二分）。
+
+        要求 s ∈ [0, length()]；越界抛 ValueError。用途：口袋锚点
+        "沿弧量取"（前口袋绘制.md §二）等弧长参数化场合。
+        弧长为 length() 同款折线近似（n=64），定位精度约 1e-4 cm。
+        """
+        n = 64
+        pts = self.sample(n)
+        cum = [0.0]
+        for i in range(n):
+            cum.append(cum[-1] + pts[i].distance_to(pts[i + 1]))
+        total = cum[-1]
+        if s < -tol or s > total + tol:
+            raise ValueError(
+                f"弧长 s={s:.2f} 超出曲线总长 {total:.2f} 的范围")
+        # 端点容差短路（length() 与本法累加顺序不同，总值可能差 1 ULP）
+        if s <= tol:
+            return 0.0
+        if total - s <= tol:
+            return 1.0
+        # 定位包含 s 的采样段 [i, i+1]
+        i = 0
+        while cum[i + 1] < s:
+            i += 1
+        lo, hi = i / n, (i + 1) / n
+
+        def partial(t: float) -> float:
+            return cum[i] + pts[i].distance_to(self.point_at(t))
+
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            if abs(partial(mid) - s) <= tol:
+                return mid
+            if partial(mid) < s:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2
+
+    def point_at_length(self, s: float) -> Point:
+        """自 t=0 起弧长 s 处的曲线点。"""
+        return self.point_at(self.t_at_length(s))
+
+    def split(self, t: float) -> "tuple[CubicBezier, CubicBezier]":
+        """de Casteljau 细分：返回 ([0,t] 段, [t,1] 段)，两段在 point_at(t) 相接。"""
+        q0 = self.p0.lerp(self.p1, t)
+        q1 = self.p1.lerp(self.p2, t)
+        q2 = self.p2.lerp(self.p3, t)
+        r0 = q0.lerp(q1, t)
+        r1 = q1.lerp(q2, t)
+        m = r0.lerp(r1, t)
+        return (CubicBezier(self.p0, q0, r0, m),
+                CubicBezier(m, r1, q2, self.p3))
