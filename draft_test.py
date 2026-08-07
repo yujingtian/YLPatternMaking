@@ -80,8 +80,8 @@ run(
 
     # ---- 前口袋（挖削嵌入式主切口，可选步骤，前口袋绘制.md §二、§三）----
     front_pocket=True,              # 主切口绘制开关（先画后裁，不做布尔裁除）
-    front_pocket_p1_dist=8,       # P1：腰弧上自腰外缝顶点朝前浪顶点的弧长距离（cm）
-    front_pocket_p2_drop=7.5,       # P2：外缝弧上自腰外缝顶点向下的弧长深度（cm）
+    front_pocket_p1_dist=10,       # P1：腰弧上自腰外缝顶点朝前浪顶点的弧长距离（cm）
+    front_pocket_p2_drop=8,       # P2：外缝弧上自腰外缝顶点向下的弧长深度（cm）
     front_pocket_dart_width=1.5,    # 腰头吃省总宽（cm，常规 1.5~2.5；共线渐变撇削，
                                     #   腰头端最大、向侧缝端衰减至 0；0 = 不吃省）
     front_pocket_paring_n=1.5,      # 撇削衰减幂指数（常规 1.5~2.0）
@@ -95,6 +95,25 @@ run(
     front_pocket_mouth_corners=[(0.3, 2), (0.6, 3)],
                                   # 折角列表（polyline 模式；每角 = (弦上位置, 内推深度cm)，
                                   #   按位置严格递增，可多个；空列表 = 直袋口）
+
+    # ---- 前贴袋（表面外贴式 PATCH，可选步骤，前口袋绘制.md §四）----
+    front_patch=False,              # 贴袋绘制开关（前片不裁切，独立样板）
+    front_patch_top_drop=1,      # 袋口外上角自腰外缝顶点垂直向下（cm）
+    front_patch_top_inset=1.0,      # 袋口外上角自侧缝水平向内（cm）
+    front_patch_width=10.0,         # 袋口宽（cm）
+    front_patch_height=12.0,        # 袋身高（cm）
+    front_patch_shape="custom",  # 净形：rectangle 方底 / baker_shield 盾形尖底
+                                    #   / angular 底角斜切 / custom 全自定义
+    front_patch_bottom_width=0.0,   # 袋底宽（baker_shield/angular；0 = 与袋口同宽，
+                                    #   底边两侧对称内收）
+    front_patch_rotate_deg=8.0,     # 贴袋整体绕袋口外上角旋转角（度，顺时针为正）
+    front_patch_tip_depth=2,      # 盾形底尖额外深度（baker_shield，cm）
+    front_patch_chamfer=1,        # 底角斜切量（angular，cm）
+    front_patch_custom_points=[(0, 0), (10, 0), (10, -10), (0, -10)],
+                                  # custom 净形角点（相对袋口外上角的 dx/dy，≥3，顺时针）
+    front_patch_custom_edges=[(0, 0.5), (0, 0.5), (0, 0.5), (0, 0.5)],
+                                  # custom 每边形态：(弧高, 弧顶位置)；弧高 0 = 直线，
+                                  #   个数 = 角点数；示例为右边一段弧
 
     # ---- 排版 ----
     piece_gap=10.0,        # 前后片排版间距（后片整体置于前片右侧，分开不重叠）

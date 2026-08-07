@@ -113,6 +113,28 @@ class PatternOptions:
                                            # 折角列表（polyline 模式；每个折角 = (弦上位置 0~1,
                                            #   内推深度 cm)，按位置严格递增，可多个；
                                            #   空列表 = 直袋口）
+    # —— 前贴袋：表面外贴式（PATCH）独立样板（前口袋绘制.md §四；前片不裁切） ——
+    front_patch: bool = False              # 前贴袋绘制开关（净样上版即表面定位标记，§四.1）
+    front_patch_top_drop: float = 10.0     # 袋口外上角自腰外缝顶点垂直向下（cm）
+    front_patch_top_inset: float = 2.0     # 袋口外上角自侧缝水平向内（cm）
+    front_patch_width: float = 14.0        # 袋口宽（cm）
+    front_patch_height: float = 15.0       # 袋身高（cm）
+    front_patch_shape: str = "rectangle"   # 净形（§五 net_outline_type）：
+                                           #   "rectangle" 方底 / "baker_shield" 盾形尖底
+                                           #   / "angular" 底角斜切 / "custom" 全自定义
+    front_patch_bottom_width: float = 0.0  # 袋底宽（baker_shield/angular，cm；
+                                           #   0 = 与袋口同宽，底边两侧对称内收）
+    front_patch_rotate_deg: float = 0.0    # 贴袋整体绕袋口外上角旋转角（度，顺时针为正；
+                                           #   调整贴袋摆放角度，各形态与 custom 均生效）
+    front_patch_tip_depth: float = 2.5     # 盾形底尖额外深度（baker_shield，cm）
+    front_patch_chamfer: float = 2.0       # 底角斜切量（angular，cm）
+    front_patch_custom_points: tuple[tuple[float, float], ...] = ()
+                                           # custom 净形角点列表（相对袋口外上角的 dx/dy，
+                                           #   ≥3 个，顺时针绕行）
+    front_patch_custom_edges: tuple[tuple[float, float], ...] = ()
+                                           # custom 每边形态：(弧高, 弧顶位置 0~1)，
+                                           #   弧高 0 = 直线，正值沿左手法向凸；
+                                           #   个数须等于角点数（闭合边）
     thigh_limit: bool = False              # 毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8）
     thigh_measure_offset: float = 0.0      # 毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54，前后片毗围推导.md §一）
     # —— 毗围闭环修正控制参数（前后片毗围推导.md §三，默认值即文档规范值） ——
@@ -203,6 +225,44 @@ class PatternOptions:
                for i in range(len(corners) - 1)):
             raise ValueError(f"折角位置须按弦上比例严格递增，得到 {corners}")
         object.__setattr__(self, "front_pocket_mouth_corners", corners)
+        if self.front_patch_top_drop < 0 or self.front_patch_top_inset < 0:
+            raise ValueError("贴袋定位下移量/内移量不能为负数")
+        if self.front_patch_width <= 0 or self.front_patch_height <= 0:
+            raise ValueError("贴袋袋口宽/袋身高必须为正数")
+        if self.front_patch_shape not in ("rectangle", "baker_shield",
+                                          "angular", "custom"):
+            raise ValueError(f"贴袋净形只支持 rectangle / baker_shield / angular "
+                             f"/ custom，得到 {self.front_patch_shape!r}")
+        if self.front_patch_bottom_width < 0:
+            raise ValueError(f"袋底宽不能为负数，得到 {self.front_patch_bottom_width}")
+        eff_bw = self.front_patch_bottom_width or self.front_patch_width
+        if not 0.0 <= self.front_patch_tip_depth < self.front_patch_height:
+            raise ValueError(f"盾形底尖深度须在 [0, 袋身高) 内，"
+                             f"得到 {self.front_patch_tip_depth}")
+        if not 0.0 <= self.front_patch_chamfer * 2 <= eff_bw:
+            raise ValueError(f"底角斜切量两倍不能超过袋底宽，"
+                             f"得到 {self.front_patch_chamfer}")
+        if abs(self.front_patch_rotate_deg) > 90.0:
+            raise ValueError(f"贴袋旋转角建议在 ±90° 内，"
+                             f"得到 {self.front_patch_rotate_deg}")
+        # custom 模式：角点 ≥3，边形态个数 = 角点数，逐边校验
+        cpts = tuple((float(x), float(y))
+                     for x, y in self.front_patch_custom_points)
+        cedges = tuple((float(b), float(at))
+                       for b, at in self.front_patch_custom_edges)
+        if self.front_patch_shape == "custom":
+            if len(cpts) < 3:
+                raise ValueError(f"custom 净形角点至少 3 个，得到 {len(cpts)} 个")
+            if len(cedges) != len(cpts):
+                raise ValueError(f"custom 边形态个数须等于角点数 {len(cpts)}，"
+                                 f"得到 {len(cedges)} 个")
+            for b, at in cedges:
+                if abs(b) > 10.0:
+                    raise ValueError(f"custom 边弧高绝对值不超过 10.0，得到 {cedges}")
+                if b != 0.0 and not 0.0 < at < 1.0:
+                    raise ValueError(f"custom 弧边弧顶位置须在 (0, 1) 内，得到 {cedges}")
+        object.__setattr__(self, "front_patch_custom_points", cpts)
+        object.__setattr__(self, "front_patch_custom_edges", cedges)
 
     def rise_on_pattern(self, rise: float) -> float:
         """版上浪长：前浪/后浪均为含腰头的成衣量（自腰头顶量起），

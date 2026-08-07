@@ -59,6 +59,18 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pocket_mouth_h1: float = 3.0,
         front_pocket_mouth_h2: float = 3.0,
         front_pocket_mouth_corners: list | tuple = ((0.55, 1.5),),
+        front_patch: bool = False,
+        front_patch_top_drop: float = 10.0,
+        front_patch_top_inset: float = 2.0,
+        front_patch_width: float = 14.0,
+        front_patch_height: float = 15.0,
+        front_patch_shape: str = "rectangle",
+        front_patch_bottom_width: float = 0.0,
+        front_patch_rotate_deg: float = 0.0,
+        front_patch_tip_depth: float = 2.5,
+        front_patch_chamfer: float = 2.0,
+        front_patch_custom_points: list | tuple = (),
+        front_patch_custom_edges: list | tuple = (),
         thigh_limit: bool = False, thigh_measure_offset: float = 0.0,
         thigh_piece_split_max: float = 0.2, thigh_front_share: float = 0.2,
         thigh_dual_track_min: float = 0.3,
@@ -146,6 +158,22 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                            腰头端 / 侧缝端切线柄长（tangent 模式，cm，默认 3.0）
         front_pocket_mouth_corners  折角列表（polyline 模式；每个折角 = (弦上位置 0~1,
                            内推深度 cm)，按位置严格递增，可多个；空列表 = 直袋口）
+        front_patch        前贴袋（表面外贴式 PATCH）绘制开关（前口袋绘制.md §四；
+                           前片不裁切，独立样板，净样即表面定位标记）
+        front_patch_top_drop / front_patch_top_inset
+                           袋口外上角定位：自腰外缝顶点垂直向下 / 水平向内（cm）
+        front_patch_width / front_patch_height  袋口宽 / 袋身高（cm）
+        front_patch_shape  净形："rectangle" 方底 / "baker_shield" 盾形尖底 /
+                           "angular" 底角斜切 / "custom" 全自定义
+        front_patch_bottom_width  袋底宽（baker_shield/angular，cm；0 = 与袋口同宽，
+                           底边两侧对称内收）
+        front_patch_rotate_deg  贴袋整体绕袋口外上角旋转角（度，顺时针为正）
+        front_patch_tip_depth  盾形底尖额外深度（baker_shield，cm）
+        front_patch_chamfer  底角斜切量（angular，cm）
+        front_patch_custom_points  custom 净形角点列表（相对袋口外上角的
+                           dx/dy，≥3 个，顺时针绕行）
+        front_patch_custom_edges  custom 每边形态：(弧高, 弧顶位置 0~1)，
+                           弧高 0 = 直线；个数 = 角点数
         thigh_limit        毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8；
                            开启后按 前后片毗围推导.md §三 双轨分流整版重跑至收敛）
         thigh_measure_offset  毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54）
@@ -223,6 +251,18 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        front_pocket_mouth_h1=front_pocket_mouth_h1,
                        front_pocket_mouth_h2=front_pocket_mouth_h2,
                        front_pocket_mouth_corners=front_pocket_mouth_corners,
+                       front_patch=front_patch,
+                       front_patch_top_drop=front_patch_top_drop,
+                       front_patch_top_inset=front_patch_top_inset,
+                       front_patch_width=front_patch_width,
+                       front_patch_height=front_patch_height,
+                       front_patch_shape=front_patch_shape,
+                       front_patch_bottom_width=front_patch_bottom_width,
+                       front_patch_rotate_deg=front_patch_rotate_deg,
+                       front_patch_tip_depth=front_patch_tip_depth,
+                       front_patch_chamfer=front_patch_chamfer,
+                       front_patch_custom_points=front_patch_custom_points,
+                       front_patch_custom_edges=front_patch_custom_edges,
                        thigh_limit=thigh_limit,
                        thigh_measure_offset=thigh_measure_offset,
                        thigh_piece_split_max=thigh_piece_split_max,

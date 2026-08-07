@@ -7,7 +7,8 @@
   腰头线上，吃省向侧缝端衰减至 0）→
   挖除区边界（O→P1 腰弧子段、P1→P1′ 吃省边、切削线、P2→O 外缝弧子段）
   上版为结构元素。
-不实现：PATCH 管线、袋布贴偏置、底袋、明线、DXF 图层。
+PATCH（表面外贴式）管线见本模块 draw_front_patch_pocket（§四）。
+不实现：袋布贴偏置、底袋、明线、DXF 图层。
 
 与其他步骤一致：数值计算走 geometry / draft.curves，经验常数收敛到
 PatternOptions（front_pocket_*），步骤间元素只经 DraftContext 读取。
@@ -220,3 +221,96 @@ def draw_front_pocket(ctx: DraftContext) -> NamedCurve | NamedLine | None:
                                f"|V| = 吃省 {dw}）：腰头端吃省最大、侧缝端衰减至 0"
                                "（前口袋绘制.md §三.1）",
                          label="袋口切削线")
+
+
+# ---------- 分支 B：表面外贴式（PATCH）管线 ----------
+
+def draw_front_patch_pocket(ctx: DraftContext) -> NamedLine | None:
+    """前贴袋（表面外贴式 PATCH，打版流程.md「前口袋打版过程」，可选步骤）：
+    开关 front_patch 开启才绘制，否则整步跳过。
+
+    前大片保持 100% 完整、不裁切（§四.1，Ω_cutout = ∅）；贴袋为独立裁片，
+    净样上版位置即表面定位标记（Drill/Placement）。
+
+    独立定位（与 INSET 锚点解耦）：袋口外上角 = 自腰外缝顶点 B 垂直向下
+    front_patch_top_drop、水平向内 front_patch_top_inset；袋口宽
+    front_patch_width 向内量取，袋身高 front_patch_height 向下量取。
+    净形四形态（§五 net_outline_type）：
+      - "rectangle" 方底四边形；
+      - "baker_shield" 盾形尖底：底边换为底中尖点（额外加深
+        front_patch_tip_depth）的五边形；
+      - "angular" 底角斜切：两底角各斜切 front_patch_chamfer 的六边形；
+      - "custom" 全自定义：角点列表 front_patch_custom_points（相对锚点），
+        每边形态 front_patch_custom_edges 逐边给（直线或带弧高/弧顶弧线）。
+    袋底宽 front_patch_bottom_width 可独立于袋口宽（0 = 同宽，底边两侧
+    对称内收；rectangle/custom 不涉及）；front_patch_rotate_deg 绕袋口
+    外上角整体旋转（顺时针为正），各形态与 custom 均生效。
+    缝份与缩水不在本步处理：工程口径为先画后裁，裁片分离后由裁切层
+    统一加缩水与缝边（§四.2 的反折/包缝量届时再扩）。
+    依据：打版流程.md「前口袋打版过程」；前口袋绘制.md §四、§五。
+    """
+    o = ctx.options
+    if not o.front_patch:
+        return None                     # 开关关闭，可选步骤跳过
+
+    step = "draw_front_patch_pocket"
+    b = ctx.point("front.waist_side_point")     # O：腰侧交点
+    a = Point(b.x + o.front_patch_top_inset,
+              b.y - o.front_patch_top_drop)     # 袋口外上角（侧缝侧）
+    w, h = o.front_patch_width, o.front_patch_height
+    shape = o.front_patch_shape
+
+    # 净形（顺时针：外上角 → 内上角 → 向下绕行，Y 向上坐标系）；
+    # 袋底宽可独立于袋口宽（底边两侧对称内收 bi，负值 = 外扩）
+    bw = o.front_patch_bottom_width or w
+    bi = (w - bw) / 2
+    if shape == "baker_shield":
+        net = [a, Point(a.x + w, a.y),
+               Point(a.x + w - bi, a.y - h),
+               Point(a.x + w / 2, a.y - h - o.front_patch_tip_depth),
+               Point(a.x + bi, a.y - h)]
+    elif shape == "angular":
+        c = o.front_patch_chamfer
+        net = [a, Point(a.x + w, a.y),
+               Point(a.x + w - bi, a.y - h + c),
+               Point(a.x + w - bi - c, a.y - h),
+               Point(a.x + bi + c, a.y - h),
+               Point(a.x + bi, a.y - h + c)]
+    elif shape == "custom":
+        # 全自定义：角点相对锚点给定，逐边可选直线或带弧高弧线
+        net = [Point(a.x + dx, a.y + dy)
+               for dx, dy in o.front_patch_custom_points]
+    else:                                           # rectangle
+        net = [a, Point(a.x + w, a.y),
+               Point(a.x + w, a.y - h),
+               Point(a.x, a.y - h)]
+
+    # 整体旋转：绕袋口外上角 a（调整贴袋摆放角度，顺时针为正，
+    # Y 向上坐标系取负角）
+    if o.front_patch_rotate_deg != 0:
+        net = [p.rotate_around(a, -o.front_patch_rotate_deg) for p in net]
+
+    last = None
+    for i in range(len(net)):
+        ctx.add_point(f"front.patch_net_pt{i + 1}", net[i],
+                      step=step,
+                      basis=f"净形角点 {i + 1}（{shape}，前口袋绘制.md §五）",
+                      label=f"贴袋净角{i + 1}")
+        nxt = net[(i + 1) % len(net)]
+        bulge, at = (o.front_patch_custom_edges[i]
+                     if shape == "custom" else (0.0, 0.5))
+        if shape == "custom" and bulge != 0.0:
+            last = ctx.add_curve(
+                f"front.patch_net_seg{i + 1}",
+                curves.arc_through(net[i], nxt, bulge=bulge, bulge_at=at),
+                step=step,
+                basis=f"净样第 {i + 1} 段：弧线，弧高 {bulge}、"
+                      f"弧顶位置 {at}（custom，§五）",
+                label=f"贴袋净样{i + 1}段")
+        else:
+            last = ctx.add_line(f"front.patch_net_seg{i + 1}",
+                                LineSegment(net[i], nxt),
+                                step=step,
+                                basis=f"净样第 {i + 1} 段（表面定位标记，§四.1）",
+                                label=f"贴袋净样{i + 1}段", role="struct")
+    return last
