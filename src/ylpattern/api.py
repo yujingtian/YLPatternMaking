@@ -197,7 +197,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                            前/后裆尖调拨系数（ΔX = 系数×ΔW，默认 0.09 / 0.21，§三.2）
         thigh_front_crotch_max / thigh_back_crotch_max
                            前/后裆尖累计调整上限（防卡耻骨 0.4 / 防下蹲崩破 1.0，§三.2）
-        thigh_max_iter / thigh_tol  闭环最大迭代轮数（默认 3）/ 收敛容差（默认 0.05）
+        thigh_max_iter / thigh_tol  闭环最大迭代轮数（默认 6）/ 收敛容差（默认 0.3）
         piece_gap        前后片排版间距（后片整体置于前片右侧，分开不重叠）
         svg              SVG 输出路径
         until            执行到指定步骤（含）停止，用于看中间状态
