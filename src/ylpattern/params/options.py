@@ -135,6 +135,22 @@ class PatternOptions:
                                            # custom 每边形态：(弧高, 弧顶位置 0~1)，
                                            #   弧高 0 = 直线，正值沿左手法向凸；
                                            #   个数须等于角点数（闭合边）
+    # —— 袋布（pouch）：嵌入式前口袋储物袋布大片/小片（袋布绘制.md §一~§五） ——
+    front_pouch: bool = False              # 袋布绘制开关（依赖前口袋主切口，须先开 front_pocket）
+    front_pouch_waist_safe: float = 4.0    # 腰缝锚点安全内延 ΔW_safe（沿腰弧自 P1 朝门襟，
+                                           #   cm，文档推荐 3.5~5.0，§二.1）
+    front_pouch_side_safe: float = 8.0     # 侧缝锚点安全垂深 ΔH_safe（自 P2 沿侧缝下探，
+                                           #   cm，文档推荐 6.0~10.0，§二.2）
+    front_pouch_nodes: tuple[tuple[float, float], ...] = ((5.0, 16.0), (1.5, 13.5))
+                                           # 自定义内部节点列表 K（≥2 个；相对局部原点
+                                           #   O = 腰外缝顶点，x 朝门襟 +、y 向下 +，§三.1）
+    front_pouch_edges: tuple = (("line",), ("arc", 2.5, 0.6), ("line",))
+                                           # 边形态列表，个数 = 节点数 + 1
+                                           #   （P_w0→K1、Ki→Ki+1、Kn→P_s0 逐边）：
+                                           #   ("line",) 直线
+                                           #   ("arc", 弧高h, 弧顶分位 0.1~0.9) 弧高式
+                                           #   ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
+                                           #   （夹角相对弦向，κ 为弦长比，§三.2）
     thigh_limit: bool = False              # 毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8）
     thigh_measure_offset: float = 0.0      # 毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54，前后片毗围推导.md §一）
     # —— 毗围闭环修正控制参数（前后片毗围推导.md §三，默认值即文档规范值） ——
@@ -263,6 +279,40 @@ class PatternOptions:
                     raise ValueError(f"custom 弧边弧顶位置须在 (0, 1) 内，得到 {cedges}")
         object.__setattr__(self, "front_patch_custom_points", cpts)
         object.__setattr__(self, "front_patch_custom_edges", cedges)
+        # 袋布：节点/边形态归一化与校验（袋布绘制.md §三、§六）
+        if self.front_pouch_waist_safe < 0 or self.front_pouch_side_safe < 0:
+            raise ValueError("袋布安全内延/垂深不能为负数")
+        nodes = tuple((float(x), float(y)) for x, y in self.front_pouch_nodes)
+        if len(nodes) < 2:
+            raise ValueError(f"袋布自定义节点至少 2 个，得到 {len(nodes)} 个")
+        edges = []
+        for e in self.front_pouch_edges:
+            spec = (e[0],) + tuple(float(x) for x in e[1:])
+            if spec[0] == "line":
+                if len(spec) != 1:
+                    raise ValueError(f"line 边不带参数，得到 {e}")
+            elif spec[0] == "arc":
+                if len(spec) != 3:
+                    raise ValueError(f"arc 边须为 (弧高, 弧顶分位)，得到 {e}")
+                if abs(spec[1]) > 10.0:
+                    raise ValueError(f"arc 弧高绝对值不超过 10.0，得到 {e}")
+                if not 0.1 <= spec[2] <= 0.9:
+                    raise ValueError(f"arc 弧顶分位须在 [0.1, 0.9] 内，得到 {e}")
+            elif spec[0] == "bezier":
+                if len(spec) != 5:
+                    raise ValueError(f"bezier 边须为 (α°, κ1, β°, κ2)，得到 {e}")
+                if abs(spec[1]) > 90.0 or abs(spec[3]) > 90.0:
+                    raise ValueError(f"bezier 夹角建议在 ±90° 内，得到 {e}")
+                if not 0.0 < spec[2] <= 1.0 or not 0.0 < spec[4] <= 1.0:
+                    raise ValueError(f"bezier 手柄弦长比须在 (0, 1] 内，得到 {e}")
+            else:
+                raise ValueError(f"袋布边形态只支持 line / arc / bezier，得到 {e}")
+            edges.append(spec)
+        if len(edges) != len(nodes) + 1:
+            raise ValueError(f"袋布边形态个数须为节点数 + 1（{len(nodes) + 1}），"
+                             f"得到 {len(edges)} 个")
+        object.__setattr__(self, "front_pouch_nodes", nodes)
+        object.__setattr__(self, "front_pouch_edges", tuple(edges))
 
     def rise_on_pattern(self, rise: float) -> float:
         """版上浪长：前浪/后浪均为含腰头的成衣量（自腰头顶量起），

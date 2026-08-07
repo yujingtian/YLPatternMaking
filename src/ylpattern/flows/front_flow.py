@@ -8,10 +8,12 @@
 阶段 6：膝围、脚口宽度 —— 打版流程.md 前片步骤 5（脚口膝围外缝点推导.md）。
 阶段 7：外缝、内缝线 —— 打版流程.md 前片步骤 6（前片弧线推导.md）。
 阶段 8：前口袋（可选步骤）—— 打版流程.md「前口袋打版过程」（前口袋绘制.md §二、§三）。
+阶段 9：袋布（可选步骤，依赖前口袋）—— 打版流程.md「袋布打版过程」（袋布绘制.md §二、§三、§五）。
 """
 
 from ..steps import front_steps as fs
 from ..steps import front_pocket_steps as fps
+from ..steps import front_pouch_steps as fph
 
 FRONT_FLOW = [
     # —— 阶段 1：五条水平参考线 + 大矩形框架 ——
@@ -41,4 +43,6 @@ FRONT_FLOW = [
     # —— 阶段 8：前口袋（可选步骤，开关开启才绘制；先画后裁，不动其他元素） ——
     fps.draw_front_pocket,
     fps.draw_front_patch_pocket,
+    # —— 阶段 9：袋布（可选步骤，依赖前口袋主切口） ——
+    fph.draw_front_pouch,
 ]

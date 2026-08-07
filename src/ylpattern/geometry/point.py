@@ -27,6 +27,17 @@ class Vector:
     def scale(self, k: float) -> "Vector":
         return Vector(self.dx * k, self.dy * k)
 
+    def rotate(self, angle_deg: float) -> "Vector":
+        """逆时针旋转 angle_deg 度（标准旋转矩阵）。
+
+        袋布贝塞尔边手柄方向（袋布绘制.md §三.2(3)）：û(α) = 弦向单位
+        向量旋转 α。
+        """
+        rad = math.radians(angle_deg)
+        c, s = math.cos(rad), math.sin(rad)
+        return Vector(self.dx * c - self.dy * s,
+                      self.dx * s + self.dy * c)
+
 
 @dataclass(frozen=True)
 class Point:

@@ -96,6 +96,16 @@ run(
                                   # 折角列表（polyline 模式；每角 = (弦上位置, 内推深度cm)，
                                   #   按位置严格递增，可多个；空列表 = 直袋口）
 
+    # ---- 袋布（嵌入式口袋储物袋布大片/小片，可选步骤，袋布绘制.md §二、§三、§五）----
+    front_pouch=True,               # 袋布绘制开关（依赖 front_pocket 主切口）
+    front_pouch_waist_safe=4.0,     # 腰缝锚点安全内延（沿腰弧自 P1 朝门襟，cm，3.5~5.0）
+    front_pouch_side_safe=10,      # 侧缝锚点安全垂深（自 P2 沿侧缝下探，cm，6.0~10.0）
+    front_pouch_nodes=[(12, 24.0), (6, 24.0)],
+                                  # 自定义内部节点（≥2；相对腰外缝顶点，x 朝门襟、y 向下）
+    front_pouch_edges=[("line",), ("line",), ("arc", 0.5, 0.6)],
+                                  # 边形态（个数 = 节点数+1）：("line",) /
+                                  #   ("arc", 弧高, 弧顶分位) / ("bezier", α°, κ1, β°, κ2)
+
     # ---- 前贴袋（表面外贴式 PATCH，可选步骤，前口袋绘制.md §四）----
     front_patch=False,              # 贴袋绘制开关（前片不裁切，独立样板）
     front_patch_top_drop=1,      # 袋口外上角自腰外缝顶点垂直向下（cm）

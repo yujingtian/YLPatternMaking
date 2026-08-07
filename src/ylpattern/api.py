@@ -71,6 +71,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_patch_chamfer: float = 2.0,
         front_patch_custom_points: list | tuple = (),
         front_patch_custom_edges: list | tuple = (),
+        front_pouch: bool = False,
+        front_pouch_waist_safe: float = 4.0,
+        front_pouch_side_safe: float = 8.0,
+        front_pouch_nodes: list | tuple = ((5.0, 16.0), (1.5, 13.5)),
+        front_pouch_edges: list | tuple = (("line",), ("arc", 2.5, 0.6), ("line",)),
         thigh_limit: bool = False, thigh_measure_offset: float = 0.0,
         thigh_piece_split_max: float = 0.2, thigh_front_share: float = 0.2,
         thigh_dual_track_min: float = 0.3,
@@ -174,6 +179,14 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                            dx/dy，≥3 个，顺时针绕行）
         front_patch_custom_edges  custom 每边形态：(弧高, 弧顶位置 0~1)，
                            弧高 0 = 直线；个数 = 角点数
+        front_pouch        袋布绘制开关（袋布绘制.md §一~§五；依赖 front_pocket 主切口）
+        front_pouch_waist_safe  腰缝锚点安全内延（沿腰弧自 P1 朝门襟，cm，推荐 3.5~5.0）
+        front_pouch_side_safe  侧缝锚点安全垂深（自 P2 沿侧缝下探，cm，推荐 6.0~10.0）
+        front_pouch_nodes  自定义内部节点列表（≥2 个；相对腰外缝顶点，x 朝门襟、
+                           y 向下为正）
+        front_pouch_edges  边形态列表（个数 = 节点数 + 1）：("line",) 直线 /
+                           ("arc", 弧高, 弧顶分位 0.1~0.9) /
+                           ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
         thigh_limit        毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8；
                            开启后按 前后片毗围推导.md §三 双轨分流整版重跑至收敛）
         thigh_measure_offset  毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54）
@@ -263,6 +276,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        front_patch_chamfer=front_patch_chamfer,
                        front_patch_custom_points=front_patch_custom_points,
                        front_patch_custom_edges=front_patch_custom_edges,
+                       front_pouch=front_pouch,
+                       front_pouch_waist_safe=front_pouch_waist_safe,
+                       front_pouch_side_safe=front_pouch_side_safe,
+                       front_pouch_nodes=front_pouch_nodes,
+                       front_pouch_edges=front_pouch_edges,
                        thigh_limit=thigh_limit,
                        thigh_measure_offset=thigh_measure_offset,
                        thigh_piece_split_max=thigh_piece_split_max,
