@@ -76,6 +76,17 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pouch_side_safe: float = 8.0,
         front_pouch_nodes: list | tuple = ((5.0, 16.0), (1.5, 13.5)),
         front_pouch_edges: list | tuple = (("line",), ("arc", 2.5, 0.6), ("line",)),
+        fly: bool = False,
+        fly_width: float = 3.8,
+        fly_length_ratio: float = 0.35,
+        fly_length_base: float = 2.0,
+        fly_turnback: float = 0.25,
+        fly_corner_inset: float = 0.8,
+        fly_corner_turn: float = 1.0,
+        fly_blend_drop: float | None = None,
+        fly_stitch_inset: float = 0.6,
+        fly_separate: bool = False,
+        fly_sep_extra: float = 2.0,
         thigh_limit: bool = False, thigh_measure_offset: float = 0.0,
         thigh_piece_split_max: float = 0.2, thigh_front_share: float = 0.2,
         thigh_dual_track_min: float = 0.3,
@@ -187,6 +198,24 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pouch_edges  边形态列表（个数 = 节点数 + 1）：("line",) 直线 /
                            ("arc", 弧高, 弧顶分位 0.1~0.9) /
                            ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
+        fly              门襟（连裁门襟）绘制开关（可选步骤，门襟绘制.md §3、§4；
+                           上版于前片，弯腰头时原点取下前中腰点 A'）
+        fly_width        门襟宽 W（常规 YKK 5# 拉链 3.8，3.5~4.2）
+        fly_length_ratio / fly_length_base
+                           开深 L = ratio × 前浪 + base（§2.2，默认 0.35/2.0）
+        fly_turnback     牛仔布折转退层补偿 Δw（腰口顶端内收，§3.1，默认 0.25）
+        fly_corner_inset 底角圆角内收量（连裁 + 独立共用；角弧半径 R = W − 本值，
+                           默认 0.8 -> R=3.0；越大角越紧，须 0<本值<W，§3.2/§5）
+        fly_corner_turn  拐点 P_turn 在 J 型角弧上的弧位（90° 角弧比例；1.0 = J 底
+                         （默认，角弧终点）；越小拐点越靠上、角弧越短、融合弧越长，§3.2）
+        fly_blend_drop  融合点 P2 较开深 L 的下移量（cm，§3.2.3；None = 自动取 W−R
+                        且不小于拐点所需防波浪最小值；手动过浅则抛错）
+        fly_stitch_inset J 字明线内收（明线 = 顺外边向内等距偏置本值，§4.2 简化，
+                           默认 0.6；剪口刀口、打枣点等工艺细节暂不绘制）
+        fly_separate     独立门襟开关（§5；开启后左前片不连裁，单独生成矩形
+                           门襟裁片。fly / fly_separate 任一开启即绘制，
+                           fly_separate 优先，互斥形态）
+        fly_sep_extra    底部延展量（裁片高 = L + 本值，§5，默认 2.0）
         thigh_limit        毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8；
                            开启后按 前后片毗围推导.md §三 双轨分流整版重跑至收敛）
         thigh_measure_offset  毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54）
@@ -281,6 +310,17 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        front_pouch_side_safe=front_pouch_side_safe,
                        front_pouch_nodes=front_pouch_nodes,
                        front_pouch_edges=front_pouch_edges,
+                       fly=fly,
+                       fly_width=fly_width,
+                       fly_length_ratio=fly_length_ratio,
+                       fly_length_base=fly_length_base,
+                       fly_turnback=fly_turnback,
+                       fly_corner_inset=fly_corner_inset,
+                       fly_corner_turn=fly_corner_turn,
+                       fly_blend_drop=fly_blend_drop,
+                       fly_stitch_inset=fly_stitch_inset,
+                       fly_separate=fly_separate,
+                       fly_sep_extra=fly_sep_extra,
                        thigh_limit=thigh_limit,
                        thigh_measure_offset=thigh_measure_offset,
                        thigh_piece_split_max=thigh_piece_split_max,

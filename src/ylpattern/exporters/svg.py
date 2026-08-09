@@ -20,6 +20,7 @@ _STYLE = """<style>
   .pt       { fill: #c0392b; }
   .ptlabel  { fill: #c0392b; font: 9px monospace; }
   .curve    { stroke: #2c3e50; stroke-width: 1.5; fill: none; }
+  .curveref { stroke: #999; stroke-width: 0.8; fill: none; stroke-dasharray: 5 4; }
 </style>"""
 
 
@@ -102,13 +103,14 @@ def render_sheet(sheet: DraftSheet) -> str:
                 f'<text class="structlabel" x="{mx + 4:.1f}" y="{my - 4:.1f}">{text}</text>')
         parts.append('</g>')
 
-    # 图层：曲线
+    # 图层：曲线（struct 实线 / ref 虚线，与直线同口径）
     if sheet.curves:
         parts.append('<g id="curves">')
         for cv in sheet.curves:
+            cls = "curveref" if cv.role == "ref" else "curve"
             pts = " ".join(f"{sx(p.x):.1f},{_sy(p.y, top):.1f}"
                            for p in cv.geom.sample())
-            parts.append(f'<polyline class="curve" points="{pts}"/>')
+            parts.append(f'<polyline class="{cls}" points="{pts}"/>')
         parts.append('</g>')
 
     # 图层：关键点

@@ -9,11 +9,13 @@
 阶段 7：外缝、内缝线 —— 打版流程.md 前片步骤 6（前片弧线推导.md）。
 阶段 8：前口袋（可选步骤）—— 打版流程.md「前口袋打版过程」（前口袋绘制.md §二、§三）。
 阶段 9：袋布（可选步骤，依赖前口袋）—— 打版流程.md「袋布打版过程」（袋布绘制.md §二、§三、§五）。
+阶段 10：门襟（可选步骤，连裁门襟上版于前片）—— 门襟绘制.md §2.1~§4。
 """
 
 from ..steps import front_steps as fs
 from ..steps import front_pocket_steps as fps
 from ..steps import front_pouch_steps as fph
+from ..steps import front_fly_steps as ff
 
 FRONT_FLOW = [
     # —— 阶段 1：五条水平参考线 + 大矩形框架 ——
@@ -46,4 +48,6 @@ FRONT_FLOW = [
     fps.draw_front_patch_pocket,
     # —— 阶段 9：袋布（可选步骤，依赖前口袋主切口） ——
     fph.draw_front_pouch,
+    # —— 阶段 10：门襟（可选步骤，连裁门襟上版于前片） ——
+    ff.draw_front_fly,
 ]

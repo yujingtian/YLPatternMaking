@@ -39,6 +39,7 @@ class NamedCurve:
     step: str
     basis: str = ""
     label: str = ""
+    role: str = "struct"    # 线型角色：struct 结构线（实线，默认）/ ref 参考线（虚线）
 
 
 NamedElement = Union[NamedPoint, NamedLine, NamedCurve]

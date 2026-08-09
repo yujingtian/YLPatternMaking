@@ -151,6 +151,28 @@ class PatternOptions:
                                            #   ("arc", 弧高h, 弧顶分位 0.1~0.9) 弧高式
                                            #   ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
                                            #   （夹角相对弦向，κ 为弦长比，§三.2）
+    # —— 门襟（连裁门襟，门襟绘制.md §2.2、§3、§4） ——
+    fly: bool = False                    # 门襟绘制开关（可选步骤；连裁门襟上版于前片）
+    fly_width: float = 3.8               # 门襟宽 W（常规 YKK 5# 拉链，3.5~4.2）
+    fly_length_ratio: float = 0.35       # 开深系数（L = 本值 × 前浪 + fly_length_base，§2.2）
+    fly_length_base: float = 2.0         # 开深基值（cm，§2.2）
+    fly_turnback: float = 0.25           # 牛仔布折转退层补偿 Δw（腰口顶端内收，§3.1）
+    fly_corner_inset: float = 0.8        # 底角圆角内收量（连裁 + 独立共用；角弧半径 R = W − 本值，
+                                         #   默认 0.8 -> R=3.0；越大角越紧，须 0<本值<W，§3.2/§5）
+    fly_corner_turn: float = 1.0         # 拐点 P_turn 在 J 型角弧上的弧位（90° 角弧比例；
+                                         #   1.0 = J 底（默认，角弧终点）；越小拐点越靠上、
+                                         #   角弧越短、融合弧越长。过小会要求很大下移量，§3.2）
+    fly_blend_drop: float | None = None  # 融合点 P2 较开深 L 的下移量（cm，§3.2.3）；
+                                         #   None = 自动（W−R，且不小于拐点所需最小下移量）；
+                                         #   手动录入须 ≥ 该最小值，否则抛错（防波浪）
+    fly_stitch_inset: float = 0.6        # J 字明线内收（明线 = 顺外边向内等距偏置本值，§4.2 简化；
+                                         #   剪口刀口、打枣点等工艺细节暂不绘制，留待工艺/裁切模块）
+    # —— 独立门襟（分裁/外接门襟，门襟绘制.md §5；先画后裁，缝份留待裁切模块） ——
+    fly_separate: bool = False           # 独立门襟开关：开启后生成独立门襟裁片（左前片
+                                         #   不连裁）；fly / fly_separate 任一开启即绘制，
+                                         #   fly_separate 优先（互斥形态）
+    fly_sep_extra: float = 2.0           # 底部延展量（裁片高 = L + 本值，§5；
+                                         #   上部腰口车合量属裁切层缝份）
     thigh_limit: bool = False              # 毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8）
     thigh_measure_offset: float = 0.0      # 毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54，前后片毗围推导.md §一）
     # —— 毗围闭环修正控制参数（前后片毗围推导.md §三，默认值即文档规范值） ——
@@ -313,6 +335,27 @@ class PatternOptions:
                              f"得到 {len(edges)} 个")
         object.__setattr__(self, "front_pouch_nodes", nodes)
         object.__setattr__(self, "front_pouch_edges", tuple(edges))
+        # 门襟：宽度与开深系数校验（门襟绘制.md §2.2）
+        if not 3.0 <= self.fly_width <= 4.5:
+            raise ValueError(f"门襟宽 W 建议在 3.5~4.2 cm 内，得到 {self.fly_width}")
+        if self.fly_length_ratio <= 0 or self.fly_length_base < 0:
+            raise ValueError("门襟开深系数必须为正、基值不能为负")
+        for name in ("fly_turnback", "fly_stitch_inset"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} 不能为负数，得到 {getattr(self, name)}")
+        if self.fly_turnback >= self.fly_width:
+            raise ValueError(f"退层补偿 Δw 须小于门襟宽 W，得到 {self.fly_turnback}")
+        if not 0.0 < self.fly_corner_inset < self.fly_width:
+            raise ValueError(f"门襟底角圆角内收须在 (0, 门襟宽 W) 内"
+                             f"（R = W − 本值），得到 {self.fly_corner_inset}")
+        if not 0.0 < self.fly_corner_turn <= 1.0:
+            raise ValueError(f"门襟拐点弧位须在 (0, 1] 内（1.0 = J 底），"
+                             f"得到 {self.fly_corner_turn}")
+        if self.fly_blend_drop is not None and self.fly_blend_drop < 0:
+            raise ValueError(f"融合弧下移量不能为负，得到 {self.fly_blend_drop}")
+        # 独立门襟：缝份/延展校验（门襟绘制.md §5）
+        if self.fly_sep_extra < 0:
+            raise ValueError(f"fly_sep_extra 不能为负数，得到 {self.fly_sep_extra}")
 
     def rise_on_pattern(self, rise: float) -> float:
         """版上浪长：前浪/后浪均为含腰头的成衣量（自腰头顶量起），

@@ -34,8 +34,9 @@ class DraftContext:
         return el
 
     def add_curve(self, name: str, geom: CubicBezier, step: str,
-                  basis: str = "", label: str = "") -> NamedCurve:
-        el = NamedCurve(name, geom, step, basis, label)
+                  basis: str = "", label: str = "",
+                  role: str = "struct") -> NamedCurve:
+        el = NamedCurve(name, geom, step, basis, label, role)
         self.sheet.add(el)
         return el
 
