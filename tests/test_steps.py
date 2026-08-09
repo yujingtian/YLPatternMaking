@@ -375,3 +375,64 @@ def test_lower_leg_alpha_zero_is_straight():
         ctx.point("front.hem_outseam_point"))
     assert mid.x == pytest.approx(chord_mid.x)
     assert mid.y == pytest.approx(chord_mid.y)
+
+
+# —— 弯腰头下腰缝线（前腰头绘制推导.md §4.3、§5.2）——
+
+def _mid_sag(arc):
+    """弧中点（t=0.5）相对弦的下凹量（与 curves.waist_sag_p2 同口径，朝 −Y 下凹为正）。"""
+    p0, p3 = arc.point_at(0), arc.point_at(1)
+    n = (p3 - p0).normalized().perpendicular()
+    if n.dy > 0:
+        n = n.scale(-1)                     # 取下凹侧（朝 −Y）法向
+    rel = arc.point_at(0.5) - p0.midpoint(p3)
+    return rel.dx * n.dx + rel.dy * n.dy
+
+
+def test_front_lower_waistband_straight_skipped(ctx):
+    # 直腰头：腰头单独成片，下腰缝线整步跳过（打版流程.md 注意点 1）
+    assert "front.lower_waistline_arc" not in ctx.sheet
+    assert "front.lower_waist_center_point" not in ctx.sheet
+    assert "front.lower_waist_side_point" not in ctx.sheet
+
+
+def test_front_lower_waistband_curved():
+    o = PatternOptions(delta=1.0, waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    W = o.waistband_width
+    lower = ctx.curve("front.lower_waistline_arc")
+    a = ctx.point("front.rise_top_point")
+    a_sub = ctx.point("front.lower_waist_center_point")
+    b = ctx.point("front.waist_side_point")
+    b_sub = ctx.point("front.lower_waist_side_point")
+    outseam = ctx.curve("front.outseam_arc")
+
+    # 端点：下腰头线 B'→A'
+    assert lower.point_at(0) == b_sub
+    assert lower.point_at(1) == a_sub
+    # A'：沿前浪线自 A 向下量取 W（W 小，落在前中斜线上，A→A' 弧长 = W）
+    assert a.distance_to(a_sub) == pytest.approx(W)
+    assert a_sub.y < a.y
+    # B'：沿外缝弧自 B 向下量取 W（B'→B 子弧长 = W）
+    t_bsub = outseam.t_at_length(outseam.length() - W)
+    assert b_sub == outseam.point_at(t_bsub)
+    # B'→B 子弧长 = W（折线近似精度约 1e-4 cm，t_at_length 与子弧 length 各自采样）
+    assert outseam.split(t_bsub)[1].length() == pytest.approx(W, abs=1e-3)
+    assert b_sub.y < b.y
+    # B' 切线 ⟂ 外缝切线（90° 直角法则，§5.1）
+    t_lower = lower.tangent_at(0).normalized()
+    t_side = outseam.tangent_at(t_bsub).normalized()
+    assert abs(t_lower.dx * t_side.dx + t_lower.dy * t_side.dy) < 1e-3
+    # 弧度与上腰口线一致：中点下凹量同 sag（§5.2 同曲率平行拟合）
+    assert _mid_sag(lower) == pytest.approx(o.front_waist_curve_sag)
+    assert _mid_sag(ctx.curve("front.waistline_arc")) == pytest.approx(o.front_waist_curve_sag)
+
+
+def test_front_lower_waistband_width_param():
+    # 腰头宽 3.5：A' 沿前浪下移量随之 = 3.5（腰头宽驱动下腰缝位置）
+    o = PatternOptions(delta=1.0, waistband_type=WaistbandType.CURVED,
+                       waistband_width=3.5)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    a = ctx.point("front.rise_top_point")
+    a_sub = ctx.point("front.lower_waist_center_point")
+    assert a.distance_to(a_sub) == pytest.approx(3.5)

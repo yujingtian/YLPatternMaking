@@ -30,7 +30,7 @@ run(
     rise_adjust=4.0, # 直裆深调整量（cm，加深取正、改浅取负）
     crotch_drop_adjust=0.0,   # 后片落裆调节量 Δc（落裆量 = H/100 + Δc；
                               #   高弹 -0.4~-0.3 / 标准直筒 0 / 宽松重磅 +0.2~+0.3）
-    waistband_type="straight",  # 腰头类型："straight" 直腰头 / "curved" 弯腰头
+    waistband_type="curved",  # 腰头类型："straight" 直腰头 / "curved" 弯腰头
     waistband_width=4.0,        # 腰头宽（直腰头从裤长中扣除；弯腰头忽略）
     side_rise=1.0,              # 侧缝腰头抬高量（0 = 腰围外缝顶点压基础线，常取 0~1.5）
     front_waist_curve_sag=0.4,  # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5）

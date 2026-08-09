@@ -19,16 +19,21 @@ from __future__ import annotations
 from ..draft import DraftContext, NamedCurve, NamedLine
 from ..draft import curves
 from ..geometry import CubicBezier, LineSegment, Point, Vector
+from ..params import WaistbandType
+from .front_steps import effective_waist
 
 
 def draw_front_pocket(ctx: DraftContext) -> NamedCurve | NamedLine | None:
     """前口袋挖削嵌入式主切口（打版流程.md「前口袋打版过程」，可选步骤）：
     开关 front_pocket 开启才绘制，否则整步跳过。
 
-    定位锚点（前口袋绘制.md §二，局部原点 O = 腰侧交点，即腰围外缝顶点 B）：
-      - P1：腰弧（B → 前浪顶点 A）上自腰外缝顶点 B（即局部原点 O）
+    定位锚点（前口袋绘制.md §二，局部原点 O = 有效腰口的侧缝腰点）：
+      - 有效腰口（steps.front_steps.effective_waist）：弯腰头时腰头独立成片，
+        裤身顶边为下腰头线，锚点相对下腰头线与下侧缝腰点 B' 定位；直腰头时
+        相对上腰弧与腰外缝顶点 B 定位；
+      - P1：腰弧（b → 前浪顶点）上自侧缝腰点 b（即局部原点 O）
         朝前浪顶点沿弧量取 front_pocket_p1_dist；
-      - P2：外缝弧（臀围外缝顶点 → B）上自 B 向下沿弧量取
+      - P2：外缝弧（臀围外缝顶点 → B）上自 b 向下沿弧量取
         front_pocket_p2_drop。
     袋口设计净线 C(t)（§二 曲线控制函数，三种模式）：
       - "bulge" 弧高式：P1 → P2 三次贝塞尔浅弧，弧高
@@ -62,11 +67,13 @@ def draw_front_pocket(ctx: DraftContext) -> NamedCurve | NamedLine | None:
         return None                     # 开关关闭，可选步骤跳过
 
     step = "draw_front_pocket"
-    b = ctx.point("front.waist_side_point")     # O：腰侧交点（局部原点）
-    w_arc = ctx.curve("front.waistline_arc")    # t=0 在 B，t=1 在前浪顶点
+    # 有效腰口：弯腰头相对下腰头线（下侧缝腰点 B'），直腰头相对上腰弧（B）
+    b, w_arc, s_side = effective_waist(ctx)
     s_arc = ctx.curve("front.outseam_arc")      # t=0 在臀围外缝顶点，t=1 在 B
+    ref = ("下侧缝腰点B'" if o.waistband_type is WaistbandType.CURVED
+           else "腰外缝顶点")
 
-    # P1：腰弧自腰外缝顶点（t=0 端，即局部原点 O）朝前浪顶点沿弧量取
+    # P1：腰弧自侧缝腰点（t=0 端，即局部原点 O）朝前浪顶点沿弧量取
     lw = w_arc.length()
     if o.front_pocket_p1_dist >= lw:
         raise ValueError(
@@ -74,13 +81,15 @@ def draw_front_pocket(ctx: DraftContext) -> NamedCurve | NamedLine | None:
     t1 = w_arc.t_at_length(o.front_pocket_p1_dist)
     p1 = w_arc.point_at(t1)
 
-    # P2：外缝弧自腰外缝顶点（t=1 端）向下沿弧量取
-    ls = s_arc.length()
-    if o.front_pocket_p2_drop >= ls:
+    # P2：外缝弧自侧缝腰点（弯腰头 B' / 直腰头 B）向下沿弧量取
+    s_p2 = s_side - o.front_pocket_p2_drop
+    if s_p2 <= 0:
         raise ValueError(
-            f"P2 弧长深度 {o.front_pocket_p2_drop} 超过外缝弧总长 {ls:.2f}")
-    t2 = s_arc.t_at_length(ls - o.front_pocket_p2_drop)
+            f"P2 弧长深度 {o.front_pocket_p2_drop} 超过侧缝腰点以下外缝弧长 "
+            f"{s_side:.2f}")
+    t2 = s_arc.t_at_length(s_p2)
     p2 = s_arc.point_at(t2)
+    t_side = s_arc.t_at_length(s_side)          # b 在外缝弧上的参数（直腰头 = 1）
 
     # 共线渐变撇削（§三.1）：P1′ 在腰弧上（朝前浪顶点量 ΔW），撇削向量
     # V = P1′ − P1 沿腰头线方向；整条袋口线按 V·(1−t)ⁿ 共线渐变偏置，
@@ -95,18 +104,19 @@ def draw_front_pocket(ctx: DraftContext) -> NamedCurve | NamedLine | None:
         o.front_pocket_p1_dist + dw)
     v = p1r - p1
 
-    # 挖除区边界：O→P1 腰弧精确子段；P2→O 外缝弧子段（与裁片外缝线重合）
+    # 挖除区边界：O→P1 腰弧精确子段；P2→O 外缝弧子段（与裁片外缝线重合；
+    # 弯腰头时 O = B'，侧缝边界截到下腰头线，不含腰头裁除区）
     waist_edge = w_arc.split(t1)[0]
-    outseam_edge = s_arc.split(t2)[1]
+    outseam_edge = curves.bezier_subrange(s_arc, t2, t_side)
 
     ctx.add_point("front.pocket_p1", p1,
                   step=step,
-                  basis=f"腰弧自腰外缝顶点沿弧量取 {o.front_pocket_p1_dist}"
+                  basis=f"腰弧自{ref}沿弧量取 {o.front_pocket_p1_dist}"
                         "（前口袋绘制.md §二）",
                   label="袋口腰侧锚点P1")
     ctx.add_point("front.pocket_p2", p2,
                   step=step,
-                  basis=f"外缝弧自腰外缝顶点向下沿弧量取 {o.front_pocket_p2_drop}"
+                  basis=f"外缝弧自{ref}向下沿弧量取 {o.front_pocket_p2_drop}"
                         "（前口袋绘制.md §二）",
                   label="袋口侧缝锚点P2")
 

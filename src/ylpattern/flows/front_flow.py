@@ -33,6 +33,7 @@ FRONT_FLOW = [
     # —— 阶段 4：真实腰围线 ——
     fs.draw_front_waistline,
     fs.draw_front_waist_outseam_curves,
+    fs.draw_front_lower_waistband,   # 弯腰头下腰缝线（可选：直腰头跳过）
     # —— 阶段 5：裤中线 ——
     fs.draw_front_crease_line,
     # —— 阶段 6：膝围、脚口宽度 ——

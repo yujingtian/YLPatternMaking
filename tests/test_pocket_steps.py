@@ -18,7 +18,7 @@ import pytest
 from ylpattern.draft import curves
 from ylpattern.flows.front_flow import FRONT_FLOW
 from ylpattern.flows.runner import FlowRunner
-from ylpattern.params import Measurements, PatternOptions
+from ylpattern.params import Measurements, PatternOptions, WaistbandType
 
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
@@ -302,3 +302,38 @@ def test_pocket_dart_beyond_waist_arc_raises():
                        front_pocket_p1_dist=16.0, front_pocket_dart_width=6.0)
     with pytest.raises(ValueError, match="之和超过腰弧总长"):
         FlowRunner(M, o).run(FRONT_FLOW)
+
+
+def test_pocket_anchors_curved_waistband():
+    # 弯腰头：腰头独立成片、裤身顶边为下腰头线，口袋锚点相对下腰头线定位
+    # （前腰头绘制推导.md §4.3/§5.2；P1 在下腰头线自 B' 量取，P2 自 B' 向下量取）
+    o = PatternOptions(delta=1.0, front_pocket=True,
+                       waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    lw_arc = ctx.curve("front.lower_waistline_arc")
+    s_arc = ctx.curve("front.outseam_arc")
+    b_sub = ctx.point("front.lower_waist_side_point")
+    p1 = ctx.point("front.pocket_p1")
+    p2 = ctx.point("front.pocket_p2")
+
+    # P1 在下腰头线上，自 B'（t=0 端）沿弧量取 8.5
+    t1 = lw_arc.t_at_y(p1.y)
+    assert lw_arc.point_at(t1).distance_to(p1) < 1e-6
+    assert _arc_length_between(lw_arc, 0.0, t1) == pytest.approx(
+        O.front_pocket_p1_dist, abs=1e-2)
+    # B' 在外缝弧上（自顶端 B 向下 W 处）；P2 自 B' 向下沿弧量取 7.5
+    t_side = s_arc.t_at_length(s_arc.length() - o.waistband_width)
+    assert s_arc.point_at(t_side).distance_to(b_sub) < 1e-6
+    ts = s_arc.t_at_y(p2.y)
+    assert _arc_length_between(s_arc, ts, t_side) == pytest.approx(
+        O.front_pocket_p2_drop, abs=1e-2)
+    # 挖除区边界落在下腰头线一侧：腰侧边界上端 = B'，侧缝边界上端 = B'（非 B）
+    assert ctx.curve("front.pocket_waist_edge").point_at(0).distance_to(b_sub) < 1e-6
+    assert ctx.curve("front.pocket_outseam_edge").point_at(1).distance_to(b_sub) < 1e-6
+
+
+def test_pocket_anchors_straight_unchanged(ctx):
+    # 直腰头（默认）：锚点仍相对上腰弧/腰外缝顶点 B，行为不变
+    b = ctx.point("front.waist_side_point")
+    assert ctx.curve("front.pocket_waist_edge").point_at(0).distance_to(b) < 1e-6
+    assert ctx.curve("front.pocket_outseam_edge").point_at(1).distance_to(b) < 1e-6

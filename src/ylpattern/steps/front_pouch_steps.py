@@ -19,6 +19,7 @@ from __future__ import annotations
 from ..draft import DraftContext, NamedCurve, NamedLine
 from ..draft import curves
 from ..geometry import CubicBezier, LineSegment, Point
+from .front_steps import effective_waist
 
 _STEP = "draw_front_pouch"
 
@@ -75,9 +76,10 @@ def draw_front_pouch(ctx: DraftContext) -> NamedLine | NamedCurve | None:
         raise ValueError("袋布绘制依赖前口袋主切口，请先开启 front_pocket"
                          "（打版流程.md：只有嵌入式口袋才需要绘制袋布）")
 
-    b = ctx.point("front.waist_side_point")     # O：腰侧交点（局部原点）
-    w_arc = ctx.curve("front.waistline_arc")
+    # 有效腰口：弯腰头相对下腰头线（下侧缝腰点 B'），直腰头相对上腰弧（B）
+    b, w_arc, s_side = effective_waist(ctx)
     s_arc = ctx.curve("front.outseam_arc")
+    t_side = s_arc.t_at_length(s_side)          # b 在外缝弧上的参数（直腰头 = 1）
     p1 = ctx.point("front.pocket_p1")
     p2 = ctx.point("front.pocket_p2")
 
@@ -97,23 +99,25 @@ def draw_front_pouch(ctx: DraftContext) -> NamedLine | NamedCurve | None:
     hip_y = ctx.line("front.hip_line").a.y
     # P2 在外缝弧 s_arc 上的参数（t=0 臀围外缝顶点 → t=1 腰外缝顶点 B）
     t_p2 = s_arc.t_at_y(p2.y)
-    # 大片侧缝边界 P_s0 → B、小片侧缝边界 P_s0 → P2（均沿外缝链向上）
+    # 大片侧缝边界 P_s0 → b（弯腰头到 B' 下腰头线）、小片侧缝边界 P_s0 → P2
+    # （均沿外缝链向上，截到有效腰口的侧缝腰点，不含腰头裁除区）
     large_side_segs: list[tuple[str, CubicBezier]] = []
     small_side_segs: list[CubicBezier] = []
     if y_s0 >= hip_y:
         t_s0 = s_arc.t_at_y(y_s0)
         p_s0 = s_arc.point_at(t_s0)
         large_side_segs.append(("front.pouch_side_edge",
-                                _bezier_subrange(s_arc, t_s0, 1.0)))
-        small_side_segs.append(_bezier_subrange(s_arc, t_s0, t_p2))
+                                curves.bezier_subrange(s_arc, t_s0, t_side)))
+        small_side_segs.append(curves.bezier_subrange(s_arc, t_s0, t_p2))
     else:
         upper = ctx.curve("front.outseam_upper")
         t_u = upper.t_at_y(y_s0)
         p_s0 = upper.point_at(t_u)
-        # P_s0 → 臀围外缝顶点（大腿外缝弧反向子段），再 → B / → P2（外缝弧子段）
+        # P_s0 → 臀围外缝顶点（大腿外缝弧反向子段），再 → b / → P2（外缝弧子段）
         rev_upper = _reverse_bezier(upper.split(t_u)[0])      # P_s0 → 臀围外缝顶点
         large_side_segs.append(("front.pouch_side_edge_thigh", rev_upper))
-        large_side_segs.append(("front.pouch_side_edge_hip", s_arc))
+        large_side_segs.append(("front.pouch_side_edge_hip",
+                                s_arc.split(t_side)[0]))      # 臀围外缝顶点 → b
         small_side_segs.append(rev_upper)
         small_side_segs.append(s_arc.split(t_p2)[0])          # 臀围外缝顶点 → P2
 
@@ -167,7 +171,7 @@ def draw_front_pouch(ctx: DraftContext) -> NamedLine | NamedCurve | None:
                       label="小片袋口边")
     # 腰弧子段 P1 → P_w0（P1′ 与 P1 同在腰弧上）
     t_p1 = w_arc.t_at_y(p1.y)
-    small_waist = _bezier_subrange(w_arc, t_p1, t_w0)
+    small_waist = curves.bezier_subrange(w_arc, t_p1, t_w0)
     ctx.add_curve("front.pouch_small_waist_edge", small_waist,
                   step=_STEP,
                   basis="小片上沿腰弧子段 P1→P_w0（与大身腰弧重合，§五.2）",
@@ -200,15 +204,3 @@ def _mouth_segments_reversed(ctx) -> list[tuple[str, CubicBezier]]:
         a, b = seg.b, seg.a
         out.append((f"mouth_seg{j}", CubicBezier(a, a, b, b)))
     return out
-
-
-def _bezier_subrange(c: CubicBezier, ta: float, tb: float) -> CubicBezier:
-    """取曲线参数 [ta, tb] 子段（两次 split 组合）。"""
-    if ta <= 0.0 and tb >= 1.0:
-        return c
-    if ta <= 0.0:
-        return c.split(tb)[0]
-    if tb >= 1.0:
-        return c.split(ta)[1]
-    _, second = c.split(ta)
-    return second.split((tb - ta) / (1.0 - ta))[0]

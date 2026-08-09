@@ -275,6 +275,83 @@ def draw_front_waist_outseam_curves(ctx: DraftContext) -> NamedCurve:
                          label="真实腰围线弧")
 
 
+def draw_front_lower_waistband(ctx: DraftContext) -> NamedCurve | None:
+    """前片弯腰头下腰缝线（前腰头绘制推导.md §4.3、§5.2，可选步骤）：
+    仅弯腰头（waistband_type=CURVED）绘制；直腰头腰头单独成片，本步返回
+    None 跳过（打版流程.md 注意点 1）。
+
+    自上腰口端点 A（前浪顶点）、B（腰围外缝顶点）分别沿前浪线、外侧缝线
+    向下量取腰头宽 W，得下腰缝端点 A'（沿前浪 = 前中斜线 + 裆弯弧的复合链，
+    近腰部前浪近似垂直，§4.3）、B'（沿外缝弧）。下腰头线以与上腰口线相同的
+    控制参数（直角修正段 waist_rect_len、下凹量 front_waist_curve_sag）在
+    A'、B' 间重建三次贝塞尔——弧度与上腰口线一致、起端切线 ⟂ 外缝切线
+    （§5.2 同曲率平行拟合），腰头宽处处约等于 W。
+    依据：打版流程.md 前片步骤 3（弯腰头：根据腰头宽绘制下腰头）。"""
+    o = ctx.options
+    if o.waistband_type is not WaistbandType.CURVED:
+        return None                         # 直腰头：腰头单独成片，不下腰缝线
+    W = o.waistband_width
+    a = ctx.point("front.rise_top_point")          # A 上前中腰点（前浪顶点）
+    b = ctx.point("front.waist_side_point")        # B 上侧缝腰点
+    rise_slant = ctx.line("front.rise_slant")       # 前浪上段：A → 臀围内缝点
+    rise_curve = ctx.curve("front.rise_curve")      # 前浪下段：臀围内缝点 → 前小裆顶点
+    outseam = ctx.curve("front.outseam_arc")        # 外缝弧：臀围外缝顶点(t=0) → B(t=1)
+
+    # A'：沿前浪线（斜线 + 裆弯弧）自 A 向下量取 W
+    a_sub = curves.point_along_chain((rise_slant, rise_curve), W)
+    # B'：沿外缝弧自 B（t=1）向下量取 W（point_at_length 自 t=0 起算，故取 total − W）
+    t_bsub = outseam.t_at_length(outseam.length() - W)
+    b_sub = outseam.point_at(t_bsub)
+
+    # 下腰头线：与上腰口线同参数重建（§5.2）——起端 B' 切线 ⟂ 外缝切线（90° 法则）
+    t_side = outseam.tangent_at(t_bsub).normalized().perpendicular()
+    if t_side.dx * (a_sub.x - b_sub.x) + t_side.dy * (a_sub.y - b_sub.y) < 0:
+        t_side = t_side.scale(-1)           # 取朝向 A' 的一侧
+    p1 = b_sub + t_side.scale(o.waist_rect_len)
+    p2 = curves.waist_sag_p2(b_sub, a_sub, p1, at=2 / 3,
+                             sag=o.front_waist_curve_sag)
+    lower_arc = CubicBezier(b_sub, p1, p2, a_sub)
+
+    ctx.add_point("front.lower_waist_center_point", a_sub,
+                  step="draw_front_lower_waistband",
+                  basis=f"沿前浪线自 A 向下量取腰头宽 {W}（前腰头绘制推导.md §4.3 A'）",
+                  label="下前中腰点A'")
+    ctx.add_point("front.lower_waist_side_point", b_sub,
+                  step="draw_front_lower_waistband",
+                  basis=f"沿外缝弧自 B 向下量取腰头宽 {W}（前腰头绘制推导.md §4.3 B'）",
+                  label="下侧缝腰点B'")
+    return ctx.add_curve("front.lower_waistline_arc", lower_arc,
+                         step="draw_front_lower_waistband",
+                         basis=f"下腰头线：与上腰口线同 sag {o.front_waist_curve_sag}、"
+                               f"直角段 {o.waist_rect_len} 重建，"
+                               "B' 切线 ⟂ 外缝切线（§5.2 同曲率平行）",
+                         label="前下腰头线")
+
+
+def effective_waist(ctx: DraftContext) -> tuple[Point, CubicBezier, float]:
+    """腰部挖削特征（前口袋 / 袋布）的"有效腰口"定位基准。
+
+    弯腰头时腰头为独立裁片（上腰弧 → 下腰头线之间裁除），裤身顶边是下腰头
+    线，口袋开在裤身上，故特征锚点相对下腰头线定位；直腰头时腰头打版扣除、
+    裤身顶边即上腰弧，特征相对上腰头线定位。
+
+    返回 (b, w_arc, s_side)：
+      b      侧缝腰点（弯腰头 = 下侧缝腰点 B'，直腰头 = 腰外缝顶点 B）——局部原点 O；
+      w_arc  腰弧（弯腰头 = 下腰头线，直腰头 = 上腰弧），t=0 在 b 端、朝前浪顶点；
+      s_side b 在外缝弧 front.outseam_arc 上的弧长位置（自臀围端 t=0 起算；
+             弯腰头 = 总长 − 腰头宽，即 B' 自顶端 B 向下 W 处；直腰头 = 总长）。
+    依据：前腰头绘制推导.md §4.3/§5.2（弯腰头下腰头为裤身与腰头分界线）。
+    """
+    o = ctx.options
+    if o.waistband_type is WaistbandType.CURVED:
+        s_side = ctx.curve("front.outseam_arc").length() - o.waistband_width
+        return (ctx.point("front.lower_waist_side_point"),
+                ctx.curve("front.lower_waistline_arc"), s_side)
+    return (ctx.point("front.waist_side_point"),
+            ctx.curve("front.waistline_arc"),
+            ctx.curve("front.outseam_arc").length())
+
+
 # ---------- 阶段 5：裤中线 ----------
 
 def draw_front_crease_line(ctx: DraftContext) -> NamedLine:

@@ -16,7 +16,7 @@ import pytest
 from ylpattern.flows.front_flow import FRONT_FLOW
 from ylpattern.flows.runner import FlowRunner
 from ylpattern.geometry import CubicBezier
-from ylpattern.params import Measurements, PatternOptions
+from ylpattern.params import Measurements, PatternOptions, WaistbandType
 
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
@@ -174,3 +174,31 @@ def test_pouch_options_validation():
         PatternOptions(front_pouch_edges=[("line",),
                                           ("bezier", 20, 0.0, -20, 0.3),
                                           ("line",)])
+
+
+def test_pouch_anchors_curved_waistband():
+    # 弯腰头：袋布锚点相对下腰头线定位（裤身顶边为下腰头线，腰头独立成片）
+    o = PatternOptions(delta=1.0, front_pocket=True, front_pouch=True,
+                       waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    lw_arc = ctx.curve("front.lower_waistline_arc")
+    b_sub = ctx.point("front.lower_waist_side_point")
+    p_w0 = ctx.point("front.pouch_waist_anchor")
+
+    # 腰缝接触锚点 P_w0 在下腰头线上，自 B' 沿弧 8.5 + 4.0 = 12.5
+    t = lw_arc.t_at_y(p_w0.y)
+    assert lw_arc.point_at(t).distance_to(p_w0) < 1e-6
+    assert _arc_length_between(lw_arc, 0.0, t) == pytest.approx(
+        O.front_pocket_p1_dist + O.front_pouch_waist_safe, abs=1e-2)
+    # 袋布节点相对 B'（弯腰头局部原点 O 下移）
+    k1 = ctx.point("front.pouch_node1")
+    assert k1.x == pytest.approx(b_sub.x + 5.0)
+    assert k1.y == pytest.approx(b_sub.y - 16.0)
+    # 大片固定边界截到有效腰口：腰缝边在下腰头线上（上端 B'）；
+    # 侧缝边（默认 side_safe=8.0 → P_s0 低于臀围线，走大腿+髋腰两段子链）
+    # 髋腰段上端 = B'（非 B）
+    assert ctx.curve("front.pouch_large_waist_edge").point_at(0).distance_to(b_sub) < 1e-6
+    hip_edge = ctx.curve("front.pouch_side_edge_hip")
+    assert hip_edge.point_at(1).distance_to(b_sub) < 1e-6
+    assert hip_edge.point_at(0).distance_to(
+        ctx.point("front.hip_outseam_point")) < 1e-6

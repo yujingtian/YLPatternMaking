@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-from ..geometry import Point, Vector, CubicBezier
+from ..geometry import LineSegment, Point, Vector, CubicBezier
 
 # 三次贝塞尔逼近"控制点弦"关系的常用系数：
 # 弧顶在 t=0.5 时，弧高 ≈ 0.375 * 控制点相对弦的偏移，故放大 8/3
@@ -173,6 +173,50 @@ def waist_sag_p2(p0: Point, p3: Point, p1: Point, *, at: float,
     dev_p2 = sag * 8 / 3 - dev_p1
     on_chord = p0.lerp(p3, at)
     return on_chord + n.scale(dev_p2)
+
+
+def point_along_chain(geoms: tuple, distance: float) -> Point:
+    """自链首端起，沿几何体链 geoms（直线 LineSegment / 曲线 CubicBezier，
+    已按 首端→远端 顺序排列）量取弧长 distance 处的点。
+
+    用于"沿接缝量取腰头宽"定位弯腰头下腰缝端点：前/后浪 = 前中/后中斜线
+    （LineSegment）+ 裆弯弧（CubicBezier）的复合链，自浪顶向下量取腰头宽 W
+    （前腰头绘制推导.md §4.3 A'、后腰头绘制推导.md §4 O'）。
+    LineSegment.length 为属性、CubicBezier.length() 为方法，分支处理；
+    distance 超过链总长时抛 ValueError。
+    """
+    remaining = distance
+    for g in geoms:
+        if isinstance(g, LineSegment):
+            total = g.length
+            if remaining <= total:
+                return g.point_at(remaining / total)
+            remaining -= total
+        else:                                   # CubicBezier
+            total = g.length()
+            if remaining <= total:
+                return g.point_at_length(remaining)
+            remaining -= total
+    raise ValueError(
+        f"量取距离 {distance} 超过几何体链总长，无法沿接缝定位下腰缝端点")
+
+
+def bezier_subrange(c: CubicBezier, ta: float, tb: float) -> CubicBezier:
+    """取曲线参数 [ta, tb] 子段（两次 split 组合）。
+
+    用于"侧缝/腰弧的精确子段"截取：弯腰头时下腰头把外缝弧、腰弧的有效
+    范围截到下侧缝腰点 B'（参数 t_side < 1），挖削区边界、袋布固定边界
+    等按 [t2, t_side] / [0, t_side] 取子段（前口袋绘制.md §三.2）。
+    ta <= 0、tb >= 1 分别短路为 split(tb)[0] / split(ta)[1]。
+    """
+    if ta <= 0.0 and tb >= 1.0:
+        return c
+    if ta <= 0.0:
+        return c.split(tb)[0]
+    if tb >= 1.0:
+        return c.split(ta)[1]
+    _, second = c.split(ta)
+    return second.split((tb - ta) / (1.0 - ta))[0]
 
 
 def lower_leg_curve(knee: Point, hem: Point, mid: Point) -> CubicBezier:

@@ -519,6 +519,58 @@ def draw_back_inseam_curves(ctx: DraftContext) -> NamedCurve:
                          label="后内缝大腿弧")
 
 
+def draw_back_lower_waistband(ctx: DraftContext) -> NamedCurve | None:
+    """后片弯腰头下腰缝线（后腰头绘制推导.md §4，可选步骤）：
+    仅弯腰头（waistband_type=CURVED）绘制；直腰头返回 None 跳过。
+
+    自上腰口端点 O（后浪顶点）、X（后腰头外缝顶点）分别沿后浪线、外侧缝线
+    向下量取腰头宽 W，得下腰缝端点 O'（沿后浪 = 后中斜线 + 大裆弯弧的复合链）、
+    X'（沿外缝髋腰弧）。下腰头线以与上腰口线相同的控制参数重建，弧度一致；
+    O' 处切线与后中斜线 90° 正交（§4 核心要点：左右后片后中缝合后腰下口平滑
+    连续、无尖角），X' 高度与前片 B' 匹配（侧缝拼接上口、下口齐平）。
+    依据：打版流程.md 后片步骤 7（侧缝绘制完之后：弯腰头根据腰头宽绘制下腰头）。"""
+    o = ctx.options
+    if o.waistband_type is not WaistbandType.CURVED:
+        return None                         # 直腰头：腰头单独成片，不下腰缝线
+    W = o.waistband_width
+    a = ctx.point("back.rise_top_point")            # O 上后浪顶点
+    b = ctx.point("back.waist_side_point")          # X 上后腰头外缝顶点
+    rise_slant = ctx.line("back.rise_slant")         # 后浪上段：O → 臀围内缝点（后中斜线）
+    rise_curve = ctx.curve("back.rise_curve")        # 后浪下段：大裆弯弧
+    outseam = ctx.curve("back.outseam_hip_waist")    # 外缝髋腰弧：臀围外缝顶点(t=0) → X(t=1)
+
+    # O'：沿后浪线（后中斜线 + 大裆弯弧）自 O 向下量取 W
+    a_sub = curves.point_along_chain((rise_slant, rise_curve), W)
+    # X'：沿外缝髋腰弧自 X（t=1）向下量取 W
+    t_bsub = outseam.t_at_length(outseam.length() - W)
+    b_sub = outseam.point_at(t_bsub)
+
+    # 下腰头线：与上腰口线同参数重建——O' 切线 ⟂ 后中斜线（§4 90° 正交）
+    rise_dir = (ctx.point("back.hip_inner_point") - a).normalized()
+    t_a = rise_dir.perpendicular()
+    if t_a.dx * (b_sub.x - a_sub.x) + t_a.dy * (b_sub.y - a_sub.y) < 0:
+        t_a = t_a.scale(-1)                 # 取朝向 X' 的一侧
+    p1 = a_sub + t_a.scale(o.waist_rect_len)
+    p2 = curves.waist_sag_p2(a_sub, b_sub, p1, at=0.5,
+                             sag=o.back_waist_curve_sag)
+    lower_arc = CubicBezier(a_sub, p1, p2, b_sub)
+
+    ctx.add_point("back.lower_waist_center_point", a_sub,
+                  step="draw_back_lower_waistband",
+                  basis=f"沿后浪线自 O 向下量取腰头宽 {W}（后腰头绘制推导.md §4 O'）",
+                  label="下后浪顶点O'")
+    ctx.add_point("back.lower_waist_side_point", b_sub,
+                  step="draw_back_lower_waistband",
+                  basis=f"沿外缝线自 X 向下量取腰头宽 {W}（后腰头绘制推导.md §4 X'）",
+                  label="下侧缝顶点X'")
+    return ctx.add_curve("back.lower_waistline_arc", lower_arc,
+                         step="draw_back_lower_waistband",
+                         basis=f"下腰头线：与上腰口线同 sag {o.back_waist_curve_sag}、"
+                               f"直角段 {o.waist_rect_len} 重建，"
+                               "O' 切线 ⟂ 后中斜线（§4 等距平行、90° 正交）",
+                         label="后下腰头线")
+
+
 # ---------- 阶段 8：毗围限制 ----------
 
 def draw_back_thigh_limit(ctx: DraftContext) -> NamedLine | None:

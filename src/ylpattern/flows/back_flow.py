@@ -40,6 +40,7 @@ BACK_FLOW = [
     # —— 阶段 7：外缝、内缝线 ——
     bs.draw_back_outseam_curves,
     bs.draw_back_inseam_curves,
+    bs.draw_back_lower_waistband,   # 弯腰头下腰缝线（可选：直腰头跳过；侧缝绘制完后）
     # —— 阶段 8：毗围限制（测量上版；闭环修正见 flows/closure.py） ——
     bs.draw_back_thigh_limit,
     # —— 阶段 9：后片绘制省（可选步骤，开关开启且 V后省 > 0 才绘制） ——
