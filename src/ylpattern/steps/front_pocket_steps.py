@@ -242,8 +242,10 @@ def draw_front_patch_pocket(ctx: DraftContext) -> NamedLine | None:
     前大片保持 100% 完整、不裁切（§四.1，Ω_cutout = ∅）；贴袋为独立裁片，
     净样上版位置即表面定位标记（Drill/Placement）。
 
-    独立定位（与 INSET 锚点解耦）：袋口外上角 = 自腰外缝顶点 B 垂直向下
-    front_patch_top_drop、水平向内 front_patch_top_inset；袋口宽
+    独立定位（与 INSET 锚点解耦）：袋口外上角 = 自有效腰口的侧缝腰点垂直向下
+    front_patch_top_drop、水平向内 front_patch_top_inset（弯腰头时腰头独立成片，
+    裤身顶边为下腰头线，基准取下侧缝腰点 B'；直腰头取腰外缝顶点 B，行为不变，
+    统一走 steps.front_steps.effective_waist）；袋口宽
     front_patch_width 向内量取，袋身高 front_patch_height 向下量取。
     净形四形态（§五 net_outline_type）：
       - "rectangle" 方底四边形；
@@ -264,7 +266,7 @@ def draw_front_patch_pocket(ctx: DraftContext) -> NamedLine | None:
         return None                     # 开关关闭，可选步骤跳过
 
     step = "draw_front_patch_pocket"
-    b = ctx.point("front.waist_side_point")     # O：腰侧交点
+    b, _, _ = effective_waist(ctx)              # O：弯腰头 = 下侧缝腰点 B'，直腰头 = 腰外缝顶点 B
     a = Point(b.x + o.front_patch_top_inset,
               b.y - o.front_patch_top_drop)     # 袋口外上角（侧缝侧）
     w, h = o.front_patch_width, o.front_patch_height

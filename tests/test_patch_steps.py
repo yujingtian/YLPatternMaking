@@ -14,7 +14,7 @@ import pytest
 
 from ylpattern.flows.front_flow import FRONT_FLOW
 from ylpattern.flows.runner import FlowRunner
-from ylpattern.params import Measurements, PatternOptions
+from ylpattern.params import Measurements, PatternOptions, WaistbandType
 
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
@@ -34,6 +34,20 @@ def test_patch_anchor(ctx):
     assert a.y == pytest.approx(b.y - 10.0)
     # 贴袋整体在侧缝内侧（x 大于侧缝点）
     assert a.x > b.x
+
+
+def test_patch_anchor_curved_waistband():
+    # 弯腰头：贴袋以下侧缝腰点 B' 为基准（腰头独立成片，裤身顶边为下腰头线，
+    # 与 INSET/袋布同一 effective_waist 基准）
+    o = PatternOptions(delta=1.0, front_patch=True,
+                       waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    b_sub = ctx.point("front.lower_waist_side_point")
+    a = ctx.point("front.patch_net_pt1")
+    # 袋口外上角 = B' + (+2, −10)
+    assert a.x == pytest.approx(b_sub.x + 2.0)
+    assert a.y == pytest.approx(b_sub.y - 10.0)
+    assert a.x > b_sub.x
 
 
 def test_patch_rectangle_net(ctx):
