@@ -90,3 +90,30 @@ def test_bezier_split():
     assert first.point_at(0.5).y == pytest.approx(bz.point_at(0.25).y, abs=1e-9)
     # 两段弧长和 ≈ 总长（折线近似在子段上的误差与母段不同，容差放宽）
     assert first.length() + second.length() == pytest.approx(bz.length(), abs=1e-3)
+
+
+def test_foot_on_bezier():
+    # 直线贝塞尔（控制点共线，曲线 = x 轴上 [0,4] 段）：点 (2,5) 法足 = (2,0)
+    line = CubicBezier(Point(0, 0), Point(1, 0), Point(3, 0), Point(4, 0))
+    foot = curves.foot_on_bezier(line, Point(2, 5))
+    assert foot.x == pytest.approx(2.0, abs=1e-9)
+    assert foot.y == pytest.approx(0.0, abs=1e-9)
+    # 法足处切线（沿 +X）⊥ (法足 − p)（沿 +Y）
+    t = line.t_at_length(2.0)
+    tan = line.tangent_at(t)
+    assert (tan.dx * (foot.x - 2) + tan.dy * (foot.y - 5)) == pytest.approx(
+        0.0, abs=1e-9)
+
+    # 弧线贝塞尔（y 单调递增）：法足处切线 ⊥ (法足 − p)，且为最近点
+    arc = CubicBezier(Point(0, 0), Point(1, 3), Point(3, 7), Point(4, 10))
+    p = Point(5, 5)
+    foot = curves.foot_on_bezier(arc, p)
+    t = arc.t_at_y(foot.y)                       # y 单调 -> 反查法足参数
+    assert arc.point_at(t).distance_to(foot) < 1e-6     # 法足在曲线上
+    tan = arc.tangent_at(t)
+    assert (tan.dx * (foot.x - p.x)
+            + tan.dy * (foot.y - p.y)) == pytest.approx(0.0, abs=1e-5)
+    # 法足 = 曲线上离 p 最近点（采样距离无不更小）
+    dmin = foot.distance_to(p)
+    assert all(arc.point_at(i / 200).distance_to(p) >= dmin - 1e-6
+               for i in range(201))

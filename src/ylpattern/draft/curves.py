@@ -219,6 +219,61 @@ def bezier_subrange(c: CubicBezier, ta: float, tb: float) -> CubicBezier:
     return second.split((tb - ta) / (1.0 - ta))[0]
 
 
+def foot_on_bezier(curve: CubicBezier, p: Point, *, n: int = 128) -> Point:
+    """点 p 在三次贝塞尔曲线上的法足（正交投影垂足）：曲线上使
+    (point_at(t) − p) ⟂ tangent_at(t) 的点，即过 p 的曲线法线之垂足
+    （平缓段亦为曲线上离 p 最近点）。
+
+    用于弯腰头口袋省位延长：下腰头线上的袋口腰侧锚点 P1 / 吃省顶点 P1′
+    沿垂直于上腰头线（front.waistline_arc）方向延长到上腰头线，法足即
+    上腰头线上的延长落点（打版流程.md「前口袋打版过程」：弯腰头 + 有省量
+    时延长至上腰头，延长线垂直于上腰头线）。
+
+    采样定位离 p 最近的段 + 二分法足方程 C'(t)·(C(t)−p)=0（邻域单调过零、
+    精度高；端点等退化情况回退三分距离极小）。与 t_at_y / t_at_length
+    同款"采样定位 + 迭代"风格。
+    """
+    pts = curve.sample(n)
+    best_i, best_d = 0, pts[0].distance_to(p)
+    for i in range(1, n + 1):
+        d = pts[i].distance_to(p)
+        if d < best_d:
+            best_d, best_i = d, i
+    lo = max(0.0, (best_i - 1) / n)
+    hi = min(1.0, (best_i + 1) / n)
+
+    def _f(t: float) -> float:
+        # 法足方程：曲线 t 处切线与 (曲线点 − p) 的点积，法足处 = 0
+        c = curve.point_at(t)
+        tg = curve.tangent_at(t)
+        return (c.x - p.x) * tg.dx + (c.y - p.y) * tg.dy
+
+    flo, fhi = _f(lo), _f(hi)
+    if flo * fhi > 0:
+        # 邻域未含法足零点（法足落端点等）--退化为三分距离极小
+        for _ in range(60):
+            m1 = lo + (hi - lo) / 3
+            m2 = hi - (hi - lo) / 3
+            if curve.point_at(m1).distance_to(p) < curve.point_at(m2).distance_to(p):
+                hi = m2
+            else:
+                lo = m1
+        return curve.point_at((lo + hi) / 2)
+    # 法足方程 _f(t)=0 在邻域单调过零，二分至高精度
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        fmid = _f(mid)
+        if abs(fmid) <= 1e-12:
+            break
+        if flo * fmid <= 0:
+            hi = mid
+            fhi = fmid
+        else:
+            lo = mid
+            flo = fmid
+    return curve.point_at((lo + hi) / 2)
+
+
 def lower_leg_curve(knee: Point, hem: Point, mid: Point) -> CubicBezier:
     """小腿段自适应二次贝塞尔（膝口 → 脚口），升阶为三次返回（§三）。
 

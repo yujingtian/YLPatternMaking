@@ -60,6 +60,9 @@ def draw_front_pocket(ctx: DraftContext) -> NamedCurve | NamedLine | None:
       - 吃省边 P1→P1′ 沿腰头线（结构线）；
       - 侧缝边界 P2→O 为外缝弧的精确子段（de Casteljau 细分，
         与裁片外缝线重合；布尔裁减待裁切层）。
+    弯腰头省位延长（打版流程.md「前口袋打版过程」）：弯腰头且吃省 ΔW > 0 时，
+      P1、P1′ 沿垂直于上腰头线（front.waistline_arc）方向延长至上腰头线
+      （法足正交投影），在腰头裁片顶边标出省的两个顶点；直腰头或无省时跳过。
     依据：打版流程.md「前口袋打版过程」；前口袋绘制.md §二、§三.1~§三.2。
     """
     o = ctx.options
@@ -190,6 +193,31 @@ def draw_front_pocket(ctx: DraftContext) -> NamedCurve | NamedLine | None:
                      basis=f"P1 → P1′：沿腰头线的吃省撇削边（吃省 {dw}，"
                            "前口袋绘制.md §三.1）",
                      label="吃省撇削边", role="struct")
+        # 弯腰头 + 有省量：P1 / P1′ 沿垂直于上腰头线方向延长至上腰头线
+        # （法足正交投影），在腰头裁片顶边标出省位（打版流程.md 前口袋打版过程）
+        if o.waistband_type is WaistbandType.CURVED:
+            upper = ctx.curve("front.waistline_arc")
+            p1_top = curves.foot_on_bezier(upper, p1)
+            p1r_top = curves.foot_on_bezier(upper, p1r)
+            ctx.add_point("front.pocket_p1_top", p1_top,
+                          step=step,
+                          basis="P1 沿垂直于上腰头线方向延长至上腰头线（法足，"
+                                "打版流程.md 前口袋打版过程：弯腰头 + 有省量）",
+                          label="袋口腰侧锚点上腰头投影P1顶")
+            ctx.add_point("front.pocket_p1_transfer_top", p1r_top,
+                          step=step,
+                          basis="P1′ 沿垂直于上腰头线方向延长至上腰头线（法足，"
+                                "打版流程.md 前口袋打版过程：弯腰头 + 有省量）",
+                          label="吃省顶点上腰头投影P1′顶")
+            ctx.add_line("front.pocket_p1_extend", LineSegment(p1, p1_top),
+                         step=step,
+                         basis="P1 → 上腰头线 垂直延长线（腰头裁片省位标记）",
+                         label="P1省位延长线", role="ref")
+            ctx.add_line("front.pocket_p1_transfer_extend",
+                         LineSegment(p1r, p1r_top),
+                         step=step,
+                         basis="P1′ → 上腰头线 垂直延长线（腰头裁片省顶标记）",
+                         label="P1′省顶延长线", role="ref")
     ctx.add_curve("front.pocket_waist_edge", waist_edge,
                   step=step,
                   basis="腰弧 O→P1 子段（de Casteljau 细分，"

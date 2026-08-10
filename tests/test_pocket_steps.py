@@ -337,3 +337,55 @@ def test_pocket_anchors_straight_unchanged(ctx):
     b = ctx.point("front.waist_side_point")
     assert ctx.curve("front.pocket_waist_edge").point_at(0).distance_to(b) < 1e-6
     assert ctx.curve("front.pocket_outseam_edge").point_at(1).distance_to(b) < 1e-6
+
+
+def test_pocket_curved_waistband_dart_extend():
+    # 弯腰头 + 有省量：P1 / P1′ 沿垂直于上腰头线延长至上腰头线（法足），
+    # 在腰头裁片顶边标出省位（打版流程.md 前口袋打版过程）
+    o = PatternOptions(delta=1.0, front_pocket=True,
+                       waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    upper = ctx.curve("front.waistline_arc")          # 上腰头线
+    p1 = ctx.point("front.pocket_p1")
+    p1r = ctx.point("front.pocket_p1_transfer")
+    p1_top = ctx.point("front.pocket_p1_top")
+    p1r_top = ctx.point("front.pocket_p1_transfer_top")
+
+    # 落点在上腰头线上（y 单调反查参数，点距 < 1e-6）
+    t1 = upper.t_at_y(p1_top.y)
+    assert upper.point_at(t1).distance_to(p1_top) < 1e-6
+    t1r = upper.t_at_y(p1r_top.y)
+    assert upper.point_at(t1r).distance_to(p1r_top) < 1e-6
+
+    # 延长线垂直于上腰头线在落点处的切线（法足正交：点积 ≈ 0）
+    tan1 = upper.tangent_at(t1)
+    v1 = p1_top - p1
+    assert (tan1.dx * v1.dx + tan1.dy * v1.dy) == pytest.approx(0.0, abs=1e-5)
+    tan1r = upper.tangent_at(t1r)
+    v1r = p1r_top - p1r
+    assert (tan1r.dx * v1r.dx + tan1r.dy * v1r.dy) == pytest.approx(0.0, abs=1e-5)
+
+    # 省顶投影朝前浪顶点侧（与 P1′.x > P1.x 同向）
+    assert p1r_top.x > p1_top.x
+    # 延长线为辅助标记（ref 灰虚线），端点 = (下腰头线点, 上腰头落点)
+    assert ctx.sheet.get("front.pocket_p1_extend").role == "ref"
+    assert ctx.sheet.get("front.pocket_p1_transfer_extend").role == "ref"
+    assert (ctx.line("front.pocket_p1_extend").a,
+            ctx.line("front.pocket_p1_extend").b) == (p1, p1_top)
+    assert (ctx.line("front.pocket_p1_transfer_extend").a,
+            ctx.line("front.pocket_p1_transfer_extend").b) == (p1r, p1r_top)
+
+
+def test_pocket_curved_extend_conditions():
+    # 直腰头 + 有省：P1/P1′ 已在上腰弧上，不延长（无投影元素）
+    ctx_s = FlowRunner(M, PatternOptions(delta=1.0, front_pocket=True)).run(
+        FRONT_FLOW)
+    assert "front.pocket_p1_top" not in ctx_s.sheet
+    assert "front.pocket_p1_extend" not in ctx_s.sheet
+    # 弯腰头 + 无省（dw=0）：P1′ 不存在，不延长
+    ctx_n = FlowRunner(M, PatternOptions(
+        delta=1.0, front_pocket=True, waistband_type=WaistbandType.CURVED,
+        front_pocket_dart_width=0.0)).run(FRONT_FLOW)
+    assert "front.pocket_p1_transfer" not in ctx_n.sheet
+    assert "front.pocket_p1_top" not in ctx_n.sheet
+    assert "front.pocket_p1_extend" not in ctx_n.sheet
