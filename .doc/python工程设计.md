@@ -123,51 +123,7 @@ def front_hip_width_point(ctx: DraftContext) -> NamedPoint:
 
 ### 目录结构
 
-```
-YLPatternMaking/
-├── .doc/                        # 打版理论文档（已存在）
-├── src/
-│   └── ylpattern/
-│       ├── __init__.py
-│       ├── params/
-│       │   ├── measurements.py  # 成品尺寸模型
-│       │   └── options.py       # 版型选项（Δ 预设、腰头类型…）
-│       ├── geometry/
-│       │   ├── point.py         # Point / Vector
-│       │   ├── line.py          # 直线段、参考线
-│       │   ├── bezier.py        # 三次贝塞尔（采样、求长、切线）
-│       │   └── polygon.py       # 闭合轮廓、周长、面积、偏移
-│       ├── formulas/            # 纯函数公式库（与文档章节对应）
-│       │   ├── hip.py           # 臀围前后片分配、裆宽
-│       │   ├── crotch.py        # 前后浪、立裆深、裆弯控制点
-│       │   ├── waist.py         # 腰围分配、省道/吃势
-│       │   └── leg.py           # 膝围、脚口、侧缝收放
-│       ├── draft/               # 绘制基础设施
-│       │   ├── elements.py      # NamedPoint / NamedLine / NamedCurve
-│       │   ├── context.py       # DraftContext（步骤间元素存取）
-│       │   ├── sheet.py         # DraftSheet（整张版的元素容器）
-│       │   └── curves.py        # 公共弧线库（参数化，见 §5.3.1）
-│       ├── steps/               # ★ 绘制步骤函数（核心）
-│       │   ├── front_steps.py   #   前片：每个点/线一个函数
-│       │   ├── back_steps.py    #   后片
-│       │   └── waistband_steps.py
-│       ├── flows/               # 流程编排
-│       │   ├── runner.py        #   FlowRunner（按序执行/中断/单步）
-│       │   ├── front_flow.py    #   前片步骤列表
-│       │   └── back_flow.py     #   后片步骤列表
-│       ├── cutter.py            # 裁切器：版 → 独立裁片
-│       ├── pieces.py            # PatternPiece（净样/毛样/记号/局部坐标）
-│       ├── exporters/
-│       │   ├── svg.py           # SVG 分层输出
-│       │   ├── dxf.py           # DXF（可选依赖 ezdxf）
-│       │   └── report.py        # 尺寸报表
-│       ├── validation.py        # 结构校验器
-│       └── cli.py
-├── examples/                    # 示例尺寸单 JSON
-├── tests/
-├── pyproject.toml
-└── 打版流程.md
-```
+目录结构以 `src/ylpattern/` 实际代码为准。步骤层按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps`；`draft/curves.py` 为公共弧线库。未实现模块（cutter/pieces/validation/dxf）见 §10.6。
 
 ---
 
@@ -267,35 +223,7 @@ def draw_inner_seam_refline(ctx) -> NamedLine:
 
 ### 5.3.1 曲线（弧线）绘制策略
 
-打版中的弧线（裆弯、腰口弧、侧缝臀段、脚口弧等）由**参数化的公共曲线函数**生成，集中在 `draft/curves.py`：
-
-```python
-# draft/curves.py —— 公共弧线库，全部以参数控制形状
-
-def arc_through(end_a: Point, end_b: Point, *,
-                bulge: float,        # 弧高（弦的垂直方向凸起量，cm）
-                bulge_at: float = 0.5  # 弧顶位置（弦长比例 0~1）
-                ) -> CubicBezier:
-    """过两端点、按弧高控制的通用弧线 —— 适用于脚口弧、膝围过渡等浅弧。"""
-
-def crotch_curve(start: Point, end: Point, *,
-                 tangent_angle: float,  # 起点切线角（贴立裆线/斜线方向）
-                 depth: float,          # 裆弯凹入深度（由 H/20、H/10 等推出）
-                 tension: float = 1.0   # 曲率松紧
-                 ) -> CubicBezier:
-    """裆弯弧：一端切线约束 + 凹深控制。前后裆弯共用机制，
-    但凹深、切线角参数各自独立传入。"""
-
-def hip_side_curve(...) -> CubicBezier:
-    """侧缝臀段弧：过腰点/臀点/膝点，弧度可调。"""
-```
-
-使用规则：
-
-- **能用公共函数就用**：形状仅由参数区分（弧高、切线角、凹深、曲率）的弧线，一律调用公共库，保证同类弧线画法统一、调版时只调参数；
-- **共用不强制**：裁片特有、参数化公共函数表达不了的曲线（如后片配合后翘的复合裆弯、Yoke 分割线弧），允许步骤函数**自行构造贝塞尔控制点**并上版，只需在 docstring 写明控制点的确定依据；
-- **判断标准**：一条弧线的画法被两处以上使用，或预期会在调版中反复调参 → 收进公共库；只出现一次且形状特殊 → 留在步骤函数里。后续若出现第二处使用，再重构上提；
-- 公共曲线函数的每个参数都必须是**有物理意义的量**（cm、角度、弦长比例），禁止不可解释的纯形状魔法数。
+打版弧线由 `draft/curves.py` 的参数化公共函数生成。规则：能用公共函数就用（形状仅由参数区分）；裁片特有、公共函数表达不了的曲线允许步骤自行构造贝塞尔控制点，docstring 写明依据；判断标准是「被两处以上使用或预期反复调参 → 收进公共库」。公共曲线函数的每个参数都必须是有物理意义的量（cm、角度、弦长比例），禁止纯形状魔法数。实际函数清单与签名见 §10.2。
 
 ### 5.4 流程层 `flows/` —— 有序编排
 
@@ -336,90 +264,25 @@ runner.run(FRONT_FLOW, trace=True)           # 逐步打印"画了什么、依�
 
 ### 5.5 裁切层 `cutter.py` —— 先画后裁
 
-前后片全部绘制完成后，Cutter 把每个裁片从版上独立裁出：
-
-```
-DraftSheet（所有元素）
-     │  按裁片定义表逐一圈取
-     ▼
-裁片定义："前片" = [腰点→臀点→裆点→脚口内点→脚口外点] 元素名列表 + 曲线段
-     │
-     ▼
-① 提取轮廓点列 → 闭合 Polygon（净样）
-② 校验闭合性与自相交
-③ 平移到裁片局部坐标系（左下角为原点）
-④ 平行偏移生成毛样（缝份）
-⑤ 收集落在轮廓内部/边界上的记号（对位点、丝缕线）
-     ▼
-PatternPiece × N（前片、后片、腰头……各自独立）
-```
-
-- 裁片定义也是**声明式**的（元素名列表），新增裁片 = 加一条定义，不改机制；
-- 弯腰头按打版流程"注意点"处理：与前片一体绘制，裁切阶段沿分割线裁成两个独立裁片；直腰头则绘制时已扣除腰头宽，直接裁出。
+前后片绘制完成后，Cutter 按声明式裁片定义（元素名列表）从版上逐个圈取轮廓 → 闭合 Polygon（净样）→ 平移到局部坐标 → 偏移生成毛样 → 收集记号，产出独立 `PatternPiece`。弯腰头沿分割线裁成两片，直腰头绘制时已扣宽直接裁。**尚未实现**（见 §10.6），细节待实现时细化。
 
 ### 5.6 裁片 `pieces.py`
 
-```python
-@dataclass
-class PatternPiece:
-    name: str                    # "front" / "back" / "waistband"
-    outline: Polygon             # 净样轮廓（局部坐标）
-    notches: list[Notch]         # 对位记号（膝围、臀围对位点）
-    grainline: LineSegment       # 丝缕线
-    annotations: list[Annotation]
-    def with_seam_allowance(self, width: float) -> Polygon: ...
-```
+`PatternPiece`：净样轮廓 + 对位记号 + 丝缕线 + 标注，`with_seam_allowance(width)` 生成毛样。**尚未实现**。
 
 ### 5.7 输出层 `exporters/`
 
-**SVG**（调版预览）—— 分图层，可用开关控制显示：
-
-| 图层 | 内容 |
-| :--- | :--- |
-| `reference` | 参考线（灰虚线）—— 整张版的绘制痕迹 |
-| `elements` | 关键点与控制点（可选显示名称标注） |
-| `net` | 净样轮廓（黑实线） |
-| `seam` | 毛样轮廓（蓝实线） |
-| `annotation` | 尺寸标注、裁片名 |
-
-两种模式：**版式输出**（整张 DraftSheet，带全部绘制过程）和**裁片输出**（每个裁片独立排列，生产视角）。
-
-**DXF**（生产）：每裁片一个 BLOCK，净样/毛样分 LAYER，记号转 POINT/线。
-
-**报表**：全部中间计算尺寸 + trace 记录（即 `ylpattern draft --report` 输出），供打版师核对。
+SVG（调版预览，分图层）+ DXF（生产，每裁片一个 BLOCK）+ 报表（中间尺寸 + trace 记录）。实际已实现的图层与 role 渲染见 §10.3；net/seam/annotation 等图层为设计期设想，尚未实现。
 
 ### 5.8 校验器 `validation.py`
 
-对应 [前后片臀围推导.md](前后片臀围推导.md) §五，转为程序化校验：
-
-| 校验项 | 规则 | 级别 |
-| :--- | :--- | :--- |
-| 臀围闭合 | `2×(H前+H后) = H ± 0.05` | ERROR |
-| 前后侧缝等长 | 长度差 ≤ 0.3 cm | WARNING |
-| 前后内缝等长 | 长度差 ≤ 0.3 cm | WARNING |
-| 裆弯拼接顺滑 | 前后裆弯裆点处切线夹角 ≥ 170° | WARNING |
-| 非负性 | 所有宽度尺寸 > 0 | ERROR |
-| 轮廓闭合 | 裁片轮廓首尾闭合、无自交 | ERROR |
-
-校验失败**告警不中断**（打版师可能故意违反某条规则），结果附在报表中。
+裁片裁出后做结构校验：臀围闭合（2×(H前+H后) = H ± 0.05）、前后侧缝/内缝等长（差 ≤ 0.3 cm）、裆弯拼接顺滑（切线夹角 ≥ 170°）、轮廓闭合无自交。失败告警不中断，结果附报表。**尚未实现**，规则容差待实现时细化。
 
 ---
 
 ## 六、典型使用流程
 
-```bash
-# 1. 调版：只画到基础框架，看五条参考线和大矩形
-ylpattern draft --size size.toml --until draw_inner_seam_refline --svg out/frame.svg
-
-# 2. 全流程绘制，输出整张版（带绘制痕迹）+ 追踪记录
-ylpattern draft --size size.toml --svg out/sheet.svg --trace out/trace.txt
-
-# 3. 裁片输出（M3+）：逐个裁出，SVG 预览 + DXF 生产文件
-ylpattern cut --size size.toml --svg out/pieces.svg --dxf out/pieces.dxf \
-    --report out/report.txt
-```
-
-尺寸单 `size.toml`（TOML 格式，支持 `#` 注释）：
+命令行用法见 [CLAUDE.md](../CLAUDE.md)「常用命令」（`ylpattern draft --size ... --svg/--trace/--report`，支持 `--until` 中断调版；`ylpattern cut` 尚未实现）。尺寸单 `size.toml`（TOML，支持 `#` 注释）格式：
 
 ```toml
 [measurements]
