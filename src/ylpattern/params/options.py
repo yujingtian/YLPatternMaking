@@ -51,6 +51,25 @@ class PatternOptions:
                                            # 每个省的省量列表（默认 2cm，顺序同省中点：后中 → 侧缝）；
                                            # 写单个值则各省共用；省量为 0 的省不绘制
     back_dart_length: float = 11.0         # 省中线长（省中点沿腰头直线垂线向内，默认 11cm）
+    # -- 后机头/育克（back yoke）：后片腰部横向分割育克裁片（后机头绘制.md） --
+    back_yoke: bool = False                # 后机头绘制开关（可选步骤，打版流程.md「后机头/育克绘制」；
+                                           #   只上版分割下口线，不做布尔裁除--先画后裁）
+    back_yoke_cb_dist: float = 4.0         # P0 后浪端点：自腰头内缝顶点沿后浪线向下量取的弧长 D_cb
+                                           #   （cm，§1；机头后中深度）
+    back_yoke_side_dist: float = 3.0       # PN 侧缝端点：自腰头外缝顶点沿外缝线向下量取的弧长 D_side
+                                           #   （cm，§1；机头侧缝深度；D_cb − D_side = 倾斜落差 ΔH）
+    back_yoke_mid_anchors: tuple[tuple[float, float], ...] = ()
+                                           # 下口线中间控制点（§2 N-Point 分段拓扑）：
+                                           #   每个 = (u, depth)，u = P0->PN 弦上位置比例 0~1（严格递增）、
+                                           #   depth = 偏离弦的深度（cm，正值向下凸入裤身、0 = 压弦、负值上凸）；
+                                           #   空 = 直线下口（打版流程.md：无锚点即直线）
+    back_yoke_edges: tuple = ()
+                                           # 下口线分段形态（§2.2 LINEAR/CURVE），个数 = 中间锚点数 + 1
+                                           #   （P0->P1、…、Pn->PN 逐段）：
+                                           #   ("line",) 直线 / ("arc", 弧高, 弧顶分位 0~1) 弧高式
+                                           #   / ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
+                                           #   （夹角相对弦向，κ 为弦长比，§2.2；与袋布/小表袋边形态同口径）
+                                           #   空 = 全段直线（自动；打版流程.md：无控制点即直线，省略 edges 即可）
     side_intake_k_waist: float = 1.0       # 侧缝内收推导的 k_waist（前减后加，常取 1.0~1.5）
     side_rise: float = 0.0                 # 侧缝腰头抬高量 h（0 = 外缝顶点压腰围基础线，0~1.5）
     outseam_bulge: float = 0.3             # 外侧缝弧外凸量（微微凸，0.2~0.5）
@@ -239,6 +258,52 @@ class PatternOptions:
         object.__setattr__(self, "back_dart_width", widths)
         if self.back_dart_length <= 0:
             raise ValueError(f"省中线长必须为正数，得到 {self.back_dart_length}")
+        # 后机头：端点距离/锚点/边形态校验（后机头绘制.md §1、§2）
+        if self.back_yoke_cb_dist <= 0:
+            raise ValueError(f"机头后浪端点距离必须为正数，得到 {self.back_yoke_cb_dist}")
+        if self.back_yoke_side_dist <= 0:
+            raise ValueError(f"机头侧缝端点距离必须为正数，得到 {self.back_yoke_side_dist}")
+        yanchors = tuple((float(u), float(d)) for u, d in self.back_yoke_mid_anchors)
+        for u, d in yanchors:
+            if not 0.0 < u < 1.0:
+                raise ValueError(f"机头锚点弦上位置须在 (0, 1) 内，得到 {yanchors}")
+            if abs(d) > 10.0:
+                raise ValueError(f"机头锚点深度绝对值不超过 10.0，得到 {yanchors}")
+        if any(yanchors[i + 1][0] <= yanchors[i][0]
+               for i in range(len(yanchors) - 1)):
+            raise ValueError(f"机头锚点弦上位置须严格递增，得到 {yanchors}")
+        yedges: list = []
+        if len(self.back_yoke_edges) == 0:
+            # 空 edges = 全段直线（打版流程.md：无控制点即直线；省略 edges 即直线连接）
+            yedges = [("line",)] * (len(yanchors) + 1)
+        else:
+            for e in self.back_yoke_edges:
+                spec = (e[0],) + tuple(float(x) for x in e[1:])
+                if spec[0] == "line":
+                    if len(spec) != 1:
+                        raise ValueError(f"line 边不带参数，得到 {e}")
+                elif spec[0] == "arc":
+                    if len(spec) != 3:
+                        raise ValueError(f"arc 边须为 (弧高, 弧顶分位)，得到 {e}")
+                    if abs(spec[1]) > 10.0:
+                        raise ValueError(f"arc 弧高绝对值不超过 10.0，得到 {e}")
+                    if not 0.0 < spec[2] < 1.0:
+                        raise ValueError(f"arc 弧顶分位须在 (0, 1) 内，得到 {e}")
+                elif spec[0] == "bezier":
+                    if len(spec) != 5:
+                        raise ValueError(f"bezier 边须为 (α°, κ1, β°, κ2)，得到 {e}")
+                    if abs(spec[1]) > 90.0 or abs(spec[3]) > 90.0:
+                        raise ValueError(f"bezier 夹角建议在 ±90° 内，得到 {e}")
+                    if not 0.0 < spec[2] <= 1.0 or not 0.0 < spec[4] <= 1.0:
+                        raise ValueError(f"bezier 手柄弦长比须在 (0, 1] 内，得到 {e}")
+                else:
+                    raise ValueError(f"机头边形态只支持 line / arc / bezier，得到 {e}")
+                yedges.append(spec)
+            if len(yedges) != len(yanchors) + 1:
+                raise ValueError(f"机头边形态个数须为锚点数 + 1（{len(yanchors) + 1}），"
+                                 f"得到 {len(yedges)} 个")
+        object.__setattr__(self, "back_yoke_mid_anchors", yanchors)
+        object.__setattr__(self, "back_yoke_edges", tuple(yedges))
         if not 0.0 < self.thigh_front_share < 1.0:
             raise ValueError(f"大差量前片分配比须在 (0, 1) 内，得到 {self.thigh_front_share}")
         for name in ("thigh_piece_split_max", "thigh_dual_track_min",

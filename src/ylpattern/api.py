@@ -35,6 +35,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_dart: bool = False, back_dart_count: int = 1,
         back_dart_width: float | list[float] | tuple[float, ...] = 2.0,
         back_dart_length: float = 11.0,
+        back_yoke: bool = False,
+        back_yoke_cb_dist: float = 4.0,
+        back_yoke_side_dist: float = 3.0,
+        back_yoke_mid_anchors: list | tuple = (),
+        back_yoke_edges: list | tuple = (),
         front_crease_e: float = 0.0, back_crease_e: float = 0.0,
         knee_adjust: float = 1.0, hem_adjust: float = 1.0,
         calf_arc_alpha: float = 0.10,
@@ -140,6 +145,21 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          后中 → 侧缝，个数须等于省数；写单个值则各省共用；
                          省量为 0 的省不绘制）
         back_dart_length 省中线长（默认 11cm）
+        back_yoke        后机头/育克绘制开关（可选步骤，打版流程.md「后机头/育克绘制」；
+                         只上版分割下口线，先画后裁，不做布尔裁除）
+        back_yoke_cb_dist / back_yoke_side_dist
+                         机头下口两端点：自腰头内缝/外缝顶点沿后浪线/外缝线向下量取的
+                         弧长 D_cb / D_side（cm，后机头绘制.md §1；弯腰头改自下腰头顶点
+                         量取、链上再下移腰头宽 W）
+        back_yoke_mid_anchors
+                         下口线中间控制锚点列表，每个 = (u, depth)：u = P0->PN 弦上
+                         位置比例 0~1（严格递增）、depth = 偏离弦深度（cm，正值向下凸
+                         入裤身、0 = 压弦、负值上凸）；空 = 直线下口
+                         （打版流程.md：无锚点即直线）
+        back_yoke_edges  下口线逐段形态（个数 = 锚点数 + 1）：("line",) 直线 /
+                         ("arc", 弧高, 弧顶分位) 弧高式 /
+                         ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔（与袋布/小表袋同口径）；
+                         空 = 全段直线（自动，打版流程.md：无控制点即直线）
         front_crease_e   前片裤中线调节量 e（常规 0；修身 -0.5~-0.8，裤中线推导.md §五）
         back_crease_e    后片裤中线调节量 e（常规与 front_crease_e 一致；
                          偏平臀/特大臀峰/提臀造型时独立设定，§五）
@@ -275,6 +295,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        back_dart_count=back_dart_count,
                        back_dart_width=back_dart_width,
                        back_dart_length=back_dart_length,
+                       back_yoke=back_yoke,
+                       back_yoke_cb_dist=back_yoke_cb_dist,
+                       back_yoke_side_dist=back_yoke_side_dist,
+                       back_yoke_mid_anchors=back_yoke_mid_anchors,
+                       back_yoke_edges=back_yoke_edges,
                        front_crease_e=front_crease_e,
                        back_crease_e=back_crease_e,
                        knee_adjust=knee_adjust,

@@ -11,6 +11,7 @@
 """
 
 from ..steps import back_steps as bs
+from ..steps import back_yoke_steps as yoke
 from .front_flow import FRONT_FLOW
 
 BACK_FLOW = [
@@ -45,6 +46,8 @@ BACK_FLOW = [
     bs.draw_back_thigh_limit,
     # —— 阶段 9：后片绘制省（可选步骤，开关开启且 V后省 > 0 才绘制） ——
     bs.draw_back_darts,
+    # -- 阶段 10：后机头/育克（可选步骤，开关开启才绘制；先画后裁，只上版分割下口线） --
+    yoke.draw_back_yoke,
 ]
 
 # 整版流程：先前片、后后片（后片步骤读取前片共享基准线）
