@@ -477,3 +477,50 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 | 步骤间元素名依赖写错，运行到一半才报错 | FlowRunner 启动前做**静态依赖检查**：解析每个步骤声明的 `requires`，提前发现缺失 |
 | 经验公式多流派，数值有争议 | 经验值一律收敛到 `PatternOptions`，步骤函数与公式函数只实现机制 |
 | 浮点精度导致校验误报 | 校验统一容差（默认 0.05 cm），舍入只发生在输出层 |
+
+---
+
+## 十、实现态速查（以代码为准）
+
+> v0.4 补充（2026-08-10）：本节由 [CLAUDE.md](../CLAUDE.md) 的"工程速查"迁入，记录已实现代码的实操约定。上文 §一~九为目标设计态，遇不一致以本节与实际代码为准。
+
+### 10.1 局部特征框坐标系
+
+口袋 / 袋布 / 门襟等特征上版时常另建**局部坐标系**按文档推导——取特征锚点为局部原点 O，两轴沿特征的两条基准方向：
+- 门襟 O = 前浪 ∩ 裤身顶边，Y 沿前浪下行、X 垂直前浪朝外凸；
+- 袋布 O = 腰外缝顶点，x 朝门襟、y 向下。
+
+局部 → 全局：`o_pt + x_dir.scale(x) + y_dir.scale(y)`（`x_dir = y_dir.perpendicular()`）。**看步骤代码先认局部框**，否则坐标会读反。
+
+### 10.2 几何 API 速查（geometry/）
+
+- `Point(x,y)` 不可变：`+Vector`、`-Point → Vector`、`distance_to`、`lerp`、`midpoint`。
+- `Vector(dx,dy)`：`length`、`normalized()`、`perpendicular()`（**逆时针 90° 并归一化**，法向方向以此为准）、`scale(k)`、`rotate(deg)`。
+- `LineSegment(a,b)`：`length` 是**属性**（不是方法！）、`direction`（a→b 单位向量）、`horizontal`/`vertical` 工厂。
+- `CubicBezier(p0,p1,p2,p3)`：`point_at(t)`、`tangent_at(t)`（未归一化）、`length()`（折线近似，**是方法**）、`t_at_length(s)`/`point_at_length(s)`（按弧长定位）、`t_at_y(y)`/`point_at_y(y)`（按高度定位，要求 y 单调）、`split(t)`（de Casteljau，返回两段）、`angle_with(other)`（拼接切线夹角，180°=顺滑）。
+- 90° 圆角贝塞尔逼近常数 `4/3×tan(§rad)≈0.5523`（`front_fly_steps._QUARTER_K`），柄长 = 常数 × R。
+- `draft/curves.py` 公共弧线库：`arc_through`（弧高式）、`sag_curve`（弧顶精确 sag）、`crotch_curve`（切线+凹深）、`front_rise`/`back_rise`（前/后浪复合线按总浪长闭合反推顶点）、`point_along_chain`（沿"直线+曲线"复合链量取弧长，量腰头宽/开深等）、`bezier_subrange`（取曲线参数子段）、`foot_on_bezier`（点在曲线上的法足/正交投影，垂直投射定位——弯腰头省位延长至上腰头线等）、`edge_geom`（按 spec 分派 line/arc/bezier 边形态，袋布节点链/小表袋净样逐边共用）。
+
+### 10.3 role 与 SVG 渲染（exporters/svg.py）
+
+- `NamedLine.role` / `NamedCurve.role`：`"struct"`（结构线，实线深色 #2c3e50）/ `"ref"`（参考线，灰虚线 #999 dasharray）。`NamedLine` 默认 `ref`，`NamedCurve` 默认 `struct`。
+- SVG 图层顺序（后绘盖上）：`reference`(ref 线) → `struct`(struct 线) → `curves`(全部曲线，按 role 分 `.curve` 实线 / `.curveref` 虚线) → `elements`(点)。要让某条**曲线**画虚线，给 `add_curve(..., role="ref")`（曲线默认 struct 实线，现已支持 role 生效）。
+- 注意：§5.7 的图层表（net/seam/annotation…）与目录里的 `cutter.py`/`pieces.py`/`validation.py`/`dxf.py` 是**设计期设想，尚未实现**；实际图层与已实现模块见上。
+
+### 10.4 架构约束细节
+
+- 依赖链 `cli/api → exporters → flows → steps → draft → formulas → geometry → params`：**禁止反向**。尤其 `params/`（最底层）**不能 import `formulas/`**（formulas 在其上方）——需公式参与的跨字段校验放**步骤层**（步骤可调 formulas），`PatternOptions.__post_init__` 只做单字段范围校验。
+- `formulas/` **只依赖标准库**（`math`），输入输出纯 float，不碰 geometry/params。
+- `steps/` 只做定位与上版：数值调 `formulas/`，几何构造调 `geometry/` 与 `draft/curves.py`，经验常数读 `PatternOptions`。
+
+### 10.5 排版与 Unicode 编码踩坑指南
+
+代码与文档的中文标点是**全角 Unicode**，不是 ASCII。用 Edit 工具替换时 `old_string` 必须用对应字符，否则不匹配：
+- 箭头 `→` = U+2192（注释"A → B"用它，**不是** ASCII `->`；只有类型注解 `-> float` 才是 ASCII）。
+- 破折号 `—` = U+2014（不是 `--`）；减号 `−` = U+2212（不是 `-`）。
+- `°`(度)、`×`(乘)、`§`(节)、`≈`(约) 均为 Unicode。
+- 替换含这些字符的段落若不匹配，改用**按 ASCII 标记截取**（Python 脚本 `s[s.index(start):s.index(end)]`）或只替换纯 ASCII 子串；heredoc `python3 <<EOF` 在 Windows Git Bash 会挂起，写脚本文件再 `python` 运行。
+
+### 10.6 当前实现状态（已程序化）
+
+已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、毗围闭环（`flows/closure.py`）。只有 `.doc/` 推导文档、尚未程序化：后贴袋等（在建）。尚未实现：裁切层（cutter/pieces）、DXF 导出、结构校验器。
