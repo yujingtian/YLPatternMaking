@@ -354,3 +354,57 @@ def draw_front_patch_pocket(ctx: DraftContext) -> NamedLine | None:
                                 basis=f"净样第 {i + 1} 段（表面定位标记，§四.1）",
                                 label=f"贴袋净样{i + 1}段", role="struct")
     return last
+
+
+# ---------- 小表袋（watch pocket）：嵌于挖削嵌入式前口袋内 ----------
+
+def draw_front_watch_pocket(ctx: DraftContext) -> NamedLine | NamedCurve | None:
+    """前小表袋（打版流程.md「小表袋绘制」，可选步骤）：
+    开关 watch_pocket 开启、且前口袋为挖削嵌入式（front_pocket）才绘制。
+
+    以前口袋侧缝腰点 O（effective_waist 的 b：弯腰头 = 下侧缝腰点 B′、
+    直腰头 = 腰外缝顶点 B）为基准，按"离口袋顶部距离"（垂直向下）
+    与"离口袋侧边距离"（水平向内）定位小表袋参考点（袋口外上角），
+    再绕参考点整体旋转（顺时针为正）。净形为自定义锚点链（≥3 个，
+    相对参考点 dx/dy（dy 向下为正），顺时针），逐边形态 line/arc/bezier 可控
+    （小表袋绘制.md §2.3 装配定位、§4 局部生成；缝边留待裁切层）。
+    依据：打版流程.md「小表袋绘制」；小表袋绘制.md §2~§4。
+    """
+    o = ctx.options
+    if not o.watch_pocket:
+        return None
+    if "front.pocket_p1" not in ctx.sheet:
+        raise ValueError("小表袋依赖前口袋主切口，请先开启 front_pocket"
+                         "（打版流程.md：当前口袋是挖削嵌入式时才绘制小表袋）")
+
+    step = "draw_front_watch_pocket"
+    b, _, _ = effective_waist(ctx)              # 前口袋局部原点 O（侧缝腰点）
+    # 参考点（袋口外上角）= O + 水平向内 offset_from_side + 垂直向下 offset_from_top
+    a = Point(b.x + o.watch_pocket_offset_from_side,
+              b.y - o.watch_pocket_offset_from_top)
+    net = [Point(a.x + dx, a.y - dy) for dx, dy in o.watch_pocket_points]  # dy 向下为正
+    # 整体旋转：绕参考点 a（顺时针为正，Y 向上坐标系取负角）
+    if o.watch_pocket_rotate_deg != 0:
+        net = [p.rotate_around(a, -o.watch_pocket_rotate_deg) for p in net]
+
+    last = None
+    n = len(net)
+    for i in range(n):
+        ctx.add_point(f"front.watch_pocket_pt{i + 1}", net[i],
+                      step=step,
+                      basis=f"净形锚点 {i + 1}（相对参考点 "
+                            f"{o.watch_pocket_points[i]}，小表袋绘制.md §4）",
+                      label=f"小表袋角{i + 1}")
+        nxt = net[(i + 1) % n]
+        spec = o.watch_pocket_edges[i]
+        geom = curves.edge_geom(net[i], nxt, spec)
+        basis = f"净样第 {i + 1} 段（{spec[0]}，小表袋绘制.md §4）"
+        if isinstance(geom, LineSegment):
+            last = ctx.add_line(f"front.watch_pocket_seg{i + 1}", geom,
+                                step=step, basis=basis,
+                                label=f"小表袋净样{i + 1}段", role="struct")
+        else:
+            last = ctx.add_curve(f"front.watch_pocket_seg{i + 1}", geom,
+                                 step=step, basis=basis,
+                                 label=f"小表袋净样{i + 1}段")
+    return last

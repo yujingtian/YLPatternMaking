@@ -152,6 +152,27 @@ class PatternOptions:
                                            #   ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
                                            #   （夹角相对弦向，κ 为弦长比，§三.2）
     # —— 门襟（连裁门襟，门襟绘制.md §2.2、§3、§4） ——
+    # -- 小表袋（watch pocket）：嵌于挖削嵌入式前口袋内的小贴袋（小表袋绘制.md） --
+    watch_pocket: bool = False              # 小表袋开关（依赖 front_pocket 挖削嵌入式；
+                                           #   打版流程.md：当前口袋是挖削嵌入式时才绘制）
+    watch_pocket_offset_from_top: float = 4.0
+                                           # 离口袋顶部距离：自前口袋侧缝腰点垂直向下（cm，
+                                           #   小表袋绘制.md §2.3 offset_y_from_pocket_top）
+    watch_pocket_offset_from_side: float = 3.5
+                                           # 离口袋侧边距离：自侧缝水平向内（cm，§2.3
+                                           #   offset_x_from_side_seam）
+    watch_pocket_rotate_deg: float = 0.0    # 整体旋转角（度，顺时针为正，绕参考点，
+                                           #   §2.3/§3.2 global_rotation）
+    watch_pocket_points: tuple[tuple[float, float], ...] = (
+        (0.0, 0.0), (8.0, 0.0), (7.6, 7.5), (0.4, 7.5))
+                                           # 净形锚点（相对参考点 dx/dy，dy 向下为正，≥3 个，顺时针；
+                                           #   默认梯形：袋口宽 8、底宽 7.2、高 7.5，
+                                           #   taper=(8−7.2)/2=0.4；打版流程.md：锚点最少三个点）
+    watch_pocket_edges: tuple = (("line",), ("line",), ("line",), ("line",))
+                                           # 边形态列表，个数 = 锚点数（闭合边）：
+                                           #   ("line",) 直线 / ("arc", 弧高, 弧顶分位) 弧高式
+                                           #   / ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
+                                           #   （打版流程.md：每段弧线/贝塞尔/直线可控制）
     fly: bool = False                    # 门襟绘制开关（可选步骤；连裁门襟上版于前片）
     fly_width: float = 3.8               # 门襟宽 W（常规 YKK 5# 拉链，3.5~4.2）
     fly_length_ratio: float = 0.35       # 开深系数（L = 本值 × 前浪 + fly_length_base，§2.2）
@@ -335,6 +356,42 @@ class PatternOptions:
                              f"得到 {len(edges)} 个")
         object.__setattr__(self, "front_pouch_nodes", nodes)
         object.__setattr__(self, "front_pouch_edges", tuple(edges))
+        # 小表袋：偏移/旋转/锚点/边形态校验（小表袋绘制.md §2、§4）
+        if self.watch_pocket_offset_from_top < 0 or self.watch_pocket_offset_from_side < 0:
+            raise ValueError("小表袋离口袋顶部/侧边距离不能为负数")
+        if abs(self.watch_pocket_rotate_deg) > 90.0:
+            raise ValueError(f"小表袋旋转角建议在 ±90° 内，得到 {self.watch_pocket_rotate_deg}")
+        wpts = tuple((float(x), float(y)) for x, y in self.watch_pocket_points)
+        if len(wpts) < 3:
+            raise ValueError(f"小表袋锚点至少 3 个，得到 {len(wpts)} 个")
+        wedges = []
+        for e in self.watch_pocket_edges:
+            spec = (e[0],) + tuple(float(x) for x in e[1:])
+            if spec[0] == "line":
+                if len(spec) != 1:
+                    raise ValueError(f"line 边不带参数，得到 {e}")
+            elif spec[0] == "arc":
+                if len(spec) != 3:
+                    raise ValueError(f"arc 边须为 (弧高, 弧顶分位)，得到 {e}")
+                if abs(spec[1]) > 10.0:
+                    raise ValueError(f"arc 弧高绝对值不超过 10.0，得到 {e}")
+                if not 0.0 < spec[2] < 1.0:
+                    raise ValueError(f"arc 弧顶分位须在 (0, 1) 内，得到 {e}")
+            elif spec[0] == "bezier":
+                if len(spec) != 5:
+                    raise ValueError(f"bezier 边须为 (α°, κ1, β°, κ2)，得到 {e}")
+                if abs(spec[1]) > 90.0 or abs(spec[3]) > 90.0:
+                    raise ValueError(f"bezier 夹角建议在 ±90° 内，得到 {e}")
+                if not 0.0 < spec[2] <= 1.0 or not 0.0 < spec[4] <= 1.0:
+                    raise ValueError(f"bezier 手柄弦长比须在 (0, 1] 内，得到 {e}")
+            else:
+                raise ValueError(f"小表袋边形态只支持 line / arc / bezier，得到 {e}")
+            wedges.append(spec)
+        if len(wedges) != len(wpts):
+            raise ValueError(f"小表袋边形态个数须等于锚点数 {len(wpts)}（闭合边），"
+                             f"得到 {len(wedges)} 个")
+        object.__setattr__(self, "watch_pocket_points", wpts)
+        object.__setattr__(self, "watch_pocket_edges", tuple(wedges))
         # 门襟：宽度与开深系数校验（门襟绘制.md §2.2）
         if not 3.0 <= self.fly_width <= 4.5:
             raise ValueError(f"门襟宽 W 建议在 3.5~4.2 cm 内，得到 {self.fly_width}")

@@ -45,6 +45,7 @@ FRONT_FLOW = [
     fs.draw_front_inseam_curves,
     # —— 阶段 8：前口袋（可选步骤，开关开启才绘制；先画后裁，不动其他元素） ——
     fps.draw_front_pocket,
+    fps.draw_front_watch_pocket,   # 小表袋（依赖前口袋挖削嵌入式）
     fps.draw_front_patch_pocket,
     # —— 阶段 9：袋布（可选步骤，依赖前口袋主切口） ——
     fph.draw_front_pouch,

@@ -332,3 +332,23 @@ def hip_waist_outseam_curve(hip: Point, waist: Point, *,
     w1 = Point(hip.x + dx1, hip.y + k1 * dy)
     w2 = Point(waist.x - dx2, waist.y - k2 * dy)
     return CubicBezier(hip, w1, w2, waist)
+
+
+def edge_geom(a: Point, b: Point, spec: tuple) -> LineSegment | CubicBezier:
+    """相邻锚点间连线（边形态三模式，袋布绘制.md §三.2 / 小表袋绘制.md §4）：
+    ("line",) 直线 / ("arc", 弧高, 弧顶分位 0~1) 弧高式 /
+    ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔（C1 = A + κ1·L0·û(α)，
+    C2 = B + κ2·L0·û(β)，û 为弦向单位向量旋转，κ 为弦长比）。
+    袋布节点链、小表袋净样逐边共用于此。
+    """
+    mode = spec[0]
+    if mode == "line":
+        return LineSegment(a, b)
+    if mode == "arc":
+        return arc_through(a, b, bulge=spec[1], bulge_at=spec[2])
+    chord = b - a
+    l0 = chord.length
+    u = chord.normalized()
+    c1 = a + u.rotate(spec[1]).scale(spec[2] * l0)
+    c2 = b + u.rotate(spec[3]).scale(spec[4] * l0)
+    return CubicBezier(a, c1, c2, b)

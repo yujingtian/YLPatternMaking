@@ -24,28 +24,12 @@ from .front_steps import effective_waist
 _STEP = "draw_front_pouch"
 
 
-def _edge_geom(a: Point, b: Point, spec: tuple) -> LineSegment | CubicBezier:
-    """相邻节点间连线（袋布绘制.md §三.2 三种模式）。"""
-    mode = spec[0]
-    if mode == "line":
-        return LineSegment(a, b)
-    if mode == "arc":                       # 弧高 + 弧顶分位
-        return curves.arc_through(a, b, bulge=spec[1], bulge_at=spec[2])
-    # bezier：C1 = A + κ1·L0·û(α)，C2 = B + κ2·L0·û(β)，û 为弦向单位向量旋转
-    chord = b - a
-    l0 = chord.length
-    u = chord.normalized()
-    c1 = a + u.rotate(spec[1]).scale(spec[2] * l0)
-    c2 = b + u.rotate(spec[3]).scale(spec[4] * l0)
-    return CubicBezier(a, c1, c2, b)
-
-
 def _emit_chain(ctx: DraftContext, prefix: str, pts: list[Point],
                 edges: tuple, label_prefix: str) -> None:
     """按边形态列表逐段上版节点链（直线为 NamedLine，弧线为 NamedCurve）。"""
     for i, spec in enumerate(edges, 1):
         a, b = pts[i - 1], pts[i]
-        geom = _edge_geom(a, b, spec)
+        geom = curves.edge_geom(a, b, spec)
         basis = f"{label_prefix}第 {i} 段（{spec[0]}，袋布绘制.md §三.2）"
         if isinstance(geom, LineSegment):
             ctx.add_line(f"{prefix}_seg{i}", geom, step=_STEP,

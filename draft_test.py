@@ -106,6 +106,19 @@ run(
                                   # 边形态（个数 = 节点数+1）：("line",) /
                                   #   ("arc", 弧高, 弧顶分位) / ("bezier", α°, κ1, β°, κ2)
 
+    # ---- 小表袋（嵌于挖削嵌入式前口袋内的小贴袋，可选步骤，小表袋绘制.md §2~§4）----
+    watch_pocket=True,                  # 小表袋开关（依赖 front_pocket 挖削嵌入式；
+                                        #   打版流程.md：当前口袋是挖削嵌入式时才绘制）
+    watch_pocket_offset_from_top=3.0,   # 离口袋顶部距离：自前口袋侧缝腰点垂直向下（cm，§2.3）
+    watch_pocket_offset_from_side=2.5,  # 离口袋侧边距离：自侧缝水平向内（cm，§2.3）
+    watch_pocket_rotate_deg=8.0,        # 整体绕参考点旋转角（度，顺时针为正，§2.3/§3.2）
+    watch_pocket_points=[(0, 0), (5, 0), (5, 8), (0, 8)],
+                                        # 净形锚点（相对参考点 dx/dy，≥3，顺时针；
+                                        #   默认梯形：袋口宽 8、底宽 7.2、高 7.5）
+    watch_pocket_edges=[("line",), ("line",), ("line",), ("line",)],
+                                        # 边形态（个数 = 锚点数，闭合边）：("line",) /
+                                        #   ("arc", 弧高, 弧顶分位) / ("bezier", α°, κ1, β°, κ2)
+
     # ---- 前贴袋（表面外贴式 PATCH，可选步骤，前口袋绘制.md §四）----
     front_patch=False,              # 贴袋绘制开关（前片不裁切，独立样板）
     front_patch_top_drop=1,      # 袋口外上角自腰外缝顶点垂直向下（cm）

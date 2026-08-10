@@ -59,7 +59,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 - `LineSegment(a,b)`：`length` 是**属性**（不是方法！）、`direction`（a→b 单位向量）、`horizontal`/`vertical` 工厂。
 - `CubicBezier(p0,p1,p2,p3)`：`point_at(t)`、`tangent_at(t)`（未归一化）、`length()`（折线近似，**是方法**）、`t_at_length(s)`/`point_at_length(s)`（按弧长定位）、`t_at_y(y)`/`point_at_y(y)`（按高度定位，要求 y 单调）、`split(t)`（de Casteljau，返回两段）、`angle_with(other)`（拼接切线夹角，180°=顺滑）。
 - 90° 圆角贝塞尔逼近常数 `4/3×tan(§rad)≈0.5523`（`front_fly_steps._QUARTER_K`），柄长 = 常数 × R。
-- `draft/curves.py` 公共弧线库：`arc_through`（弧高式）、`sag_curve`（弧顶精确 sag）、`crotch_curve`（切线+凹深）、`front_rise`/`back_rise`（前/后浪复合线按总浪长闭合反推顶点）、`point_along_chain`（沿"直线+曲线"复合链量取弧长，量腰头宽/开深等）、`bezier_subrange`（取曲线参数子段）、`foot_on_bezier`（点在曲线上的法足/正交投影，垂直投射定位--弯腰头省位延长至上腰头线等）。
+- `draft/curves.py` 公共弧线库：`arc_through`（弧高式）、`sag_curve`（弧顶精确 sag）、`crotch_curve`（切线+凹深）、`front_rise`/`back_rise`（前/后浪复合线按总浪长闭合反推顶点）、`point_along_chain`（沿"直线+曲线"复合链量取弧长，量腰头宽/开深等）、`bezier_subrange`（取曲线参数子段）、`foot_on_bezier`（点在曲线上的法足/正交投影，垂直投射定位--弯腰头省位延长至上腰头线等）、`edge_geom`（按 spec 分派 line/arc/bezier 边形态，袋布节点链/小表袋净样逐边共用）。
 
 ### role 与 SVG 渲染（exporters/svg.py）
 
@@ -90,4 +90,4 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 
 ### 当前实现状态（已程序化）
 
-已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线）、袋布（`front_pouch_steps`）、前贴袋、门襟（`front_fly_steps`，连裁/独立两形态）、毗围闭环（`flows/closure.py`）。只有 `.doc/` 推导文档、尚未程序化：后机头 / 后贴袋 / 小表袋等（在建）。尚未实现：裁切层（cutter/pieces）、DXF 导出、结构校验器。
+已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、毗围闭环（`flows/closure.py`）。只有 `.doc/` 推导文档、尚未程序化：后机头 / 后贴袋 / 小表袋等（在建）。尚未实现：裁切层（cutter/pieces）、DXF 导出、结构校验器。

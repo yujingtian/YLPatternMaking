@@ -76,6 +76,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pouch_side_safe: float = 8.0,
         front_pouch_nodes: list | tuple = ((5.0, 16.0), (1.5, 13.5)),
         front_pouch_edges: list | tuple = (("line",), ("arc", 2.5, 0.6), ("line",)),
+        watch_pocket: bool = False,
+        watch_pocket_offset_from_top: float = 4.0,
+        watch_pocket_offset_from_side: float = 3.5,
+        watch_pocket_rotate_deg: float = 0.0,
+        watch_pocket_points: list | tuple = ((0.0, 0.0), (8.0, 0.0), (7.6, 7.5), (0.4, 7.5)),
+        watch_pocket_edges: list | tuple = (("line",), ("line",), ("line",), ("line",)),
         fly: bool = False,
         fly_width: float = 3.8,
         fly_length_ratio: float = 0.35,
@@ -198,6 +204,15 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pouch_edges  边形态列表（个数 = 节点数 + 1）：("line",) 直线 /
                            ("arc", 弧高, 弧顶分位 0.1~0.9) /
                            ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
+        watch_pocket      小表袋绘制开关（打版流程.md「小表袋绘制」；依赖 front_pocket
+                          挖削嵌入式；以前口袋侧缝腰点为基准定位，净样锚点 + 逐边形态）
+        watch_pocket_offset_from_top / watch_pocket_offset_from_side
+                          离口袋顶部（垂直向下）/ 离口袋侧边（水平向内）距离（cm，
+                          小表袋绘制.md §2.3）
+        watch_pocket_rotate_deg  整体绕参考点旋转角（度，顺时针为正，§2.3/§3.2）
+        watch_pocket_points  净形锚点（相对参考点 dx/dy，≥3 个，顺时针；默认梯形）
+        watch_pocket_edges  边形态列表（个数 = 锚点数，闭合边）：("line",) /
+                          ("arc", 弧高, 弧顶分位) / ("bezier", α°, κ1, β°, κ2)
         fly              门襟（连裁门襟）绘制开关（可选步骤，门襟绘制.md §3、§4；
                            上版于前片，弯腰头时原点取下前中腰点 A'）
         fly_width        门襟宽 W（常规 YKK 5# 拉链 3.8，3.5~4.2）
@@ -310,6 +325,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        front_pouch_side_safe=front_pouch_side_safe,
                        front_pouch_nodes=front_pouch_nodes,
                        front_pouch_edges=front_pouch_edges,
+                       watch_pocket=watch_pocket,
+                       watch_pocket_offset_from_top=watch_pocket_offset_from_top,
+                       watch_pocket_offset_from_side=watch_pocket_offset_from_side,
+                       watch_pocket_rotate_deg=watch_pocket_rotate_deg,
+                       watch_pocket_points=watch_pocket_points,
+                       watch_pocket_edges=watch_pocket_edges,
                        fly=fly,
                        fly_width=fly_width,
                        fly_length_ratio=fly_length_ratio,
