@@ -409,3 +409,5 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 ### 10.6 当前实现状态（已程序化）
 
 已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、后贴袋（`back_patch_steps`，育克底线∩后浪线定位 + 局部 u-v 框四形态 + 仿射旋转）、毗围闭环（`flows/closure.py`）。尚未实现：裁切层（cutter/pieces）、DXF 导出、结构校验器。
+
+前浪裆弯弧度已可调：`PatternOptions.front_rise_handle_ratio`（默认 1/3，k1=k2=|BC|×本值，前浪绘制.md §4），由 `draw_front_rise` 传入 `curves.front_rise`；与后浪 `back_rise_alpha`/`back_rise_beta` 双参数不同--前浪按文档用单一对称比例，后浪因大裆弯更深需独立 α/β。

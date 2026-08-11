@@ -123,6 +123,27 @@ def test_front_rise_closure_curved_waistband():
     assert total == pytest.approx(M.front_rise)
 
 
+def test_front_rise_handle_ratio():
+    # 前浪裆弯控制柄比例可调：k1=k2=|BC|×ratio（前浪绘制.md §4）。
+    # 闭合约束恒成立（斜线长 = 目标 − 弧长），故以弧长随 ratio 变化验证参数生效。
+    arc_default = FlowRunner(M, O).run(FRONT_FLOW).curve("front.rise_curve").length()
+
+    o_big = PatternOptions(delta=1.0, front_rise_handle_ratio=0.5)
+    ctx_big = FlowRunner(M, o_big).run(FRONT_FLOW)
+    arc_big = ctx_big.curve("front.rise_curve").length()
+
+    o_small = PatternOptions(delta=1.0, front_rise_handle_ratio=0.2)
+    ctx_small = FlowRunner(M, o_small).run(FRONT_FLOW)
+    arc_small = ctx_small.curve("front.rise_curve").length()
+
+    # ratio 越大裆弯弧越饱满（长）
+    assert arc_small < arc_default < arc_big
+    # 闭合仍成立（直腰头扣腰头宽 4 -> 目标 21）
+    for ctx in (ctx_big, ctx_small):
+        total = ctx.line("front.rise_slant").length + ctx.curve("front.rise_curve").length()
+        assert total == pytest.approx(M.front_rise - O.waistband_width)
+
+
 def test_rise_on_pattern_deduction():
     # 前浪/后浪统一扣除口径：直腰头 − 腰头宽，弯腰头原值（注意点 1）
     straight = PatternOptions(waistband_type=WaistbandType.STRAIGHT,

@@ -182,7 +182,8 @@ def draw_front_rise(ctx: DraftContext) -> NamedCurve:
         basis_len = f"前浪 {m.front_rise} − 腰头宽 {o.waistband_width} = {target:.2f}"
     else:
         basis_len = f"前浪 {m.front_rise}（弯腰头一体绘制，不扣）"
-    a, arc = curves.front_rise(a0, b, c, target_length=target)
+    a, arc = curves.front_rise(a0, b, c, target_length=target,
+                               handle_ratio=o.front_rise_handle_ratio)
     ctx.add_point("front.hip_inner_point", b,
                   step="draw_front_rise",
                   basis="臀围线 ∩ 内侧缝参考线", label="臀围线内缝点")
@@ -196,7 +197,8 @@ def draw_front_rise(ctx: DraftContext) -> NamedCurve:
                  role="struct")
     return ctx.add_curve("front.rise_curve", arc,
                          step="draw_front_rise",
-                         basis="裆弯凹弧：起点切线沿前中斜线、终点切线水平（前浪绘制.md §3）",
+                         basis=f"裆弯凹弧：k1 = k2 = {o.front_rise_handle_ratio:.4g}·|BC|，"
+                               "起点切线沿前中斜线、终点切线水平（前浪绘制.md §3/§4）",
                          label="前浪弧线")
 
 
