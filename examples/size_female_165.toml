@@ -119,6 +119,12 @@ front_pocket_mouth_corners = [[0.3, 2], [0.6, 3]]
                                   # 折角列表（polyline 模式；每角 = [弦上位置 0~1, 内推深度 cm]，
                                   #   按位置严格递增，可多个；空列表 = 直袋口）
 
+# ---- 前口袋袋贴（facing，可选步骤，前口袋绘制.md §三.3.(1)）----
+#   依赖 front_pocket 主切口；袋贴宽 = 腰头端量取距离 = 侧缝端下落距离 = 内边偏置间距
+#   （三者等距）；先画后裁，只上版袋贴边界，不做布尔裁除
+front_pocket_facing         = true    # 袋贴绘制开关
+front_pocket_facing_width   = 3.5     # 袋贴宽 w_facing（cm，即距离 A；常规 3.0~4.0）
+
 # ---- 袋布（嵌入式口袋储物袋布大片/小片，可选步骤，袋布绘制.md §二、§三、§五）----
 # 依赖 front_pocket 主切口；闭合路径 P_w0 -> K1..Kn -> P_s0 -> 侧缝 -> O -> 腰缝
 front_pouch           = true      # 袋布绘制开关

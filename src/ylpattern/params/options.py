@@ -133,6 +133,12 @@ class PatternOptions:
                                            # 折角列表（polyline 模式；每个折角 = (弦上位置 0~1,
                                            #   内推深度 cm)，按位置严格递增，可多个；
                                            #   空列表 = 直袋口）
+    # -- 前口袋袋贴（facing）：挖削嵌入式袋口贴布裁片（前口袋绘制.md §三.3.(1)） --
+    front_pocket_facing: bool = False      # 袋贴绘制开关（可选步骤，依赖 front_pocket 主切口；
+                                           #   只上版袋贴边界，不做布尔裁除--先画后裁）
+    front_pocket_facing_width: float = 3.5 # 袋贴宽 w_facing（cm，即距离 A；腰头端量取距离 =
+                                           #   侧缝端下落距离 = 内边缘法向偏置间距，三者等距，§三.3.(1)；
+                                           #   常规 3.0~4.0，schema facing_width_mm=35）
     # —— 前贴袋：表面外贴式（PATCH）独立样板（前口袋绘制.md §四；前片不裁切） ——
     front_patch: bool = False              # 前贴袋绘制开关（净样上版即表面定位标记，§四.1）
     front_patch_top_drop: float = 10.0     # 袋口外上角自腰外缝顶点垂直向下（cm）
@@ -376,6 +382,10 @@ class PatternOptions:
                for i in range(len(corners) - 1)):
             raise ValueError(f"折角位置须按弦上比例严格递增，得到 {corners}")
         object.__setattr__(self, "front_pocket_mouth_corners", corners)
+        # 袋贴宽校验（前口袋绘制.md §三.3.(1)；常规 3.0~4.0）
+        if not 0.0 < self.front_pocket_facing_width <= 10.0:
+            raise ValueError(f"袋贴宽建议在 0~10.0 cm 内（常规 3.0~4.0），"
+                             f"得到 {self.front_pocket_facing_width}")
         if self.front_patch_top_drop < 0 or self.front_patch_top_inset < 0:
             raise ValueError("贴袋定位下移量/内移量不能为负数")
         if self.front_patch_width <= 0 or self.front_patch_height <= 0:

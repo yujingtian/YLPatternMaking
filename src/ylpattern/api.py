@@ -65,6 +65,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pocket_mouth_h1: float = 3.0,
         front_pocket_mouth_h2: float = 3.0,
         front_pocket_mouth_corners: list | tuple = ((0.55, 1.5),),
+        front_pocket_facing: bool = False,
+        front_pocket_facing_width: float = 3.5,
         front_patch: bool = False,
         front_patch_top_drop: float = 10.0,
         front_patch_top_inset: float = 2.0,
@@ -214,6 +216,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                            腰头端 / 侧缝端切线柄长（tangent 模式，cm，默认 3.0）
         front_pocket_mouth_corners  折角列表（polyline 模式；每个折角 = (弦上位置 0~1,
                            内推深度 cm)，按位置严格递增，可多个；空列表 = 直袋口）
+        front_pocket_facing  前口袋袋贴（facing）绘制开关（可选步骤，前口袋绘制.md §三.3.(1)；
+                           依赖 front_pocket 主切口；袋贴宽 = 腰头端量取距离 = 侧缝端下落
+                           距离 = 内边法向偏置间距，三者等距；先画后裁，不做布尔裁除）
+        front_pocket_facing_width  袋贴宽 w_facing（cm，即距离 A；常规 3.0~4.0，默认 3.5）
         front_patch        前贴袋（表面外贴式 PATCH）绘制开关（前口袋绘制.md §四；
                            前片不裁切，独立样板，净样即表面定位标记）
         front_patch_top_drop / front_patch_top_inset
@@ -366,6 +372,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        front_pocket_mouth_h1=front_pocket_mouth_h1,
                        front_pocket_mouth_h2=front_pocket_mouth_h2,
                        front_pocket_mouth_corners=front_pocket_mouth_corners,
+                       front_pocket_facing=front_pocket_facing,
+                       front_pocket_facing_width=front_pocket_facing_width,
                        front_patch=front_patch,
                        front_patch_top_drop=front_patch_top_drop,
                        front_patch_top_inset=front_patch_top_inset,
