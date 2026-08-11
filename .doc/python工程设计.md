@@ -315,6 +315,31 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 
 原则：经验值可随打版实践调整，但**每次调整必须同步更新金标测试与函数 docstring 的依据注释**，保持代码-文档-测试三方一致。
 
+### 7.1 金标测试写法速查（写新步骤前先看，免读旧测试）
+
+**模块头**：固定一组规范量体 `M` + 选项 `O` 挂模块级，文件头 docstring 写明该参数下的手工演算金标值。前/后片步骤测试共用：`M = Measurements(waist=70, hip=96, knee=46, hem=36, front_rise=25, back_rise=33, outseam=102, thigh=58)`、`O = PatternOptions(delta=1.0, ...)`；直腰头扣腰头宽 4 → 腰线 y=98、后浪闭合目标 33−4=29。
+
+**fixture**：`@pytest.fixture()` 返回 `FlowRunner(M, O).run(FLOW)`，测试函数以 `ctx` 入参取元素。前片用 `FRONT_FLOW`、后片用 `FULL_FLOW`（后片读前片基准线，必须整版跑）。
+
+**断言口径**：
+- 浮点 `== pytest.approx(v)`；`Point` 不可直接 approx，逐坐标 `assert a.x == pytest.approx(b.x)` 或手写 `_assert_point_approx(a, b)` 辅助。
+- 上游坐标是算出来的（机头端点、腰弧顶点等）时，**用几何不变量断言**而非硬编坐标：边长 `distance_to`、平行 `cross≈0`（叉积 `a.dx*b.dy - a.dy*b.dx`）、垂直 `dot≈0`（点积）、方向（`.y <` / `.x >`）。
+- **独立复算**：期望值用文档公式从 ctx 上游元素重新推出（如后贴袋测试自建 û/v̂），不复用步骤内部逻辑，方为真金标。
+
+**每个可选步骤特征的标准测试集**（照此覆盖，缺一不可）：
+- `_skipped_by_default`：开关关 → 元素不在 `ctx.sheet`；
+- 依赖缺失：前置开关关 → `pytest.raises(ValueError, match=...)`；
+- 定位锚点 / 关键点金标值；
+- 各形态变体（rectangle / baker_shield / angular / custom）逐个；
+- 旋转（若支持）：刚性（边长不变）+ 方向；
+- 弯腰头变体（若腰头敏感）；
+- `_no_seam_allowance_at_draft_stage`：先画后裁，无毛样（cut）元素；
+- `_options_validation`：每个 `ValueError` 分支一条 `pytest.raises`；
+- 归一化（`_custom_edges_normalized` 等）：列表入参 → 元组化校验。
+
+文件命名 `tests/test_<部件>_steps.py`（如 `test_back_patch_steps.py`）；公式层金标见 `tests/test_waist.py` 等（推导文档案例直转）。
+
+
 ---
 
 ## 八、开发路线图
