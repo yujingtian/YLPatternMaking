@@ -123,7 +123,11 @@ front_pocket_mouth_corners = [[0.3, 2], [0.6, 3]]
 #   依赖 front_pocket 主切口；袋贴宽 = 腰头端量取距离 = 侧缝端下落距离 = 内边偏置间距
 #   （三者等距）；先画后裁，只上版袋贴边界，不做布尔裁除
 front_pocket_facing         = true    # 袋贴绘制开关
-front_pocket_facing_width   = 3.5     # 袋贴宽 w_facing（cm，即距离 A；常规 3.0~4.0）
+front_pocket_facing_mode    = "tangent" # 模式："tangent" 两端正交切线(推荐) / "offset" 传统等距 / "bulge" 弧高式
+front_pocket_facing_width   = 3.5       # 腰头端袋贴宽 w_waist（cm，常规 3.0~3.5）
+front_pocket_facing_side_w  = 3.5       # 侧缝端袋贴深度 w_side（cm，常规 5.0~7.0；0 则取 width）
+front_pocket_facing_h1      = 14.0       # 腰头端切线柄长（tangent 模式，cm；越大下垂越深）
+front_pocket_facing_h2      = 1.0       # 侧缝端切线柄长（tangent 模式，cm；越大向内进深越长）
 
 # ---- 袋布（嵌入式口袋储物袋布大片/小片，可选步骤，袋布绘制.md §二、§三、§五）----
 # 依赖 front_pocket 主切口；闭合路径 P_w0 -> K1..Kn -> P_s0 -> 侧缝 -> O -> 腰缝

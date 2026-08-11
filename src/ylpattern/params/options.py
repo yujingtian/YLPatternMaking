@@ -139,6 +139,16 @@ class PatternOptions:
     front_pocket_facing_width: float = 3.5 # 袋贴宽 w_facing（cm，即距离 A；腰头端量取距离 =
                                            #   侧缝端下落距离 = 内边缘法向偏置间距，三者等距，§三.3.(1)；
                                            #   常规 3.0~4.0，schema facing_width_mm=35）
+    front_pocket_facing_side_w: float = 0.0 # 侧缝端袋贴深度 w_side（cm；0 = 与腰头端同宽，
+                                           #   常规 5.0~7.0；非 0 时启用两端独立宽度）
+    front_pocket_facing_mode: str = "offset" # 袋贴内边模式：
+                                           #   "tangent" = 两端垂直式（推荐，P_fw ⟂ 腰弧、P_fs ⟂ 外缝弧）
+                                           #   "offset"  = 传统等距偏置（控制点域近似 / 折角平移）
+                                           #   "bulge"   = 弧高式浅弧
+    front_pocket_facing_h1: float = 5.0    # 腰头端切线柄长（tangent 模式，cm；越大腰端平缓下垂越长）
+    front_pocket_facing_h2: float = 4.0    # 侧缝端切线柄长（tangent 模式，cm；越大侧缝端平缓进深越长）
+    front_pocket_facing_bulge: float = 0.0 # 袋贴内边弧高（bulge 模式，cm；正值向裤身内侧凹入）
+    front_pocket_facing_bulge_at: float = 0.5 # 弧顶位置（bulge 模式；弦长比例 0~1，默认 0.5）
     # —— 前贴袋：表面外贴式（PATCH）独立样板（前口袋绘制.md §四；前片不裁切） ——
     front_patch: bool = False              # 前贴袋绘制开关（净样上版即表面定位标记，§四.1）
     front_patch_top_drop: float = 10.0     # 袋口外上角自腰外缝顶点垂直向下（cm）
@@ -382,10 +392,25 @@ class PatternOptions:
                for i in range(len(corners) - 1)):
             raise ValueError(f"折角位置须按弦上比例严格递增，得到 {corners}")
         object.__setattr__(self, "front_pocket_mouth_corners", corners)
-        # 袋贴宽校验（前口袋绘制.md §三.3.(1)；常规 3.0~4.0）
+        # 前口袋袋贴（Facing：挖削嵌入式袋口贴布，前口袋绘制.md §三.3.(1)）----
         if not 0.0 < self.front_pocket_facing_width <= 10.0:
-            raise ValueError(f"袋贴宽建议在 0~10.0 cm 内（常规 3.0~4.0），"
+            raise ValueError(f"袋贴腰头宽建议在 0~10.0 cm 内（常规 3.0~4.0），"
                              f"得到 {self.front_pocket_facing_width}")
+        if self.front_pocket_facing_side_w < 0.0 or self.front_pocket_facing_side_w > 15.0:
+            raise ValueError(f"袋贴侧缝端深度须在 0~15.0 cm 内（0 表示与腰头同宽），"
+                             f"得到 {self.front_pocket_facing_side_w}")
+        if self.front_pocket_facing_mode not in ("tangent", "offset", "bulge"):
+            raise ValueError(f"袋贴内边模式只支持 tangent / offset / bulge，"
+                             f"得到 {self.front_pocket_facing_mode!r}")
+        for name in ("front_pocket_facing_h1", "front_pocket_facing_h2"):
+            val = getattr(self, name)
+            if val <= 0.0 or val > 20.0:
+                raise ValueError(f"{name} 切线柄长须在 0~20.0 cm 内，得到 {val}")
+        if abs(self.front_pocket_facing_bulge) > 10.0:
+            raise ValueError(f"袋贴内边弧高绝对值不超过 10.0，得到 {self.front_pocket_facing_bulge}")
+        if not 0.0 < self.front_pocket_facing_bulge_at < 1.0:
+            raise ValueError(f"袋贴内边弧顶位置须在 (0, 1) 内，得到 {self.front_pocket_facing_bulge_at}")
+        # 前贴袋：定位/尺寸/形态校验（前贴袋绘制.md §四、§五）
         if self.front_patch_top_drop < 0 or self.front_patch_top_inset < 0:
             raise ValueError("贴袋定位下移量/内移量不能为负数")
         if self.front_patch_width <= 0 or self.front_patch_height <= 0:

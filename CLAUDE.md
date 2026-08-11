@@ -23,7 +23,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 ## 文档驱动的开发方式（本项目最重要的工作流）
 
 - [打版流程.md](打版流程.md) 是步骤的唯一权威来源；[.doc/](.doc/) 下每篇推导文档对应一类公式（臀围、裆、腰、腿、腰头、口袋、袋布、门襟、贴袋、毗围……），[.doc/python工程设计.md](.doc/python工程设计.md) 是工程设计文档。**文档先行**：部分特征先有推导文档、后程序化，属正常在建状态。
-- 用户的典型操作：在打版流程.md 里新增/修改一个步骤 → 要求"程序化"。对应改动链条：**公式层（`formulas/`）→ 选项（`PatternOptions`）→ 步骤函数（`steps/*.py`，按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps` / `back_patch_steps`）→ 流程列表（`flows/*.py`）→ 金标测试**。步骤 docstring 和 `basis` 字段必须标注依据的文档章节。
+- 用户的典型操作：在打版流程.md 里新增/修改一个步骤 → 要求"程序化"。对应改动链条：**公式层（`formulas/`）→ 选项（`PatternOptions` 需同步 `api.run()` 显式参数透传）→ 步骤函数（`steps/*.py`，按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps` / `back_patch_steps`）→ 流程列表（`flows/*.py`）→ 金标测试**。步骤 docstring 和 `basis` 字段必须标注依据的文档章节。
 
 ## 分层架构（依赖方向自上而下，禁止反向）
 
@@ -39,7 +39,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 - **坐标系**（与打版流程.md 一致）：原点 = 外侧缝参考线 ∩ 脚口线；X 向右朝内侧缝（裤宽），Y 向上朝腰头（裤长）；单位 cm，内部 float。
 - **腰头扣除口径**：`outseam`/`front_rise`/`back_rise` 均为**含腰头的成衣量**。直腰头打版时统一经 `PatternOptions.rise_on_pattern()` 换算（扣腰头宽）；弯腰头不扣。任何使用浪长/裤长的步骤都必须走这一个口子，不要自行扣减。
 - **前后片调节量方向**：一律**前减后加**（臀围 Δ、腰围 balance 同向）。前片 = H/4 − Δ、W/4 − balance。
-- **可选步骤（开关驱动）**：口袋 / 贴袋 / 袋布 / 后片腰省 / 后机头 / 毗围限制等都是 `PatternOptions` 上的 `bool` 开关；开关关闭或前置条件不满足（如袋布依赖 `front_pocket`、毗围依赖大腿围录入）时步骤返回 `None`，`FlowRunner` 标注"跳过"不上版。开关与几何参数同收敛于 `PatternOptions`。
+- **可选步骤（开关驱动）**：口袋 / 袋贴 / 贴袋 / 袋布 / 小表袋 / 后片腰省 / 后机头 / 毗围限制等都是 `PatternOptions` 上的 `bool` 开关；开关关闭或前置条件不满足（如**袋贴 `front_pocket_facing`、袋布 `front_pouch`、小表袋 `watch_pocket` 均强制依赖 `front_pocket` 主切口**；毗围依赖大腿围录入）时步骤返回 `None`，`FlowRunner` 标注"跳过"不上版。开关与几何参数同收敛于 `PatternOptions`。
 - **测试风格**：金标测试——测试文件头部注释写明参数下的手工演算结果，断言精确值；推导文档里的案例直接转成公式层金标（见 tests/test_waist.py）。
 - 复合线（如前浪 = 斜线 + 凹弧）作为同一步骤的多个元素上版，是"一函数一元素"原则的显式例外。
 

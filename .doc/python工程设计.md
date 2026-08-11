@@ -412,4 +412,11 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 
 前浪裆弯弧度已可调：`PatternOptions.front_rise_handle_ratio`（默认 1/3，k1=k2=|BC|×本值，前浪绘制.md §4），由 `draw_front_rise` 传入 `curves.front_rise`；与后浪 `back_rise_alpha`/`back_rise_beta` 双参数不同--前浪按文档用单一对称比例，后浪因大裆弯更深需独立 α/β。
 
-前口袋袋贴（facing）已程序化：`draw_front_pocket_facing`（`front_pocket_steps`，前口袋绘制.md §三.3.(1)）。袋贴腰头顶点 P_fw 有省自 P1′、无省自 P1 沿腰弧朝前浪顶点量取 w_facing；侧缝顶点 P_fs 自 P2 沿外缝弧向下量取 w_facing（等距约束 d_side=w_facing）；内边沿基准 C_ref（有省=切削线、无省=净线）法向偏置 w_facing，端点锁 P_fw/P_fs 满足闭合拓扑（自然偏置端点不在腰弧/外缝弧上，故锁；内边为控制点域近似，裁切层届时精化）；闭合边为腰弧/外缝弧子段。选项 `front_pocket_facing`（开关）+ `front_pocket_facing_width`（默认 3.5）。新增 `PatternOptions` 字段须同步 `api.run()` 的参数与 PatternOptions 构造透传（run 显式列每个选项字段，本次袋贴两字段已同步）。
+前口袋袋贴（facing）已程序化：`draw_front_pocket_facing`（`front_pocket_steps`，前口袋绘制.md §三.3.(1)）。
+1. 定位两端点（支持非等距独立宽度）：腰头顶点 P_fw（有省自 P1′、无省自 P1 沿腰弧量取 w_waist=front_pocket_facing_width，默认 3.5）；侧缝顶点 P_fs（自 P2 沿外缝弧向下量取 w_side=front_pocket_facing_side_w or w_waist，推荐 6.0 防露白）。
+2. 内边 L_inner 支持三模式（front_pocket_facing_mode）：
+   - "tangent"（打版推荐，默认）：两端垂直切线贝塞尔（P_fw 端 ⟂ 腰弧、P_fs 端 ⟂ 外缝弧），由切线柄长 front_pocket_facing_h1/h2 控制下垂与向内进深（h1/h2 为控制柄距离/拉力，而非直线下垂长度）；
+   - "offset"：基准线 C_ref 控制点域法向偏置（折角链沿弦法向平移），端点锁 P_fw/P_fs；
+   - "bulge"：浅弧式，由 bulge/bulge_at 控制。
+3. 闭合边为腰弧/外缝弧子段（先画后裁，不作布尔裁减）。
+选项字段：front_pocket_facing / front_pocket_facing_mode / front_pocket_facing_width / front_pocket_facing_side_w / front_pocket_facing_h1 / front_pocket_facing_h2 / front_pocket_facing_bulge / front_pocket_facing_bulge_at（新增字段须同步 api.run() 的参数与 PatternOptions 构造透传）。
