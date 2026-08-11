@@ -123,7 +123,7 @@ def front_hip_width_point(ctx: DraftContext) -> NamedPoint:
 
 ### 目录结构
 
-目录结构以 `src/ylpattern/` 实际代码为准。步骤层按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps`；`draft/curves.py` 为公共弧线库。未实现模块（cutter/pieces/validation/dxf）见 §10.6。
+目录结构以 `src/ylpattern/` 实际代码为准。步骤层按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps` / `back_patch_steps`；`draft/curves.py` 为公共弧线库。未实现模块（cutter/pieces/validation/dxf）见 §10.6。
 
 ---
 
@@ -352,6 +352,7 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 口袋 / 袋布 / 门襟等特征上版时常另建**局部坐标系**按文档推导——取特征锚点为局部原点 O，两轴沿特征的两条基准方向：
 - 门襟 O = 前浪 ∩ 裤身顶边，Y 沿前浪下行、X 垂直前浪朝外凸；
 - 袋布 O = 腰外缝顶点，x 朝门襟、y 向下。
+- 后贴袋 O = 育克底线 ∩ 后浪线（机头后浪端点 `back.yoke_cb_point`），u 自后浪朝侧缝（沿约克底线）、v 向下；u 轴沿约克底线方向（非全局水平），θ=0 袋口 ∥ 约克底线 ≈ 后腰线。依赖 back_yoke。
 
 局部 → 全局：`o_pt + x_dir.scale(x) + y_dir.scale(y)`（`x_dir = y_dir.perpendicular()`）。**看步骤代码先认局部框**，否则坐标会读反。
 
@@ -383,7 +384,8 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 - 破折号 `—` = U+2014（不是 `--`）；减号 `−` = U+2212（不是 `-`）。
 - `°`(度)、`×`(乘)、`§`(节)、`≈`(约) 均为 Unicode。
 - 替换含这些字符的段落若不匹配，改用**按 ASCII 标记截取**（Python 脚本 `s[s.index(start):s.index(end)]`）或只替换纯 ASCII 子串；heredoc `python3 <<EOF` 在 Windows Git Bash 会挂起，写脚本文件再 `python` 运行。
+- 纯中文注释行（如段头 `# -- 袋布（pouch）：…§一~§五）--`，无 ASCII 子串）连单行整配也失配时：改用 Python 脚本按附近 ASCII 行（如字段声明 `front_pouch: bool = False`）的 `line.startswith(...)` 定位行号、按行号 insert，彻底避开中文匹配。
 
 ### 10.6 当前实现状态（已程序化）
 
-已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、毗围闭环（`flows/closure.py`）。只有 `.doc/` 推导文档、尚未程序化：后贴袋等（在建）。尚未实现：裁切层（cutter/pieces）、DXF 导出、结构校验器。
+已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、后贴袋（`back_patch_steps`，育克底线∩后浪线定位 + 局部 u-v 框四形态 + 仿射旋转）、毗围闭环（`flows/closure.py`）。尚未实现：裁切层（cutter/pieces）、DXF 导出、结构校验器。

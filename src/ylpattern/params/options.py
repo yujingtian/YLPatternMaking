@@ -154,6 +154,32 @@ class PatternOptions:
                                            # custom 每边形态：(弧高, 弧顶位置 0~1)，
                                            #   弧高 0 = 直线，正值沿左手法向凸；
                                            #   个数须等于角点数（闭合边）
+    # -- 后贴袋：表面外贴式（PATCH）独立样板（后贴袋绘制.md §一~§三；
+    #    依赖后机头下口线育克底线定位，须先开 back_yoke） --
+    back_patch: bool = False              # 后贴袋绘制开关（净样上版即表面定位标记，
+                                           #   §三 02_MARKING / 03_PATCH_NET；先画后裁）
+    back_patch_inset_x: float = 4.5       # 距离后浪线的距离：自后浪线沿约克底线朝侧缝
+                                           #   量取（cm，§一.2 inset_x；常规 4.0~5.5）
+    back_patch_drop_y: float = 3.5        # 距离约克底线的距离：自约克底线向下量取
+                                           #   （cm，§一.2 drop_y；常规 3.0~4.5）
+    back_patch_width: float = 14.0        # 袋口宽 W（cm，§二.1）
+    back_patch_height: float = 16.0       # 袋身高 H（cm，§二.1）
+    back_patch_shape: str = "rectangle"   # 净形（§二.1 形态路由）：
+                                           #   "rectangle" 方底 / "baker_shield" 盾形尖底
+                                           #   / "angular" 底角斜切 / "custom" 全自定义
+    back_patch_bottom_width: float = 0.0  # 袋底宽（baker_shield/angular，cm；
+                                           #   0 = 与袋口同宽，底边两侧对称内收）
+    back_patch_rotate_deg: float = 0.0    # 贴袋整体绕袋口近后浪侧顶点旋转角（度，
+                                           #   顺时针为正，§二.2 θ；默认 0 = 平行约克底线≈后腰线）
+    back_patch_tip_depth: float = 2.5     # 盾形底尖额外深度（baker_shield，cm，§二.1 D_tip）
+    back_patch_chamfer: float = 2.0       # 底角斜切量（angular，cm，§二.1 C_chamfer）
+    back_patch_custom_points: tuple[tuple[float, float], ...] = ()
+                                           # custom 净形角点列表（局部 u-v：u 朝侧缝 +、
+                                           #   v 向下 +，相对袋口近后浪侧顶点，≥3 个，顺时针）
+    back_patch_custom_edges: tuple[tuple[float, float], ...] = ()
+                                           # custom 每边形态：(弧高, 弧顶位置 0~1)，
+                                           #   弧高 0 = 直线，正值沿左手法向凸；
+                                           #   个数须等于角点数（闭合边）
     # —— 袋布（pouch）：嵌入式前口袋储物袋布大片/小片（袋布绘制.md §一~§五） ——
     front_pouch: bool = False              # 袋布绘制开关（依赖前口袋主切口，须先开 front_pocket）
     front_pouch_waist_safe: float = 4.0    # 腰缝锚点安全内延 ΔW_safe（沿腰弧自 P1 朝门襟，
@@ -387,6 +413,44 @@ class PatternOptions:
                     raise ValueError(f"custom 弧边弧顶位置须在 (0, 1) 内，得到 {cedges}")
         object.__setattr__(self, "front_patch_custom_points", cpts)
         object.__setattr__(self, "front_patch_custom_edges", cedges)
+        # 后贴袋：定位/尺寸/形态校验（后贴袋绘制.md §一、§二）
+        if self.back_patch_inset_x < 0 or self.back_patch_drop_y < 0:
+            raise ValueError("后贴袋距后浪线/距约克底线距离不能为负数")
+        if self.back_patch_width <= 0 or self.back_patch_height <= 0:
+            raise ValueError("后贴袋袋口宽/袋身高必须为正数")
+        if self.back_patch_shape not in ("rectangle", "baker_shield",
+                                         "angular", "custom"):
+            raise ValueError(f"后贴袋净形只支持 rectangle / baker_shield / angular "
+                             f"/ custom，得到 {self.back_patch_shape!r}")
+        if self.back_patch_bottom_width < 0:
+            raise ValueError(f"后贴袋袋底宽不能为负数，得到 {self.back_patch_bottom_width}")
+        eff_bw_b = self.back_patch_bottom_width or self.back_patch_width
+        if not 0.0 <= self.back_patch_tip_depth < self.back_patch_height:
+            raise ValueError(f"后贴袋盾形底尖深度须在 [0, 袋身高) 内，"
+                             f"得到 {self.back_patch_tip_depth}")
+        if not 0.0 <= self.back_patch_chamfer * 2 <= eff_bw_b:
+            raise ValueError(f"后贴袋底角斜切量两倍不能超过袋底宽，"
+                             f"得到 {self.back_patch_chamfer}")
+        if abs(self.back_patch_rotate_deg) > 90.0:
+            raise ValueError(f"后贴袋旋转角建议在 ±90° 内，"
+                             f"得到 {self.back_patch_rotate_deg}")
+        bpts = tuple((float(x), float(y))
+                     for x, y in self.back_patch_custom_points)
+        bedges = tuple((float(b), float(at))
+                       for b, at in self.back_patch_custom_edges)
+        if self.back_patch_shape == "custom":
+            if len(bpts) < 3:
+                raise ValueError(f"后贴袋 custom 净形角点至少 3 个，得到 {len(bpts)} 个")
+            if len(bedges) != len(bpts):
+                raise ValueError(f"后贴袋 custom 边形态个数须等于角点数 {len(bpts)}，"
+                                 f"得到 {len(bedges)} 个")
+            for b, at in bedges:
+                if abs(b) > 10.0:
+                    raise ValueError(f"后贴袋 custom 边弧高绝对值不超过 10.0，得到 {bedges}")
+                if b != 0.0 and not 0.0 < at < 1.0:
+                    raise ValueError(f"后贴袋 custom 弧边弧顶位置须在 (0, 1) 内，得到 {bedges}")
+        object.__setattr__(self, "back_patch_custom_points", bpts)
+        object.__setattr__(self, "back_patch_custom_edges", bedges)
         # 袋布：节点/边形态归一化与校验（袋布绘制.md §三、§六）
         if self.front_pouch_waist_safe < 0 or self.front_pouch_side_safe < 0:
             raise ValueError("袋布安全内延/垂深不能为负数")

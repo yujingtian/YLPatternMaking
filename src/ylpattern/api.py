@@ -76,6 +76,18 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_patch_chamfer: float = 2.0,
         front_patch_custom_points: list | tuple = (),
         front_patch_custom_edges: list | tuple = (),
+        back_patch: bool = False,
+        back_patch_inset_x: float = 4.5,
+        back_patch_drop_y: float = 3.5,
+        back_patch_width: float = 14.0,
+        back_patch_height: float = 16.0,
+        back_patch_shape: str = "rectangle",
+        back_patch_bottom_width: float = 0.0,
+        back_patch_rotate_deg: float = 0.0,
+        back_patch_tip_depth: float = 2.5,
+        back_patch_chamfer: float = 2.0,
+        back_patch_custom_points: list | tuple = (),
+        back_patch_custom_edges: list | tuple = (),
         front_pouch: bool = False,
         front_pouch_waist_safe: float = 4.0,
         front_pouch_side_safe: float = 8.0,
@@ -216,6 +228,24 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                            dx/dy，≥3 个，顺时针绕行）
         front_patch_custom_edges  custom 每边形态：(弧高, 弧顶位置 0~1)，
                            弧高 0 = 直线；个数 = 角点数
+        back_patch        后贴袋（表面外贴式 PATCH）绘制开关（后贴袋绘制.md §一~§三；
+                          依赖后机头育克底线定位，须先开 back_yoke；净样即表面定位标记）
+        back_patch_inset_x / back_patch_drop_y
+                          袋口近后浪侧顶点定位：距后浪线（沿约克底线朝侧缝）/ 距约克底线
+                          （向下）量取（cm，§一.2；常规 4.0~5.5 / 3.0~4.5）
+        back_patch_width / back_patch_height  袋口宽 / 袋身高（cm，§二.1）
+        back_patch_shape  净形："rectangle" 方底 / "baker_shield" 盾形尖底 /
+                          "angular" 底角斜切 / "custom" 全自定义（§二.1 形态路由）
+        back_patch_bottom_width  袋底宽（baker_shield/angular，cm；0 = 与袋口同宽，
+                          底边两侧对称内收）
+        back_patch_rotate_deg  贴袋整体绕袋口近后浪侧顶点旋转角（度，顺时针为正，§二.2；
+                          默认 0 = 平行约克底线≈后腰线）
+        back_patch_tip_depth  盾形底尖额外深度（baker_shield，cm，§二.1）
+        back_patch_chamfer  底角斜切量（angular，cm，§二.1）
+        back_patch_custom_points  custom 净形角点列表（局部 u-v：u 朝侧缝 +、v 向下 +，
+                          相对袋口近后浪侧顶点，≥3 个，顺时针）
+        back_patch_custom_edges  custom 每边形态：(弧高, 弧顶位置 0~1)，
+                          弧高 0 = 直线；个数 = 角点数
         front_pouch        袋布绘制开关（袋布绘制.md §一~§五；依赖 front_pocket 主切口）
         front_pouch_waist_safe  腰缝锚点安全内延（沿腰弧自 P1 朝门襟，cm，推荐 3.5~5.0）
         front_pouch_side_safe  侧缝锚点安全垂深（自 P2 沿侧缝下探，cm，推荐 6.0~10.0）
@@ -345,6 +375,18 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        front_patch_chamfer=front_patch_chamfer,
                        front_patch_custom_points=front_patch_custom_points,
                        front_patch_custom_edges=front_patch_custom_edges,
+                       back_patch=back_patch,
+                       back_patch_inset_x=back_patch_inset_x,
+                       back_patch_drop_y=back_patch_drop_y,
+                       back_patch_width=back_patch_width,
+                       back_patch_height=back_patch_height,
+                       back_patch_shape=back_patch_shape,
+                       back_patch_bottom_width=back_patch_bottom_width,
+                       back_patch_rotate_deg=back_patch_rotate_deg,
+                       back_patch_tip_depth=back_patch_tip_depth,
+                       back_patch_chamfer=back_patch_chamfer,
+                       back_patch_custom_points=back_patch_custom_points,
+                       back_patch_custom_edges=back_patch_custom_edges,
                        front_pouch=front_pouch,
                        front_pouch_waist_safe=front_pouch_waist_safe,
                        front_pouch_side_safe=front_pouch_side_safe,

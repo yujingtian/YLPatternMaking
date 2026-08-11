@@ -23,7 +23,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 ## 文档驱动的开发方式（本项目最重要的工作流）
 
 - [打版流程.md](打版流程.md) 是步骤的唯一权威来源；[.doc/](.doc/) 下每篇推导文档对应一类公式（臀围、裆、腰、腿、腰头、口袋、袋布、门襟、贴袋、毗围……），[.doc/python工程设计.md](.doc/python工程设计.md) 是工程设计文档。**文档先行**：部分特征先有推导文档、后程序化，属正常在建状态。
-- 用户的典型操作：在打版流程.md 里新增/修改一个步骤 → 要求"程序化"。对应改动链条：**公式层（`formulas/`）→ 选项（`PatternOptions`）→ 步骤函数（`steps/*.py`，按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps`）→ 流程列表（`flows/*.py`）→ 金标测试**。步骤 docstring 和 `basis` 字段必须标注依据的文档章节。
+- 用户的典型操作：在打版流程.md 里新增/修改一个步骤 → 要求"程序化"。对应改动链条：**公式层（`formulas/`）→ 选项（`PatternOptions`）→ 步骤函数（`steps/*.py`，按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps` / `back_patch_steps`）→ 流程列表（`flows/*.py`）→ 金标测试**。步骤 docstring 和 `basis` 字段必须标注依据的文档章节。
 
 ## 分层架构（依赖方向自上而下，禁止反向）
 

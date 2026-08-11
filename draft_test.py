@@ -156,6 +156,28 @@ run(
                                   # custom 每边形态：(弧高, 弧顶位置)；弧高 0 = 直线，
                                   #   个数 = 角点数；示例为右边一段弧
 
+    # ---- 后贴袋（表面外贴式 PATCH，可选步骤，后贴袋绘制.md §一~§三）----
+    #   依赖后机头育克底线定位（须先开 back_yoke）；净样上版即表面定位标记，先画后裁。
+    back_patch=True,                  # 后贴袋绘制开关（独立样板，后大片不裁切）
+    back_patch_inset_x=4,           # 距后浪线的距离：沿约克底线朝侧缝（cm，§一.2；常规 4~5.5）
+    back_patch_drop_y=2.5,            # 距约克底线的距离：向下（cm，§一.2；常规 3~4.5）
+    back_patch_width=14.0,            # 袋口宽（cm）
+    back_patch_height=12.0,           # 袋身高（cm）
+    back_patch_shape="custom",        # 净形：rectangle 方底 / baker_shield 盾形尖底
+                                      #   / angular 底角斜切 / custom 全自定义
+    back_patch_bottom_width=12,      # 袋底宽（baker_shield/angular；0 = 与袋口同宽）
+    back_patch_rotate_deg=3.5,        # 整体绕袋口近后浪侧顶点旋转角（度，顺时针为正；
+                                      #   默认 0 = 平行约克底线≈后腰线）
+    back_patch_tip_depth=2.5,         # 盾形底尖额外深度（baker_shield，cm）
+    back_patch_chamfer=2.0,           # 底角斜切量（angular，cm）
+    back_patch_custom_points=[(0, 0), (14, 0), (13.5, 15), (7, 17), (0.5, 15)],
+                                      # custom 净形角点（局部 u-v：u 朝侧缝 +、v 向下 +，
+                                      #   相对袋口近后浪侧顶点，顺时针）；默认盾形：
+                                      #   袋口宽 14、底宽 12、高 15、底尖加深 2
+    back_patch_custom_edges=[(0, 0.5), (0, 0.5), (-0.2, 0.5), (-0.2, 0.5), (0, 0.5)],
+                                      # custom 每边形态：(弧高, 弧顶位置)；弧高 0 = 直线，
+                                      #   个数 = 角点数；示例底两段微弧
+
     # ---- 门襟（可选步骤，门襟绘制.md §2.2~§5）----
     #   两种互斥形态：连裁门襟（fly=True，凸向前片外侧、与前片相连）/
     #   独立门襟（fly_separate=True，叠在前片上、之后分离成单独裁片；优先于 fly）
