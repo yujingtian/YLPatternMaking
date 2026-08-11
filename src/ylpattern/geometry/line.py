@@ -17,6 +17,7 @@ class LineSegment:
 
     @property
     def length(self) -> float:
+        """线段长（属性，非方法；CubicBezier.length() 是方法，须加括号）。"""
         return self.a.distance_to(self.b)
 
     @property

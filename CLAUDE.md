@@ -49,6 +49,14 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 - `_STEP = "draw_xxx"`（或 `__name__`）作步骤来源标记；`basis` 写依据文档章节+关键数值，供 trace/报表溯源。
 - `DraftSheet` 是元素容器，`ctx.sheet.get(name)` 取元素本体（含 role/label），`ctx.sheet` 可 `"name" in sheet` 判存在。
 
-## 详细参考
+## 实现前定向读（隐性规则，代码里看不出来）
 
-关于详细的架构设计、API 约定和 Unicode 字符规范，请严格查阅 [.doc/python工程设计.md](.doc/python工程设计.md)（§十 实现态速查含几何 API、role/SVG 渲染、Unicode 踩坑与当前实现状态）。
+写新步骤/特征前，按触发场景**定向读** [.doc/python工程设计.md](.doc/python工程设计.md) §十（按需，别全读）：
+
+- 画局部特征框（口袋/袋布/门襟/贴袋等局部 u-v 系）-> §10.1（原点、轴正方向、旋转顺时针为正）
+- role/SVG 图层与渲染 -> §10.3
+- 架构依赖红线（params 禁 import formulas 等）-> §10.4（亦见本文「分层架构」）
+- Edit 改中文代码/文档失配 -> §10.5（全角 Unicode 与 fallback）
+- 不确定某特征是否已程序化 -> §10.6
+
+**几何 API（`geometry/`、`draft/curves.py`）不查文档，直接读代码**，签名与易踩坑点已在代码 docstring 标注，文档不重复维护。

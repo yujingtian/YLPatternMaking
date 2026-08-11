@@ -51,7 +51,7 @@ class CubicBezier:
         return [self.point_at(i / n) for i in range(n + 1)]
 
     def length(self, n: int = 64) -> float:
-        """折线近似弧长。"""
+        """折线近似弧长（方法，n=分段数；LineSegment.length 是属性，不加括号）。"""
         pts = self.sample(n)
         return sum(pts[i].distance_to(pts[i + 1]) for i in range(n))
 
