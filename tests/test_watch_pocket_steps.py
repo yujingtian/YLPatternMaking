@@ -3,9 +3,13 @@
 金标（H=96, Δ=1.0, outseam=102，直腰头扣腰头宽 4，腰线 y=98）：
   以前口袋侧缝腰点 B 为基准，参考点（袋口外上角）= B + (+3.5, −4.0)
   （+X 朝内侧缝 = 裤片内部，"离口袋侧边"水平向内取 +；"离口袋顶部"垂直向下取 −）。
-  默认梯形锚点（袋口宽 8、底宽 7.2、高 7.5，taper 0.4）：
-    pt1 = 参考点、pt2 = 参考点+(8,0)、pt3 = 参考点+(7.6,−7.5)、pt4 = 参考点+(0.4,−7.5)。
-  依赖前口袋挖削嵌入式（front_pocket）；缝边不在绘制阶段（先画后裁）。
+  双模式支持：
+    1. custom 模式（默认）：梯形/多边形自由锚点 + 逐边 line/arc/bezier 形态；
+    2. facing_intersect 模式：袋口定宽，左右侧边向下延伸与袋贴内边 front.pocket_facing_inner 相交，
+       底边取袋贴内边子段（NamedCurve）闭合。
+  依赖说明：
+    - 均依赖前口袋主切口（front_pocket）；
+    - facing_intersect 模式额外强依赖袋贴绘制（front_pocket_facing）。
 """
 
 import pytest
@@ -23,6 +27,10 @@ O = PatternOptions(delta=1.0, front_pocket=True, watch_pocket=True)
 def ctx():
     return FlowRunner(M, O).run(FRONT_FLOW)
 
+
+# ==============================================================================
+# 分支 A：custom 模式（独立全自定义多锚点模式）测试
+# ==============================================================================
 
 def test_watch_pocket_anchor(ctx):
     # 参考点（pt1，默认首锚点 dx=dy=0）= B + (+3.5, −4.0)
@@ -56,6 +64,7 @@ def test_watch_pocket_default_net(ctx):
 def test_watch_pocket_rotation():
     # 绕参考点顺时针 90°：(8,0) -> (0,−8)
     o = PatternOptions(delta=1.0, front_pocket=True, watch_pocket=True,
+                       watch_pocket_mode="custom",
                        watch_pocket_rotate_deg=90.0)
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
     a = ctx.point("front.watch_pocket_pt1")
@@ -65,8 +74,9 @@ def test_watch_pocket_rotation():
 
 
 def test_watch_pocket_custom_edges():
-    # 4 锚点 + line/arc/bezier/line 四段（打版流程.md：每段弧线/贝塞尔/直线可控制）
+    # 4 锚点 + line/arc/bezier/line 四段
     o = PatternOptions(delta=1.0, front_pocket=True, watch_pocket=True,
+        watch_pocket_mode="custom",
         watch_pocket_points=[(0, 0), (10, 0), (10, 10), (0, 10)],
         watch_pocket_edges=[("line",), ("arc", 2.0, 0.5),
                             ("bezier", 30.0, 0.5, -30.0, 0.5), ("line",)])
@@ -81,7 +91,7 @@ def test_watch_pocket_custom_edges():
     arc = ctx.curve("front.watch_pocket_seg2")
     assert arc.p0 == p2
     assert arc.p3 == p3
-    # seg3 bezier（NamedCurve，端点 + 控制点构造校验：C1=A+κ1·L0·û(α)）
+    # seg3 bezier（NamedCurve，端点 + 控制点构造校验）
     bz = ctx.curve("front.watch_pocket_seg3")
     assert bz.p0 == p3
     assert bz.p3 == p4
@@ -96,8 +106,77 @@ def test_watch_pocket_custom_edges():
     assert bz.p2.y == pytest.approx(exp_c2.y, abs=1e-9)
 
 
+# ==============================================================================
+# 分支 B：facing_intersect 模式（袋贴相交延伸模式）测试
+# ==============================================================================
+
+def test_watch_pocket_facing_intersect_construction():
+    # 开启袋贴 + 相交模式
+    o = PatternOptions(
+        delta=1.0,
+        front_pocket=True,
+        front_pocket_facing=True,
+        front_pocket_facing_mode="tangent",
+        watch_pocket=True,
+        watch_pocket_mode="facing_intersect",
+        watch_pocket_width=7.5,
+        watch_pocket_offset_from_top=3.0,
+        watch_pocket_offset_from_side=2.5,
+        watch_pocket_taper=0.3,
+        watch_pocket_rotate_deg=5.0,
+    )
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+
+    # 1. 验证 4 个特征点存在
+    pt1 = ctx.point("front.watch_pocket_pt1")  # 外上角
+    pt2 = ctx.point("front.watch_pocket_pt2")  # 内上角
+    pt3 = ctx.point("front.watch_pocket_pt3")  # 内下交点
+    pt4 = ctx.point("front.watch_pocket_pt4")  # 外下交点
+
+    # 袋口宽约束（pt1 -> pt2 距离 = width）
+    assert pt1.distance_to(pt2) == pytest.approx(7.5, abs=1e-3)
+
+    # 2. 验证 4 条边拓扑
+    seg1 = ctx.line("front.watch_pocket_seg1")   # 顶边（直线）
+    seg2 = ctx.line("front.watch_pocket_seg2")   # 内侧边（直线）
+    seg3 = ctx.curve("front.watch_pocket_seg3")  # 底边（顺接袋贴弧线）
+    seg4 = ctx.line("front.watch_pocket_seg4")   # 外侧边（直线）
+
+    assert (seg1.a, seg1.b) == (pt1, pt2)
+    assert (seg2.a, seg2.b) == (pt2, pt3)
+    assert (seg4.a, seg4.b) == (pt4, pt1)
+
+    # 3. 验证底边弧线（seg3）两端与交点吻合
+    assert (seg3.p0.distance_to(pt3) < 1e-6 and seg3.p3.distance_to(pt4) < 1e-6) or \
+           (seg3.p0.distance_to(pt4) < 1e-6 and seg3.p3.distance_to(pt3) < 1e-6)
+
+    # 4. 验证底边交点确实落在袋贴内边弧线上
+    facing_curve = ctx.curve("front.pocket_facing_inner")
+    for pt in (pt3, pt4):
+        # 点到袋贴曲线的采样极小距离接近 0
+        min_d = min(pt.distance_to(p) for p in facing_curve.sample(256))
+        assert min_d == pytest.approx(0.0, abs=1e-3)
+
+
+def test_watch_pocket_facing_intersect_requires_facing():
+    # 处于 facing_intersect 模式但未开启袋贴：必须报错
+    o = PatternOptions(
+        delta=1.0,
+        front_pocket=True,
+        front_pocket_facing=False,  # 未开袋贴
+        watch_pocket=True,
+        watch_pocket_mode="facing_intersect"
+    )
+    with pytest.raises(ValueError, match="袋贴相交模式要求先开启袋贴绘制"):
+        FlowRunner(M, o).run(FRONT_FLOW)
+
+
+# ==============================================================================
+# 通用依赖、边界与校验测试
+# ==============================================================================
+
 def test_watch_pocket_depends_on_front_pocket():
-    # 未开 front_pocket：报错（打版流程.md：当前口袋是挖削嵌入式时才绘制）
+    # 未开 front_pocket：报错
     o = PatternOptions(delta=1.0, watch_pocket=True)
     with pytest.raises(ValueError, match="依赖前口袋主切口"):
         FlowRunner(M, o).run(FRONT_FLOW)
@@ -109,12 +188,12 @@ def test_watch_pocket_skipped_by_default():
 
 
 def test_watch_pocket_no_seam_allowance(ctx):
-    # 先画后裁：绘制阶段只上版净样，毛样（缝份外拓）元素不存在
+    # 先画后裁：绘制阶段无毛样
     assert "front.watch_pocket_cut_seg1" not in ctx.sheet
 
 
 def test_watch_pocket_curved_waistband():
-    # 弯腰头：基准 = 下侧缝腰点 B′（与 INSET/袋布同一 effective_waist 基准）
+    # 弯腰头：基准 = 下侧缝腰点 B′
     o = PatternOptions(delta=1.0, front_pocket=True, watch_pocket=True,
                        waistband_type=WaistbandType.CURVED)
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
@@ -129,6 +208,10 @@ def test_watch_pocket_options_validation():
         PatternOptions(watch_pocket=True, watch_pocket_offset_from_top=-1.0)
     with pytest.raises(ValueError, match="旋转角"):
         PatternOptions(watch_pocket=True, watch_pocket_rotate_deg=120.0)
+    with pytest.raises(ValueError, match="小表袋模式只支持"):
+        PatternOptions(watch_pocket=True, watch_pocket_mode="invalid_mode")
+    with pytest.raises(ValueError, match="小表袋袋口宽必须为正数"):
+        PatternOptions(watch_pocket=True, watch_pocket_width=0.0)
     with pytest.raises(ValueError, match="至少 3 个"):
         PatternOptions(watch_pocket=True, watch_pocket_points=[(0, 0), (1, 0)])
     with pytest.raises(ValueError, match="个数须等于锚点数"):
@@ -143,4 +226,4 @@ def test_watch_pocket_options_validation():
     with pytest.raises(ValueError, match="bezier 手柄弦长比"):
         PatternOptions(watch_pocket=True, watch_pocket_points=[(0, 0), (1, 0), (0, 1)],
                        watch_pocket_edges=[("line",), ("bezier", 30, 0.5, -30, 1.5),
-                                            ("line",)])
+                                           ("line",)])

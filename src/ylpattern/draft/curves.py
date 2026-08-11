@@ -352,3 +352,54 @@ def edge_geom(a: Point, b: Point, spec: tuple) -> LineSegment | CubicBezier:
     c1 = a + u.rotate(spec[1]).scale(spec[2] * l0)
     c2 = b + u.rotate(spec[3]).scale(spec[4] * l0)
     return CubicBezier(a, c1, c2, b)
+
+def ray_intersect_bezier(ray_origin: Point, ray_dir: Vector,
+                         curve: CubicBezier, *, n: int = 128) -> tuple[Point, float]:
+    """求自 ray_origin 起沿单位方向 ray_dir 的射线与三次贝塞尔曲线的交点。
+
+    用于小表袋等特征沿下落方向与袋贴内边弧线相交定位。
+    """
+    u_dir = ray_dir.normalized()
+    n_dir = u_dir.perpendicular()
+
+    def _dist_to_line(p: Point) -> float:
+        # 点到射线所在直线的代数距离（利用法向量分量求点积）
+        return (p.x - ray_origin.x) * n_dir.dx + (p.y - ray_origin.y) * n_dir.dy
+
+    def _dist_along_ray(p: Point) -> float:
+        # 点在射线前进方向上的投影距离
+        return (p.x - ray_origin.x) * u_dir.dx + (p.y - ray_origin.y) * u_dir.dy
+
+    pts = curve.sample(n)
+    dists = [_dist_to_line(p) for p in pts]
+
+    crossing_i = -1
+    for i in range(n):
+        if dists[i] * dists[i + 1] <= 0:
+            mid_p = pts[i].midpoint(pts[i + 1])
+            # 确保交点在射线正前方（排除反向延长线交点）
+            if _dist_along_ray(mid_p) > 0:
+                crossing_i = i
+                break
+
+    if crossing_i == -1:
+        raise ValueError("小表袋侧边向下射线未与袋贴内边弧线相交，请调整袋口位置或角度")
+
+    # 二分逼近交点参数 t
+    lo = crossing_i / n
+    hi = (crossing_i + 1) / n
+    flo = dists[crossing_i]
+
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        fmid = _dist_to_line(curve.point_at(mid))
+        if abs(fmid) <= 1e-12:
+            break
+        if flo * fmid <= 0:
+            hi = mid
+        else:
+            lo = mid
+            flo = fmid
+
+    t_hit = (lo + hi) / 2
+    return curve.point_at(t_hit), t_hit

@@ -145,8 +145,13 @@ front_pouch_edges     = [["line"], ["line"], ["arc", 0.5, 0.6]]
 #   依赖 front_pocket 挖削嵌入式；以前口袋侧缝腰点为基准定位，净样锚点 + 逐边形态
 watch_pocket                  = true     # 小表袋开关（依赖 front_pocket 挖削嵌入式；
                                          #   打版流程.md：当前口袋是挖削嵌入式时才绘制）
+watch_pocket_mode             = "facing_intersect"
+                                         #   - "facing_intersect" ：袋贴相交延伸模式（推荐，经典工装/牛仔工艺：袋口定宽，左右侧边向下延伸扎入袋贴弧线并贴合顺接）
+                                         #   - "custom"           ：独立全自定义模式（自由定义多锚点 + 逐边形态，经典悬浮独立贴袋）
+watch_pocket_width            = 7      # 袋口设计净宽 W（cm，常规 7.0~8.5）
+watch_pocket_taper            = 0.0      # 两侧向内收倾斜量（cm；0 = 垂直矩形下落，0.2~0.4 = 倒梯形微收）
 watch_pocket_offset_from_top  = 3.0      # 离口袋顶部距离：自前口袋侧缝腰点垂直向下（cm，§2.3）
-watch_pocket_offset_from_side = 2.5      # 离口袋侧边距离：自侧缝水平向内（cm，§2.3）
+watch_pocket_offset_from_side = 2      # 离口袋侧边距离：自侧缝水平向内（cm，§2.3）
 watch_pocket_rotate_deg       = 8.0      # 整体绕参考点旋转角（度，顺时针为正，§2.3/§3.2）
 watch_pocket_points           = [[0.0, 0.0], [5.0, 0.0], [5.0, 7.0], [0.0, 7.0]]
                                          # 净形锚点（相对参考点 dx/dy，≥3，顺时针；

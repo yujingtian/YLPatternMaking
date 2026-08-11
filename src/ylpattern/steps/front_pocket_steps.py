@@ -21,6 +21,7 @@ from ..draft import curves
 from ..geometry import CubicBezier, LineSegment, Point, Vector
 from ..params import WaistbandType
 from .front_steps import effective_waist
+import math
 
 
 def draw_front_pocket(ctx: DraftContext) -> NamedCurve | NamedLine | None:
@@ -549,16 +550,12 @@ def draw_front_patch_pocket(ctx: DraftContext) -> NamedLine | None:
 # ---------- 小表袋（watch pocket）：嵌于挖削嵌入式前口袋内 ----------
 
 def draw_front_watch_pocket(ctx: DraftContext) -> NamedLine | NamedCurve | None:
-    """前小表袋（打版流程.md「小表袋绘制」，可选步骤）：
+    """前小表袋绘制（打版流程.md「小表袋绘制」，可选步骤）：
     开关 watch_pocket 开启、且前口袋为挖削嵌入式（front_pocket）才绘制。
 
-    以前口袋侧缝腰点 O（effective_waist 的 b：弯腰头 = 下侧缝腰点 B′、
-    直腰头 = 腰外缝顶点 B）为基准，按"离口袋顶部距离"（垂直向下）
-    与"离口袋侧边距离"（水平向内）定位小表袋参考点（袋口外上角），
-    再绕参考点整体旋转（顺时针为正）。净形为自定义锚点链（≥3 个，
-    相对参考点 dx/dy（dy 向下为正），顺时针），逐边形态 line/arc/bezier 可控
-    （小表袋绘制.md §2.3 装配定位、§4 局部生成；缝边留待裁切层）。
-    依据：打版流程.md「小表袋绘制」；小表袋绘制.md §2~§4。
+    支持双模式：
+      1. "facing_intersect"：袋贴相交延伸模式（袋口定宽，左右侧边向下延伸扎入袋贴内边弧线）；
+      2. "custom"：独立全自定义模式（自由定义多锚点 + 逐边形态 line/arc/bezier）。
     """
     o = ctx.options
     if not o.watch_pocket:
@@ -568,12 +565,68 @@ def draw_front_watch_pocket(ctx: DraftContext) -> NamedLine | NamedCurve | None:
                          "（打版流程.md：当前口袋是挖削嵌入式时才绘制小表袋）")
 
     step = "draw_front_watch_pocket"
-    b, _, _ = effective_waist(ctx)              # 前口袋局部原点 O（侧缝腰点）
-    # 参考点（袋口外上角）= O + 水平向内 offset_from_side + 垂直向下 offset_from_top
-    a = Point(b.x + o.watch_pocket_offset_from_side,
-              b.y - o.watch_pocket_offset_from_top)
+    b, _, _ = effective_waist(ctx)  # 局部原点 O（侧缝腰点）
+
+    # 确定参考点 A（袋口外上角）
+    a_raw = Point(b.x + o.watch_pocket_offset_from_side,
+                  b.y - o.watch_pocket_offset_from_top)
+
+    # --------------------------------------------------------------------------
+    # 分支 1：facing_intersect 模式（袋贴相交延伸模式）
+    # --------------------------------------------------------------------------
+    if o.watch_pocket_mode == "facing_intersect":
+        if "front.pocket_facing_inner" not in ctx.sheet:
+            raise ValueError("袋贴相交模式要求先开启袋贴绘制（front_pocket_facing=True）")
+
+        facing_curve = ctx.curve("front.pocket_facing_inner")
+
+        # 袋口方向与向下方向（考虑旋转角）
+        rad = math.radians(-o.watch_pocket_rotate_deg)
+        u_dir = Vector(math.cos(rad), math.sin(rad))   # 袋口向右单位向量
+        v_dir = u_dir.perpendicular()                   # 向下单位向量
+        if v_dir.dy > 0:
+            v_dir = v_dir.scale(-1)                     # 保证朝下
+
+        pt_a = a_raw
+        pt_b = pt_a + u_dir.scale(o.watch_pocket_width)
+
+        # 两侧向下射线方向（通过分量合成，避免 Vector + Vector 运算）
+        tf = o.watch_pocket_taper / 10.0
+        dir_a = Vector(v_dir.dx + u_dir.dx * tf, v_dir.dy + u_dir.dy * tf).normalized()
+        dir_b = Vector(v_dir.dx - u_dir.dx * tf, v_dir.dy - u_dir.dy * tf).normalized()
+
+        # 求与袋贴弧线的交点
+        q1, t1 = curves.ray_intersect_bezier(pt_a, dir_a, facing_curve)
+        q2, t2 = curves.ray_intersect_bezier(pt_b, dir_b, facing_curve)
+
+        # 记录 4 个角点
+        ctx.add_point("front.watch_pocket_pt1", pt_a, step=step, label="小表袋外上角")
+        ctx.add_point("front.watch_pocket_pt2", pt_b, step=step, label="小表袋内上角")
+        ctx.add_point("front.watch_pocket_pt3", q2, step=step, label="小表袋内下交点")
+        ctx.add_point("front.watch_pocket_pt4", q1, step=step, label="小表袋外下交点")
+
+        # 上版 4 条边
+        # 边 1：袋口顶边 (Line)
+        ctx.add_line("front.watch_pocket_seg1", LineSegment(pt_a, pt_b),
+                     step=step, basis="小表袋袋口顶边", label="小表袋顶边", role="struct")
+        # 边 2：内侧边 (Line)
+        ctx.add_line("front.watch_pocket_seg2", LineSegment(pt_b, q2),
+                     step=step, basis="小表袋内侧边（延伸至袋贴）", label="小表袋内侧边", role="struct")
+        # 边 3：底边（顺袋贴弧线子段 CubicBezier）
+        bot_curve = curves.bezier_subrange(facing_curve, min(t1, t2), max(t1, t2))
+        ctx.add_curve("front.watch_pocket_seg3", bot_curve,
+                      step=step, basis="小表袋底边（沿袋贴内边交线）", label="小表袋底边")
+        # 边 4：外侧边 (Line)
+        return ctx.add_line("front.watch_pocket_seg4", LineSegment(q1, pt_a),
+                            step=step, basis="小表袋外侧边（延伸至袋贴）", label="小表袋外侧边", role="struct")
+
+    # --------------------------------------------------------------------------
+    # 分支 2：custom 模式（独立全自定义多锚点模式）
+    # --------------------------------------------------------------------------
+    a = a_raw
     net = [Point(a.x + dx, a.y - dy) for dx, dy in o.watch_pocket_points]  # dy 向下为正
-    # 整体旋转：绕参考点 a（顺时针为正，Y 向上坐标系取负角）
+
+    # 整体旋转：绕参考点 a
     if o.watch_pocket_rotate_deg != 0:
         net = [p.rotate_around(a, -o.watch_pocket_rotate_deg) for p in net]
 

@@ -213,10 +213,15 @@ class PatternOptions:
                                            #   ("arc", 弧高h, 弧顶分位 0.1~0.9) 弧高式
                                            #   ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
                                            #   （夹角相对弦向，κ 为弦长比，§三.2）
-    # —— 门襟（连裁门襟，门襟绘制.md §2.2、§3、§4） ——
     # -- 小表袋（watch pocket）：嵌于挖削嵌入式前口袋内的小贴袋（小表袋绘制.md） --
     watch_pocket: bool = False              # 小表袋开关（依赖 front_pocket 挖削嵌入式；
                                            #   打版流程.md：当前口袋是挖削嵌入式时才绘制）
+    watch_pocket_mode: str = "facing_intersect"       # 模式：
+                                           #   "custom" = 自定义多锚点多形态（现状）
+                                           #   "facing_intersect" = 袋贴相交延伸模式（新模式）
+    watch_pocket_width: float = 7.5        # 袋口宽 W（facing_intersect 模式，cm，常规 7.0~8.5）
+    watch_pocket_taper: float = 0.3        # 两侧向内收倾斜量（facing_intersect 模式，cm；
+                                           #   0 = 垂直下落，>0 为梯形微收）
     watch_pocket_offset_from_top: float = 4.0
                                            # 离口袋顶部距离：自前口袋侧缝腰点垂直向下（cm，
                                            #   小表袋绘制.md §2.3 offset_y_from_pocket_top）
@@ -235,6 +240,7 @@ class PatternOptions:
                                            #   ("line",) 直线 / ("arc", 弧高, 弧顶分位) 弧高式
                                            #   / ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
                                            #   （打版流程.md：每段弧线/贝塞尔/直线可控制）
+    # —— 门襟（连裁门襟，门襟绘制.md §2.2、§3、§4） ——
     fly: bool = False                    # 门襟绘制开关（可选步骤；连裁门襟上版于前片）
     fly_width: float = 3.8               # 门襟宽 W（常规 YKK 5# 拉链，3.5~4.2）
     fly_length_ratio: float = 0.35       # 开深系数（L = 本值 × 前浪 + fly_length_base，§2.2）
@@ -522,6 +528,11 @@ class PatternOptions:
         object.__setattr__(self, "front_pouch_nodes", nodes)
         object.__setattr__(self, "front_pouch_edges", tuple(edges))
         # 小表袋：偏移/旋转/锚点/边形态校验（小表袋绘制.md §2、§4）
+        if self.watch_pocket_mode not in ("custom", "facing_intersect"):
+            raise ValueError(f"小表袋模式只支持 custom / facing_intersect，"
+                             f"得到 {self.watch_pocket_mode!r}")
+        if self.watch_pocket_width <= 0:
+            raise ValueError(f"小表袋袋口宽必须为正数，得到 {self.watch_pocket_width}")
         if self.watch_pocket_offset_from_top < 0 or self.watch_pocket_offset_from_side < 0:
             raise ValueError("小表袋离口袋顶部/侧边距离不能为负数")
         if abs(self.watch_pocket_rotate_deg) > 90.0:

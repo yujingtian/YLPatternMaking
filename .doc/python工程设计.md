@@ -420,3 +420,10 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
    - "bulge"：浅弧式，由 bulge/bulge_at 控制。
 3. 闭合边为腰弧/外缝弧子段（先画后裁，不作布尔裁减）。
 选项字段：front_pocket_facing / front_pocket_facing_mode / front_pocket_facing_width / front_pocket_facing_side_w / front_pocket_facing_h1 / front_pocket_facing_h2 / front_pocket_facing_bulge / front_pocket_facing_bulge_at（新增字段须同步 api.run() 的参数与 PatternOptions 构造透传）。
+
+前小表袋（watch pocket）已程序化：`draw_front_watch_pocket`（`front_pocket_steps`，小表袋绘制.md §2~§4）。
+1. 两种生成模式（watch_pocket_mode）：
+   - "facing_intersect"（袋贴相交延伸模式）：袋口按 watch_pocket_width 定宽，左右侧边向下延伸（结合 watch_pocket_taper 内收倾斜），调 `curves.ray_intersect_bezier` 求得与袋贴内边 `front.pocket_facing_inner` 的两个交点及参数 [t1, t2]；底边取袋贴内边精确子段（`curves.bezier_subrange`）顺接闭合；强制依赖 `front_pocket_facing=True`；
+   - "custom"（独立全自定义模式，默认）：自定义净形锚点列表 watch_pocket_points（≥3 个）+ 逐边形态列表 watch_pocket_edges（line / arc / bezier），支持 watch_pocket_rotate_deg 绕参考点旋转。
+2. 基准点 O = 前口袋侧缝腰点（弯腰头取下侧缝腰点 B'，直腰头取腰外缝顶点 B，经 effective_waist 同步）。
+选项字段：watch_pocket / watch_pocket_mode / watch_pocket_width / watch_pocket_taper / watch_pocket_offset_from_top / watch_pocket_offset_from_side / watch_pocket_rotate_deg / watch_pocket_points / watch_pocket_edges。
