@@ -109,18 +109,23 @@ def test_piece_straight_rectangle(ctx):
     assert le.length == pytest.approx(W)
 
 
-def test_piece_curved_bezier_parallel():
-    """弯腰头：下口为贝塞尔；上口 = 下口上移 W（控制点 y 差 = W）。"""
+def test_piece_curved_top_normal_offset():
+    """弯腰头：下口为贝塞尔；上口 = 下口沿端点法向偏移 W（端点切线保留、与封边直角）。"""
     o = PatternOptions(delta=1.0, waistband_type=WaistbandType.CURVED)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     piece, local = build_waistband(ctx)
     br = local.sheet.get("wb.bottom_right").geom
     assert isinstance(br, CubicBezier)
-    tr = local.sheet.get("wb.top_right").geom      # 反向 + 上移 W
+    tr = local.sheet.get("wb.top_right").geom      # 反向后：tr.p0 = 上口前中端
     assert isinstance(tr, CubicBezier)
-    # 上口 = 下口反向上移 W：p0 对应下口 p3，y 差 = -W
-    assert tr.p0.y - br.p3.y == pytest.approx(-o.waistband_width)
-    assert tr.p3.y - br.p0.y == pytest.approx(-o.waistband_width)
+    W = o.waistband_width
+    # 上口前中端 = 下口前中端沿前中法向偏移 W：偏移向量 ⊥ 前中切线、|偏移|=W
+    offset = tr.p0 - br.p3
+    tang = br.tangent_at(1.0)
+    assert abs(offset.dx * tang.dx + offset.dy * tang.dy) < 1e-9   # ⊥ 前中切线
+    assert offset.length == pytest.approx(W)
+    # 上口后中端仍在镜像轴 x=0（后中法向垂直）：tr.p3.x = 0
+    assert abs(tr.p3.x) < 1e-9
     # 下口线弧长 = L_half（waistband_curve 长度精确）
     spec = extract_waistband_spec(ctx)
     assert br.length() == pytest.approx(spec.l_half, abs=1e-6)
@@ -155,19 +160,47 @@ def test_dynamic_drop_straight_is_zero(ctx):
     assert spec.computed_drop == 0.0
 
 
-
-    """搭门量：左端 x = -(L_half + fly)；bottom_fly 为水平延伸。"""
+def test_fly_extension_straight(ctx):
+    """直腰头搭门：切线水平 -> bottom_fly 水平外延 fly；左端竖直在 x=-(L_half+fly)。"""
     o = ctx.options
     piece, local = build_waistband(ctx)
     spec = extract_waistband_spec(ctx)
     bf = local.sheet.get("wb.bottom_fly").geom
     assert isinstance(bf, LineSegment)
-    # 水平延伸（dy = 0），长度 = fly_extension
+    # 直腰头端点切线水平 -> 搭门水平延伸（dy = 0），长度 = fly_extension
     assert abs(bf.a.y - bf.b.y) < 1e-9
     assert bf.length == pytest.approx(o.waistband_fly_extension)
     # 左端在 x = -(L_half + fly) 处
     le = local.sheet.get("wb.left_end").geom
     assert le.a.x == pytest.approx(-(spec.l_half + o.waistband_fly_extension))
+
+
+def test_curved_ends_right_angle():
+    """弯腰头端点直角：搭门沿端点切线、封边沿端点法向（四处端点为直角）。"""
+    o = PatternOptions(delta=1.0, waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    piece, local = build_waistband(ctx)
+    W = o.waistband_width
+
+    bot = local.sheet.get("wb.bottom_right").geom       # CubicBezier（右半下口）
+    # 右端封边沿前中法向：封边向量 ⊥ 前中切线，长度 = W
+    re = local.sheet.get("wb.right_end").geom
+    re_vec = re.b - re.a
+    tang_front = bot.tangent_at(1.0)
+    assert abs(re_vec.dx * tang_front.dx + re_vec.dy * tang_front.dy) < 1e-9
+    assert re.length == pytest.approx(W)
+    # 左端封边 ⊥ 搭门（bottom_fly），长度 = W
+    le = local.sheet.get("wb.left_end").geom
+    bf = local.sheet.get("wb.bottom_fly").geom
+    le_vec = le.b - le.a
+    bf_vec = bf.b - bf.a
+    assert abs(le_vec.dx * bf_vec.dx + le_vec.dy * bf_vec.dy) < 1e-9
+    assert le.length == pytest.approx(W)
+    # 搭门沿左前中切线：bottom_fly 与 bottom_left 起点切线共线（曲线顺势顺滑外延）
+    bl = local.sheet.get("wb.bottom_left").geom
+    bl_t0 = bl.tangent_at(0.0)
+    cross = bf_vec.dx * bl_t0.dy - bf_vec.dy * bl_t0.dx
+    assert abs(cross) < 1e-9
 
 
 # ---------- 刀口（§三.2）----------
