@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from ..draft import DraftContext, NamedCurve, NamedLine, NamedPoint
 from ..draft import curves
 from ..geometry import CubicBezier, LineSegment, Point, Vector
-from ..params import WaistbandType
+from ..params import WaistbandGrain, WaistbandType
 
 
 @dataclass(frozen=True)
@@ -241,7 +241,11 @@ def draw_wb_notches(ctx: DraftContext, spec: WaistbandSpec) -> NamedPoint | None
 
 
 def draw_wb_grain(ctx: DraftContext, spec: WaistbandSpec) -> NamedLine:
-    """丝缕线（腰头长向=经向，水平双向箭头，§五.2 缩水经向基准）。"""
+    """丝缕线（经向，双向箭头，§五.2 缩水经向基准）。
+
+    方向由 ``waistband_grain`` 决定：WIDTH（默认）宽向=经 -> 竖向（沿裤长 Y）；
+    LENGTH 长向=经 -> 水平（沿腰头周向 X）。经向是面料属性，与前后片裤中线=裤长一致。
+    """
     o = ctx.options
     W = o.waistband_width
     fly = o.waistband_fly_extension
@@ -249,14 +253,21 @@ def draw_wb_grain(ctx: DraftContext, spec: WaistbandSpec) -> NamedLine:
     front = bot.b if isinstance(bot, LineSegment) else bot.p3
     x_right = front.x
     x_left = -front.x - fly
-    margin = 2.0
-    y_mid = -W / 2
-    return ctx.add_line("wb.grain",
-                        LineSegment(Point(x_left + margin, y_mid),
-                                    Point(x_right - margin, y_mid)),
-                        step=_STEP,
-                        basis="丝缕线：腰头长向=经向（缩水 warp 基准）",
-                        label="丝缕线", role="struct")
+    if o.waistband_grain is WaistbandGrain.LENGTH:
+        # 长向=经：水平丝缕线（沿 X），长向留 margin
+        margin = 2.0
+        y_mid = -W / 2
+        seg = LineSegment(Point(x_left + margin, y_mid),
+                          Point(x_right - margin, y_mid))
+        basis = "丝缕线：长向=经向（waistband_grain=LENGTH，缩水 warp 沿 X）"
+    else:
+        # 宽向=经（默认）：竖向丝缕线（沿 Y，=裤长方向），宽向留小 margin（W≈4 远小于长向）
+        margin = 0.5
+        x_mid = (x_left + x_right) / 2
+        seg = LineSegment(Point(x_mid, -W + margin), Point(x_mid, -margin))
+        basis = "丝缕线：宽向=经向（waistband_grain=WIDTH，缩水 warp 沿 Y）"
+    return ctx.add_line("wb.grain", seg, step=_STEP,
+                        basis=basis, label="丝缕线", role="struct")
 
 
 # ---- 辅助 ----

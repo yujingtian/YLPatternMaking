@@ -12,7 +12,7 @@ import math
 from ..cutter import add_seam_allowance, apply_shrinkage, edge_length
 from ..draft import DraftContext
 from ..geometry import CubicBezier, Point
-from ..params import WaistbandType
+from ..params import WaistbandGrain, WaistbandType
 from ..pieces import PatternPiece, PieceEdge
 from ..steps import waistband_steps as ws
 from ..steps.waistband_steps import WaistbandSpec
@@ -166,6 +166,12 @@ def build_waistband(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContext]
                          notches=notches, grain=grain)
 
     # 裁切三段：缩水 -> 缝边（缝份不叠加缩水，§五）
-    piece = apply_shrinkage(piece, o.shrinkage_warp, o.shrinkage_weft)
+    # 缩水率按面料经/纬（warp/weft）给；映射到腰头局部 X/Y 轴由经向方向决定
+    # （§五.2）：LENGTH 长向(X)=经 -> X 吃 warp；WIDTH 宽向(Y)=经 -> Y 吃 warp
+    if o.waistband_grain is WaistbandGrain.LENGTH:
+        x_rate, y_rate = o.shrinkage_warp, o.shrinkage_weft
+    else:  # WIDTH（默认）
+        x_rate, y_rate = o.shrinkage_weft, o.shrinkage_warp
+    piece = apply_shrinkage(piece, x_rate, y_rate)
     piece = add_seam_allowance(piece, o.waistband_seam_allowances)
     return piece, local

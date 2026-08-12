@@ -15,6 +15,17 @@ class WaistbandType(enum.Enum):
     CURVED = "curved"      # 弯腰头：与前片一体绘制，裁切阶段再裁出
 
 
+class WaistbandGrain(enum.Enum):
+    """腰头裁片经向（面料 warp）方向（腰头裁片.md §五.2）。
+
+    经向是面料属性、全局统一：前后片丝缕线（裤中线）沿裤长（Y），即全局经向=裤长。
+    腰头从标准铺布横裁时其宽向（=裤长=Y）即经向，故默认 WIDTH。
+    """
+
+    WIDTH = "width"    # 宽向（=裤长=Y）为经向（默认；标准铺布横裁）
+    LENGTH = "length"  # 长向（腰头周向=X）为经向（直裁）
+
+
 class Fit(enum.Enum):
     SKINNY = "skinny"
     SLIM = "slim"
@@ -302,8 +313,10 @@ class PatternOptions:
     waistband_front_drop: float | None = None  # 弯腰头弧深量（cm，正数=下口线向下凹 ∪）；None=按侧缝夹角自动推算（§四.分支B），填值则手动覆盖
     waistband_fly_extension: float = 3.5   # 门襟搭门量/宝剑头长（cm，左片前中端外延，§三.3）
     waistband_full_piece: bool = True      # True=整条（后中折线对称）；False=沿后中分两片（本期实现 True）
-    shrinkage_warp: float = 0.0            # 经向缩水率（腰头长向=经；0.03 表示 3%，§二.2/§五.2）
-    shrinkage_weft: float = 0.0            # 纬向缩水率（腰头宽向=纬，§二.2/§五.2）
+    waistband_grain: WaistbandGrain = WaistbandGrain.WIDTH
+                                           # 腰头经向方向（§五.2）：WIDTH 宽向=经（默认，横裁）/ LENGTH 长向=经（直裁）
+    shrinkage_warp: float = 0.0            # 经向缩水率（面料经/warp；0.03 表示 3%，§二.2/§五.2）
+    shrinkage_weft: float = 0.0            # 纬向缩水率（面料纬/weft，§二.2/§五.2）
     waistband_seam_allowances: WaistbandSeamAllowances = field(
         default_factory=WaistbandSeamAllowances)
                                            # 四边独立缝份（§二.3/§五.3；缝份不叠加缩水）
@@ -651,6 +664,8 @@ class PatternOptions:
         data = {k: v for k, v in raw.items() if not k.startswith("_")}
         if "waistband_type" in data:
             data["waistband_type"] = WaistbandType(data["waistband_type"])
+        if "waistband_grain" in data:
+            data["waistband_grain"] = WaistbandGrain(data["waistband_grain"])
         if "fit" in data:
             data["fit"] = Fit(data["fit"].lower())
         if "waistband_seam_allowances" in data:

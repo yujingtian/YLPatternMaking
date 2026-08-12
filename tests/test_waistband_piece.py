@@ -20,8 +20,8 @@ from ylpattern.flows.waistband_flow import (_arc_length_of_point,
                                             build_waistband,
                                             extract_waistband_spec)
 from ylpattern.geometry import CubicBezier, LineSegment, Point
-from ylpattern.params import (Measurements, PatternOptions, WaistbandSeamAllowances,
-                              WaistbandType)
+from ylpattern.params import (Measurements, PatternOptions, WaistbandGrain,
+                              WaistbandSeamAllowances, WaistbandType)
 
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
@@ -231,22 +231,54 @@ def test_notches_on_bottom_and_mirrored(ctx_darts):
 # ---------- 缩水（§五.2）----------
 
 def test_shrinkage_scales_geometry(ctx):
-    """缩水：各点 x·(1+warp)、y·(1+weft)；刀口同步。"""
+    """缩水：按 waistband_grain 把经/纬率映射到 X/Y 轴（默认 WIDTH：X=纬、Y=经）。"""
     o = PatternOptions(delta=1.0, shrinkage_warp=0.03, shrinkage_weft=0.02)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     piece, _ = build_waistband(ctx)
-    sx, sy = 1.03, 1.02
-    # 净样 vs 缩水：第一边端点
-    n0 = piece.net_edges[0].geom
-    s0 = piece.shrunk_edges[0].geom
-    na = n0.a if isinstance(n0, LineSegment) else n0.p0
-    sa = s0.a if isinstance(s0, LineSegment) else s0.p0
-    assert sa.x == pytest.approx(na.x * sx)
-    assert sa.y == pytest.approx(na.y * sy)
-    # 刀口同步
+    assert o.waistband_grain is WaistbandGrain.WIDTH          # 默认宽向=经
+    sx, sy = 1.02, 1.03      # WIDTH：X(长向)=纬 1+weft、Y(宽向)=经 1+warp
+    # 右端封边（EDGE_ORDER[1]）末端 (X,−W)：x、y 均非零，同时校验两轴
+    n0 = piece.net_edges[1].geom
+    s0 = piece.shrunk_edges[1].geom
+    nb = n0.b if isinstance(n0, LineSegment) else n0.p3
+    sb = s0.b if isinstance(s0, LineSegment) else s0.p3
+    assert sb.x == pytest.approx(nb.x * sx)
+    assert sb.y == pytest.approx(nb.y * sy)
+    # 刀口同步（直腰头刀口在下口 y=0，主要校验 x 轴）
     for n, s in zip(piece.notches, piece.shrunk_notches):
         assert s.x == pytest.approx(n.x * sx)
         assert s.y == pytest.approx(n.y * sy)
+
+
+def test_shrinkage_length_grain_swaps_axes():
+    """LENGTH（长向=经）：X 吃 warp、Y 吃 weft（与默认 WIDTH 相反）。"""
+    o = PatternOptions(delta=1.0, waistband_grain=WaistbandGrain.LENGTH,
+                       shrinkage_warp=0.03, shrinkage_weft=0.02)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    piece, _ = build_waistband(ctx)
+    sx, sy = 1.03, 1.02      # LENGTH：X=经 1+warp、Y=纬 1+weft
+    n0 = piece.net_edges[1].geom
+    s0 = piece.shrunk_edges[1].geom
+    nb = n0.b if isinstance(n0, LineSegment) else n0.p3
+    sb = s0.b if isinstance(s0, LineSegment) else s0.p3
+    assert sb.x == pytest.approx(nb.x * sx)
+    assert sb.y == pytest.approx(nb.y * sy)
+
+
+def test_grain_orientation():
+    """丝缕线方向随 waistband_grain：WIDTH 竖向（沿裤长）、LENGTH 水平（沿周向）。"""
+    o = PatternOptions(delta=1.0)                          # 默认 WIDTH
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    _, local = build_waistband(ctx)
+    g = local.line("wb.grain")
+    assert g.a.x == pytest.approx(g.b.x)                   # 竖向：x 相同
+    assert g.a.y != pytest.approx(g.b.y)
+    o2 = PatternOptions(delta=1.0, waistband_grain=WaistbandGrain.LENGTH)
+    ctx2 = FlowRunner(M, o2).run(FULL_FLOW)
+    _, local2 = build_waistband(ctx2)
+    g2 = local2.line("wb.grain")
+    assert g2.a.y == pytest.approx(g2.b.y)                 # 水平：y 相同
+    assert g2.a.x != pytest.approx(g2.b.x)
 
 
 def test_no_shrinkage_shrunk_equals_net(ctx):

@@ -232,8 +232,9 @@ waistband_width     = 4.0         # 腰头宽（直腰头打版时从裤长中�
                                 #   填值=手动覆盖；省略或删本行=按真实侧缝线夹角自动推算（§四.分支B）
 waistband_fly_extension = 0   # 门襟搭门量（cm，左片前中端外延；0=无搭门）
 waistband_full_piece  = true      # true=整条（后中折线对称）；false=沿后中分两片（本期实现 true）
-shrinkage_warp        = 0.0       # 经向缩水率（腰头长向=经；0.03=3%；缝份不叠加缩水）
-shrinkage_weft        = 0.0       # 纬向缩水率（腰头宽向=纬）
+waistband_grain       = "width"   # 腰头经向方向："width" 宽向(=裤长)为经（默认，横裁）/ "length" 长向为经（直裁）；决定丝缕线方向与缩水经/纬→X/Y 映射
+shrinkage_warp        = 0.0       # 经向缩水率（面料经/warp；0.03=3%；映射到腰头 X/Y 轴见 waistband_grain；缝份不叠加缩水）
+shrinkage_weft        = 0.0       # 纬向缩水率（面料纬/weft）
 # 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
 side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
 front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）

@@ -14,7 +14,7 @@ from __future__ import annotations
 from .draft import DraftContext
 from .exporters import svg as svg_exp
 from .flows.closure import run_with_thigh_closure
-from .params import (Measurements, PatternOptions, WaistbandType,
+from .params import (Measurements, PatternOptions, WaistbandGrain, WaistbandType,
                      WaistbandSeamAllowances)
 
 
@@ -42,6 +42,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         waistband_front_drop: float = 1.5,
         waistband_fly_extension: float = 3.5,
         waistband_full_piece: bool = True,
+        waistband_grain: WaistbandGrain | str = WaistbandGrain.WIDTH,
         shrinkage_warp: float = 0.0,
         shrinkage_weft: float = 0.0,
         waistband_seam_allowances: dict | object | None = None,
@@ -166,8 +167,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         waistband_front_drop  弯腰头弧深量（cm，正数=下口线向下凹 ∪；控制下口线弯曲度，腰头裁片.md §四）
         waistband_fly_extension  门襟搭门量（cm，左片前中端外延，§三.3）
         waistband_full_piece  True=整条腰头（后中折线对称）；False=沿后中分两片（本期实现 True）
-        shrinkage_warp / shrinkage_weft  经/纬向缩水率（腰头长向=经、宽向=纬；
-                          0.03=3%；裁片先缩水再加缝边，缝份不叠加缩水，§五）
+        waistband_grain  腰头经向方向（§五.2）："width" 宽向=经（默认，横裁，=裤长方向）/ "length" 长向=经（直裁）
+        shrinkage_warp / shrinkage_weft  面料经/纬向缩水率（0.03=3%）；映射到腰头 X/Y 轴
+                          由 waistband_grain 决定；裁片先缩水再加缝边，缝份不叠加缩水，§五
         waistband_seam_allowances  四边独立缝份 dict {top,bottom,left_end,right_end}
                           （cm；后中折线不外扩；§二.3/§五.3）
         side_rise        侧缝腰头抬高量 h（0 = 腰围外缝顶点压基础线，常取 0~1.5）
@@ -353,6 +355,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        waistband_front_drop=waistband_front_drop,
                        waistband_fly_extension=waistband_fly_extension,
                        waistband_full_piece=waistband_full_piece,
+                       waistband_grain=WaistbandGrain(waistband_grain),
                        shrinkage_warp=shrinkage_warp,
                        shrinkage_weft=shrinkage_weft,
                        **({"waistband_seam_allowances":
