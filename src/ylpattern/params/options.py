@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .sizefile import load_size_file
 
@@ -30,6 +30,27 @@ DELTA_PRESETS: dict[str, tuple[float, str]] = {
     "high_stretch":   (0.40, "高弹力紧身女牛仔裤（0.3~0.5）"),
     "loose_wide":     (0.25, "超宽松阔腿裤 / 工装裤（0~0.5）"),
 }
+
+
+@dataclass(frozen=True)
+class WaistbandSeamAllowances:
+    """腰头裁片四边独立缝份（cm，腰头裁片.md §二.3）。
+
+    full_piece=True 时四边均为裁切边（后中为折线不外扩）：
+    top 上口线 / bottom 下口线（拼接线）/ left_end 左端（含门襟搭门侧）/
+    right_end 右端（常规侧）。
+    """
+    top: float = 1.0
+    bottom: float = 1.0
+    left_end: float = 1.2
+    right_end: float = 1.0
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "WaistbandSeamAllowances":
+        return cls(top=float(d.get("top", 1.0)),
+                   bottom=float(d.get("bottom", 1.0)),
+                   left_end=float(d.get("left_end", 1.2)),
+                   right_end=float(d.get("right_end", 1.0)))
 
 
 @dataclass(frozen=True)
@@ -277,6 +298,15 @@ class PatternOptions:
     piece_gap: float = 10.0                # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
     waistband_type: WaistbandType = WaistbandType.STRAIGHT
     waistband_width: float = 4.0           # 腰头宽（直腰头打版时从版顶扣除，注意点 1）
+    # -- 腰头裁片（腰头裁片.md §二，独立裁片：净样 -> 缩水 -> 缝边）--
+    waistband_front_drop: float | None = None  # 弯腰头弧深量（cm，正数=下口线向下凹 ∪）；None=按侧缝夹角自动推算（§四.分支B），填值则手动覆盖
+    waistband_fly_extension: float = 3.5   # 门襟搭门量/宝剑头长（cm，左片前中端外延，§三.3）
+    waistband_full_piece: bool = True      # True=整条（后中折线对称）；False=沿后中分两片（本期实现 True）
+    shrinkage_warp: float = 0.0            # 经向缩水率（腰头长向=经；0.03 表示 3%，§二.2/§五.2）
+    shrinkage_weft: float = 0.0            # 纬向缩水率（腰头宽向=纬，§二.2/§五.2）
+    waistband_seam_allowances: WaistbandSeamAllowances = field(
+        default_factory=WaistbandSeamAllowances)
+                                           # 四边独立缝份（§二.3/§五.3；缝份不叠加缩水）
     fit: Fit = Fit.REGULAR
     seam_allowance: float = 1.0            # 默认缝份
 
@@ -285,6 +315,22 @@ class PatternOptions:
             raise ValueError(f"Δ={self.delta} 超出常规范围 0~2.0 cm")
         if self.waistband_width < 0:
             raise ValueError("腰头宽不能为负数")
+        # 腰头裁片参数校验（腰头裁片.md §二）
+        if (self.waistband_front_drop is not None
+                and self.waistband_front_drop < 0):
+            raise ValueError(f"弯腰头弧深量不能为负数（凸向已内置向下凹 ∪，勿传负），得到 {self.waistband_front_drop}")
+        if self.waistband_fly_extension < 0:
+            raise ValueError(f"门襟搭门量不能为负数，得到 {self.waistband_fly_extension}")
+        for name in ("shrinkage_warp", "shrinkage_weft"):
+            v = getattr(self, name)
+            if not 0.0 <= v < 0.2:
+                raise ValueError(f"{name} 须在 [0, 0.2) 内（0.03=3%），得到 {v}")
+        sa = self.waistband_seam_allowances
+        if not isinstance(sa, WaistbandSeamAllowances):
+            raise TypeError("waistband_seam_allowances 须为 WaistbandSeamAllowances")
+        for name in ("top", "bottom", "left_end", "right_end"):
+            if getattr(sa, name) < 0:
+                raise ValueError(f"缝份 {name} 不能为负数，得到 {getattr(sa, name)}")
         if self.seam_allowance <= 0:
             raise ValueError("缝份必须为正数")
         if self.thigh_measure_offset < 0:
@@ -607,4 +653,7 @@ class PatternOptions:
             data["waistband_type"] = WaistbandType(data["waistband_type"])
         if "fit" in data:
             data["fit"] = Fit(data["fit"].lower())
+        if "waistband_seam_allowances" in data:
+            data["waistband_seam_allowances"] = WaistbandSeamAllowances.from_dict(
+                data["waistband_seam_allowances"])
         return cls(**data)

@@ -132,9 +132,9 @@ front_pocket_facing_h2      = 1.0       # 侧缝端切线柄长（tangent 模式
 # ---- 袋布（嵌入式口袋储物袋布大片/小片，可选步骤，袋布绘制.md §二、§三、§五）----
 # 依赖 front_pocket 主切口；闭合路径 P_w0 -> K1..Kn -> P_s0 -> 侧缝 -> O -> 腰缝
 front_pouch           = true      # 袋布绘制开关
-front_pouch_waist_safe = 4.0      # 腰缝锚点安全内延（沿腰弧自 P1 朝门襟，cm，推荐 3.5~5.0）
+front_pouch_waist_safe = 6.0      # 腰缝锚点安全内延（沿腰弧自 P1 朝门襟，cm，推荐 3.5~5.0）
 front_pouch_side_safe = 10.0      # 侧缝锚点安全垂深（自 P2 沿侧缝下探，cm，推荐 6.0~10.0）
-front_pouch_nodes     = [[12.0, 24.0], [6.0, 24.0]]
+front_pouch_nodes     = [[14.0, 24.0], [6.0, 24.0]]
                                   # 自定义内部节点（≥2；相对腰外缝顶点，x 朝门襟、y 向下为正）
 front_pouch_edges     = [["line"], ["line"], ["arc", 0.5, 0.6]]
                                   # 边形态（个数 = 节点数+1）：["line"] /
@@ -145,10 +145,15 @@ front_pouch_edges     = [["line"], ["line"], ["arc", 0.5, 0.6]]
 #   依赖 front_pocket 挖削嵌入式；以前口袋侧缝腰点为基准定位，净样锚点 + 逐边形态
 watch_pocket                  = true     # 小表袋开关（依赖 front_pocket 挖削嵌入式；
                                          #   打版流程.md：当前口袋是挖削嵌入式时才绘制）
+watch_pocket_mode             = "facing_intersect"
+                                         #   - "facing_intersect" ：袋贴相交延伸模式（推荐，经典工装/牛仔工艺：袋口定宽，左右侧边向下延伸扎入袋贴弧线并贴合顺接）
+                                         #   - "custom"           ：独立全自定义模式（自由定义多锚点 + 逐边形态，经典悬浮独立贴袋）
+watch_pocket_width            = 7      # 袋口设计净宽 W（cm，常规 7.0~8.5）
+watch_pocket_taper            = 0.0      # 两侧向内收倾斜量（cm；0 = 垂直矩形下落，0.2~0.4 = 倒梯形微收）
 watch_pocket_offset_from_top  = 3.0      # 离口袋顶部距离：自前口袋侧缝腰点垂直向下（cm，§2.3）
-watch_pocket_offset_from_side = 2.5      # 离口袋侧边距离：自侧缝水平向内（cm，§2.3）
+watch_pocket_offset_from_side = 2      # 离口袋侧边距离：自侧缝水平向内（cm，§2.3）
 watch_pocket_rotate_deg       = 8.0      # 整体绕参考点旋转角（度，顺时针为正，§2.3/§3.2）
-watch_pocket_points           = [[0.0, 0.0], [5.0, 0.0], [5.0, 8.0], [0.0, 8.0]]
+watch_pocket_points           = [[0.0, 0.0], [5.0, 0.0], [5.0, 7.0], [0.0, 7.0]]
                                          # 净形锚点（相对参考点 dx/dy，≥3，顺时针；
                                          #   默认梯形：袋口宽 8、底宽 7.2、高 7.5）
 watch_pocket_edges            = [["line"], ["line"], ["line"], ["line"]]
@@ -222,6 +227,14 @@ fly_sep_extra        = 0.0       # [独立] 底部延展量（裁片高 = L + �
 #           curved   = 弯腰头（与前片一体绘制再裁出）
 waistband_type      = "curved"
 waistband_width     = 4.0         # 腰头宽（直腰头打版时从裤长中扣除；弯腰头忽略）
+# ---- 腰头裁片（独立裁片：净样 -> 缩水 -> 缝边，腰头裁片.md；ylpattern draft --waistband-svg）----
+# waistband_front_drop  = 1.5       # 弯腰头弧深量（cm，正数=下口线向下凹 ∪；控制下口线弯曲度；直腰头忽略）
+                                  #   填值=手动覆盖；省略或删本行=按真实侧缝线夹角自动推算（§四.分支B）
+waistband_fly_extension = 3.5     # 门襟搭门量（cm，左片前中端外延；0=无搭门）
+waistband_full_piece  = true      # true=整条（后中折线对称）；false=沿后中分两片（本期实现 true）
+shrinkage_warp        = 0.0       # 经向缩水率（腰头长向=经；0.03=3%；缝份不叠加缩水）
+shrinkage_weft        = 0.0       # 纬向缩水率（腰头宽向=纬）
+# 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
 side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
 front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
 back_waist_curve_sag  = 0.4     # 后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，后腰头绘制推导.md §二）
@@ -246,3 +259,10 @@ thigh_front_crotch_max  = 0.4   # 前小裆累计调整上限（防卡耻骨，�
 thigh_back_crotch_max   = 1.0   # 后大裆累计调整上限（防下蹲崩破，极值红线）
 thigh_max_iter        = 6       # 闭环最大迭代轮数（侧缝被钳后仅靠裆宽收敛慢，可加大）
 thigh_tol             = 0.2    # 闭环收敛容差（|ΔW| ≤ 本值即判定达标）
+
+# 腰头裁片四边独立缝份（cm；后中折线不外扩，腰头裁片.md §二.3/§五.3）
+[options.waistband_seam_allowances]
+top = 1.0          # 上口线缝边
+bottom = 1.0       # 下口线（拼接线）缝边
+left_end = 1.2     # 左端缝边（含门襟搭门侧）
+right_end = 1.0    # 右端缝边（常规侧）

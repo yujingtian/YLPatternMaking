@@ -149,6 +149,51 @@ def sag_curve(end_a: Point, end_b: Point, *, sag: float) -> CubicBezier:
     return CubicBezier(end_a, p1, p2, end_b)
 
 
+def waistband_curve(length: float, drop: float = 0.0) -> CubicBezier:
+    """弯腰头下口线：弧长精确等于 length 的三次贝塞尔（腰头裁片.md §四.分支B）。
+
+    局部坐标系（原点=后中，Y 向下，X 向右）：P0=(0,0) 后中、P3=(X,-drop)
+    前中；控制点 P1=(X/3,0) 令**后中切线水平**（以利于沿后中线镜像），
+    P2=(2X/3,-drop/3) 解除前中水平约束、使前中端自然斜出——生成均匀抛物线
+    弧，彻底消除两端皆水平造成的 S 型/钟形畸变（腰头裁片.md §四.分支B）。
+
+    曲线**向下凸**（往下凹）：y(t)=-drop·t² 为开口朝 −Y 的抛物线，曲线整体
+    位于「后中→前中」弦的**下方**（往 +Y 侧凸出）；整片沿后中线镜像后呈 ∪ 形
+    （后中下凹），对应弯腰头下口（贴臀侧）外凸、上口（贴腰侧）内收的合体形态
+    （区别于早期向上凸 ∩ 形——下口内收反不合体，故翻向）。
+
+    数学性质：x(t)=X·t 线性、y(t)=-drop·t² 为抛物线（t=0 后中水平切入、
+    t=1 前中按斜率 −2·drop/X 自然上扬），x/y 均单调，曲线单调顺滑无回拐。
+    弧长 = ∫√(X²+4·drop²·t²)dt 仅依赖 |drop|、随 X 单调增（与凸向无关），
+    故二分求 X 使 ``curve.length() == length``（drop=0 退化为直线，X=length；
+    drop>0 时 X<length）。
+
+    参数：
+        length  目标下口线净弧长 L_half（cm，必须 > drop）
+        drop    弧深量（cm，≥0；0 = 直线=直腰头矩形底边；>0 向下凸呈 ∪ 形）
+    """
+    if length <= 0:
+        raise ValueError(f"腰头下口线长必须为正数，得到 {length}")
+    if drop < 0:
+        raise ValueError(f"腰头弧深量不能为负数，得到 {drop}")
+    if drop >= length:
+        raise ValueError(f"腰头弧深量 {drop} 须小于下口线长 {length}")
+    if drop == 0.0:
+        X = length
+    else:
+        lo, hi = 0.0, length          # 弧长仅依赖 |drop|、随 X 单调增；X<length（drop>0）
+        for _ in range(60):
+            Xm = (lo + hi) / 2
+            if CubicBezier(Point(0, 0), Point(Xm / 3, 0.0),
+                           Point(2 * Xm / 3, -drop / 3.0), Point(Xm, -drop)).length() < length:
+                lo = Xm
+            else:
+                hi = Xm
+        X = (lo + hi) / 2
+    return CubicBezier(Point(0, 0), Point(X / 3, 0.0),
+                       Point(2 * X / 3, -drop / 3.0), Point(X, -drop))
+
+
 def waist_sag_p2(p0: Point, p3: Point, p1: Point, *, at: float,
                  sag: float) -> Point:
     """腰弧下凹控制点 P2：令弧参数中点（t=0.5）相对弦 P0P3 的下凹量

@@ -378,6 +378,7 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 - 门襟 O = 前浪 ∩ 裤身顶边，Y 沿前浪下行、X 垂直前浪朝外凸；
 - 袋布 O = 腰外缝顶点，x 朝门襟、y 向下。
 - 后贴袋 O = 育克底线 ∩ 后浪线（机头后浪端点 `back.yoke_cb_point`），u 自后浪朝侧缝（沿约克底线）、v 向下；u 轴沿约克底线方向（非全局水平），θ=0 袋口 ∥ 约克底线 ≈ 后腰线。依赖 back_yoke。
+- 腰头裁片 O = 后中点，**X 向右朝前中、Y 向下**（与全局版坐标 Y 向上相反！），半片置于 x>0，full_piece 时镜像至 x<0。绘制在独立 DraftSheet（`flows/waistband_flow.build_waistband` 另建 ctx，非主版 sheet）；下口线弧长自后中（O）起算。
 
 局部 → 全局：`o_pt + x_dir.scale(x) + y_dir.scale(y)`（`x_dir = y_dir.perpendicular()`）。**看步骤代码先认局部框**，否则坐标会读反。
 
@@ -389,7 +390,8 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 
 - `NamedLine.role` / `NamedCurve.role`：`"struct"`（结构线，实线深色 #2c3e50）/ `"ref"`（参考线，灰虚线 #999 dasharray）。`NamedLine` 默认 `ref`，`NamedCurve` 默认 `struct`。
 - SVG 图层顺序（后绘盖上）：`reference`(ref 线) → `struct`(struct 线) → `curves`(全部曲线，按 role 分 `.curve` 实线 / `.curveref` 虚线) → `elements`(点)。要让某条**曲线**画虚线，给 `add_curve(..., role="ref")`（曲线默认 struct 实线，现已支持 role 生效）。
-- 注意：§5.7 的图层表（net/seam/annotation…）与目录里的 `cutter.py`/`pieces.py`/`validation.py`/`dxf.py` 是**设计期设想，尚未实现**；实际图层与已实现模块见上。
+- 注意：§5.7 的图层表（net/seam/annotation…）原为设计期设想；`cutter.py`/`pieces.py` 已为腰头裁片落地（独立 SVG），`validation.py`/`dxf.py` 仍尚未实现。
+- 独立裁片 SVG（`exporters/piece_svg.py`）：裁片局部坐标 **Y 向下**，渲染时**不翻转**（仅缩放平移），区别于整版 `svg.py`（版坐标 Y 向上、渲染翻转）。图层：gross 毛样（实线）/ shrunk_net 含缩水净样（虚线）/ net 净样（淡虚线）/ notches（红）/ grain 丝缕线（蓝）。
 
 ### 10.4 架构约束细节
 
@@ -408,7 +410,7 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 
 ### 10.6 当前实现状态（已程序化）
 
-已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋 + 袋贴（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线；袋贴 `draw_front_pocket_facing` 详见下文）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、后贴袋（`back_patch_steps`，育克底线∩后浪线定位 + 局部 u-v 框四形态 + 仿射旋转）、毗围闭环（`flows/closure.py`）。尚未实现：裁切层（cutter/pieces）、DXF 导出、结构校验器。
+已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋 + 袋贴（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线；袋贴 `draw_front_pocket_facing` 详见下文）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、后贴袋（`back_patch_steps`，育克底线∩后浪线定位 + 局部 u-v 框四形态 + 仿射旋转）、毗围闭环（`flows/closure.py`）、腰头裁片（`steps/waistband_steps` + `flows/waistband_flow` + 裁切层 `pieces`/`cutter` + `exporters/piece_svg`，腰头裁片.md：直/弯腰头 × 有/无省，净样 -> 缩水 -> 缝边独立 SVG；`build_waistband(main_ctx)` 从整版提取前后腰弧净长代数求和）。裁切层（`pieces.PatternPiece` 三态净/缩水/毛 + `cutter.apply_shrinkage`/`add_seam_allowance`）已为腰头落地，前/后片裁切待后续。尚未实现：DXF 导出、结构校验器。
 
 前浪裆弯弧度已可调：`PatternOptions.front_rise_handle_ratio`（默认 1/3，k1=k2=|BC|×本值，前浪绘制.md §4），由 `draw_front_rise` 传入 `curves.front_rise`；与后浪 `back_rise_alpha`/`back_rise_beta` 双参数不同--前浪按文档用单一对称比例，后浪因大裆弯更深需独立 α/β。
 
@@ -427,3 +429,10 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
    - "custom"（独立全自定义模式，默认）：自定义净形锚点列表 watch_pocket_points（≥3 个）+ 逐边形态列表 watch_pocket_edges（line / arc / bezier），支持 watch_pocket_rotate_deg 绕参考点旋转。
 2. 基准点 O = 前口袋侧缝腰点（弯腰头取下侧缝腰点 B'，直腰头取腰外缝顶点 B，经 effective_waist 同步）。
 选项字段：watch_pocket / watch_pocket_mode / watch_pocket_width / watch_pocket_taper / watch_pocket_offset_from_top / watch_pocket_offset_from_side / watch_pocket_rotate_deg / watch_pocket_points / watch_pocket_edges。
+
+腰头裁片已程序化：`build_waistband(main_ctx)`（`flows/waistband_flow`，腰头裁片.md §三~§五；自含裁片，非 FlowRunner 编排，同 closure.py 口径）。
+1. 净长代数求和（§三）：`extract_waistband_spec` 读上腰弧 `front.waistline_arc`（t=0 侧缝->t=1 前中）/ `back.waistline_arc`（t=0 后中->t=1 侧缝），减省宽：后省 = `back.dart{i}_leg_inner` 端点 p_in 投影到后腰弧的弧长（`_arc_length_of_point` 采样最近 t + 三分搜索）；前省 = `front_pocket_p1_dist`。直/弯腰头统一读上腰弧（弯腰头下腰弧为贴身边，差 <0.5cm，代数求和容忍）。
+2. 净样绘制（`steps/waistband_steps`，独立 DraftSheet 局部坐标 Y 向下）：直腰头 = 矩形 L_half×W；弯腰头下口线 = `curves.waistband_curve(L_half, spec.computed_drop)`（P1=(X/3,0) 后中水平利镜像/P2=(2X/3,−drop/3)、P3=(X,−drop) 前中自然斜出成**向下凹 ∪** 抛物线弧（整片沿后中镜像后后中下凹、贴臀侧外凸、贴腰侧内收；早期向上凸 ∩ 致下口内收不合体，故翻向），消除两端皆水平所致 S 型畸变；右端竖直封边，二分求 X 闭环 length 精确），上口线 = 下口平移 W。full_piece 时后中 x=0 镜像 + 左端外延 fly_extension（直角封口）。drop 来源：用户 `waistband_front_drop` 手动覆盖；否则 `extract_waistband_spec` 调 `_auto_drop(front_arc, back_arc, hip_front, hip_back)` 按真实侧缝线夹角自动推算（§四.分支B；读 `front/back.hip_outseam_point` 取侧缝腰点 B 至臀点 H 的真实侧缝线倾角，以 B 为圆心旋转前片使前后侧缝线重合，旋转后前中 A_front 相对后中 A_back 的纵向高度差即 drop。主版坐标系 Y 向上，A_back.y 减 A_front_joined.y 为正即前中更低；该正 drop 喂入 waistband_curve 的 −drop 公式得向下凹 ∪，凸向与测量正负号解耦。旧法取腰弧端点切线对齐、强制切线连续会向上过旋抵消落差，side_rise 与 curve_sag 同存时坍塌为约 0；真实侧缝线为结构稳定特征，不受腰弧塑形影响，实测两开关增删变化在 0.1cm 内）；直腰头=0。
+3. 裁切三段（`cutter`）：`apply_shrinkage`（x·(1+warp)、y·(1+weft)，保持贝塞尔性）-> `add_seam_allowance`（四边独立缝份沿**外法向**偏移：曲线逐点真法向 offset（`_offset_edge_points`，tangent.perpendicular·amt）、直线整体平移；相邻异名边角点取两偏移边切线延伸交点 miter 连接（`_miter_point`），切线平行回退阶梯角，同名边平滑相接、后中折线不外扩；缝份不叠加缩水）。零长退化边（`fly_extension=0` 致 `wb.top_fly`/`wb.bottom_fly` 首尾重合、无切线）在 `build_waistband` 装配 net_edges 时即按 `cutter.edge_length`（`LineSegment.length` 属性 / `CubicBezier.length()` 方法，API 不一）滤除，cutter `_offset_edge_points` 另对零长直线防御性返回空，避免外法向归一化触发「零向量无法归一化」）。`PatternPiece` 三态：net_edges / shrunk_edges / gross_polygon。
+4. 刀口（§三.2）：侧缝=L_back、后省/前省按弧长，full_piece 左右镜像各一；丝缕线沿长向（经向）。
+选项字段：waistband_front_drop（None=按真实侧缝线夹角自动推算 `computed_drop`、填值手动覆盖；正数 drop=下口线向下凹 ∪，负数被 options 层与 curves 层双重校验拒绝、若强放行因公式为 −drop 反得 ∩，**勿传负**。§四.分支B。**勿与 `fc_drop` 混淆**：`fc_drop` 是裤身前腰头绘制的前中下落量 d（`formulas.waist.waistline_horizontal_span`，前腰头绘制推导.md），塑造裤身腰围线；`waistband_front_drop` 是腰头裁片自身下口线的弯曲度，二者几何来源不同，曾因混淆导致 auto_drop 取错基准）/ waistband_fly_extension / waistband_full_piece / shrinkage_warp / shrinkage_weft / waistband_seam_allowances（WaistbandSeamAllowances：top/bottom/left_end/right_end，TOML `[options.waistband_seam_allowances]` 子表，须置 [options] 末尾避免吸收后续键）。输出：`--waistband-svg` 旗标 / `api.run(waistband_svg=...)`。

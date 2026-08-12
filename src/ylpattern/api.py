@@ -14,7 +14,17 @@ from __future__ import annotations
 from .draft import DraftContext
 from .exporters import svg as svg_exp
 from .flows.closure import run_with_thigh_closure
-from .params import Measurements, PatternOptions, WaistbandType
+from .params import (Measurements, PatternOptions, WaistbandType,
+                     WaistbandSeamAllowances)
+
+
+def _coerce_sa(v) -> WaistbandSeamAllowances:
+    """dict -> WaistbandSeamAllowances（已是其类型则原样返回）。"""
+    if isinstance(v, WaistbandSeamAllowances):
+        return v
+    if isinstance(v, dict):
+        return WaistbandSeamAllowances.from_dict(v)
+    raise TypeError("waistband_seam_allowances 须为 dict 或 WaistbandSeamAllowances")
 
 
 def run(*, waist: float, hip: float, knee: float, hem: float,
@@ -29,6 +39,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         crotch_drop_adjust: float = 0.0,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
         waistband_width: float = 4.0,
+        waistband_front_drop: float = 1.5,
+        waistband_fly_extension: float = 3.5,
+        waistband_full_piece: bool = True,
+        shrinkage_warp: float = 0.0,
+        shrinkage_weft: float = 0.0,
+        waistband_seam_allowances: dict | object | None = None,
         side_rise: float = 0.0,
         front_waist_curve_sag: float = 0.3, back_waist_curve_sag: float = 0.3,
         waist_balance: float = 0.0, front_waist_dart: float = 0.0,
@@ -124,6 +140,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         piece_gap: float = 10.0,
         seam_allowance: float = 1.0,
         svg: str = "out/sheet.svg",
+        waistband_svg: str | None = None,
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
@@ -146,6 +163,13 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         crotch_drop_adjust 后片落裆调节量 Δc（落裆量 = H/100 + Δc；高弹取负、宽松取正）
         waistband_type   腰头类型："straight" 直腰头 / "curved" 弯腰头（打版流程.md 注意点 1）
         waistband_width  腰头宽（cm）；直腰头打版时从裤长中扣除，弯腰头忽略
+        waistband_front_drop  弯腰头弧深量（cm，正数=下口线向下凹 ∪；控制下口线弯曲度，腰头裁片.md §四）
+        waistband_fly_extension  门襟搭门量（cm，左片前中端外延，§三.3）
+        waistband_full_piece  True=整条腰头（后中折线对称）；False=沿后中分两片（本期实现 True）
+        shrinkage_warp / shrinkage_weft  经/纬向缩水率（腰头长向=经、宽向=纬；
+                          0.03=3%；裁片先缩水再加缝边，缝份不叠加缩水，§五）
+        waistband_seam_allowances  四边独立缝份 dict {top,bottom,left_end,right_end}
+                          （cm；后中折线不外扩；§二.3/§五.3）
         side_rise        侧缝腰头抬高量 h（0 = 腰围外缝顶点压基础线，常取 0~1.5）
         front_waist_curve_sag  前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5；
                                0 = 无额外下凹，90° 正交平顺段的弯曲仍在）
@@ -302,6 +326,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         thigh_max_iter / thigh_tol  闭环最大迭代轮数（默认 6）/ 收敛容差（默认 0.3）
         piece_gap        前后片排版间距（后片整体置于前片右侧，分开不重叠）
         svg              SVG 输出路径
+        waistband_svg    腰头裁片独立 SVG 输出路径（None=不输出；需完整整版，
+                         中断调版 until 时不生成；腰头裁片.md §五 独立裁片）
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
 
@@ -324,6 +350,14 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        crotch_drop_adjust=crotch_drop_adjust,
                        waistband_type=WaistbandType(waistband_type),
                        waistband_width=waistband_width,
+                       waistband_front_drop=waistband_front_drop,
+                       waistband_fly_extension=waistband_fly_extension,
+                       waistband_full_piece=waistband_full_piece,
+                       shrinkage_warp=shrinkage_warp,
+                       shrinkage_weft=shrinkage_weft,
+                       **({"waistband_seam_allowances":
+                           _coerce_sa(waistband_seam_allowances)}
+                          if waistband_seam_allowances is not None else {}),
                        side_rise=side_rise,
                        front_waist_curve_sag=front_waist_curve_sag,
                        back_waist_curve_sag=back_waist_curve_sag,
@@ -435,6 +469,16 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
 
     ctx, trace_text = run_with_thigh_closure(m, o, until=until,
                                              trace=bool(trace))
+
+    if until:
+        # 中断调版时不出腰头裁片（需完整整版提取腰弧净长）
+        pass
+    elif waistband_svg:
+        from .flows.waistband_flow import build_waistband
+        from .exporters import piece_svg as piece_exp
+        piece, _wb_ctx = build_waistband(ctx)
+        piece_exp.write_piece_svg(piece, waistband_svg)
+        print(f"腰头裁片 SVG 已输出:{waistband_svg}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")

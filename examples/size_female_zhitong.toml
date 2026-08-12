@@ -227,6 +227,14 @@ fly_sep_extra        = 0.0       # [独立] 底部延展量（裁片高 = L + �
 #           curved   = 弯腰头（与前片一体绘制再裁出）
 waistband_type      = "curved"
 waistband_width     = 4.0         # 腰头宽（直腰头打版时从裤长中扣除；弯腰头忽略）
+# ---- 腰头裁片（独立裁片：净样 -> 缩水 -> 缝边，腰头裁片.md；ylpattern draft --waistband-svg）----
+# waistband_front_drop  = 2       # 弯腰头弧深量（cm，正数=下口线向下凹 ∪；控制下口线弯曲度；直腰头忽略）
+                                #   填值=手动覆盖；省略或删本行=按真实侧缝线夹角自动推算（§四.分支B）
+waistband_fly_extension = 0   # 门襟搭门量（cm，左片前中端外延；0=无搭门）
+waistband_full_piece  = true      # true=整条（后中折线对称）；false=沿后中分两片（本期实现 true）
+shrinkage_warp        = 0.0       # 经向缩水率（腰头长向=经；0.03=3%；缝份不叠加缩水）
+shrinkage_weft        = 0.0       # 纬向缩水率（腰头宽向=纬）
+# 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
 side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
 front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
 back_waist_curve_sag  = 0.4     # 后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，后腰头绘制推导.md §二）
@@ -251,3 +259,10 @@ thigh_front_crotch_max  = 0.4   # 前小裆累计调整上限（防卡耻骨，�
 thigh_back_crotch_max   = 1.0   # 后大裆累计调整上限（防下蹲崩破，极值红线）
 thigh_max_iter        = 10       # 闭环最大迭代轮数（侧缝被钳后仅靠裆宽收敛慢，可加大）
 thigh_tol             = 0.2    # 闭环收敛容差（|ΔW| ≤ 本值即判定达标）
+
+# 腰头裁片四边独立缝份（cm；后中折线不外扩，腰头裁片.md §二.3/§五.3）
+[options.waistband_seam_allowances]
+top = 1.0          # 上口线缝边
+bottom = 1.0       # 下口线（拼接线）缝边
+left_end = 4     # 左端缝边（含门襟搭门侧）
+right_end = 4    # 右端缝边（常规侧）
