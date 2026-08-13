@@ -55,6 +55,13 @@ back_yoke_mid_anchors  = []       # 下口中间锚点 (u, depth)：u=弦上比�
 back_yoke_edges        = []       # 下口逐段形态（个数 = 锚点数+1）：
                                   #   ["line"] / ["arc", 弧高, 弧顶分位] / ["bezier", α°, κ1, β°, κ2]
                                   #   空 [] = 全段直线（自动；加锚点时可不填 edges 即全直线）
+# 机头裁片（独立裁片：净样 -> 缩水 -> 缝边，机头裁片.md；ylpattern draft --yoke-svg）
+back_yoke_join_fillet  = 0.4      # 有省拼合处折角 G1 倒圆退弧量 δ（cm，§2.2.3；0=不倒圆）
+back_yoke_side_corner_mirror = true  # 内缝顶点（bottom×side）缝份镜像折角：侧缝缝份翻折后与
+                                  #   裁片重合（§4.2.1；直角退化即 miter；false=纯 miter）
+back_yoke_cb_corner_mirror = true    # 后中底角（bottom×cb）缝份镜像折角：同侧缝口径，后中缝份
+                                  #   翻折后与裁片重合（§4.2.1；false=纯 miter）。两角独立控制
+# 四边独立缝份见文末 [options.back_yoke_seam_allowances] 子表
 
 # 直裆深 = 臀围 × rise_ratio + rise_adjust（默认 H/4）
 rise_ratio          = 0.25
@@ -267,3 +274,10 @@ top = 1.0          # 上口线缝边
 bottom = 1.0       # 下口线（拼接线）缝边
 left_end = 1.2     # 左端缝边（含门襟搭门侧）
 right_end = 1.0    # 右端缝边（常规侧）
+
+# 机头裁片四边独立缝份（cm，机头裁片.md §4.1；后中为拼合线仍外扩，非折线）
+[options.back_yoke_seam_allowances]
+top = 1.0          # 腰口缝边（上腰头/拷边）
+bottom = 1.2       # 底边缝边（拼后大身、埋夹，阴阳缝份加深）
+cb = 1.0           # 后中缝边（拼对称片）
+side = 1.0         # 侧缝缝边（拼前片侧缝）

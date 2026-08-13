@@ -43,6 +43,15 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     elif args.waistband_svg and args.until:
         print("警告：--until 中断调版时不生成腰头裁片（需完整整版提取腰弧净长）",
               file=sys.stderr)
+    if args.yoke_svg and not args.until:
+        from .flows.yoke_flow import build_yoke
+        from .exporters import piece_svg as piece_exp
+        piece, _yk = build_yoke(ctx)
+        piece_exp.write_piece_svg(piece, args.yoke_svg)
+        print(f"机头裁片 SVG 已输出：{args.yoke_svg}")
+    elif args.yoke_svg and args.until:
+        print("警告：--until 中断调版时不生成机头裁片（需完整整版提取机头边界）",
+              file=sys.stderr)
     if want_trace:
         with open(args.trace, "w", encoding="utf-8") as fp:
             fp.write(trace_text)
@@ -68,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
     p_draft.add_argument("--svg", help="输出整版 SVG 路径")
     p_draft.add_argument("--waistband-svg",
                          help="输出腰头裁片独立 SVG 路径（需完整整版，勿与 --until 同用）")
+    p_draft.add_argument("--yoke-svg",
+                         help="输出后机头/育克裁片独立 SVG 路径（需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--until", help="执行到指定步骤（含）后停止")
     p_draft.add_argument("--trace", help="输出逐步绘制追踪记录路径")
     p_draft.add_argument("--report", help="输出尺寸报表路径")

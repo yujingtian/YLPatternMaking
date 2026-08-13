@@ -41,6 +41,10 @@ class Vector:
 
 @dataclass(frozen=True)
 class Point:
+    """点。运算符不对称（易踩坑）：``Point + Vector -> Point``、``Point - Point -> Vector``，
+    但 **``Point - Vector`` 不支持**（``__sub__`` 只收 Point）——点减向量须写作
+    ``p + v.scale(-1)`` 或 ``p + (-v)``，勿写 ``p - v``（运行时 AttributeError）。
+    """
     x: float
     y: float
 

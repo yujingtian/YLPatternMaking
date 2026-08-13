@@ -218,6 +218,7 @@ run(
 
     # ---- 输出 ----
     svg="out/sheet.svg",
+    yoke_svg="out/yoke.svg",       # 机头裁片独立 SVG（弯腰头+有省，默认配置）
     # until="draw_hip_line",      # 取消注释可只画到臀围线
     # trace="out/trace.txt",      # 取消注释输出逐步绘制记录
 )

@@ -15,7 +15,7 @@ from .draft import DraftContext
 from .exporters import svg as svg_exp
 from .flows.closure import run_with_thigh_closure
 from .params import (Measurements, PatternOptions, WaistbandGrain, WaistbandType,
-                     WaistbandSeamAllowances)
+                     WaistbandSeamAllowances, YokeSeamAllowances)
 
 
 def _coerce_sa(v) -> WaistbandSeamAllowances:
@@ -25,6 +25,15 @@ def _coerce_sa(v) -> WaistbandSeamAllowances:
     if isinstance(v, dict):
         return WaistbandSeamAllowances.from_dict(v)
     raise TypeError("waistband_seam_allowances 须为 dict 或 WaistbandSeamAllowances")
+
+
+def _coerce_yoke_sa(v) -> YokeSeamAllowances:
+    """dict -> YokeSeamAllowances（已是其类型则原样返回）。"""
+    if isinstance(v, YokeSeamAllowances):
+        return v
+    if isinstance(v, dict):
+        return YokeSeamAllowances.from_dict(v)
+    raise TypeError("back_yoke_seam_allowances 须为 dict 或 YokeSeamAllowances")
 
 
 def run(*, waist: float, hip: float, knee: float, hem: float,
@@ -58,6 +67,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_yoke_side_dist: float = 3.0,
         back_yoke_mid_anchors: list | tuple = (),
         back_yoke_edges: list | tuple = (),
+        back_yoke_join_fillet: float = 0.4,
+        back_yoke_seam_allowances: dict | object | None = None,
+        back_yoke_side_corner_mirror: bool = True,
+        back_yoke_cb_corner_mirror: bool = True,
         front_crease_e: float = 0.0, back_crease_e: float = 0.0,
         knee_adjust: float = 1.0, hem_adjust: float = 1.0,
         calf_arc_alpha: float = 0.10,
@@ -142,6 +155,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         seam_allowance: float = 1.0,
         svg: str = "out/sheet.svg",
         waistband_svg: str | None = None,
+        yoke_svg: str | None = None,
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
@@ -202,6 +216,18 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          ("arc", 弧高, 弧顶分位) 弧高式 /
                          ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔（与袋布/小表袋同口径）；
                          空 = 全段直线（自动，打版流程.md：无控制点即直线）
+        back_yoke_join_fillet
+                         有省机头左右片拼合处折角 G1 倒圆量（cm，机头裁片.md §2.2.3；
+                         0 = 不倒圆直接顺接；默认 0.4）
+        back_yoke_seam_allowances
+                         机头四边独立缝份 dict {top,bottom,cb,side}（cm，机头裁片.md §4.1；
+                         底边埋夹 1.2、腰口/后中/侧缝 1.0；None = 用默认）
+        back_yoke_side_corner_mirror
+                         内缝顶点（bottom×side）缝份镜像折角（机头裁片.md §4.2.1；
+                         默认 True：侧缝缝份翻折后与裁片重合；False=纯 miter）
+        back_yoke_cb_corner_mirror
+                         后中底角（bottom×cb）缝份镜像折角（§4.2.1；默认 True；
+                         False=纯 miter）。两角独立控制。
         front_crease_e   前片裤中线调节量 e（常规 0；修身 -0.5~-0.8，裤中线推导.md §五）
         back_crease_e    后片裤中线调节量 e（常规与 front_crease_e 一致；
                          偏平臀/特大臀峰/提臀造型时独立设定，§五）
@@ -330,6 +356,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         svg              SVG 输出路径
         waistband_svg    腰头裁片独立 SVG 输出路径（None=不输出；需完整整版，
                          中断调版 until 时不生成；腰头裁片.md §五 独立裁片）
+        yoke_svg         后机头/育克裁片独立 SVG 输出路径（None=不输出；需完整整版
+                         且 back_yoke 开启；机头裁片.md §2~§5 独立裁片）
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
 
@@ -376,6 +404,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        back_yoke_side_dist=back_yoke_side_dist,
                        back_yoke_mid_anchors=back_yoke_mid_anchors,
                        back_yoke_edges=back_yoke_edges,
+                       back_yoke_join_fillet=back_yoke_join_fillet,
+                       back_yoke_side_corner_mirror=back_yoke_side_corner_mirror,
+                       back_yoke_cb_corner_mirror=back_yoke_cb_corner_mirror,
+                       **({"back_yoke_seam_allowances":
+                           _coerce_yoke_sa(back_yoke_seam_allowances)}
+                          if back_yoke_seam_allowances is not None else {}),
                        front_crease_e=front_crease_e,
                        back_crease_e=back_crease_e,
                        knee_adjust=knee_adjust,
@@ -473,15 +507,19 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
     ctx, trace_text = run_with_thigh_closure(m, o, until=until,
                                              trace=bool(trace))
 
-    if until:
-        # 中断调版时不出腰头裁片（需完整整版提取腰弧净长）
-        pass
-    elif waistband_svg:
-        from .flows.waistband_flow import build_waistband
+    if not until:
+        # 裁片独立 SVG 需完整整版（提取腰弧净长/机头边界），中断调版时不生成
         from .exporters import piece_svg as piece_exp
-        piece, _wb_ctx = build_waistband(ctx)
-        piece_exp.write_piece_svg(piece, waistband_svg)
-        print(f"腰头裁片 SVG 已输出:{waistband_svg}")
+        if waistband_svg:
+            from .flows.waistband_flow import build_waistband
+            piece, _wb_ctx = build_waistband(ctx)
+            piece_exp.write_piece_svg(piece, waistband_svg)
+            print(f"腰头裁片 SVG 已输出:{waistband_svg}")
+        if yoke_svg and o.back_yoke:
+            from .flows.yoke_flow import build_yoke
+            piece, _yk_ctx = build_yoke(ctx)
+            piece_exp.write_piece_svg(piece, yoke_svg)
+            print(f"机头裁片 SVG 已输出:{yoke_svg}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")

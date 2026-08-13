@@ -5,28 +5,29 @@ add_seam_allowance  各边按独立缝份沿**外法向**偏移（曲线逐点�
   直线=轴向偏移）；相邻异名边角点取两偏移边切线延伸的交点（miter）连接——
   弯腰头弧线端缝份顺曲线斜出（不再轴对方直角折），直角边 miter 即外角点
   （=原阶梯角，直腰头矩形不变）。同名边（如后中处上下口分段）平滑相接无角点。
+  可选 corner_treatments 指定特定角点改用镜像折角（_mirror_point：缝份翻折后
+  与裁片重合，机头内缝顶点 bottom×side 与后中底角 bottom×cb 斜角用之；直角退化即 miter）。
 
 依赖方向：cutter -> pieces -> geometry（禁止反向）。
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from .geometry import CubicBezier, LineSegment, Point, Vector
 from .pieces import PieceEdge, PatternPiece
 from .params import WaistbandSeamAllowances
 
 
-# 各语义边的缝份量（腰头裁片.md §五.3）：方向由边几何的外法向决定，此处只给量
-def _sa_amount(name: str, sa: WaistbandSeamAllowances) -> float:
-    if name == "bottom":
-        return sa.bottom
-    if name == "top":
-        return sa.top
-    if name == "left_end":
-        return sa.left_end
-    if name == "right_end":
-        return sa.right_end
-    return 0.0                       # 折线边（如后中）不外扩
+# 各语义边的缝份量（§五.3）：方向由边几何的外法向决定，此处只给量。
+# sa 鸭子类型：Mapping（如机头 {top,bottom,cb,side}）-> .get(name,0.0)；
+#   WaistbandSeamAllowances 等命名属性对象 -> getattr(name,0.0)
+#   （其字段名即边名 top/bottom/left_end/right_end）。未知边名返回 0（折线边不外扩）。
+def _sa_amount(name: str, sa: "Mapping[str, float] | WaistbandSeamAllowances") -> float:
+    if isinstance(sa, Mapping):
+        return float(sa.get(name, 0.0))
+    return float(getattr(sa, name, 0.0))
 
 
 def _edge_start(g: LineSegment | CubicBezier) -> Point:
@@ -98,7 +99,8 @@ def _edge_points(edge: PieceEdge) -> list[Point]:
     return g.sample(32)
 
 
-def _offset_edge_points(edge: PieceEdge, sa: WaistbandSeamAllowances
+def _offset_edge_points(edge: PieceEdge,
+                        sa: "Mapping[str, float] | WaistbandSeamAllowances"
                         ) -> list[Point]:
     """边各采样点沿外法向偏移缝份（曲线逐点真法向、直线=整体平移=轴向）。
 
@@ -141,8 +143,36 @@ def _miter_point(p: Point, t_a: Vector, t_b: Vector,
     return off_a + t_a.scale(s)
 
 
+def _mirror_point(p: Point, t_a: Vector, t_b: Vector,
+                  sa_a: float, sa_b: float) -> Point | None:
+    """角点 p 处镜像折角：侧缝缝份边界线取原侧缝切线关于底边缝折线垂线的
+    轴对称镜像，再与底边缝份边界相交（机头裁片.md §镜像折角）。
+
+    底边缝份沿底边（方向 t_a）车缝后向上/下翻折，翻折轴即底边缝折线 t_a，其垂线
+    n_a = t_a.perpendicular() 为对称轴。侧缝缝份边界线的**倾角**取原侧缝切线 t_b
+    关于 n_a 的镜像 t_b' = 2(t_b·n_a)n_a − t_b（仅改方向，锚点仍 off_b）——翻折后
+    缝份边缘恰与裁片轮廓重合。直角角点 t_b' = t_b（向量与其平行轴的镜像不变），
+    退化即 miter；仅斜角（如机头侧缝倾角）才与 miter 相异。镜像线与底边缝份边界
+    平行时返回 None，调用方回退 miter。
+    """
+    n_a = t_a.perpendicular()
+    n_b = t_b.perpendicular()
+    off_a = p + n_a.scale(sa_a)
+    off_b = p + n_b.scale(sa_b)
+    k = 2.0 * (t_b.dx * n_a.dx + t_b.dy * n_a.dy)
+    t_b_m = Vector(n_a.dx * k - t_b.dx, n_a.dy * k - t_b.dy)
+    d = off_b - off_a
+    det = t_a.dx * t_b_m.dy - t_a.dy * t_b_m.dx
+    if abs(det) < 1e-9:
+        return None
+    s = (d.dx * t_b_m.dy - d.dy * t_b_m.dx) / det
+    return off_a + t_a.scale(s)
+
+
 def add_seam_allowance(piece: PatternPiece,
-                       sa: WaistbandSeamAllowances) -> PatternPiece:
+                       sa: "Mapping[str, float] | WaistbandSeamAllowances",
+                       corner_treatments: "Mapping[tuple[str, str], str] | None" = None
+                       ) -> PatternPiece:
     """各边按独立缝份沿外法向偏移生成毛样（§五.3，真法向 offset + miter 角）。
 
     基底为 shrunk_edges（无缩水时退化为 net_edges）。各边点序列沿外法向偏移；
@@ -150,6 +180,18 @@ def add_seam_allowance(piece: PatternPiece,
     顺曲线斜出、直角边 miter=外角点（直腰头矩形角不变）。切线平行时回退阶梯角
     （外角点 = p + n_a·sa_a + n_b·sa_b）。同名边（后中处上下口分段）平滑相接。
     毛样刀口 = 缩水后刀口（刀口标缝合线，缝份另裁）。
+
+    sa 鸭子类型：Mapping（机头等边名→缝份映射）或 WaistbandSeamAllowances
+    （字段名即边名）；详见 _sa_amount。
+
+    corner_treatments：可选 {(折线边, 被镜像边): 算法名}，指定特定异名边角点改用
+    非 miter 折角。**键首元素 = 缝份翻折的折线边**（如底边 bottom），次元素 = 被镜像
+    边（如侧缝 side / 后中 cb）。mirror 非对称：角点在 cutter 序可能以任一顺序出现，
+    故两种顺序的键都查；逆序命中时折线边 = 下边，_mirror_point 形参须交换（t_a/sa_a
+    传折线边、t_b/sa_b 传被镜像边）。目前支持 ``"mirror"``（_mirror_point，缝份翻折
+    重合）；未列出或列其它值仍走 miter。机头内缝顶点（bottom, side）与后中底角
+    （bottom, cb）用 mirror 使相邻缝份翻折后与裁片重合；直角角点 mirror 退化即 miter，
+    故仅斜角相异。
     """
     base = piece.shrunk_edges or piece.net_edges
     base_notches = piece.shrunk_notches or piece.notches
@@ -173,7 +215,24 @@ def add_seam_allowance(piece: PatternPiece,
         corner = _edge_end(edge.geom)       # 角点（本边末端 = 下边首端）
         t_a = _unit_tangent(edge.geom, True)
         t_b = _unit_tangent(nxt.geom, False)
-        miter = _miter_point(corner, t_a, t_b, sa_a, sa_b)
+        # mirror 非对称：键 (折线边, 被镜像边)，首元素为翻折折线边。角点在 cutter
+        # 序可能以 (本边,下边) 或其逆序出现，两种键都查；逆序命中则折线边=下边，
+        # _mirror_point 形参交换（t_a/sa_a 传下边=折线、t_b/sa_b 传本边=被镜像）。
+        ct = corner_treatments or {}
+        treatment = ct.get((edge.name, nxt.name))
+        fold_is_edge = True
+        if treatment is None:
+            treatment = ct.get((nxt.name, edge.name))
+            fold_is_edge = False
+        if treatment == "mirror":
+            if fold_is_edge:
+                miter = _mirror_point(corner, t_a, t_b, sa_a, sa_b)
+            else:
+                miter = _mirror_point(corner, t_b, t_a, sa_b, sa_a)
+            if miter is None:               # 镜像退化（平行）回退 miter
+                miter = _miter_point(corner, t_a, t_b, sa_a, sa_b)
+        else:
+            miter = _miter_point(corner, t_a, t_b, sa_a, sa_b)
         if miter is not None:
             if miter != poly[-1]:
                 poly.append(miter)
@@ -192,6 +251,15 @@ def add_seam_allowance(piece: PatternPiece,
     if len(poly) > 1 and poly[-1] == poly[0]:
         poly.pop()
 
-    notes = piece.notes + (
-        f"缝边：上口 {sa.top} / 下口 {sa.bottom} / 左端 {sa.left_end} / 右端 {sa.right_end}",)
+    notes = piece.notes + (_sa_notes(sa),)
     return piece.with_gross(tuple(poly), tuple(base_notches), notes)
+
+
+def _sa_notes(sa: "Mapping[str, float] | WaistbandSeamAllowances") -> str:
+    """缝份记录串（按 sa 内容泛化）：Mapping 列 key:value，WSA 用中文边名。"""
+    if isinstance(sa, Mapping):
+        items = ", ".join(f"{k} {v}" for k, v in sa.items())
+        return f"缝边：{items}"
+    # WaistbandSeamAllowances：保留原有中文边名口径
+    return (f"缝边：上口 {sa.top} / 下口 {sa.bottom} / "
+            f"左端 {sa.left_end} / 右端 {sa.right_end}")

@@ -65,6 +65,27 @@ class WaistbandSeamAllowances:
 
 
 @dataclass(frozen=True)
+class YokeSeamAllowances:
+    """后机头/育克裁片四边独立缝份（cm，机头裁片.md §4.1）。
+
+    底边（拼后大身、埋夹工艺）做阴阳缝份 1.2~1.5；腰口/后中/侧缝常规 1.0~1.2。
+    top 腰口（上腰头/拷边）/ bottom 底边（埋夹）/ cb 后中（拼对称片）/
+    side 侧缝（拼前片侧缝）。后中为拼合线仍外扩（非折线），与腰头后中折线不同。
+    """
+    top: float = 1.0
+    bottom: float = 1.2
+    cb: float = 1.0
+    side: float = 1.0
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "YokeSeamAllowances":
+        return cls(top=float(d.get("top", 1.0)),
+                   bottom=float(d.get("bottom", 1.2)),
+                   cb=float(d.get("cb", 1.0)),
+                   side=float(d.get("side", 1.0)))
+
+
+@dataclass(frozen=True)
 class PatternOptions:
     delta: float = 1.0                     # 前后片臀围单侧调节量 Δ（推导文档 §四）
     front_crotch_adjust: float = 0.0       # 前小裆修正（紧身款 -0.5~-1.0，§三.2）
@@ -102,6 +123,19 @@ class PatternOptions:
                                            #   / ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
                                            #   （夹角相对弦向，κ 为弦长比，§2.2；与袋布/小表袋边形态同口径）
                                            #   空 = 全段直线（自动；打版流程.md：无控制点即直线，省略 edges 即可）
+    back_yoke_seam_allowances: YokeSeamAllowances = field(
+        default_factory=YokeSeamAllowances)
+                                           # 机头裁片四边独立缝份（§4.1；缝份不叠加缩水）：
+                                           #   底边埋夹 1.2、腰口/后中/侧缝 1.0（阴阳缝份另调）
+    back_yoke_join_fillet: float = 0.4     # 有省拼合处折角 G1 倒圆的退弧量 δ（cm，§2.2.3；
+                                           #   入/出边各退 δ 弧长后插三次贝塞尔圆顺）
+    back_yoke_side_corner_mirror: bool = True  # 内缝顶点（bottom×side）缝份镜像折角：侧缝缝份
+                                           #   边界取原侧缝切线关于底边缝折线垂线的轴对称镜像，车缝
+                                           #   翻折后与裁片重合（机头裁片.md §4.2.1；直角退化即 miter；
+                                           #   False=纯 miter）
+    back_yoke_cb_corner_mirror: bool = True    # 后中底角（bottom×cb）缝份镜像折角：同侧缝口径，
+                                           #   后中缝份边界取原后中切线关于底边缝折线垂线的轴对称镜像
+                                           #   （§4.2.1；直角退化即 miter；False=纯 miter）
     side_intake_k_waist: float = 1.0       # 侧缝内收推导的 k_waist（前减后加，常取 1.0~1.5）
     side_rise: float = 0.0                 # 侧缝腰头抬高量 h（0 = 外缝顶点压腰围基础线，0~1.5）
     outseam_bulge: float = 0.3             # 外侧缝弧外凸量（微微凸，0.2~0.5）
@@ -412,6 +446,15 @@ class PatternOptions:
                                  f"得到 {len(yedges)} 个")
         object.__setattr__(self, "back_yoke_mid_anchors", yanchors)
         object.__setattr__(self, "back_yoke_edges", tuple(yedges))
+        # 机头裁片缝份/倒圆校验（机头裁片.md §4.1、§2.2.3）
+        ysa = self.back_yoke_seam_allowances
+        if not isinstance(ysa, YokeSeamAllowances):
+            raise TypeError("back_yoke_seam_allowances 须为 YokeSeamAllowances")
+        for name in ("top", "bottom", "cb", "side"):
+            if getattr(ysa, name) < 0:
+                raise ValueError(f"机头缝份 {name} 不能为负数，得到 {getattr(ysa, name)}")
+        if self.back_yoke_join_fillet < 0:
+            raise ValueError(f"机头拼合倒圆量不能为负数，得到 {self.back_yoke_join_fillet}")
         if not 0.0 < self.thigh_front_share < 1.0:
             raise ValueError(f"大差量前片分配比须在 (0, 1) 内，得到 {self.thigh_front_share}")
         for name in ("thigh_piece_split_max", "thigh_dual_track_min",
@@ -671,4 +714,7 @@ class PatternOptions:
         if "waistband_seam_allowances" in data:
             data["waistband_seam_allowances"] = WaistbandSeamAllowances.from_dict(
                 data["waistband_seam_allowances"])
+        if "back_yoke_seam_allowances" in data:
+            data["back_yoke_seam_allowances"] = YokeSeamAllowances.from_dict(
+                data["back_yoke_seam_allowances"])
         return cls(**data)
