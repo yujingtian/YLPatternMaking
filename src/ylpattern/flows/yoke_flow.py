@@ -454,7 +454,12 @@ def build_yoke(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContext]:
     # 裁切三段：缩水 -> 缝边（缝份不叠加缩水，§5）
     # 经向=局部 Y（后片裤长向）-> Y 吃 warp、X 吃 weft（同腰头 WIDTH 映射：
     # apply_shrinkage 形参 1 控 X、2 控 Y）
-    piece = apply_shrinkage(piece, o.shrinkage_weft, o.shrinkage_warp)
+    # 机头裁片专用缩水（None=回退全局 shrinkage_warp/weft）
+    warp = (o.back_yoke_shrinkage_warp
+            if o.back_yoke_shrinkage_warp is not None else o.shrinkage_warp)
+    weft = (o.back_yoke_shrinkage_weft
+            if o.back_yoke_shrinkage_weft is not None else o.shrinkage_weft)
+    piece = apply_shrinkage(piece, weft, warp)
     sa = {"top": o.back_yoke_seam_allowances.top,
           "bottom": o.back_yoke_seam_allowances.bottom,
           "cb": o.back_yoke_seam_allowances.cb,

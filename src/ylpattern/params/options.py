@@ -86,6 +86,40 @@ class YokeSeamAllowances:
 
 
 @dataclass(frozen=True)
+class FrontFacingSeamAllowances:
+    """前口袋袋贴裁片三边独立缝份（cm，前口袋裁片.md §2.1）。
+
+    袋贴外边界完美复制前大片（腰弧段 + 外缝弧段），三条边均与大片拼合：
+    waist 腰弧段（车入腰头）/ inner 袋贴内边（接袋布）/ side 外缝弧段（车入侧缝）。
+    """
+    waist: float = 1.0
+    inner: float = 1.0
+    side: float = 1.0
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FrontFacingSeamAllowances":
+        return cls(waist=float(d.get("waist", 1.0)),
+                   inner=float(d.get("inner", 1.0)),
+                   side=float(d.get("side", 1.0)))
+
+
+@dataclass(frozen=True)
+class FrontPatchSeamAllowances:
+    """前贴袋裁片缝份（cm，前口袋裁片.md §2.2）。
+
+    贴袋为折边口袋：top 袋口内折边（向反面折转缝合，常规 3.0 = 30mm 双折）；
+    side 四周缝边（常规 1.2 = 12mm，含底边与两侧、最终折光车缝到前大片）。
+    """
+    top: float = 3.0
+    side: float = 1.2
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FrontPatchSeamAllowances":
+        return cls(top=float(d.get("top", 3.0)),
+                   side=float(d.get("side", 1.2)))
+
+
+@dataclass(frozen=True)
 class PatternOptions:
     delta: float = 1.0                     # 前后片臀围单侧调节量 Δ（推导文档 §四）
     front_crotch_adjust: float = 0.0       # 前小裆修正（紧身款 -0.5~-1.0，§三.2）
@@ -136,6 +170,11 @@ class PatternOptions:
     back_yoke_cb_corner_mirror: bool = True    # 后中底角（bottom×cb）缝份镜像折角：同侧缝口径，
                                            #   后中缝份边界取原后中切线关于底边缝折线垂线的轴对称镜像
                                            #   （§4.2.1；直角退化即 miter；False=纯 miter）
+    back_yoke_shrinkage_warp: float | None = None
+                                           # 机头裁片经向缩水率（None=用全局
+                                           #   shrinkage_warp；换布/不同批次时可单独控制，§3/§5）
+    back_yoke_shrinkage_weft: float | None = None
+                                           # 机头裁片纬向缩水率（None=用全局 shrinkage_weft）
     side_intake_k_waist: float = 1.0       # 侧缝内收推导的 k_waist（前减后加，常取 1.0~1.5）
     side_rise: float = 0.0                 # 侧缝腰头抬高量 h（0 = 外缝顶点压腰围基础线，0~1.5）
     outseam_bulge: float = 0.3             # 外侧缝弧外凸量（微微凸，0.2~0.5）
@@ -354,6 +393,18 @@ class PatternOptions:
     waistband_seam_allowances: WaistbandSeamAllowances = field(
         default_factory=WaistbandSeamAllowances)
                                            # 四边独立缝份（§二.3/§五.3；缝份不叠加缩水）
+    # -- 前口袋裁片缝份（前口袋裁片.md §2；先缩水后缝边，缝份不叠加缩水）--
+    front_pocket_facing_seam_allowances: FrontFacingSeamAllowances = field(
+        default_factory=FrontFacingSeamAllowances)
+                                           # 袋贴裁片三边缝份（waist/inner/side）
+    front_patch_seam_allowances: FrontPatchSeamAllowances = field(
+        default_factory=FrontPatchSeamAllowances)
+                                           # 贴袋裁片缝份（top 内折边 / side 四周缝边）
+    front_pocket_shrinkage_warp: float | None = None
+                                           # 前口袋裁片（袋贴/贴袋）经向缩水率（None=用全局
+                                           #   shrinkage_warp；换布/不同批次时可单独控制，§2.1）
+    front_pocket_shrinkage_weft: float | None = None
+                                           # 前口袋裁片纬向缩水率（None=用全局 shrinkage_weft）
     fit: Fit = Fit.REGULAR
     seam_allowance: float = 1.0            # 默认缝份
 
@@ -455,6 +506,33 @@ class PatternOptions:
                 raise ValueError(f"机头缝份 {name} 不能为负数，得到 {getattr(ysa, name)}")
         if self.back_yoke_join_fillet < 0:
             raise ValueError(f"机头拼合倒圆量不能为负数，得到 {self.back_yoke_join_fillet}")
+        # 前口袋袋贴/贴袋裁片缝份校验（前口袋裁片.md §2）
+        # 机头裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
+        for name in ("back_yoke_shrinkage_warp", "back_yoke_shrinkage_weft"):
+            v = getattr(self, name)
+            if v is not None and not 0.0 <= v < 0.2:
+                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
+                                 f"得到 {v}")
+        fsa = self.front_pocket_facing_seam_allowances
+        if not isinstance(fsa, FrontFacingSeamAllowances):
+            raise TypeError("front_pocket_facing_seam_allowances 须为 "
+                            "FrontFacingSeamAllowances")
+        for name in ("waist", "inner", "side"):
+            if getattr(fsa, name) < 0:
+                raise ValueError(f"袋贴缝份 {name} 不能为负数，得到 {getattr(fsa, name)}")
+        psa = self.front_patch_seam_allowances
+        if not isinstance(psa, FrontPatchSeamAllowances):
+            raise TypeError("front_patch_seam_allowances 须为 "
+                            "FrontPatchSeamAllowances")
+        for name in ("top", "side"):
+            if getattr(psa, name) < 0:
+                raise ValueError(f"贴袋缝份 {name} 不能为负数，得到 {getattr(psa, name)}")
+        # 前口袋裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
+        for name in ("front_pocket_shrinkage_warp", "front_pocket_shrinkage_weft"):
+            v = getattr(self, name)
+            if v is not None and not 0.0 <= v < 0.2:
+                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
+                                 f"得到 {v}")
         if not 0.0 < self.thigh_front_share < 1.0:
             raise ValueError(f"大差量前片分配比须在 (0, 1) 内，得到 {self.thigh_front_share}")
         for name in ("thigh_piece_split_max", "thigh_dual_track_min",
@@ -717,4 +795,11 @@ class PatternOptions:
         if "back_yoke_seam_allowances" in data:
             data["back_yoke_seam_allowances"] = YokeSeamAllowances.from_dict(
                 data["back_yoke_seam_allowances"])
+        if "front_pocket_facing_seam_allowances" in data:
+            data["front_pocket_facing_seam_allowances"] = \
+                FrontFacingSeamAllowances.from_dict(
+                    data["front_pocket_facing_seam_allowances"])
+        if "front_patch_seam_allowances" in data:
+            data["front_patch_seam_allowances"] = FrontPatchSeamAllowances.from_dict(
+                data["front_patch_seam_allowances"])
         return cls(**data)

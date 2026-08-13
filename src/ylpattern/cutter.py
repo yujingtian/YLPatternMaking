@@ -88,7 +88,8 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
                         sgrain, out.shrunk_edges, out.shrunk_notches,
                         out.gross_polygon, out.gross_notches,
                         out.notes + (f"缩水：经 {warp*100:.1f}% / 纬 {weft*100:.1f}%",)
-                        if warp or weft else out.notes)
+                        if warp or weft else out.notes,
+                        out.marks)
 
 
 def _edge_points(edge: PieceEdge) -> list[Point]:
@@ -256,10 +257,14 @@ def add_seam_allowance(piece: PatternPiece,
 
 
 def _sa_notes(sa: "Mapping[str, float] | WaistbandSeamAllowances") -> str:
-    """缝份记录串（按 sa 内容泛化）：Mapping 列 key:value，WSA 用中文边名。"""
+    """缝份记录串（按 sa 内容泛化）：Mapping 列 key:value，WSA 用中文边名，
+    其他命名属性缝份 dataclass（袋贴/贴袋…）泛化列出 字段名 值。"""
     if isinstance(sa, Mapping):
         items = ", ".join(f"{k} {v}" for k, v in sa.items())
         return f"缝边：{items}"
-    # WaistbandSeamAllowances：保留原有中文边名口径
-    return (f"缝边：上口 {sa.top} / 下口 {sa.bottom} / "
-            f"左端 {sa.left_end} / 右端 {sa.right_end}")
+    if isinstance(sa, WaistbandSeamAllowances):
+        # 保留原有中文边名口径
+        return (f"缝边：上口 {sa.top} / 下口 {sa.bottom} / "
+                f"左端 {sa.left_end} / 右端 {sa.right_end}")
+    items = ", ".join(f"{k} {v}" for k, v in vars(sa).items())
+    return f"缝边：{items}"

@@ -246,6 +246,24 @@ def test_shrinkage_axes():
         assert s.y == pytest.approx(n.y * sy)
 
 
+def test_shrinkage_dedicated_overrides_global():
+    """机头专用缩水（back_yoke_shrinkage_warp/weft 非 None）覆盖全局值。
+
+    全局 shrinkage_warp/weft=0，专用字段非 0 时裁片按专用值缩水（换布单独控制）。
+    """
+    o = PatternOptions(delta=1.0, back_yoke=True,
+                       shrinkage_warp=0.0, shrinkage_weft=0.0,
+                       back_yoke_shrinkage_warp=0.05,
+                       back_yoke_shrinkage_weft=0.04)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    piece, _ = build_yoke(ctx)
+    sx, sy = 1.04, 1.05      # X=纬 1+weft(0.04)、Y=经 1+warp(0.05)
+    nb = _end(_edges_by_name(piece)["cb"][0])
+    sb = _end(piece.shrunk_edges[[e.name for e in piece.net_edges].index("cb")].geom)
+    assert sb.x == pytest.approx(nb.x * sx)
+    assert sb.y == pytest.approx(nb.y * sy)
+
+
 def test_no_shrinkage_shrunk_equals_net(ctx_straight):
     piece, _ = build_yoke(ctx_straight)
     for n, s in zip(piece.net_edges, piece.shrunk_edges):
@@ -324,6 +342,10 @@ def test_options_validation():
                        back_yoke_seam_allowances=YokeSeamAllowances(bottom=-0.1))
     with pytest.raises(ValueError):
         PatternOptions(delta=1.0, back_yoke=True, back_yoke_join_fillet=-0.5)
+    with pytest.raises(ValueError, match="back_yoke_shrinkage_warp"):
+        PatternOptions(delta=1.0, back_yoke=True, back_yoke_shrinkage_warp=0.5)
+    with pytest.raises(ValueError, match="back_yoke_shrinkage_weft"):
+        PatternOptions(delta=1.0, back_yoke=True, back_yoke_shrinkage_weft=-0.1)
 
 
 def test_two_darts_fallback_no_error():

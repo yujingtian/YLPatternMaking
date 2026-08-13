@@ -13,17 +13,19 @@ pip install -e ".[dev]"        # 安装（含 pytest）
 python -m pytest tests/ -q     # 全部测试
 python -m pytest tests/test_steps.py -q              # 单文件
 python -m pytest tests/ -k "waistline" -q            # 按名称过滤
-python draft_test.py           # 快速出图（改文件里的参数即可）→ out/sheet.svg
+# 出图：改 examples/ 下尺寸单参数即可，用 CLI 生成整版 + 各独立裁片 SVG
 python -m ylpattern.cli draft --size examples/size_female_165.toml \
-    --svg out/sheet.svg --trace out/trace.txt --report out/report.txt
+    --svg out/sheet.svg --trace out/trace.txt --report out/report.txt \
+    --waistband-svg out/waistband.svg --yoke-svg out/yoke.svg \
+    --front-pocket-svg out/front_pocket.svg
 # CLI 还支持 --until 步骤名：执行到该步停止，输出中间版调版
-# 代码内调用：from ylpattern import run；run(waist=..., hip=..., svg=...)（见 draft_test.py）
+# 代码内调用：from ylpattern import run；run(waist=..., hip=..., svg=...)（详见 api.run docstring）
 ```
 
 ## 文档驱动的开发方式（本项目最重要的工作流）
 
 - [打版流程.md](打版流程.md) 是步骤的唯一权威来源；[.doc/](.doc/) 下每篇推导文档对应一类公式（臀围、裆、腰、腿、腰头、口袋、袋布、门襟、贴袋、毗围……），[.doc/python工程设计.md](.doc/python工程设计.md) 是工程设计文档。**文档先行**：部分特征先有推导文档、后程序化，属正常在建状态。
-- 用户的典型操作：在打版流程.md 里新增/修改一个步骤 → 要求"程序化"。对应改动链条：**公式层（`formulas/`）→ 选项（`PatternOptions` 需同步 `api.run()` 显式参数透传）→ 步骤函数（`steps/*.py`，按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps` / `back_patch_steps` / `waistband_steps`）→ 流程列表（`flows/*.py`）→ 金标测试**。腰头裁片另走裁切链：`steps/waistband_steps` + `flows/waistband_flow`（`build_waistband(main_ctx)` 从整版提取腰弧净长）-> `cutter`（缩水+缝边）-> `exporters/piece_svg`（独立 SVG），不在 FULL_FLOW 内。后机头裁片同走裁切链：`flows/yoke_flow`（`build_yoke(main_ctx)` 从整版提取机头四边界，有省时绕省尖旋转闭合 + 拼合处 G1 倒圆）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。步骤 docstring 和 `basis` 字段必须标注依据的文档章节。
+- 用户的典型操作：在打版流程.md 里新增/修改一个步骤 → 要求"程序化"。对应改动链条：**公式层（`formulas/`）→ 选项（`PatternOptions` 需同步 `api.run()` 显式参数透传）→ 步骤函数（`steps/*.py`，按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps` / `back_patch_steps` / `waistband_steps`）→ 流程列表（`flows/*.py`）→ 金标测试**。腰头裁片另走裁切链：`steps/waistband_steps` + `flows/waistband_flow`（`build_waistband(main_ctx)` 从整版提取腰弧净长）-> `cutter`（缩水+缝边）-> `exporters/piece_svg`（独立 SVG），不在 FULL_FLOW 内。后机头裁片同走裁切链：`flows/yoke_flow`（`build_yoke(main_ctx)` 从整版提取机头四边界，有省时绕省尖旋转闭合 + 拼合处 G1 倒圆）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。前口袋裁片同走裁切链：`flows/front_pocket_flow`（`build_front_pocket(main_ctx)` 从整版提取袋贴/贴袋净样边界，按 front_pocket_facing/front_patch 派发）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。步骤 docstring 和 `basis` 字段必须标注依据的文档章节。
 
 ## 分层架构（依赖方向自上而下，禁止反向）
 

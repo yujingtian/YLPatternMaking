@@ -17,6 +17,7 @@ _STYLE = """<style>
   .netline   { stroke: #bbb; stroke-width: 0.8; fill: none; stroke-dasharray: 3 3; }
   .shrunkline{ stroke: #888; stroke-width: 1.0; fill: none; stroke-dasharray: 6 3; }
   .grossline { stroke: #2c3e50; stroke-width: 1.6; fill: none; }
+  .markline  { stroke: #16a085; stroke-width: 0.9; fill: none; stroke-dasharray: 2 2; }
   .notch     { stroke: #c0392b; stroke-width: 1.2; fill: none; }
   .notchpt   { fill: #c0392b; }
   .grain     { stroke: #2980b9; stroke-width: 1.0; fill: none; }
@@ -27,6 +28,13 @@ _STYLE = """<style>
 
 def _edge_points(edge: PieceEdge) -> list[Point]:
     g = edge.geom
+    if isinstance(g, LineSegment):
+        return [g.a, g.b]
+    return g.sample(48)
+
+
+def _geom_points(g: LineSegment | CubicBezier) -> list[Point]:
+    """几何（直线/曲线）采样为点序列（marks 等无 PieceEdge 包装的几何用）。"""
     if isinstance(g, LineSegment):
         return [g.a, g.b]
     return g.sample(48)
@@ -92,6 +100,14 @@ def render_piece_svg(piece: PatternPiece) -> str:
         pts = " ".join(f"{sx(p.x):.1f},{sy(p.y):.1f}" for p in piece.gross_polygon)
         parts.append('<g id="gross">')
         parts.append(f'<polygon class="grossline" points="{pts}"/>')
+        parts.append('</g>')
+
+    # 内部标记弧线（净样坐标，如袋贴袋口净线/省弧线，前口袋裁片.md §1.1）
+    if piece.marks:
+        parts.append('<g id="marks">')
+        for g in piece.marks:
+            pts = " ".join(f"{sx(p.x):.1f},{sy(p.y):.1f}" for p in _geom_points(g))
+            parts.append(f'<polyline class="markline" points="{pts}"/>')
         parts.append('</g>')
 
     # 丝缕线（双向箭头）

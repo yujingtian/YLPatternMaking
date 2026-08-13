@@ -15,7 +15,8 @@ from .draft import DraftContext
 from .exporters import svg as svg_exp
 from .flows.closure import run_with_thigh_closure
 from .params import (Measurements, PatternOptions, WaistbandGrain, WaistbandType,
-                     WaistbandSeamAllowances, YokeSeamAllowances)
+                     WaistbandSeamAllowances, YokeSeamAllowances,
+                     FrontFacingSeamAllowances, FrontPatchSeamAllowances)
 
 
 def _coerce_sa(v) -> WaistbandSeamAllowances:
@@ -34,6 +35,26 @@ def _coerce_yoke_sa(v) -> YokeSeamAllowances:
     if isinstance(v, dict):
         return YokeSeamAllowances.from_dict(v)
     raise TypeError("back_yoke_seam_allowances 须为 dict 或 YokeSeamAllowances")
+
+
+def _coerce_facing_sa(v) -> FrontFacingSeamAllowances:
+    """dict -> FrontFacingSeamAllowances（已是其类型则原样返回）。"""
+    if isinstance(v, FrontFacingSeamAllowances):
+        return v
+    if isinstance(v, dict):
+        return FrontFacingSeamAllowances.from_dict(v)
+    raise TypeError("front_pocket_facing_seam_allowances 须为 dict 或 "
+                    "FrontFacingSeamAllowances")
+
+
+def _coerce_patch_sa(v) -> FrontPatchSeamAllowances:
+    """dict -> FrontPatchSeamAllowances（已是其类型则原样返回）。"""
+    if isinstance(v, FrontPatchSeamAllowances):
+        return v
+    if isinstance(v, dict):
+        return FrontPatchSeamAllowances.from_dict(v)
+    raise TypeError("front_patch_seam_allowances 须为 dict 或 "
+                    "FrontPatchSeamAllowances")
 
 
 def run(*, waist: float, hip: float, knee: float, hem: float,
@@ -71,6 +92,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_yoke_seam_allowances: dict | object | None = None,
         back_yoke_side_corner_mirror: bool = True,
         back_yoke_cb_corner_mirror: bool = True,
+        back_yoke_shrinkage_warp: float | None = None,
+        back_yoke_shrinkage_weft: float | None = None,
+        front_pocket_facing_seam_allowances: dict | object | None = None,
+        front_patch_seam_allowances: dict | object | None = None,
+        front_pocket_shrinkage_warp: float | None = None,
+        front_pocket_shrinkage_weft: float | None = None,
         front_crease_e: float = 0.0, back_crease_e: float = 0.0,
         knee_adjust: float = 1.0, hem_adjust: float = 1.0,
         calf_arc_alpha: float = 0.10,
@@ -156,6 +183,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         svg: str = "out/sheet.svg",
         waistband_svg: str | None = None,
         yoke_svg: str | None = None,
+        front_pocket_svg: str | None = None,
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
@@ -358,6 +386,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          中断调版 until 时不生成；腰头裁片.md §五 独立裁片）
         yoke_svg         后机头/育克裁片独立 SVG 输出路径（None=不输出；需完整整版
                          且 back_yoke 开启；机头裁片.md §2~§5 独立裁片）
+        front_pocket_svg 前口袋裁片独立 SVG 输出路径（None=不输出；需完整整版；
+                         front_pocket_facing 开->挖削嵌入式袋贴裁片，否则 front_patch
+                         开->表面外贴式贴袋裁片；前口袋裁片.md §一~§三 独立裁片）
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
 
@@ -407,9 +438,19 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        back_yoke_join_fillet=back_yoke_join_fillet,
                        back_yoke_side_corner_mirror=back_yoke_side_corner_mirror,
                        back_yoke_cb_corner_mirror=back_yoke_cb_corner_mirror,
+                       back_yoke_shrinkage_warp=back_yoke_shrinkage_warp,
+                       back_yoke_shrinkage_weft=back_yoke_shrinkage_weft,
                        **({"back_yoke_seam_allowances":
                            _coerce_yoke_sa(back_yoke_seam_allowances)}
                           if back_yoke_seam_allowances is not None else {}),
+                       **({"front_pocket_facing_seam_allowances":
+                           _coerce_facing_sa(front_pocket_facing_seam_allowances)}
+                          if front_pocket_facing_seam_allowances is not None else {}),
+                       **({"front_patch_seam_allowances":
+                           _coerce_patch_sa(front_patch_seam_allowances)}
+                          if front_patch_seam_allowances is not None else {}),
+                       front_pocket_shrinkage_warp=front_pocket_shrinkage_warp,
+                       front_pocket_shrinkage_weft=front_pocket_shrinkage_weft,
                        front_crease_e=front_crease_e,
                        back_crease_e=back_crease_e,
                        knee_adjust=knee_adjust,
@@ -520,6 +561,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
             piece, _yk_ctx = build_yoke(ctx)
             piece_exp.write_piece_svg(piece, yoke_svg)
             print(f"机头裁片 SVG 已输出:{yoke_svg}")
+        if front_pocket_svg and (o.front_pocket_facing or o.front_patch):
+            from .flows.front_pocket_flow import build_front_pocket
+            piece, _fp_ctx = build_front_pocket(ctx)
+            piece_exp.write_piece_svg(piece, front_pocket_svg)
+            print(f"前口袋裁片 SVG 已输出:{front_pocket_svg}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")

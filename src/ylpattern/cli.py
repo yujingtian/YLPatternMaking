@@ -52,6 +52,19 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     elif args.yoke_svg and args.until:
         print("警告：--until 中断调版时不生成机头裁片（需完整整版提取机头边界）",
               file=sys.stderr)
+    if args.front_pocket_svg and not args.until:
+        from .flows.front_pocket_flow import build_front_pocket
+        from .exporters import piece_svg as piece_exp
+        if not (ctx.options.front_pocket_facing or ctx.options.front_patch):
+            print("警告：未开启 front_pocket_facing/front_patch，跳过前口袋裁片",
+                  file=sys.stderr)
+        else:
+            piece, _fp = build_front_pocket(ctx)
+            piece_exp.write_piece_svg(piece, args.front_pocket_svg)
+            print(f"前口袋裁片 SVG 已输出：{args.front_pocket_svg}")
+    elif args.front_pocket_svg and args.until:
+        print("警告：--until 中断调版时不生成前口袋裁片（需完整整版提取口袋净样边界）",
+              file=sys.stderr)
     if want_trace:
         with open(args.trace, "w", encoding="utf-8") as fp:
             fp.write(trace_text)
@@ -79,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
                          help="输出腰头裁片独立 SVG 路径（需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--yoke-svg",
                          help="输出后机头/育克裁片独立 SVG 路径（需完整整版，勿与 --until 同用）")
+    p_draft.add_argument("--front-pocket-svg",
+                         help="输出前口袋裁片独立 SVG 路径（袋贴 front_pocket_facing / 贴袋 front_patch；需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--until", help="执行到指定步骤（含）后停止")
     p_draft.add_argument("--trace", help="输出逐步绘制追踪记录路径")
     p_draft.add_argument("--report", help="输出尺寸报表路径")

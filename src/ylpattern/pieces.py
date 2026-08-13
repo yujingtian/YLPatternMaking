@@ -48,16 +48,22 @@ class PatternPiece:
     gross_polygon: tuple[Point, ...] = ()       # 毛样裁切轮廓（折线，闭合）
     gross_notches: tuple[Point, ...] = ()
     notes: tuple[str, ...] = ()                 # 裁切过程记录（缩水率/缝份等）
+    marks: tuple[LineSegment | CubicBezier, ...] = ()
+                                                # 内部标记弧线（净样坐标，不缩水；
+                                                #   如袋贴必须保留的袋口净线/省弧线，
+                                                #   前口袋裁片.md §1.1）
 
     def with_shrunk(self, edges: tuple[PieceEdge, ...],
                     notches: tuple[Point, ...]) -> "PatternPiece":
         return PatternPiece(self.name, self.label, self.net_edges,
                             self.notches, self.grain, edges, notches,
-                            self.gross_polygon, self.gross_notches, self.notes)
+                            self.gross_polygon, self.gross_notches, self.notes,
+                            self.marks)
 
     def with_gross(self, polygon: tuple[Point, ...],
                    notches: tuple[Point, ...],
                    notes: tuple[str, ...]) -> "PatternPiece":
         return PatternPiece(self.name, self.label, self.net_edges,
                             self.notches, self.grain, self.shrunk_edges,
-                            self.shrunk_notches, polygon, notches, notes)
+                            self.shrunk_notches, polygon, notches, notes,
+                            self.marks)

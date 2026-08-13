@@ -242,6 +242,16 @@ waistband_full_piece  = true      # true=整条（后中折线对称）；false=
 waistband_grain       = "width"   # 腰头经向方向："width" 宽向(=裤长)为经（默认，横裁）/ "length" 长向为经（直裁）；决定丝缕线方向与缩水经/纬→X/Y 映射
 shrinkage_warp        = 0.0       # 经向缩水率（面料经/warp；0.03=3%；映射到腰头 X/Y 轴见 waistband_grain；缝份不叠加缩水）
 shrinkage_weft        = 0.0       # 纬向缩水率（面料纬/weft）
+
+# 前口袋裁片专用缩水（可选，前口袋裁片.md §2.1；None/省略=用全局 shrinkage_warp/weft）
+#   袋贴/贴袋换布、不同批次时单独录入；须位于 [options.*] 子表之前（TOML 主表键，启用=删行首 #）
+# front_pocket_shrinkage_warp = 0.03   # 经向缩水率（None=用全局 shrinkage_warp）
+# front_pocket_shrinkage_weft = 0.02   # 纬向缩水率（None=用全局 shrinkage_weft）
+
+# 机头裁片专用缩水（可选，机头裁片.md §3/§5；None/省略=用全局 shrinkage_warp/weft）
+#   换布/不同批次时单独录入；须位于 [options.*] 子表之前（TOML 主表键，启用=删行首 #）
+# back_yoke_shrinkage_warp = 0.03   # 经向缩水率（None=用全局 shrinkage_warp）
+# back_yoke_shrinkage_weft = 0.02   # 纬向缩水率（None=用全局 shrinkage_weft）
 # 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
 side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
 front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
@@ -281,3 +291,12 @@ top = 1.0          # 腰口缝边（上腰头/拷边）
 bottom = 1.2       # 底边缝边（拼后大身、埋夹，阴阳缝份加深）
 cb = 1.0           # 后中缝边（拼对称片）
 side = 1.0         # 侧缝缝边（拼前片侧缝）
+
+# 前口袋袋贴裁片三边独立缝份（cm，前口袋裁片.md §2.1；ylpattern draft --front-pocket-svg）
+#   袋贴外边界 1:1 复制前大片（腰弧段 + 外缝弧段），三边均与大片拼合
+[options.front_pocket_facing_seam_allowances]
+waist = 1.0        # 腰弧段缝边（车入腰头）
+inner = 1.0        # 袋贴内边缝边（接袋布）
+side = 1.0         # 外缝弧段缝边（车入侧缝）
+
+
