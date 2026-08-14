@@ -5,6 +5,8 @@ add_seam_allowance  各边按独立缝份沿**外法向**偏移（曲线逐点�
   直线=轴向偏移）；相邻异名边角点取两偏移边切线延伸的交点（miter）连接——
   弯腰头弧线端缝份顺曲线斜出（不再轴对方直角折），直角边 miter 即外角点
   （=原阶梯角，直腰头矩形不变）。同名边（如后中处上下口分段）平滑相接无角点。
+  普通 miter 角有尖角限长 miter_limit（默认 1.5）：锐角交点距角点超 max(sa)×
+  本值时回退阶梯角（miter 长 = sa/sin(θ/2) 随角变锐无界增长，不限则长尖刺）。
   可选 corner_treatments 指定特定角点改用镜像折角（_mirror_point：缝份翻折后
   与裁片重合，机头内缝顶点 bottom×side 与后中底角 bottom×cb 斜角用之；直角退化即 miter）。
 
@@ -125,12 +127,17 @@ def _offset_edge_points(edge: PieceEdge,
 
 
 def _miter_point(p: Point, t_a: Vector, t_b: Vector,
-                 sa_a: float, sa_b: float) -> Point | None:
+                 sa_a: float, sa_b: float,
+                 miter_limit: float = 1.5) -> Point | None:
     """角点 p 处两偏移边切线延伸的交点（法向缝份 miter）。
 
     本边偏移末端 = p + n_a·sa_a（n_a = t_a.perpendicular()），沿 t_a 前伸；
     下边偏移首端 = p + n_b·sa_b，沿 t_b 后伸；二者交点即 miter。切线平行（含
     同向）时 det≈0 返回 None，调用方回退阶梯角。直角角点 miter 恰 = 外角点。
+    miter_limit：尖角限长——交点距角点超过 max(sa_a,sa_b)×本值（锐角 θ 的
+    miter 长 = sa/sin(θ/2) 无界增长）时返回 None 回退阶梯角，避免长尖刺
+    （阶梯突出 ≈ sa·√(2−2cosθ) 有界）。1.5 = 内角约 84° 以下转阶梯；直角
+    角点 1.414·sa 不受影响。
     """
     n_a = t_a.perpendicular()
     n_b = t_b.perpendicular()
@@ -141,7 +148,10 @@ def _miter_point(p: Point, t_a: Vector, t_b: Vector,
     if abs(det) < 1e-9:
         return None
     s = (d.dx * t_b.dy - d.dy * t_b.dx) / det
-    return off_a + t_a.scale(s)
+    miter = off_a + t_a.scale(s)
+    if miter.distance_to(p) > miter_limit * max(sa_a, sa_b):
+        return None
+    return miter
 
 
 def _mirror_point(p: Point, t_a: Vector, t_b: Vector,
@@ -172,7 +182,8 @@ def _mirror_point(p: Point, t_a: Vector, t_b: Vector,
 
 def add_seam_allowance(piece: PatternPiece,
                        sa: "Mapping[str, float] | WaistbandSeamAllowances",
-                       corner_treatments: "Mapping[tuple[str, str], str] | None" = None
+                       corner_treatments: "Mapping[tuple[str, str], str] | None" = None,
+                       miter_limit: float = 1.5
                        ) -> PatternPiece:
     """各边按独立缝份沿外法向偏移生成毛样（§五.3，真法向 offset + miter 角）。
 
@@ -180,6 +191,9 @@ def add_seam_allowance(piece: PatternPiece,
     相邻异名边角点 p 处取两偏移边切线延伸交点（miter）连接——弯腰头弧端缝份
     顺曲线斜出、直角边 miter=外角点（直腰头矩形角不变）。切线平行时回退阶梯角
     （外角点 = p + n_a·sa_a + n_b·sa_b）。同名边（后中处上下口分段）平滑相接。
+    miter_limit：尖角限长，普通 miter 角点交点距角点超 max(sa)×本值时同样回退
+    阶梯角（锐角 miter 长 = sa/sin(θ/2) 无界增长，袋布袋底×侧缝约 71° 角在
+    side 缝份调大时长成尖刺，即此坑）；mirror 角（工艺翻折重合）不受限。
     毛样刀口 = 缩水后刀口（刀口标缝合线，缝份另裁）。
 
     sa 鸭子类型：Mapping（机头等边名→缝份映射）或 WaistbandSeamAllowances
@@ -233,7 +247,7 @@ def add_seam_allowance(piece: PatternPiece,
             if miter is None:               # 镜像退化（平行）回退 miter
                 miter = _miter_point(corner, t_a, t_b, sa_a, sa_b)
         else:
-            miter = _miter_point(corner, t_a, t_b, sa_a, sa_b)
+            miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, miter_limit)
         if miter is not None:
             if miter != poly[-1]:
                 poly.append(miter)

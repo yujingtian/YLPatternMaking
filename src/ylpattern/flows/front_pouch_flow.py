@@ -233,13 +233,15 @@ def build_front_pouch(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContex
     if warp or weft:
         piece = apply_shrinkage(piece, weft, warp)
 
-    # 缝边（§4）：sa dict 含 _m 变体同值；对折线 fold=0（内部边，周界不使用）
+    # 缝边（§4）：sa dict 含 _m 变体同值；对折线 fold=0（内部边，周界不使用）。
+    # miter 放宽为不限长：袋底×侧缝约 71° 锐角取两偏移线交点的标准 miter 尖角
+    # （底部缝边延长线与侧边缝边线自然斜出，阶梯角反成多余折角）
     sa_obj = o.front_pouch_seam_allowances
     sa = {"bottom": sa_obj.bottom, "bottom_m": sa_obj.bottom,
           "side": sa_obj.side, "side_m": sa_obj.side,
           "waist": sa_obj.waist, "waist_m": sa_obj.waist,
           "mouth": sa_obj.mouth}
-    piece = add_seam_allowance(piece, sa)
+    piece = add_seam_allowance(piece, sa, miter_limit=float("inf"))
 
     # 局部 ctx 留命名元素供 trace/调试
     local = DraftContext(main_ctx.measurements, o)
