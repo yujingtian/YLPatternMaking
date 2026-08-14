@@ -143,6 +143,29 @@ class PouchSeamAllowances:
 
 
 @dataclass(frozen=True)
+class FlySeamAllowances:
+    """独立门襟裁片缝份（cm，门襟裁片.md §1；先缩水后缝边，缝份不叠加缩水）。
+
+    单排（单层）语义边：top 腰口（车入腰头，腰头线子弧）/ outer 外缘（外缘直线 +
+    底角 J 型圆弧 + 底边的 G1 连续链，三段同名共用本值）/ inner 内边（与前浪
+    缝合线重合）；bottom 仅双排（对折）消费（去底角弧后的底端直线闭合边）。
+    双排镜像边（outer_m/top_m/bottom_m）取对应基名值。
+    """
+
+    top: float = 1.0
+    outer: float = 1.0
+    bottom: float = 1.0
+    inner: float = 1.0
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FlySeamAllowances":
+        return cls(top=float(d.get("top", 1.0)),
+                   outer=float(d.get("outer", 1.0)),
+                   bottom=float(d.get("bottom", 1.0)),
+                   inner=float(d.get("inner", 1.0)))
+
+
+@dataclass(frozen=True)
 class PatternOptions:
     delta: float = 1.0                     # 前后片臀围单侧调节量 Δ（推导文档 §四）
     front_crotch_adjust: float = 0.0       # 前小裆修正（紧身款 -0.5~-1.0，§三.2）
@@ -390,6 +413,18 @@ class PatternOptions:
                                          #   fly_separate 优先（互斥形态）
     fly_sep_extra: float = 2.0           # 底部延展量（裁片高 = L + 本值，§5；
                                          #   上部腰口车合量属裁切层缝份）
+    fly_sep_double: bool = True          # 双排（对折）门襟裁片开关（门襟裁片.md §4；
+                                         #   开启时去底角 J 弧、外缘平行化后沿内边轴
+                                         #   镜像展开成完整对折净样；关闭只出单排片）
+    fly_seam_allowances: FlySeamAllowances = field(
+        default_factory=FlySeamAllowances)
+                                         # 门襟裁片缝份（top/outer/bottom/inner；
+                                         #   先缩水后缝边，缝份不叠加缩水，门襟裁片.md §1）
+    fly_shrinkage_warp: float | None = None
+                                         # 门襟裁片经向缩水率（主面料；None=用全局
+                                         #   shrinkage_warp，换布/不同批次时可单独控制，§1）
+    fly_shrinkage_weft: float | None = None
+                                         # 门襟裁片纬向缩水率（None=用全局 shrinkage_weft，§1）
     thigh_limit: bool = False              # 毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8）
     thigh_measure_offset: float = 0.0      # 毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54，前后片毗围推导.md §一）
     # —— 毗围闭环修正控制参数（前后片毗围推导.md §三，默认值即文档规范值） ——
@@ -815,6 +850,18 @@ class PatternOptions:
         # 独立门襟：缝份/延展校验（门襟绘制.md §5）
         if self.fly_sep_extra < 0:
             raise ValueError(f"fly_sep_extra 不能为负数，得到 {self.fly_sep_extra}")
+        # 独立门襟裁片缝份/缩水校验（门襟裁片.md §1；主面料缩水 None=回退全局）
+        fsa = self.fly_seam_allowances
+        if not isinstance(fsa, FlySeamAllowances):
+            raise TypeError("fly_seam_allowances 须为 FlySeamAllowances")
+        for name in ("top", "outer", "bottom", "inner"):
+            if getattr(fsa, name) < 0:
+                raise ValueError(f"门襟缝份 {name} 不能为负数，得到 {getattr(fsa, name)}")
+        for name in ("fly_shrinkage_warp", "fly_shrinkage_weft"):
+            v = getattr(self, name)
+            if v is not None and not 0.0 <= v < 0.2:
+                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
+                                 f"得到 {v}")
 
     def rise_on_pattern(self, rise: float) -> float:
         """版上浪长：前浪/后浪均为含腰头的成衣量（自腰头顶量起），
@@ -851,4 +898,7 @@ class PatternOptions:
         if "front_pouch_seam_allowances" in data:
             data["front_pouch_seam_allowances"] = PouchSeamAllowances.from_dict(
                 data["front_pouch_seam_allowances"])
+        if "fly_seam_allowances" in data:
+            data["fly_seam_allowances"] = FlySeamAllowances.from_dict(
+                data["fly_seam_allowances"])
         return cls(**data)

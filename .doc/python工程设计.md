@@ -384,7 +384,7 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 
 ### 10.2 几何 API：直接读代码
 
-`geometry/`（Point/Vector/LineSegment/CubicBezier）与 `draft/curves.py` 的签名、行为**以代码为准**，docstring 已标注易踩坑点（`LineSegment.length` 是属性、`CubicBezier.length()` 是方法、`Vector.perpendicular()` 逆时针 90° 归一化、`tangent_at` 未归一化、`t_at_y` 要求 y 单调、`Point - Vector` 不支持只支持 `Point - Point→Vector`/`Point + Vector→Point` 故点减向量写作 `p + v.scale(-1)`）。文档不重复维护，避免代码-文档双线失步；需要时直接读对应模块。
+`geometry/`（Point/Vector/LineSegment/CubicBezier）与 `draft/curves.py` 的签名、行为**以代码为准**，docstring 已标注易踩坑点（`LineSegment.length` 是属性、`CubicBezier.length()` 是方法、`Vector.perpendicular()` 逆时针 90° 归一化、`tangent_at` 未归一化、`t_at_y` 要求 y 单调、`Point - Vector` 不支持只支持 `Point - Point→Vector`/`Point + Vector→Point` 故点减向量写作 `p + v.scale(-1)`；`Point(x, y)` 直接构造的点没有 dx/dy/normalized〔向量属性在 Vector 上，须经 `p − q` 得 Vector 再做向量运算〕）。文档不重复维护，避免代码-文档双线失步；需要时直接读对应模块。
 
 ### 10.3 role 与 SVG 渲染（exporters/svg.py）
 
@@ -411,7 +411,7 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 
 ### 10.6 当前实现状态（已程序化）
 
-已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋 + 袋贴（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线；袋贴 `draw_front_pocket_facing` 详见下文）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、后贴袋（`back_patch_steps`，育克底线∩后浪线定位 + 局部 u-v 框四形态 + 仿射旋转）、毗围闭环（`flows/closure.py`）、腰头裁片（`steps/waistband_steps` + `flows/waistband_flow` + 裁切层 `pieces`/`cutter` + `exporters/piece_svg`，腰头裁片.md：直/弯腰头 × 有/无省，净样 -> 缩水 -> 缝边独立 SVG；`build_waistband(main_ctx)` 从整版提取前后腰弧净长代数求和）。裁切层（`pieces.PatternPiece` 三态净/缩水/毛 + 可选 `marks` 内部标记弧线〔净样坐标、不随缩水/缝边变换〕+ `cutter.apply_shrinkage`/`add_seam_allowance`）已为腰头、后机头、前口袋（袋贴/贴袋）、袋布（一片式对折）落地（`add_seam_allowance` 的缝份参数鸭子类型化：任意字段名=边名的缝份 dataclass〔`WaistbandSeamAllowances`/`FrontFacingSeamAllowances`/`FrontPatchSeamAllowances`，cutter `_sa_amount` 走 `getattr`〕 或 边名→量 dict，机头用 `{top,bottom,cb,side}`），前/后片裁切待后续。尚未实现：DXF 导出、结构校验器。
+已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋 + 袋贴（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线；袋贴 `draw_front_pocket_facing` 详见下文）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、后贴袋（`back_patch_steps`，育克底线∩后浪线定位 + 局部 u-v 框四形态 + 仿射旋转）、毗围闭环（`flows/closure.py`）、腰头裁片（`steps/waistband_steps` + `flows/waistband_flow` + 裁切层 `pieces`/`cutter` + `exporters/piece_svg`，腰头裁片.md：直/弯腰头 × 有/无省，净样 -> 缩水 -> 缝边独立 SVG；`build_waistband(main_ctx)` 从整版提取前后腰弧净长代数求和）。裁切层（`pieces.PatternPiece` 三态净/缩水/毛 + 可选 `marks` 内部标记弧线〔净样坐标、不随缩水/缝边变换〕+ `cutter.apply_shrinkage`/`add_seam_allowance`）已为腰头、后机头、前口袋（袋贴/贴袋）、袋布（一片式对折）、门襟（单排/双排）落地（`add_seam_allowance` 的缝份参数鸭子类型化：任意字段名=边名的缝份 dataclass〔`WaistbandSeamAllowances`/`FrontFacingSeamAllowances`/`FrontPatchSeamAllowances`/`FlySeamAllowances`，cutter `_sa_amount` 走 `getattr`〕 或 边名→量 dict，机头用 `{top,bottom,cb,side}`），前/后片裁切待后续。尚未实现：DXF 导出、结构校验器。
 
 前浪裆弯弧度已可调：`PatternOptions.front_rise_handle_ratio`（默认 1/3，k1=k2=|BC|×本值，前浪绘制.md §4），由 `draw_front_rise` 传入 `curves.front_rise`；与后浪 `back_rise_alpha`/`back_rise_beta` 双参数不同--前浪按文档用单一对称比例，后浪因大裆弯更深需独立 α/β。
 
@@ -460,9 +460,17 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 5. 缩水（§3）：**默认强制 0** 绝对隔离大身面料——与机头/前口袋的 None 回退全局不同，袋布是默认 0 数值、无回退语义；非 0 才走 apply_shrinkage。
 选项字段：front_pouch_seam_allowances（PouchSeamAllowances：fold=0 对折线 / mouth=1.0 袋口 / waist=1.0 / side=1.0 / bottom=1.2，TOML `[options.front_pouch_seam_allowances]` 子表）/ front_pouch_shrinkage_warp / front_pouch_shrinkage_weft（默认 0.0，[0,0.2)；TOML 主表键，须置于所有 [options.*] 子表之前，同前口袋/机头缩水口径）。两示例尺寸单（examples/size_female_165.toml / size_female_zhitong.toml）均已录入。输出：`--front-pouch-svg` 旗标 / `api.run(front_pouch_svg=...)`（需完整整版且 front_pouch 开启）。另注：`front_pocket_dart_width` 默认 2.0 非 0，测试无省场景须显式置 0。
 
+门襟独立裁片（单排/双排）已程序化：`build_front_fly(main_ctx)`（`flows/front_fly_flow`，门襟裁片.md §1~§4；自含裁片，非 FlowRunner 编排，同 `build_front_pouch` 等口径）。步骤层 `_draw_separate_fly` 已把独立门襟净样叠画在前片上（先画后裁），本流程只提取、不重画；`fly_separate` 未开 raise ValueError。返回 `(单排片, 双排片|None, 局部调试 ctx)`：
+1. 单排（单层，§2）：原样提取 5 边——top=reverse(腰头线子弧 O→T)、outer×3（外缘直线 h−R → 底角 90° 圆角贝塞尔 → 底边，**精确 G1 链必须同名 outer**，见文末踩坑）、inner=内边（与前浪缝合线重合）。刀口 1 = 内边自 O 开深 L 处（拉链止口/前浪对位）。
+2. 双排（对折，§4）：去底角弧——外缘重构直线 `LineSegment(T, E)`（E = T + 前浪方向·h 重算，**e_bot 未上版勿从圆角反推**；与内边严格平行绝对等长，O/T/E/S 平行四边形）、底端 E→S 直线闭合（顶保留腰弧）；半边沿对折轴 O→S 镜像展开（`_reflect_geom` 贝塞尔控制点同步），镜像边 `_m` 后缀（SA dict 给 `_m` 同值键）。对折线 O→S 不入周界、进 marks 折叠指示。刀口 3 = 对折线两端 O/S（文档强制）+ 外缘 T+前浪方向·L。`fly_sep_double=False` 时双排片返回 None。
+3. 共享收尾 `_finish_fly_piece`：局部 = Y 反射 origin=O（同 `front_pocket_flow._finish_piece` 口径）+ shoelace<0 自定向 + 竖向丝缕（经向=局部 Y，与前/后片一致）→ 缩水（`fly_shrinkage_warp/weft`，**None 回退全局**主面料口径，同机头/前口袋，异于袋布默认 0）→ 缝边（`FlySeamAllowances`：top/outer/bottom/inner；bottom 仅双排消费）→ 局部 ctx 落 `front_fly_single/ double.edge{i}`。
+金标注意（test_fly_piece）：底角圆角弧长**无闭式**——外缝顶点 T 取在弧形腰头线上（弧长 W 处），前浪与底边实际夹角 ≈82° 而步骤层 `_QUARTER_K` 手柄常数按 90° 圆弧调定，贝塞尔外凸（实测 ≈4.92 vs 90° 圆弧 4.71）；断言改用构造不变量（径向两侧距 e_bot = R + 弧长界于圆弧 R·θ 下界与控制多边形上界）。闭环断言用 `distance_to < 1e-9` 容差（贝塞尔接缝有 ~1e-14 浮点噪声，勿用精确相等）。
+选项字段：fly_sep_double（双排裁片开关，默认 True）/ fly_seam_allowances（FlySeamAllowances：top/outer/bottom/inner 默认均 1.0，TOML `[options.fly_seam_allowances]` 子表）/ fly_shrinkage_warp / fly_shrinkage_weft（门襟裁片专用经/纬向缩水率，None=回退全局 shrinkage_warp/weft；非 None 须 [0,0.2)；TOML 主表键，须置于所有 [options.*] 子表之前，同前口袋/机头/袋布缩水口径）。两示例尺寸单均已录入。输出：`--front-fly-single-svg` / `--front-fly-double-svg` 旗标 / `api.run(front_fly_single_svg=..., front_fly_double_svg=...)`（需完整整版且 fly_separate 开启；双排开关未开时双排输出跳过并警告）。
+
 **踩坑（裁切层，§10.4/10.6 通用）**：
 - `PatternPiece` 新增可选 `marks` 后，`apply_shrinkage`/`with_shrunk`/`with_gross` 均**按位置重建** PatternPiece——新增字段必须显式透传三者，否则被静默丢弃（marks 即差点丢，已在三者末位补 `out.marks`）。
 - 缝份 `cutter._sa_amount` 已鸭子类型化（`getattr(name,0.0)`，任意"字段名=边名"的 dataclass 或边名→量 dict 通用），但缝份记录串 `_sa_notes` 曾硬编 `WaistbandSeamAllowances` 字段名（top/bottom/left_end/right_end）——现已泛化为 `vars(sa)` 列字段值（WSA 仍走专用分支列上/下口·左/右端），新增缝份 dataclass 无需再改 `_sa_notes`。
 - **裁片坐标变换选错会镜像**：主版坐标 → 裁片局部坐标，机头/腰头用 **180° 旋转** `local=(origin.x−x, origin.y−y)`（det=+1 保向、绕向不变），前口袋曾照搬却**左右镜像**——180° 把 X 也翻了，前浪侧（主版右侧 P_fw）被翻到裁片左边。改用**关于过 origin 水平线的 Y 轴反射** `local=(x−origin.x, origin.y−y)`（det=−1，X 不翻保侧缝左/前浪右、Y 翻让腰头在上），反射反向由 `_finish_piece` 自定向补正（shoelace<0）。**新裁片选变换按"哪个轴该翻"决定**：翻 X=左右镜像、翻 Y=上下翻转、两轴都翻=180° 旋转（保向）；按 `piece_svg`「Y 向下不翻转」口径，通常只需翻 Y。
 - **镜像/对折拼合裁片的同语义边必须异名**：两层拼合轮廓（袋布底层+面层镜像）同语义边若同名（bottom 对 bottom），cutter 同名边跳过 miter 平滑相接，拼合点（折叠顶点）处缝份缺量；面层边加 `_m` 后缀异名即强制 miter。但**仅单层独有的边不能加后缀**——SA 按边名查量，`mouth_m` 在 SA dict/字段里查不到静默取 0 缝份（袋布 mouth 即此坑）。后缀边须在 SA 传入处显式给 `_m` 同值键。
 - **锐角 miter 会长成尖刺**：miter 交点距角点 = sa/sin(θ/2)，随轮廓内角 θ 变锐**无界增长**——袋布袋底×侧缝约 71° 角在 side/bottom 缝份调大后突出 1.67×sa 的长尖。`_miter_point` 有尖角限长 `miter_limit`（默认 1.5，`add_seam_allowance` 形参可调）：普通 miter 角超 max(sa)×limit 回退阶梯角；直角角点 1.414×sa 不受影响；mirror 角（工艺翻折重合）不受限。**袋布裁片不走默认限长**：`build_front_pouch` 显式传 `miter_limit=float("inf")`——锐角处取两偏移线交点的标准 miter 尖角（底部缝边延长线与侧边缝边线自然斜出），阶梯角在该裁片上反成多余折角。
+- **精确 G1 连续链的分段边必须同名**：一条轮廓边由多段几何拼成、接缝处切向严格共线（如独立门襟外缘 = 外缘直线 → 底角圆弧 → 底边，圆弧手柄沿两侧直线方向构造）时，若异名，`_miter_point` 对平行切线（det≈0）回退阶梯角，接缝处缝份凸出 2·sa 尖刺；多段同名 outer 即按平滑相接处理、缝份连续外扩（单排片实测四向外扩恰 = sa）。与「镜像拼合同语义边必须异名」相对：**该 miter 的真折角拼合点要异名、不该 miter 的 G1 光滑接缝要同名**，按接缝两侧边是否真折角决定。

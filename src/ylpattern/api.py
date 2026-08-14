@@ -17,7 +17,7 @@ from .flows.closure import run_with_thigh_closure
 from .params import (Measurements, PatternOptions, WaistbandGrain, WaistbandType,
                      WaistbandSeamAllowances, YokeSeamAllowances,
                      FrontFacingSeamAllowances, FrontPatchSeamAllowances,
-                     PouchSeamAllowances)
+                     PouchSeamAllowances, FlySeamAllowances)
 
 
 def _coerce_sa(v) -> WaistbandSeamAllowances:
@@ -66,6 +66,15 @@ def _coerce_pouch_sa(v) -> PouchSeamAllowances:
         return PouchSeamAllowances.from_dict(v)
     raise TypeError("front_pouch_seam_allowances 须为 dict 或 "
                     "PouchSeamAllowances")
+
+
+def _coerce_fly_sa(v) -> FlySeamAllowances:
+    """dict -> FlySeamAllowances（已是其类型则原样返回）。"""
+    if isinstance(v, FlySeamAllowances):
+        return v
+    if isinstance(v, dict):
+        return FlySeamAllowances.from_dict(v)
+    raise TypeError("fly_seam_allowances 须为 dict 或 FlySeamAllowances")
 
 
 def run(*, waist: float, hip: float, knee: float, hem: float,
@@ -184,6 +193,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         fly_stitch_inset: float = 0.6,
         fly_separate: bool = False,
         fly_sep_extra: float = 2.0,
+        fly_sep_double: bool = True,
+        fly_seam_allowances: dict | object | None = None,
+        fly_shrinkage_warp: float | None = None,
+        fly_shrinkage_weft: float | None = None,
         thigh_limit: bool = False, thigh_measure_offset: float = 0.0,
         thigh_piece_split_max: float = 0.2, thigh_front_share: float = 0.2,
         thigh_dual_track_min: float = 0.3,
@@ -199,6 +212,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         yoke_svg: str | None = None,
         front_pocket_svg: str | None = None,
         front_pouch_svg: str | None = None,
+        front_fly_single_svg: str | None = None,
+        front_fly_double_svg: str | None = None,
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
@@ -389,6 +404,15 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                            门襟裁片。fly / fly_separate 任一开启即绘制，
                            fly_separate 优先，互斥形态）
         fly_sep_extra    底部延展量（裁片高 = L + 本值，§5，默认 2.0）
+        fly_sep_double   双排（对折）门襟裁片开关（门襟裁片.md §4，默认 True：
+                          去底角 J 弧、外缘平行化后沿内边轴镜像展开；
+                          False = 只出单排片）
+        fly_seam_allowances
+                          门襟裁片缝份 dict {top,outer,bottom,inner}（cm，
+                          门襟裁片.md §1；outer 含单排外缘 G1 链、bottom 仅双排；
+                          先缩水后缝边，缝份不叠加缩水）
+        fly_shrinkage_warp / fly_shrinkage_weft
+                          门襟裁片经/纬缩水率（主面料；None=用全局，§1）
         thigh_limit        毗围闭环修正开关（可选步骤，打版流程.md 后片步骤 8；
                            开启后按 前后片毗围推导.md §三 双轨分流整版重跑至收敛）
         thigh_measure_offset  毗围实测下移量 d（0 = 立裆深线直量；常规实测 2.54）
@@ -412,6 +436,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pouch_svg  袋布裁片独立 SVG 输出路径（None=不输出；需完整整版且
                          front_pouch 开启；一片式对折：底层=大片原样、面层=小片沿内边
                          P_w0-K1 镜像挖袋口；口袋布裁片.md §2~§6 独立裁片）
+        front_fly_single_svg / front_fly_double_svg
+                         单排（单层）/ 双排（对折）门襟裁片独立 SVG 输出路径
+                         （None=不输出；需完整整版且 fly_separate 开启，双排另需
+                         fly_sep_double；门襟裁片.md §2/§4 独立裁片）
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
 
@@ -560,6 +588,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        fly_stitch_inset=fly_stitch_inset,
                        fly_separate=fly_separate,
                        fly_sep_extra=fly_sep_extra,
+                       fly_sep_double=fly_sep_double,
+                       **({"fly_seam_allowances": _coerce_fly_sa(fly_seam_allowances)}
+                          if fly_seam_allowances is not None else {}),
+                       fly_shrinkage_warp=fly_shrinkage_warp,
+                       fly_shrinkage_weft=fly_shrinkage_weft,
                        thigh_limit=thigh_limit,
                        thigh_measure_offset=thigh_measure_offset,
                        thigh_piece_split_max=thigh_piece_split_max,
@@ -599,6 +632,15 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
             piece, _ph_ctx = build_front_pouch(ctx)
             piece_exp.write_piece_svg(piece, front_pouch_svg)
             print(f"袋布裁片 SVG 已输出:{front_pouch_svg}")
+        if (front_fly_single_svg or front_fly_double_svg) and o.fly_separate:
+            from .flows.front_fly_flow import build_front_fly
+            p_single, p_double, _ff_ctx = build_front_fly(ctx)
+            if front_fly_single_svg:
+                piece_exp.write_piece_svg(p_single, front_fly_single_svg)
+                print(f"单排门襟裁片 SVG 已输出:{front_fly_single_svg}")
+            if front_fly_double_svg and p_double is not None:
+                piece_exp.write_piece_svg(p_double, front_fly_double_svg)
+                print(f"双排门襟裁片 SVG 已输出:{front_fly_double_svg}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")

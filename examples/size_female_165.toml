@@ -227,8 +227,11 @@ fly_stitch_inset     = 0.6       # [连裁] J 字明线内收（明线 = 顺外�
                                 #   （拉链止口刀口、打枣点等工艺细节暂不绘制，留待工艺/裁切模块）
 # -- 独立门襟专用（仅 fly_separate=true 时生效；连裁门襟不读这些）--
 fly_separate         = true      # [独立开关] 叠在前片上、之后分离成单独裁片；裁片取净宽 W
-                                #   （缝边/缩水留待之后的裁切模块，先画后裁）
+                                #   独立裁片另走裁切链（净样 -> 缩水 -> 缝边，门襟裁片.md；
+                                #   ylpattern draft --front-fly-single-svg / --front-fly-double-svg）
 fly_sep_extra        = 0.0       # [独立] 底部延展量（裁片高 = L + 本值，§5）
+fly_sep_double       = true      # [独立] 双排（对折）门襟裁片开关（默认开；去底角 J 弧、外缘
+                                #   平行化后沿内边轴镜像展开；false = 只出单排片，门襟裁片.md §4）
 
 # 腰头类型：straight = 直腰头（打版时扣除腰头宽）
 #           curved   = 弯腰头（与前片一体绘制再裁出）
@@ -257,6 +260,11 @@ shrinkage_weft        = 0.0       # 纬向缩水率（面料纬/weft）
 #   口袋布材质独立、绝对隔离大身面料；须位于 [options.*] 子表之前（TOML 主表键，启用=删行首 #））
 # front_pouch_shrinkage_warp = 0.03   # 经向缩水率（0 = 不缩水，默认）
 # front_pouch_shrinkage_weft = 0.02   # 纬向缩水率（0 = 不缩水，默认）
+
+# 门襟裁片专用缩水（可选，门襟裁片.md §1 主面料；None/省略=用全局 shrinkage_warp/weft）
+#   换布/不同批次时单独录入；须位于 [options.*] 子表之前（TOML 主表键，启用=删行首 #）
+# fly_shrinkage_warp = 0.03   # 经向缩水率（None=用全局 shrinkage_warp）
+# fly_shrinkage_weft = 0.02   # 纬向缩水率（None=用全局 shrinkage_weft）
 # 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
 side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
 front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
@@ -312,5 +320,16 @@ mouth = 1.0         # 挖削袋口弧线缝边（接袋贴）
 waist = 1.0         # 腰头边缝边（与前片腰头缝份一致）
 side = 1.0          # 侧缝边缝边（与前片侧缝缝份一致）
 bottom = 1.2        # 袋底与外围缝边（1.0~1.5）
+
+# 门襟裁片四边独立缝份（cm，门襟裁片.md §1；先缩水后缝边，缝份不叠加缩水；
+#   ylpattern draft --front-fly-single-svg / --front-fly-double-svg）
+#   单排（单层）：top 腰口 / outer 外缘（含底角 J 型弧与底边的 G1 连续链）/
+#     inner 内边（与前浪缝合线重合）；双排（对折）：top/outer 沿用 +
+#     bottom 底端直线闭合边，镜像边（*_m）取对应基名值
+[options.fly_seam_allowances]
+top = 1.0          # 腰口缝边（车入腰头）
+outer = 1.0        # 外缘缝边（单排含底角 J 型弧与底边）
+bottom = 1.0       # 底边缝边（仅双排消费）
+inner = 1.0        # 内边缝边（与前浪缝合线重合，仅单排消费）
 
 

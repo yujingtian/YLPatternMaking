@@ -77,6 +77,28 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     elif args.front_pouch_svg and args.until:
         print("警告：--until 中断调版时不生成袋布裁片（需完整整版提取袋布净样边界）",
               file=sys.stderr)
+    if (args.front_fly_single_svg or args.front_fly_double_svg) \
+            and not args.until:
+        from .flows.front_fly_flow import build_front_fly
+        from .exporters import piece_svg as piece_exp
+        if not ctx.options.fly_separate:
+            print("警告：未开启 fly_separate，跳过门襟裁片", file=sys.stderr)
+        else:
+            p_single, p_double, _ff = build_front_fly(ctx)
+            if args.front_fly_single_svg:
+                piece_exp.write_piece_svg(p_single, args.front_fly_single_svg)
+                print(f"单排门襟裁片 SVG 已输出：{args.front_fly_single_svg}")
+            if args.front_fly_double_svg:
+                if p_double is None:
+                    print("警告：未开启 fly_sep_double，跳过双排门襟裁片",
+                          file=sys.stderr)
+                else:
+                    piece_exp.write_piece_svg(p_double, args.front_fly_double_svg)
+                    print(f"双排门襟裁片 SVG 已输出：{args.front_fly_double_svg}")
+    elif (args.front_fly_single_svg or args.front_fly_double_svg) \
+            and args.until:
+        print("警告：--until 中断调版时不生成门襟裁片（需完整整版提取门襟净样边界）",
+              file=sys.stderr)
     if want_trace:
         with open(args.trace, "w", encoding="utf-8") as fp:
             fp.write(trace_text)
@@ -108,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
                          help="输出前口袋裁片独立 SVG 路径（袋贴 front_pocket_facing / 贴袋 front_patch；需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--front-pouch-svg",
                          help="输出袋布裁片独立 SVG 路径（front_pouch 开启；一片式对折，需完整整版，勿与 --until 同用）")
+    p_draft.add_argument("--front-fly-single-svg",
+                         help="输出单排（单层）门襟裁片独立 SVG 路径（fly_separate 开启；需完整整版，勿与 --until 同用）")
+    p_draft.add_argument("--front-fly-double-svg",
+                         help="输出双排（对折）门襟裁片独立 SVG 路径（fly_separate + fly_sep_double 开启；需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--until", help="执行到指定步骤（含）后停止")
     p_draft.add_argument("--trace", help="输出逐步绘制追踪记录路径")
     p_draft.add_argument("--report", help="输出尺寸报表路径")
