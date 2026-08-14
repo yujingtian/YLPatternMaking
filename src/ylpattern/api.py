@@ -16,7 +16,8 @@ from .exporters import svg as svg_exp
 from .flows.closure import run_with_thigh_closure
 from .params import (Measurements, PatternOptions, WaistbandGrain, WaistbandType,
                      WaistbandSeamAllowances, YokeSeamAllowances,
-                     FrontFacingSeamAllowances, FrontPatchSeamAllowances)
+                     FrontFacingSeamAllowances, FrontPatchSeamAllowances,
+                     PouchSeamAllowances)
 
 
 def _coerce_sa(v) -> WaistbandSeamAllowances:
@@ -55,6 +56,16 @@ def _coerce_patch_sa(v) -> FrontPatchSeamAllowances:
         return FrontPatchSeamAllowances.from_dict(v)
     raise TypeError("front_patch_seam_allowances 须为 dict 或 "
                     "FrontPatchSeamAllowances")
+
+
+def _coerce_pouch_sa(v) -> PouchSeamAllowances:
+    """dict -> PouchSeamAllowances（已是其类型则原样返回）。"""
+    if isinstance(v, PouchSeamAllowances):
+        return v
+    if isinstance(v, dict):
+        return PouchSeamAllowances.from_dict(v)
+    raise TypeError("front_pouch_seam_allowances 须为 dict 或 "
+                    "PouchSeamAllowances")
 
 
 def run(*, waist: float, hip: float, knee: float, hem: float,
@@ -153,6 +164,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pouch_side_safe: float = 8.0,
         front_pouch_nodes: list | tuple = ((5.0, 16.0), (1.5, 13.5)),
         front_pouch_edges: list | tuple = (("line",), ("arc", 2.5, 0.6), ("line",)),
+        front_pouch_seam_allowances: dict | object | None = None,
+        front_pouch_shrinkage_warp: float = 0.0,
+        front_pouch_shrinkage_weft: float = 0.0,
         watch_pocket: bool = False,
         watch_pocket_offset_from_top: float = 4.0,
         watch_pocket_offset_from_side: float = 3.5,
@@ -184,6 +198,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         waistband_svg: str | None = None,
         yoke_svg: str | None = None,
         front_pocket_svg: str | None = None,
+        front_pouch_svg: str | None = None,
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
@@ -342,6 +357,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pouch_edges  边形态列表（个数 = 节点数 + 1）：("line",) 直线 /
                            ("arc", 弧高, 弧顶分位 0.1~0.9) /
                            ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
+        front_pouch_seam_allowances  袋布裁片缝份 dict {fold,mouth,waist,side,bottom}
+                          （口袋布裁片.md §4；fold=0 对折线、mouth 袋口、waist/side
+                          与前片一致、bottom 袋底）
+        front_pouch_shrinkage_warp / front_pouch_shrinkage_weft
+                          袋布裁片经/纬缩水率（默认 0=不缩水，口袋布材质独立，§3）
         watch_pocket      小表袋绘制开关（打版流程.md「小表袋绘制」；依赖 front_pocket
                           挖削嵌入式；以前口袋侧缝腰点为基准定位，净样锚点 + 逐边形态）
         watch_pocket_offset_from_top / watch_pocket_offset_from_side
@@ -389,6 +409,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pocket_svg 前口袋裁片独立 SVG 输出路径（None=不输出；需完整整版；
                          front_pocket_facing 开->挖削嵌入式袋贴裁片，否则 front_patch
                          开->表面外贴式贴袋裁片；前口袋裁片.md §一~§三 独立裁片）
+        front_pouch_svg  袋布裁片独立 SVG 输出路径（None=不输出；需完整整版且
+                         front_pouch 开启；一片式对折：底层=大片原样、面层=小片沿内边
+                         P_w0-K1 镜像挖袋口；口袋布裁片.md §2~§6 独立裁片）
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
 
@@ -515,6 +538,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        front_pouch_side_safe=front_pouch_side_safe,
                        front_pouch_nodes=front_pouch_nodes,
                        front_pouch_edges=front_pouch_edges,
+                       **({"front_pouch_seam_allowances":
+                           _coerce_pouch_sa(front_pouch_seam_allowances)}
+                          if front_pouch_seam_allowances is not None else {}),
+                       front_pouch_shrinkage_warp=front_pouch_shrinkage_warp,
+                       front_pouch_shrinkage_weft=front_pouch_shrinkage_weft,
                        watch_pocket=watch_pocket,
                        watch_pocket_offset_from_top=watch_pocket_offset_from_top,
                        watch_pocket_offset_from_side=watch_pocket_offset_from_side,
@@ -566,6 +594,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
             piece, _fp_ctx = build_front_pocket(ctx)
             piece_exp.write_piece_svg(piece, front_pocket_svg)
             print(f"前口袋裁片 SVG 已输出:{front_pocket_svg}")
+        if front_pouch_svg and o.front_pouch:
+            from .flows.front_pouch_flow import build_front_pouch
+            piece, _ph_ctx = build_front_pouch(ctx)
+            piece_exp.write_piece_svg(piece, front_pouch_svg)
+            print(f"袋布裁片 SVG 已输出:{front_pouch_svg}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")

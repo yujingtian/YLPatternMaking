@@ -120,6 +120,29 @@ class FrontPatchSeamAllowances:
 
 
 @dataclass(frozen=True)
+class PouchSeamAllowances:
+    """前口袋袋布裁片缝份（cm，口袋布裁片.md §4）。
+
+    一片式对折裁片五语义边：fold 对折线（内边对称轴，放量为 0，内部边周界不使用）/
+    mouth 挖削袋口弧线（常规 1.0）/ waist 腰头边（与前片腰头缝份一致）/
+    side 侧缝边（与前片侧缝缝份一致）/ bottom 袋底与外围（1.0~1.5）。
+    """
+    fold: float = 0.0
+    mouth: float = 1.0
+    waist: float = 1.0
+    side: float = 1.0
+    bottom: float = 1.2
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PouchSeamAllowances":
+        return cls(fold=float(d.get("fold", 0.0)),
+                   mouth=float(d.get("mouth", 1.0)),
+                   waist=float(d.get("waist", 1.0)),
+                   side=float(d.get("side", 1.0)),
+                   bottom=float(d.get("bottom", 1.2)))
+
+
+@dataclass(frozen=True)
 class PatternOptions:
     delta: float = 1.0                     # 前后片臀围单侧调节量 Δ（推导文档 §四）
     front_crotch_adjust: float = 0.0       # 前小裆修正（紧身款 -0.5~-1.0，§三.2）
@@ -405,6 +428,16 @@ class PatternOptions:
                                            #   shrinkage_warp；换布/不同批次时可单独控制，§2.1）
     front_pocket_shrinkage_weft: float | None = None
                                            # 前口袋裁片纬向缩水率（None=用全局 shrinkage_weft）
+    # -- 袋布裁片缝份/缩水（口袋布裁片.md §3、§4；先缩水后缝边，缝份不叠加缩水）--
+    front_pouch_seam_allowances: PouchSeamAllowances = field(
+        default_factory=PouchSeamAllowances)
+                                           # 袋布裁片五边缝份（fold/mouth/waist/side/bottom）：
+                                           #   对折线 0、袋口 1.0、腰头/侧缝与前片一致、袋底 1.2（§4）
+    front_pouch_shrinkage_warp: float = 0.0
+                                           # 袋布裁片经向缩水率（口袋布材质独立，§3 强制 0、
+                                           #   绝对隔离大身面料缩水；默认 0=不缩水，可单独覆盖）
+    front_pouch_shrinkage_weft: float = 0.0
+                                           # 袋布裁片纬向缩水率（默认 0=不缩水，§3）
     fit: Fit = Fit.REGULAR
     seam_allowance: float = 1.0            # 默认缝份
 
@@ -532,6 +565,19 @@ class PatternOptions:
             v = getattr(self, name)
             if v is not None and not 0.0 <= v < 0.2:
                 raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
+                                 f"得到 {v}")
+        # 袋布裁片缝份/缩水校验（口袋布裁片.md §3、§4）
+        pusa = self.front_pouch_seam_allowances
+        if not isinstance(pusa, PouchSeamAllowances):
+            raise TypeError("front_pouch_seam_allowances 须为 "
+                            "PouchSeamAllowances")
+        for name in ("fold", "mouth", "waist", "side", "bottom"):
+            if getattr(pusa, name) < 0:
+                raise ValueError(f"袋布缝份 {name} 不能为负数，得到 {getattr(pusa, name)}")
+        for name in ("front_pouch_shrinkage_warp", "front_pouch_shrinkage_weft"):
+            v = getattr(self, name)
+            if not 0.0 <= v < 0.2:
+                raise ValueError(f"{name} 须在 [0, 0.2) 内（口袋布默认 0=不缩水，§3），"
                                  f"得到 {v}")
         if not 0.0 < self.thigh_front_share < 1.0:
             raise ValueError(f"大差量前片分配比须在 (0, 1) 内，得到 {self.thigh_front_share}")
@@ -802,4 +848,7 @@ class PatternOptions:
         if "front_patch_seam_allowances" in data:
             data["front_patch_seam_allowances"] = FrontPatchSeamAllowances.from_dict(
                 data["front_patch_seam_allowances"])
+        if "front_pouch_seam_allowances" in data:
+            data["front_pouch_seam_allowances"] = PouchSeamAllowances.from_dict(
+                data["front_pouch_seam_allowances"])
         return cls(**data)

@@ -4,9 +4,9 @@ from .measurements import Measurements
 from .options import (PatternOptions, WaistbandType, WaistbandGrain, Fit,
                       DELTA_PRESETS, WaistbandSeamAllowances,
                       YokeSeamAllowances, FrontFacingSeamAllowances,
-                      FrontPatchSeamAllowances)
+                      FrontPatchSeamAllowances, PouchSeamAllowances)
 
 __all__ = ["Measurements", "PatternOptions", "WaistbandType", "WaistbandGrain",
            "Fit", "DELTA_PRESETS", "WaistbandSeamAllowances",
            "YokeSeamAllowances", "FrontFacingSeamAllowances",
-           "FrontPatchSeamAllowances"]
+           "FrontPatchSeamAllowances", "PouchSeamAllowances"]
