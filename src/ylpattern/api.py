@@ -17,7 +17,8 @@ from .flows.closure import run_with_thigh_closure
 from .params import (Measurements, PatternOptions, WaistbandGrain, WaistbandType,
                      WaistbandSeamAllowances, YokeSeamAllowances,
                      FrontFacingSeamAllowances, FrontPatchSeamAllowances,
-                     PouchSeamAllowances, FlySeamAllowances)
+                     PouchSeamAllowances, FlySeamAllowances,
+                     WatchPocketSeamAllowances)
 
 
 def _coerce_sa(v) -> WaistbandSeamAllowances:
@@ -75,6 +76,16 @@ def _coerce_fly_sa(v) -> FlySeamAllowances:
     if isinstance(v, dict):
         return FlySeamAllowances.from_dict(v)
     raise TypeError("fly_seam_allowances 须为 dict 或 FlySeamAllowances")
+
+
+def _coerce_watch_pocket_sa(v) -> WatchPocketSeamAllowances:
+    """dict -> WatchPocketSeamAllowances（已是其类型则原样返回）。"""
+    if isinstance(v, WatchPocketSeamAllowances):
+        return v
+    if isinstance(v, dict):
+        return WatchPocketSeamAllowances.from_dict(v)
+    raise TypeError("watch_pocket_seam_allowances 须为 dict 或 "
+                    "WatchPocketSeamAllowances")
 
 
 def run(*, waist: float, hip: float, knee: float, hem: float,
@@ -182,6 +193,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         watch_pocket_rotate_deg: float = 0.0,
         watch_pocket_points: list | tuple = ((0.0, 0.0), (8.0, 0.0), (7.6, 7.5), (0.4, 7.5)),
         watch_pocket_edges: list | tuple = (("line",), ("line",), ("line",), ("line",)),
+        watch_pocket_mode: str = "facing_intersect",
+        watch_pocket_width: float = 7.5,
+        watch_pocket_taper: float = 0.3,
+        watch_pocket_seam_allowances: dict | object | None = None,
+        watch_pocket_shrinkage_warp: float = 0.0,
+        watch_pocket_shrinkage_weft: float = 0.0,
         fly: bool = False,
         fly_width: float = 3.8,
         fly_length_ratio: float = 0.35,
@@ -214,6 +231,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pouch_svg: str | None = None,
         front_fly_single_svg: str | None = None,
         front_fly_double_svg: str | None = None,
+        watch_pocket_svg: str | None = None,
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
@@ -386,6 +404,18 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         watch_pocket_points  净形锚点（相对参考点 dx/dy，≥3 个，顺时针；默认梯形）
         watch_pocket_edges  边形态列表（个数 = 锚点数，闭合边）：("line",) /
                           ("arc", 弧高, 弧顶分位) / ("bezier", α°, κ1, β°, κ2)
+        watch_pocket_mode 小表袋模式（小表袋裁片.md §2）："facing_intersect"
+                          袋贴相交延伸（默认；额外依赖 front_pocket_facing）/
+                          "custom" 全自定义锚点闭合链
+        watch_pocket_width / watch_pocket_taper
+                          袋口宽与两侧内收量（facing_intersect 模式，
+                          默认 7.5 / 0.3）
+        watch_pocket_seam_allowances
+                          小表袋裁片缝份 dict {top,side,bottom}（cm，§4.1；
+                          top 袋口折边 2.5、side 1.0、bottom 1.0 与袋贴一致）
+        watch_pocket_shrinkage_warp / watch_pocket_shrinkage_weft
+                          小表袋裁片经/纬缩水率（口袋布里料独立口径，
+                          默认 0=不缩水，§3.1）
         fly              门襟（连裁门襟）绘制开关（可选步骤，门襟绘制.md §3、§4；
                            上版于前片，弯腰头时原点取下前中腰点 A'）
         fly_width        门襟宽 W（常规 YKK 5# 拉链 3.8，3.5~4.2）
@@ -440,6 +470,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          单排（单层）/ 双排（对折）门襟裁片独立 SVG 输出路径
                          （None=不输出；需完整整版且 fly_separate 开启，双排另需
                          fly_sep_double；门襟裁片.md §2/§4 独立裁片）
+        watch_pocket_svg 小表袋裁片独立 SVG 输出路径（None=不输出；需完整整版且
+                         watch_pocket 开启；按 watch_pocket_mode 派发净样提取，
+                         小表袋裁片.md §一~§四 独立裁片）
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
 
@@ -577,6 +610,14 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        watch_pocket_rotate_deg=watch_pocket_rotate_deg,
                        watch_pocket_points=watch_pocket_points,
                        watch_pocket_edges=watch_pocket_edges,
+                       watch_pocket_mode=watch_pocket_mode,
+                       watch_pocket_width=watch_pocket_width,
+                       watch_pocket_taper=watch_pocket_taper,
+                       **({"watch_pocket_seam_allowances":
+                           _coerce_watch_pocket_sa(watch_pocket_seam_allowances)}
+                          if watch_pocket_seam_allowances is not None else {}),
+                       watch_pocket_shrinkage_warp=watch_pocket_shrinkage_warp,
+                       watch_pocket_shrinkage_weft=watch_pocket_shrinkage_weft,
                        fly=fly,
                        fly_width=fly_width,
                        fly_length_ratio=fly_length_ratio,
@@ -641,6 +682,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
             if front_fly_double_svg and p_double is not None:
                 piece_exp.write_piece_svg(p_double, front_fly_double_svg)
                 print(f"双排门襟裁片 SVG 已输出:{front_fly_double_svg}")
+        if watch_pocket_svg and o.watch_pocket:
+            from .flows.watch_pocket_flow import build_watch_pocket
+            piece, _wp_ctx = build_watch_pocket(ctx)
+            piece_exp.write_piece_svg(piece, watch_pocket_svg)
+            print(f"小表袋裁片 SVG 已输出:{watch_pocket_svg}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")

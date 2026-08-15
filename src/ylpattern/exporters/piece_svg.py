@@ -2,7 +2,9 @@
 
 与整版 svg.py 的区别：裁片局部坐标系 **Y 向下**（与 SVG 同向），渲染时
 仅缩放平移、不翻转。图层：gross 毛样（实线，最终裁切线）/ shrunk_net
-含缩水净样（虚线）/ net 净样（淡虚线）/ notches 刀口（红）/ grain 丝缕线（蓝）。
+含缩水净样（虚线；缩水时唯一内轮廓基准）/ net 净样（淡虚线；**仅在未缩水时
+绘制**，已缩水则省略——两条内轮廓虚线并存易误读）/ notches 刀口（红）/
+grain 丝缕线（蓝）。
 """
 
 from __future__ import annotations
@@ -80,12 +82,14 @@ def render_piece_svg(piece: PatternPiece) -> str:
         '<rect width="100%" height="100%" fill="white"/>',
     ]
 
-    # 净样（淡虚线）
-    parts.append('<g id="net">')
-    for e in piece.net_edges:
-        pts = " ".join(f"{sx(p.x):.1f},{sy(p.y):.1f}" for p in _edge_points(e))
-        parts.append(f'<polyline class="netline" points="{pts}"/>')
-    parts.append('</g>')
+    # 净样（淡虚线；已缩水时省略——未缩水净样对裁切/缝纫无意义，
+    # 只留 shrunk_net 一条内轮廓基准线，避免两条虚线并存误读）
+    if not piece.shrunk_edges:
+        parts.append('<g id="net">')
+        for e in piece.net_edges:
+            pts = " ".join(f"{sx(p.x):.1f},{sy(p.y):.1f}" for p in _edge_points(e))
+            parts.append(f'<polyline class="netline" points="{pts}"/>')
+        parts.append('</g>')
 
     # 含缩水净样（虚线）
     if piece.shrunk_edges:

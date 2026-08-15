@@ -245,6 +245,11 @@ waistband_full_piece  = true      # true=整条（后中折线对称）；false=
 waistband_grain       = "width"   # 腰头经向方向："width" 宽向(=裤长)为经（默认，横裁）/ "length" 长向为经（直裁）；决定丝缕线方向与缩水经/纬→X/Y 映射
 shrinkage_warp        = 0.0       # 经向缩水率（面料经/warp；0.03=3%；映射到腰头 X/Y 轴见 waistband_grain；缝份不叠加缩水）
 shrinkage_weft        = 0.0       # 纬向缩水率（面料纬/weft）
+# 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
+side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
+front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
+back_waist_curve_sag  = 0.4     # 后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，后腰头绘制推导.md §二）
+                                #   （0 = 无额外下凹，但 90° 正交平顺段的弯曲仍在，非直线）
 
 # 前口袋裁片专用缩水（可选，前口袋裁片.md §2.1；None/省略=用全局 shrinkage_warp/weft）
 #   袋贴/贴袋换布、不同批次时单独录入；须位于 [options.*] 子表之前（TOML 主表键）
@@ -265,11 +270,12 @@ front_pouch_shrinkage_weft = 0.0    # 纬向缩水率（0 = 不缩水）
 #   换布/不同批次时单独录入；须位于 [options.*] 子表之前（TOML 主表键，启用=删行首 #）
 fly_shrinkage_warp = 0.1   # 经向缩水率（None=用全局 shrinkage_warp）
 fly_shrinkage_weft = 0.06   # 纬向缩水率（None=用全局 shrinkage_weft）
-# 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
-side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
-front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
-back_waist_curve_sag  = 0.4     # 后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，后腰头绘制推导.md §二）
-                                #   （0 = 无额外下凹，但 90° 正交平顺段的弯曲仍在，非直线）
+
+# 小表袋裁片专用缩水（可选，小表袋裁片.md §3.1；默认 0 = 不缩水，无回退全局语义——
+#   口袋布里料材质独立、绝对隔离大身面料；须位于 [options.*] 子表之前（TOML 主表键））
+watch_pocket_shrinkage_warp = 0.1  # 经向缩水率（0.03=3%；0 = 不缩水）
+watch_pocket_shrinkage_weft = 0.06    # 纬向缩水率（0 = 不缩水）
+# 三边独立缝份见文末 [options.watch_pocket_seam_allowances] 子表
 
 fit                 = "regular"   # 版型：skinny 紧身 / slim 修身 / regular 标准 / loose 宽松
 seam_allowance      = 1.0         # 默认缝份宽度
@@ -332,5 +338,14 @@ top = 1.0          # 腰口缝边（车入腰头）
 outer = 1.0        # 外缘缝边（单排含底角 J 型弧与底边）
 bottom = 1.0       # 底边缝边（仅双排消费）
 inner = 1.0        # 内边缝边（与前浪缝合线重合，仅单排消费）
+
+# 小表袋裁片三边独立缝份（cm，小表袋裁片.md §4.1；先缩水后缝边，缝份不叠加缩水；
+#   ylpattern draft --watch-pocket-svg）
+#   top 袋口折边（双折边明线车缝 2.0~2.5）/ side 两侧缝边 / bottom 底边
+#   （与袋贴拼接侧一致；仅 facing_intersect 模式与 custom 四边闭合消费）
+[options.watch_pocket_seam_allowances]
+top = 2.5          # 袋口折边（向反面折转，双折边明线车缝）
+side = 1.0         # 两侧缝边
+bottom = 1.0       # 底边缝边（与袋贴 inner 一致）
 
 

@@ -166,6 +166,27 @@ class FlySeamAllowances:
 
 
 @dataclass(frozen=True)
+class WatchPocketSeamAllowances:
+    """小表袋裁片缝份（cm，小表袋裁片.md §4.1）。
+
+    小表袋为缝于袋布上的贴袋：top 袋口折边（向反面折转、双折边明线车缝，
+    常规 2.0~2.5）/ side 两侧常规缝边。bottom 与袋贴拼接侧一致：仅模式 A
+    （facing_intersect，底边=袋贴内边子段）与 custom 四边闭合按底边消费；
+    custom N≠4 多边形无可靠底边识别，全走 side（bottom 不生效）。
+    """
+
+    top: float = 2.5
+    side: float = 1.0
+    bottom: float = 1.0     # 默认恰与袋贴 inner 一致（§4.1 拼接缝份口径）
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "WatchPocketSeamAllowances":
+        return cls(top=float(d.get("top", 2.5)),
+                   side=float(d.get("side", 1.0)),
+                   bottom=float(d.get("bottom", 1.0)))
+
+
+@dataclass(frozen=True)
 class PatternOptions:
     delta: float = 1.0                     # 前后片臀围单侧调节量 Δ（推导文档 §四）
     front_crotch_adjust: float = 0.0       # 前小裆修正（紧身款 -0.5~-1.0，§三.2）
@@ -391,6 +412,15 @@ class PatternOptions:
                                            #   ("line",) 直线 / ("arc", 弧高, 弧顶分位) 弧高式
                                            #   / ("bezier", α°, κ1, β°, κ2) 双手柄贝塞尔
                                            #   （打版流程.md：每段弧线/贝塞尔/直线可控制）
+    watch_pocket_seam_allowances: WatchPocketSeamAllowances = field(
+        default_factory=WatchPocketSeamAllowances)
+                                           # 小表袋裁片缝份（top 袋口折边 2.5 / side 1.0 /
+                                           #   bottom 1.0 与袋贴 inner 一致，小表袋裁片.md §4.1）
+    watch_pocket_shrinkage_warp: float = 0.0
+                                           # 小表袋裁片经向缩水率（口袋布里料独立口径，
+                                           #   默认 0=不缩水，绝对隔离大身面料，§3.1）
+    watch_pocket_shrinkage_weft: float = 0.0
+                                           # 小表袋裁片纬向缩水率（里料独立口径，§3.1）
     # —— 门襟（连裁门襟，门襟绘制.md §2.2、§3、§4） ——
     fly: bool = False                    # 门襟绘制开关（可选步骤；连裁门襟上版于前片）
     fly_width: float = 3.8               # 门襟宽 W（常规 YKK 5# 拉链，3.5~4.2）
@@ -829,6 +859,20 @@ class PatternOptions:
                              f"得到 {len(wedges)} 个")
         object.__setattr__(self, "watch_pocket_points", wpts)
         object.__setattr__(self, "watch_pocket_edges", tuple(wedges))
+        # 小表袋裁片缝份/缩水校验（小表袋裁片.md §3.1、§4.1；
+        # 里料缩水默认 0、无 None 回退全局分支）
+        wsa = self.watch_pocket_seam_allowances
+        if not isinstance(wsa, WatchPocketSeamAllowances):
+            raise TypeError("watch_pocket_seam_allowances 须为 "
+                            "WatchPocketSeamAllowances")
+        for name in ("top", "side", "bottom"):
+            if getattr(wsa, name) < 0:
+                raise ValueError(f"小表袋缝份 {name} 不能为负数，"
+                                 f"得到 {getattr(wsa, name)}")
+        for name in ("watch_pocket_shrinkage_warp", "watch_pocket_shrinkage_weft"):
+            if not 0.0 <= getattr(self, name) < 0.2:
+                raise ValueError(f"{name} 须在 [0, 0.2) 内（0.03=3%），"
+                                 f"得到 {getattr(self, name)}")
         # 门襟：宽度与开深系数校验（门襟绘制.md §2.2）
         if not 3.0 <= self.fly_width <= 4.5:
             raise ValueError(f"门襟宽 W 建议在 3.5~4.2 cm 内，得到 {self.fly_width}")
@@ -901,4 +945,8 @@ class PatternOptions:
         if "fly_seam_allowances" in data:
             data["fly_seam_allowances"] = FlySeamAllowances.from_dict(
                 data["fly_seam_allowances"])
+        if "watch_pocket_seam_allowances" in data:
+            data["watch_pocket_seam_allowances"] = \
+                WatchPocketSeamAllowances.from_dict(
+                    data["watch_pocket_seam_allowances"])
         return cls(**data)

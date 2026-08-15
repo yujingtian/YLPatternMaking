@@ -99,6 +99,18 @@ def _cmd_draft(args: argparse.Namespace) -> int:
             and args.until:
         print("警告：--until 中断调版时不生成门襟裁片（需完整整版提取门襟净样边界）",
               file=sys.stderr)
+    if args.watch_pocket_svg and not args.until:
+        from .flows.watch_pocket_flow import build_watch_pocket
+        from .exporters import piece_svg as piece_exp
+        if not ctx.options.watch_pocket:
+            print("警告：未开启 watch_pocket，跳过小表袋裁片", file=sys.stderr)
+        else:
+            piece, _wp = build_watch_pocket(ctx)
+            piece_exp.write_piece_svg(piece, args.watch_pocket_svg)
+            print(f"小表袋裁片 SVG 已输出：{args.watch_pocket_svg}")
+    elif args.watch_pocket_svg and args.until:
+        print("警告：--until 中断调版时不生成小表袋裁片（需完整整版提取小表袋净样边界）",
+              file=sys.stderr)
     if want_trace:
         with open(args.trace, "w", encoding="utf-8") as fp:
             fp.write(trace_text)
@@ -134,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
                          help="输出单排（单层）门襟裁片独立 SVG 路径（fly_separate 开启；需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--front-fly-double-svg",
                          help="输出双排（对折）门襟裁片独立 SVG 路径（fly_separate + fly_sep_double 开启；需完整整版，勿与 --until 同用）")
+    p_draft.add_argument("--watch-pocket-svg",
+                         help="输出小表袋裁片独立 SVG 路径（watch_pocket 开启；按 watch_pocket_mode 派发，需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--until", help="执行到指定步骤（含）后停止")
     p_draft.add_argument("--trace", help="输出逐步绘制追踪记录路径")
     p_draft.add_argument("--report", help="输出尺寸报表路径")
