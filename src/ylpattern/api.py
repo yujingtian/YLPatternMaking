@@ -18,7 +18,7 @@ from .params import (Measurements, PatternOptions, WaistbandGrain, WaistbandType
                      WaistbandSeamAllowances, YokeSeamAllowances,
                      FrontFacingSeamAllowances, FrontPatchSeamAllowances,
                      PouchSeamAllowances, FlySeamAllowances,
-                     WatchPocketSeamAllowances)
+                     WatchPocketSeamAllowances, BackPatchSeamAllowances)
 
 
 def _coerce_sa(v) -> WaistbandSeamAllowances:
@@ -86,6 +86,16 @@ def _coerce_watch_pocket_sa(v) -> WatchPocketSeamAllowances:
         return WatchPocketSeamAllowances.from_dict(v)
     raise TypeError("watch_pocket_seam_allowances 须为 dict 或 "
                     "WatchPocketSeamAllowances")
+
+
+def _coerce_back_patch_sa(v) -> BackPatchSeamAllowances:
+    """dict -> BackPatchSeamAllowances（已是其类型则原样返回）。"""
+    if isinstance(v, BackPatchSeamAllowances):
+        return v
+    if isinstance(v, dict):
+        return BackPatchSeamAllowances.from_dict(v)
+    raise TypeError("back_patch_seam_allowances 须为 dict 或 "
+                    "BackPatchSeamAllowances")
 
 
 def run(*, waist: float, hip: float, knee: float, hem: float,
@@ -179,6 +189,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_patch_chamfer: float = 2.0,
         back_patch_custom_points: list | tuple = (),
         back_patch_custom_edges: list | tuple = (),
+        back_patch_seam_allowances: dict | object | None = None,
+        back_patch_top_hem_taper: float = -0.15,
+        back_patch_notch_type: str = "V",
+        back_patch_notch_depth: float = 0.3,
+        back_patch_shrinkage_warp: float | None = None,
+        back_patch_shrinkage_weft: float | None = None,
         front_pouch: bool = False,
         front_pouch_waist_safe: float = 4.0,
         front_pouch_side_safe: float = 8.0,
@@ -232,6 +248,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_fly_single_svg: str | None = None,
         front_fly_double_svg: str | None = None,
         watch_pocket_svg: str | None = None,
+        back_patch_svg: str | None = None,
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
@@ -382,6 +399,16 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                           相对袋口近后浪侧顶点，≥3 个，顺时针）
         back_patch_custom_edges  custom 每边形态：(弧高, 弧顶位置 0~1)，
                           弧高 0 = 直线；个数 = 角点数
+        back_patch_seam_allowances  后贴袋裁片缝份 dict {top,side,bottom}
+                          （后贴袋裁片.md §2；top=袋口折边 2.5 双折、side/bottom=1.0）
+        back_patch_top_hem_taper  袋口折边撇势（cm，≤0 向内；后贴袋裁片.md §3
+                          示例 −1.5mm，防折后毛边外露成倒梯形）
+        back_patch_notch_type / back_patch_notch_depth
+                          袋口对位刀口类型 "V"/"I" 与深度（cm，后贴袋裁片.md §4
+                          示例 3mm；仅工艺标注进 notes，不改位置几何）
+        back_patch_shrinkage_warp / back_patch_shrinkage_weft
+                          后贴袋裁片经/纬缩水率（大身面料；None=回退全局
+                          shrinkage_warp/weft 全链路口径，后贴袋裁片.md §2）
         front_pouch        袋布绘制开关（袋布绘制.md §一~§五；依赖 front_pocket 主切口）
         front_pouch_waist_safe  腰缝锚点安全内延（沿腰弧自 P1 朝门襟，cm，推荐 3.5~5.0）
         front_pouch_side_safe  侧缝锚点安全垂深（自 P2 沿侧缝下探，cm，推荐 6.0~10.0）
@@ -473,6 +500,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         watch_pocket_svg 小表袋裁片独立 SVG 输出路径（None=不输出；需完整整版且
                          watch_pocket 开启；按 watch_pocket_mode 派发净样提取，
                          小表袋裁片.md §一~§四 独立裁片）
+        back_patch_svg   后贴袋裁片独立 SVG 输出路径（None=不输出；需完整整版且
+                         back_patch 开启（依赖 back_yoke 定位）；四形态净样 1:1
+                         复制 + 袋口镜像折边/撇势/P_notch 对位刀口 + 竖向丝缕，
+                         后贴袋裁片.md §1~§5 独立裁片）
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
 
@@ -594,6 +625,14 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        back_patch_chamfer=back_patch_chamfer,
                        back_patch_custom_points=back_patch_custom_points,
                        back_patch_custom_edges=back_patch_custom_edges,
+                       **({"back_patch_seam_allowances":
+                           _coerce_back_patch_sa(back_patch_seam_allowances)}
+                          if back_patch_seam_allowances is not None else {}),
+                       back_patch_top_hem_taper=back_patch_top_hem_taper,
+                       back_patch_notch_type=back_patch_notch_type,
+                       back_patch_notch_depth=back_patch_notch_depth,
+                       back_patch_shrinkage_warp=back_patch_shrinkage_warp,
+                       back_patch_shrinkage_weft=back_patch_shrinkage_weft,
                        front_pouch=front_pouch,
                        front_pouch_waist_safe=front_pouch_waist_safe,
                        front_pouch_side_safe=front_pouch_side_safe,
@@ -687,6 +726,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
             piece, _wp_ctx = build_watch_pocket(ctx)
             piece_exp.write_piece_svg(piece, watch_pocket_svg)
             print(f"小表袋裁片 SVG 已输出:{watch_pocket_svg}")
+        if back_patch_svg and o.back_patch:
+            from .flows.back_patch_flow import build_back_patch
+            piece, _bp_ctx = build_back_patch(ctx)
+            piece_exp.write_piece_svg(piece, back_patch_svg)
+            print(f"后贴袋裁片 SVG 已输出:{back_patch_svg}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")

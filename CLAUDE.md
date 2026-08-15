@@ -21,7 +21,8 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
     --front-pouch-svg out/front_pouch.svg \
     --front-fly-single-svg out/front_fly_single.svg \
     --front-fly-double-svg out/front_fly_double.svg \
-    --watch-pocket-svg out/watch_pocket.svg
+    --watch-pocket-svg out/watch_pocket.svg \
+    --back-patch-svg out/back_patch.svg
 # CLI 还支持 --until 步骤名：执行到该步停止，输出中间版调版
 # 代码内调用：from ylpattern import run；run(waist=..., hip=..., svg=...)（详见 api.run docstring）
 ```
@@ -29,7 +30,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 ## 文档驱动的开发方式（本项目最重要的工作流）
 
 - [打版流程.md](打版流程.md) 是步骤的唯一权威来源；[.doc/](.doc/) 下每篇推导文档对应一类公式（臀围、裆、腰、腿、腰头、口袋、袋布、门襟、贴袋、毗围……），[.doc/python工程设计.md](.doc/python工程设计.md) 是工程设计文档。**文档先行**：部分特征先有推导文档、后程序化，属正常在建状态。
-- 用户的典型操作：在打版流程.md 里新增/修改一个步骤 → 要求"程序化"。对应改动链条：**公式层（`formulas/`）→ 选项（`PatternOptions` 需同步 `api.run()` 显式参数透传）→ 步骤函数（`steps/*.py`，按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps` / `back_patch_steps` / `waistband_steps`）→ 流程列表（`flows/*.py`）→ 金标测试**。腰头裁片另走裁切链：`steps/waistband_steps` + `flows/waistband_flow`（`build_waistband(main_ctx)` 从整版提取腰弧净长）-> `cutter`（缩水+缝边）-> `exporters/piece_svg`（独立 SVG），不在 FULL_FLOW 内。后机头裁片同走裁切链：`flows/yoke_flow`（`build_yoke(main_ctx)` 从整版提取机头四边界，有省时绕省尖旋转闭合 + 拼合处 G1 倒圆）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。前口袋裁片同走裁切链：`flows/front_pocket_flow`（`build_front_pocket(main_ctx)` 从整版提取袋贴/贴袋净样边界，按 front_pocket_facing/front_patch 派发）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。袋布裁片同走裁切链：`flows/front_pouch_flow`（`build_front_pouch(main_ctx)` 从整版提取袋布大片/小片净样，小片沿内边 P_w0-K1 轴对称、按省/无省取袋口挖削线，拼成一片式对折轮廓）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。门襟裁片同走裁切链：`flows/front_fly_flow`（`build_front_fly(main_ctx)` 从整版提取独立门襟净样，单排原样提取、双排去底角 J 弧外缘平行化后沿内边轴镜像展开成对折片）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。小表袋裁片同走裁切链：`flows/watch_pocket_flow`（`build_watch_pocket(main_ctx)` 从整版提取小表袋净样，按 watch_pocket_mode 派发：袋贴相交延伸取底边袋贴内边子段、全自定义拷贝锚点闭合链）-> `cutter`（里料缩水默认 0 隔离大身面料 + 缝边）-> `exporters/piece_svg`，亦不在 FULL_FLOW 内。步骤 docstring 和 `basis` 字段必须标注依据的文档章节。
+- 用户的典型操作：在打版流程.md 里新增/修改一个步骤 → 要求"程序化"。对应改动链条：**公式层（`formulas/`）→ 选项（`PatternOptions` 需同步 `api.run()` 显式参数透传）→ 步骤函数（`steps/*.py`，按部件分文件：`front_steps` / `back_steps` / `front_pocket_steps` / `front_pouch_steps` / `front_fly_steps` / `back_yoke_steps` / `back_patch_steps` / `waistband_steps`）→ 流程列表（`flows/*.py`）→ 金标测试**。腰头裁片另走裁切链：`steps/waistband_steps` + `flows/waistband_flow`（`build_waistband(main_ctx)` 从整版提取腰弧净长）-> `cutter`（缩水+缝边）-> `exporters/piece_svg`（独立 SVG），不在 FULL_FLOW 内。后机头裁片同走裁切链：`flows/yoke_flow`（`build_yoke(main_ctx)` 从整版提取机头四边界，有省时绕省尖旋转闭合 + 拼合处 G1 倒圆）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。前口袋裁片同走裁切链：`flows/front_pocket_flow`（`build_front_pocket(main_ctx)` 从整版提取袋贴/贴袋净样边界，按 front_pocket_facing/front_patch 派发）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。袋布裁片同走裁切链：`flows/front_pouch_flow`（`build_front_pouch(main_ctx)` 从整版提取袋布大片/小片净样，小片沿内边 P_w0-K1 轴对称、按省/无省取袋口挖削线，拼成一片式对折轮廓）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。门襟裁片同走裁切链：`flows/front_fly_flow`（`build_front_fly(main_ctx)` 从整版提取独立门襟净样，单排原样提取、双排去底角 J 弧外缘平行化后沿内边轴镜像展开成对折片）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。小表袋裁片同走裁切链：`flows/watch_pocket_flow`（`build_watch_pocket(main_ctx)` 从整版提取小表袋净样，按 watch_pocket_mode 派发：袋贴相交延伸取底边袋贴内边子段、全自定义拷贝锚点闭合链）-> `cutter`（里料缩水默认 0 隔离大身面料 + 缝边）-> `exporters/piece_svg`，亦不在 FULL_FLOW 内。后贴袋裁片同走裁切链：`flows/back_patch_flow`（`build_back_patch(main_ctx)` 从整版 1:1 完整复制四形态净样，依赖 back_yoke 定位；大身面料缩水 None 回退全局 + 分区缝边 + 袋口镜像折边/撇势/P_notch 对位刀口）-> `cutter` -> `exporters/piece_svg`，亦不在 FULL_FLOW 内。步骤 docstring 和 `basis` 字段必须标注依据的文档章节。
 
 ## 分层架构（依赖方向自上而下，禁止反向）
 

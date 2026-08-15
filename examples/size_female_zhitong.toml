@@ -208,6 +208,14 @@ back_patch_custom_points    = [[0, 0], [14, 0], [13.5, 15], [7, 17], [0.5, 15]]
 back_patch_custom_edges     = [[0, 0.5], [0, 0.5], [-0.2, 0.5], [-0.2, 0.5], [0, 0.5]]
                                         # custom 每边形态：(弧高, 弧顶位置)；弧高 0 = 直线，
                                         #   个数 = 角点数；示例底两段微弧
+# ---- 后贴袋裁片（后贴袋裁片.md §2~§4，默认值即可省略）----
+back_patch_seam_allowances  = { top = 2.5, side = 1.0, bottom = 1.0 }
+                                        # 分区缝份：top 袋口折边 25mm 双折 / side、bottom 10mm
+back_patch_top_hem_taper    = 0    # 袋口折边撇势（cm，≤0 向内；示例 −1.5mm 倒梯形）
+back_patch_notch_type       = "V"      # 袋口对位刀口类型："V" / "I"（仅工艺标注）
+back_patch_notch_depth      = 0.3      # 对位刀口深度（cm，示例 3mm）
+back_patch_shrinkage_warp   = 0.1      # 经向缩水率（大身面料；不设 = 回退全局值）
+back_patch_shrinkage_weft   = 0.06      # 纬向缩水率（不设 = 回退全局值）
 
 # ---- 门襟（可选步骤，门襟绘制.md §2.2~§5）----
 #   两种互斥形态：连裁门襟（fly=true，凸向前片外侧、与前片相连）/

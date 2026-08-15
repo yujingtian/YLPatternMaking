@@ -187,6 +187,27 @@ class WatchPocketSeamAllowances:
 
 
 @dataclass(frozen=True)
+class BackPatchSeamAllowances:
+    """后贴袋裁片缝份（cm，后贴袋裁片.md §2）。
+
+    后贴袋为缝于后大片表面的折边口袋：top 袋口折边（双折，§2 示例 25mm=2.5）/
+    side 两侧常规缝边 / bottom 底边常规缝边（§2 示例 10mm=1.0）。bottom 仅
+    rectangle、baker_shield/angular 底边链与 custom 四边闭合按底边消费；
+    custom N≠4 多边形无可靠底边识别，全走 side（bottom 不生效，同小表袋口径）。
+    """
+
+    top: float = 2.5
+    side: float = 1.0
+    bottom: float = 1.0
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "BackPatchSeamAllowances":
+        return cls(top=float(d.get("top", 2.5)),
+                   side=float(d.get("side", 1.0)),
+                   bottom=float(d.get("bottom", 1.0)))
+
+
+@dataclass(frozen=True)
 class PatternOptions:
     delta: float = 1.0                     # 前后片臀围单侧调节量 Δ（推导文档 §四）
     front_crotch_adjust: float = 0.0       # 前小裆修正（紧身款 -0.5~-1.0，§三.2）
@@ -369,6 +390,20 @@ class PatternOptions:
                                            # custom 每边形态：(弧高, 弧顶位置 0~1)，
                                            #   弧高 0 = 直线，正值沿左手法向凸；
                                            #   个数须等于角点数（闭合边）
+    back_patch_seam_allowances: BackPatchSeamAllowances = field(
+        default_factory=BackPatchSeamAllowances)
+                                           # 后贴袋裁片缝份（top 袋口折边 2.5 / side 1.0 /
+                                           #   bottom 1.0，后贴袋裁片.md §2）
+    back_patch_top_hem_taper: float = -0.15
+                                           # 袋口折边撇势（cm，≤0 向内；折边顶点沿袋口
+                                           #   向内平移 |本值|，防折后毛边外露，§3 示例 −1.5mm）
+    back_patch_notch_type: str = "V"       # 袋口对位刀口类型："V" / "I"（§4）
+    back_patch_notch_depth: float = 0.3    # 对位刀口深度（cm，§4 示例 3mm）
+    back_patch_shrinkage_warp: float | None = None
+                                           # 后贴袋裁片经向缩水率（大身面料；None=用全局
+                                           #   shrinkage_warp/weft，§2 全链路缩水）
+    back_patch_shrinkage_weft: float | None = None
+                                           # 后贴袋裁片纬向缩水率（None=用全局，§2）
     # —— 袋布（pouch）：嵌入式前口袋储物袋布大片/小片（袋布绘制.md §一~§五） ——
     front_pouch: bool = False              # 袋布绘制开关（依赖前口袋主切口，须先开 front_pocket）
     front_pouch_waist_safe: float = 4.0    # 腰缝锚点安全内延 ΔW_safe（沿腰弧自 P1 朝门襟，
@@ -784,6 +819,30 @@ class PatternOptions:
                     raise ValueError(f"后贴袋 custom 弧边弧顶位置须在 (0, 1) 内，得到 {bedges}")
         object.__setattr__(self, "back_patch_custom_points", bpts)
         object.__setattr__(self, "back_patch_custom_edges", bedges)
+        # 后贴袋裁片缝份/撇势/刀口/缩水校验（后贴袋裁片.md §2~§4）
+        bpsa = self.back_patch_seam_allowances
+        if not isinstance(bpsa, BackPatchSeamAllowances):
+            raise TypeError("back_patch_seam_allowances 须为 "
+                            "BackPatchSeamAllowances")
+        for name in ("top", "side", "bottom"):
+            if getattr(bpsa, name) < 0:
+                raise ValueError(f"后贴袋缝份 {name} 不能为负数，"
+                                 f"得到 {getattr(bpsa, name)}")
+        if self.back_patch_top_hem_taper > 0:
+            raise ValueError(f"后贴袋撇势须 ≤ 0（负值口径，向内平移 |值|），"
+                             f"得到 {self.back_patch_top_hem_taper}")
+        if self.back_patch_notch_type not in ("V", "I"):
+            raise ValueError(f"后贴袋刀口类型只支持 V / I，"
+                             f"得到 {self.back_patch_notch_type!r}")
+        if self.back_patch_notch_depth < 0:
+            raise ValueError(f"后贴袋刀口深度不能为负数，"
+                             f"得到 {self.back_patch_notch_depth}")
+        # 后贴袋裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
+        for name in ("back_patch_shrinkage_warp", "back_patch_shrinkage_weft"):
+            v = getattr(self, name)
+            if v is not None and not 0.0 <= v < 0.2:
+                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
+                                 f"得到 {v}")
         # 袋布：节点/边形态归一化与校验（袋布绘制.md §三、§六）
         if self.front_pouch_waist_safe < 0 or self.front_pouch_side_safe < 0:
             raise ValueError("袋布安全内延/垂深不能为负数")
@@ -949,4 +1008,8 @@ class PatternOptions:
             data["watch_pocket_seam_allowances"] = \
                 WatchPocketSeamAllowances.from_dict(
                     data["watch_pocket_seam_allowances"])
+        if "back_patch_seam_allowances" in data:
+            data["back_patch_seam_allowances"] = \
+                BackPatchSeamAllowances.from_dict(
+                    data["back_patch_seam_allowances"])
         return cls(**data)
