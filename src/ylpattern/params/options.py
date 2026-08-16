@@ -449,7 +449,8 @@ class PatternOptions:
                                            #   缝份角形态开关（§2.2 两态）：True=向外
                                            #   凸出的镜像折角/反转角（补偿缝份翻折
                                            #   长度差、防内部缺肉）；False=纯尖角跟随
-                                           #   净样轮廓（不限长 miter 尖角，不抹圆）
+                                           #   净样轮廓（贝塞尔多项式自然外延求交成尖，
+                                           #   不抹圆）
     front_piece_notch_type: str = "I"      # 对位刀口类型："V" / "I"（§2.3；刀口位置几何
                                            #   固定（法向投影至缝边外沿），类型仅工艺标注）
     front_piece_shrinkage_warp: float | None = None

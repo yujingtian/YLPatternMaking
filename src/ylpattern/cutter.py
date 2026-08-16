@@ -9,8 +9,8 @@ add_seam_allowance  各边按独立缝份沿**外法向**偏移（曲线逐点�
   本值时回退阶梯角（miter 长 = sa/sin(θ/2) 随角变锐无界增长，不限则长尖刺）。
   可选 corner_treatments 指定特定角点改用镜像折角（_mirror_point：缝份翻折后
   与裁片重合，机头内缝顶点 bottom×side 与后中底角 bottom×cb 斜角用之；直角退化即 miter）、
-  或不限长尖角（"miter"：工艺指定的尖角跟随净样形态，绕过 miter_limit 限长——
-  限长是防偶发尖刺的兜底，指定角的尖角是目标形态本身，如前片裆尖）。
+  或不限长自然尖角（"miter"：工艺指定的尖角跟随净样曲线按参数方程多项式自然外推相交，
+  绕过 miter_limit 限长——限长是防偶发尖刺的兜底，指定角的尖角是目标形态本身，如前片裆尖）。
 可选 hem 指定一条边走袋口折边构造（HemTreatment，后贴袋裁片.md §3/§4）：
   折边自毛样外侧缝边线起翻——锚点 P_notch = 袋口净线延长线 ∩ 侧缝缝边线，
   折边线 = 侧缝缝边线关于袋口线的镜像（翻折后与侧缝折边区重合），顶端撇势
@@ -190,6 +190,103 @@ def _mirror_point(p: Point, t_a: Vector, t_b: Vector,
     return off_a + t_a.scale(s)
 
 
+def _extrapolate_offset(g: LineSegment | CubicBezier, at_end: bool,
+                        sa: float, max_dist: float) -> list[Point]:
+    """外延偏移：多项式外推贝塞尔曲线（t>1 或 t<0），自然延续原曲线的加速度与曲率。
+    避免固定圆弧曲率导致的平直或鼓包，实现打版软件原生的顺滑交接。"""
+    ds = 0.5  # 采样步长（0.5单元格/毫米），保证打点足够细腻以求得精确交点
+    steps = max(10, int(max_dist / ds))
+    
+    if isinstance(g, LineSegment):
+        t_dir = (g.b - g.a).normalized()
+        if t_dir.length == 0.0:
+            t_dir = Vector(1.0, 0.0)
+        n = t_dir.perpendicular()
+        bp = g.b if at_end else g.a
+        travel = t_dir if at_end else t_dir.scale(-1.0)
+        return [bp + travel.scale(k * ds) + n.scale(sa) for k in range(steps + 1)]
+
+    # 对于贝塞尔，基于端点速度估算参数 t 的步长 dt
+    v0 = g.tangent_at(1.0 if at_end else 0.0)
+    speed = v0.length
+    if speed < 1e-6:
+        speed = 100.0
+    dt = (ds / speed) * (1.0 if at_end else -1.0)
+    
+    pts = []
+    t = 1.0 if at_end else 0.0
+    for _ in range(steps + 1):
+        mt = 1.0 - t
+        
+        # 精确计算外推多项式坐标 B(t)
+        p_x = (mt**3)*g.p0.x + 3*(mt**2)*t*g.p1.x + 3*mt*(t**2)*g.p2.x + (t**3)*g.p3.x
+        p_y = (mt**3)*g.p0.y + 3*(mt**2)*t*g.p1.y + 3*mt*(t**2)*g.p2.y + (t**3)*g.p3.y
+        
+        # 精确计算外推处的一阶导数 B'(t) 以获取最真实的法向
+        d1x = 3*(mt**2)*(g.p1.x-g.p0.x) + 6*mt*t*(g.p2.x-g.p1.x) + 3*(t**2)*(g.p3.x-g.p2.x)
+        d1y = 3*(mt**2)*(g.p1.y-g.p0.y) + 6*mt*t*(g.p2.y-g.p1.y) + 3*(t**2)*(g.p3.y-g.p2.y)
+        
+        sp = (d1x**2 + d1y**2)**0.5
+        if sp > 1e-12:
+            nx, ny = -d1y/sp, d1x/sp
+        else:
+            nx, ny = 0.0, 0.0
+            
+        pts.append(Point(p_x + nx*sa, p_y + ny*sa))
+        t += dt
+        
+    return pts
+
+
+def _seg_cross(a: Point, b: Point, c: Point, d: Point) -> Point | None:
+    ex, ey = b.x - a.x, b.y - a.y
+    fx, fy = d.x - c.x, d.y - c.y
+    det = ex * fy - ey * fx
+    if abs(det) < 1e-12:
+        return None
+    rx, ry = c.x - a.x, c.y - a.y
+    s = (rx * fy - ry * fx) / det
+    u = (rx * ey - ry * ex) / det
+    if -1e-12 <= s <= 1.0 + 1e-12 and -1e-12 <= u <= 1.0 + 1e-12:
+        return Point(a.x + s * ex, a.y + s * ey)
+    return None
+
+
+def _natural_join_sharp(g_a: LineSegment | CubicBezier,
+                        g_b: LineSegment | CubicBezier,
+                        sa_a: float, sa_b: float
+                        ) -> tuple[Point, ...] | None:
+    """两边通过贝塞尔多项式自然外延求交，返回完整的圆顺连线轨迹防折角。"""
+    # 放宽外延搜索距离，确保能在远端相交（留足安全余量）
+    max_len = 4.0 * max(sa_a, sa_b) + 20.0
+    
+    # 贝塞尔参数方程外推能够完美延续曲线本身的张力、加速度和真实弧度
+    A = _extrapolate_offset(g_a, True, sa_a, max_len)
+    B = _extrapolate_offset(g_b, False, sa_b, max_len)
+    
+    hit = None
+    for i in range(len(A) - 1):
+        for j in range(len(B) - 1):
+            x = _seg_cross(A[i], A[i + 1], B[j], B[j + 1])
+            if x is not None:
+                hit = (i, j, x)
+                break
+        if hit is not None:
+            break
+            
+    if hit is None:
+        return None
+        
+    i, j, x = hit
+    
+    # 拼接平滑轨迹：A的末端外延 -> 自然滑向交点x -> 顺滑切入B的起端外延
+    res = []
+    res.extend(A[1:i+1])
+    res.append(x)
+    res.extend(B[1:j+1][::-1]) 
+    return tuple(res)
+
+
 @dataclass(frozen=True)
 class HemTreatment:
     """袋口折边构造参数（后贴袋裁片.md §3/§4）。
@@ -300,8 +397,8 @@ def add_seam_allowance(piece: PatternPiece,
     被镜像边（如侧缝 side / 后中 cb）。mirror 非对称：角点在 cutter 序可能以任一顺序
     出现，故两种顺序的键都查；逆序命中时折线边 = 下边，_mirror_point 形参须交换
     （t_a/sa_a 传折线边、t_b/sa_b 传被镜像边）。目前支持 ``"mirror"``（_mirror_point，
-    缝份翻折重合）与 ``"miter"``（不限长尖角 miter——尖角是该角的工艺目标形态
-    而非偶发尖刺，绕过 miter_limit；如前片裆尖尖角跟随净样）；
+    缝份翻折重合）与 ``"miter"``（不限长自然尖角——工艺指定的尖角跟随净样曲线
+    按参数方程多项式自然外推相交，绕过 miter_limit，如前片裆尖）；
     "miter" 对键序对称。未列出或列其它值仍走限长 miter。
     机头内缝顶点（bottom, side）与后中底角（bottom, cb）用 mirror 使相邻缝份翻折后
     与裁片重合；直角角点 mirror 退化即 miter，故仅斜角相异。
@@ -388,9 +485,17 @@ def add_seam_allowance(piece: PatternPiece,
             if miter is None:               # 镜像退化（平行）回退 miter
                 miter = _miter_point(corner, t_a, t_b, sa_a, sa_b)
         elif treatment == "miter":
-            # 不限长尖角（前片裆尖等）：尖角是该角的工艺目标形态（缝边跟随净样
-            # 轮廓），非偶发尖刺，绕过 miter_limit；平行退化仍回退阶梯角
-            miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, float("inf"))
+            # 不限长自然尖角（前片裆尖等）：尖角是该角的工艺目标形态（缝边跟随净样
+            # 曲线自然延伸交接），非偶发尖刺，绕过 miter_limit。
+            # 接收多项式外推返回的整段平滑轨迹防折角
+            join_path = _natural_join_sharp(edge.geom, nxt.geom, sa_a, sa_b)
+            if join_path is not None:
+                for jp in join_path:
+                    if not poly or jp != poly[-1]:
+                        poly.append(jp)
+                continue  # 轨迹已完整覆盖该角点，直接 continue 处理下一条边
+            else:
+                miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, float("inf"))
         else:
             miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, miter_limit)
         if miter is not None:

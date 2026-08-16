@@ -435,8 +435,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_piece_crotch_corner
                           前浪浪尖（裆尖）缝份角形态开关（§2.2 两态；默认
                           True 外凸镜像折角补偿缝份翻折长度差防"缺肉"；
-                          False = 纯尖角跟随净样轮廓（不限长 miter 尖角，
-                          不抹圆））
+                          False = 纯尖角跟随净样轮廓（贝塞尔多项式
+                          自然外延求交成尖，不抹圆））
         front_piece_notch_type
                           对位刀口类型 "V"/"I"（§2.3；仅工艺标注进 notes，
                           不改位置几何）

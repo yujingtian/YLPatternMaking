@@ -14,8 +14,8 @@ build_front_piece(main_ctx) 从整版 ctx 提取前片大片净样闭合轮廓�
     （前浪完整链），fly_j_* 参考元素不进边界。
 缝边（§2.1/§2.2）：按语义边独立缝宽（FrontSeamAllowances），裆尖（前浪弧
 末端 ∩ 下裆缝起点）角部由 front_piece_crotch_corner 开关控制（默认开 =
-镜像折角；关闭 = 尖角跟随净样轮廓的不限长 miter 纯尖角，不抹圆）。
-刀口（§2.3）：净样刀口沿外法向延伸投影到毛样外沿
+镜像折角；关闭 = 尖角跟随净样轮廓——两侧缝边按贝塞尔多项式自然外延（延续曲线自身张力与曲率）求首个交点成尖，
+不抹圆）。刀口（§2.3）：净样刀口沿外法向延伸投影到毛样外沿
 （flow 私有实现不动 cutter 公开 API——投影是本裁片专属工艺策略，yoke/
 back_patch 均未投影）。缩水（§3.2）：主面料率 front_piece_shrinkage_*
 （None 回退全局）。内部辅助线（§3.3）：臀围/膝围/毗围水平线按净边链截断为
@@ -419,8 +419,9 @@ def build_front_piece(main_ctx: DraftContext
     #    （非下裆缝），下裆缝侧缝份边界关于前浪折线镜像，翻折后与裁片重合、
     #    补偿裆尖缺肉（cutter 双向查键，链序 (inseam, rise) 逆序命中时
     #    _mirror_point 形参自动交换。直角退化即 miter）；
-    #    False=纯尖角跟随净样："miter" 不限长尖角——缝边 = 净样轮廓的等距
-    #    平行线、裆尖尖角保留（尖角是该角的工艺目标形态，不抹圆；直筒等尖裆
+    #    False=纯尖角跟随净样："miter" 不限长尖角自然相交——两侧缝边按贝塞尔多项式自然外延（延续曲线自身张力与曲率）求首个交点成尖
+    #    （cutter._natural_join_sharp/_extrapolate_offset），裆尖尖角保留、
+    #    不抹圆（尖角是该角的工艺目标形态；直筒等尖裆切线
     #    miter 长 >1.5·缝宽会触发默认限长回退阶梯角——台阶断点不圆顺，
     #    故显式声明绕过限长）
     if o.front_piece_crotch_corner:
