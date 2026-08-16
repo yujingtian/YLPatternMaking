@@ -123,6 +123,16 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     elif args.back_patch_svg and args.until:
         print("警告：--until 中断调版时不生成后贴袋裁片（需完整整版提取后贴袋净样边界）",
               file=sys.stderr)
+    if args.front_piece_svg and not args.until:
+        # 前片净样元素整版必有，无开关守卫；由输出 flag 直接驱动
+        from .flows.front_piece_flow import build_front_piece
+        from .exporters import piece_svg as piece_exp
+        piece, _fpc = build_front_piece(ctx)
+        piece_exp.write_piece_svg(piece, args.front_piece_svg)
+        print(f"前片裁片 SVG 已输出：{args.front_piece_svg}")
+    elif args.front_piece_svg and args.until:
+        print("警告：--until 中断调版时不生成前片裁片（需完整整版提取前片净样轮廓）",
+              file=sys.stderr)
     if want_trace:
         with open(args.trace, "w", encoding="utf-8") as fp:
             fp.write(trace_text)
@@ -162,6 +172,8 @@ def main(argv: list[str] | None = None) -> int:
                          help="输出小表袋裁片独立 SVG 路径（watch_pocket 开启；按 watch_pocket_mode 派发，需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--back-patch-svg",
                          help="输出后贴袋裁片独立 SVG 路径（back_patch 开启（依赖 back_yoke）；四形态净样+袋口折边，需完整整版，勿与 --until 同用）")
+    p_draft.add_argument("--front-piece-svg",
+                         help="输出前片裁片独立 SVG 路径（弯腰头剥离/口袋挖削/连裁门襟三形态净边装配；需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--until", help="执行到指定步骤（含）后停止")
     p_draft.add_argument("--trace", help="输出逐步绘制追踪记录路径")
     p_draft.add_argument("--report", help="输出尺寸报表路径")

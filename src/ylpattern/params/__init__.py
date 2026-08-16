@@ -6,11 +6,11 @@ from .options import (PatternOptions, WaistbandType, WaistbandGrain, Fit,
                       YokeSeamAllowances, FrontFacingSeamAllowances,
                       FrontPatchSeamAllowances, PouchSeamAllowances,
                       FlySeamAllowances, WatchPocketSeamAllowances,
-                      BackPatchSeamAllowances)
+                      BackPatchSeamAllowances, FrontSeamAllowances)
 
 __all__ = ["Measurements", "PatternOptions", "WaistbandType", "WaistbandGrain",
            "Fit", "DELTA_PRESETS", "WaistbandSeamAllowances",
            "YokeSeamAllowances", "FrontFacingSeamAllowances",
            "FrontPatchSeamAllowances", "PouchSeamAllowances",
            "FlySeamAllowances", "WatchPocketSeamAllowances",
-           "BackPatchSeamAllowances"]
+           "BackPatchSeamAllowances", "FrontSeamAllowances"]

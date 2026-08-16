@@ -155,3 +155,37 @@ def test_hem_top_last_in_chain_mirror():
         (14.85, -2.5), (-0.85, -2.5)])
     assert out.gross_notches[-2:] == (pytest.approx(Point(15, 0)),
                                       pytest.approx(Point(-1, 0)))
+
+
+def test_miter_treatment_bypasses_limit():
+    """corner_treatments "miter"（不限长尖角，前片裁片.md §2.2 裆尖尖角跟随净样）：
+    尖角 C=(0,0)、转角 −105°（内角 75°）、缝宽 1——真 miter = (1.3032, 1.0)、
+    距 C ≈1.643 > 1.5 限长：不声明处理时回退阶梯角（outer = C+n_a+n_b
+    = (0.9659, 0.7412) 台阶点），声明后角点 = 真 miter（同式复算），
+    键序对称（("rise","inseam") / ("inseam","rise") 同果）。"""
+    from math import cos, sin, radians
+    from ylpattern.cutter import _miter_point
+    from ylpattern.geometry import Vector
+    c = Point(0.0, 0.0)
+    t_a = Vector(1.0, 0.0)                       # rise 进入角点方向
+    th = radians(-105.0)
+    t_b = Vector(cos(th), sin(th))               # inseam 离开角点方向（顺时针转 105°）
+    p0 = c + t_a.scale(-20.0)
+    p1 = c + t_b.scale(20.0)
+    edges = (PieceEdge("rise", LineSegment(p0, c)),
+             PieceEdge("inseam", LineSegment(c, p1)),
+             PieceEdge("side", LineSegment(p1, p0)))   # shoelace < 0
+    piece = PatternPiece("demo", "尖角", edges)
+    sa = {"rise": 1.0, "inseam": 1.0, "side": 1.0}
+    exp = _miter_point(c, t_a, t_b, 1.0, 1.0, float("inf"))
+    assert exp is not None and exp.distance_to(c) > 1.5   # 超默认限长
+    # 未声明：miter 限长回退阶梯角，毛样无真 miter 顶点、有台阶外点
+    limited = add_seam_allowance(piece, sa)
+    assert min(p.distance_to(exp) for p in limited.gross_polygon) > 0.1
+    step = c + t_a.perpendicular().scale(1.0) + t_b.perpendicular().scale(1.0)
+    assert min(p.distance_to(step) for p in limited.gross_polygon) < 1e-9
+    # 声明 "miter"：角点 = 真 miter，无台阶点；键序对称
+    for key in (("rise", "inseam"), ("inseam", "rise")):
+        out = add_seam_allowance(piece, sa, corner_treatments={key: "miter"})
+        assert min(p.distance_to(exp) for p in out.gross_polygon) < 1e-9
+        assert min(p.distance_to(step) for p in out.gross_polygon) > 0.1

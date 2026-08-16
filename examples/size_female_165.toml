@@ -277,6 +277,17 @@ back_waist_curve_sag  = 0.4     # 后片腰头线弧额外下凹量（贴合腰�
 # watch_pocket_shrinkage_weft = 0.02   # 纬向缩水率（0 = 不缩水，默认）
 # 三边独立缝份见文末 [options.watch_pocket_seam_allowances] 子表
 
+# 前片裁片（前片裁片.md；ylpattern draft --front-piece-svg。弯腰头剥离/口袋挖削/
+#   连裁门襟三形态按整版元素自动装配净边；主面料，缩水 None/省略 = 用全局
+#   shrinkage_warp/weft；须位于 [options.*] 子表之前（TOML 主表键，启用=删行首 #））
+# front_piece_shrinkage_warp = 0.03   # 经向缩水率（None=用全局 shrinkage_warp）
+# front_piece_shrinkage_weft = 0.02   # 纬向缩水率（None=用全局 shrinkage_weft）
+front_piece_crotch_corner  = true   # 裆尖（前浪弧末端与下裆缝起点交点）角形态开关（§2.2 两态）：
+                                   #   true = 镜像折角（前浪缝份翻折补缺肉，折轴 = 前浪缝本身）；
+                                   #   false = 纯尖角跟随净样轮廓（不限长 miter 尖角，不抹圆）
+front_piece_notch_type     = "I"   # 对位刀口类型："I" 剪口 / "V" 缺口（§2.3，仅工艺标注）
+# 九边独立缝份见文末 [options.front_piece_seam_allowances] 子表
+
 fit                 = "regular"   # 版型：skinny 紧身 / slim 修身 / regular 标准 / loose 宽松
 seam_allowance      = 1.0         # 默认缝份宽度
 piece_gap           = 10.0        # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
@@ -346,5 +357,20 @@ inner = 1.0        # 内边缝边（与前浪缝合线重合，仅单排消费�
 top = 2.5          # 袋口折边（向反面折转，双折边明线车缝）
 side = 1.0         # 两侧缝边
 bottom = 1.0       # 底边缝边（与袋贴 inner 一致）
+
+# 前片裁片九边独立缝份（cm，前片裁片.md §2.1；先缩水后缝边，缝份不叠加缩水；
+#   ylpattern draft --front-piece-svg）
+#   常规五边 + 袋口挖削边 mouth（有口袋时消费）+ 连裁门襟三边 fly_*
+#   （仅 fly=true 且非 fly_separate 连裁时消费，独立门襟走门襟裁片缝份）
+[options.front_piece_seam_allowances]
+waist = 1.0        # 装腰缝边
+rise = 1.0         # 前浪缝边（浪尖镜像折角见 front_piece_crotch_corner）
+inseam = 1.0       # 下裆缝缝边
+side = 1.5         # 侧缝缝边（埋夹工艺加宽）
+hem = 2.5          # 裤口卷边（双折边）
+mouth = 1.0        # 袋口挖削边缝边（接袋贴）
+fly_top = 1.0      # 连裁门襟腰口端缝边
+fly_outer = 1.0    # 连裁门襟外缘缝边（含底角 J 型弧）
+fly_bottom = 1.0   # 连裁门襟底边缝边
 
 

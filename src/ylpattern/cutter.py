@@ -8,7 +8,9 @@ add_seam_allowance  各边按独立缝份沿**外法向**偏移（曲线逐点�
   普通 miter 角有尖角限长 miter_limit（默认 1.5）：锐角交点距角点超 max(sa)×
   本值时回退阶梯角（miter 长 = sa/sin(θ/2) 随角变锐无界增长，不限则长尖刺）。
   可选 corner_treatments 指定特定角点改用镜像折角（_mirror_point：缝份翻折后
-  与裁片重合，机头内缝顶点 bottom×side 与后中底角 bottom×cb 斜角用之；直角退化即 miter）。
+  与裁片重合，机头内缝顶点 bottom×side 与后中底角 bottom×cb 斜角用之；直角退化即 miter）、
+  或不限长尖角（"miter"：工艺指定的尖角跟随净样形态，绕过 miter_limit 限长——
+  限长是防偶发尖刺的兜底，指定角的尖角是目标形态本身，如前片裆尖）。
 可选 hem 指定一条边走袋口折边构造（HemTreatment，后贴袋裁片.md §3/§4）：
   折边自毛样外侧缝边线起翻——锚点 P_notch = 袋口净线延长线 ∩ 侧缝缝边线，
   折边线 = 侧缝缝边线关于袋口线的镜像（翻折后与侧缝折边区重合），顶端撇势
@@ -79,7 +81,8 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
     两个参数语义为**沿裁片局部 X/Y 轴**的缩水率（形参命名 warp/weft 仅为腰头
     长向=经的默认场景）；当裁片经向方向不同（如腰头宽向=经）时，由调用方把面料
     经/纬率换序后传入（见 flows/waistband_flow.build_waistband）。
-    缩放保持贝塞尔性（控制点同步缩放）；刀口、丝缕线同步偏移。
+    缩放保持贝塞尔性（控制点同步缩放）；刀口、丝缕线、内部标记线同步缩放
+    （内部辅助线随主裁片同比例变换，前片裁片.md §3.3）。
     返回填充 shrunk_edges / shrunk_notches 的新裁片。
     """
     sx, sy = 1.0 + warp, 1.0 + weft
@@ -90,6 +93,7 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
     if piece.grain is not None:
         sgrain = LineSegment(_scale_point(piece.grain.a, sx, sy),
                              _scale_point(piece.grain.b, sx, sy))
+    smarks = tuple(_scale_geom(g, sx, sy) for g in piece.marks)
     out = piece.with_shrunk(shrunk, snotches)
     # 丝缕线随缩水更新（with_shrunk 不带 grain，重建一个）
     return PatternPiece(out.name, out.label, out.net_edges, out.notches,
@@ -97,7 +101,7 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
                         out.gross_polygon, out.gross_notches,
                         out.notes + (f"缩水：经 {warp*100:.1f}% / 纬 {weft*100:.1f}%",)
                         if warp or weft else out.notes,
-                        out.marks)
+                        smarks)
 
 
 def _edge_points(edge: PieceEdge) -> list[Point]:
@@ -291,14 +295,16 @@ def add_seam_allowance(piece: PatternPiece,
     sa 鸭子类型：Mapping（机头等边名→缝份映射）或 WaistbandSeamAllowances
     （字段名即边名）；详见 _sa_amount。
 
-    corner_treatments：可选 {(折线边, 被镜像边): 算法名}，指定特定异名边角点改用
-    非 miter 折角。**键首元素 = 缝份翻折的折线边**（如底边 bottom），次元素 = 被镜像
-    边（如侧缝 side / 后中 cb）。mirror 非对称：角点在 cutter 序可能以任一顺序出现，
-    故两种顺序的键都查；逆序命中时折线边 = 下边，_mirror_point 形参须交换（t_a/sa_a
-    传折线边、t_b/sa_b 传被镜像边）。目前支持 ``"mirror"``（_mirror_point，缝份翻折
-    重合）；未列出或列其它值仍走 miter。机头内缝顶点（bottom, side）与后中底角
-    （bottom, cb）用 mirror 使相邻缝份翻折后与裁片重合；直角角点 mirror 退化即 miter，
-    故仅斜角相异。
+    corner_treatments：可选 {(折线边, 被镜像边): 算法名}，指定特定异名边角点
+    改用非 miter 折角。**键首元素 = 缝份翻折的折线边**（如底边 bottom），次元素 =
+    被镜像边（如侧缝 side / 后中 cb）。mirror 非对称：角点在 cutter 序可能以任一顺序
+    出现，故两种顺序的键都查；逆序命中时折线边 = 下边，_mirror_point 形参须交换
+    （t_a/sa_a 传折线边、t_b/sa_b 传被镜像边）。目前支持 ``"mirror"``（_mirror_point，
+    缝份翻折重合）与 ``"miter"``（不限长尖角 miter——尖角是该角的工艺目标形态
+    而非偶发尖刺，绕过 miter_limit；如前片裆尖尖角跟随净样）；
+    "miter" 对键序对称。未列出或列其它值仍走限长 miter。
+    机头内缝顶点（bottom, side）与后中底角（bottom, cb）用 mirror 使相邻缝份翻折后
+    与裁片重合；直角角点 mirror 退化即 miter，故仅斜角相异。
 
     hem：可选 HemTreatment，指定一条边（袋口）走折边构造（后贴袋裁片.md §3/§4）：
     该边不发常规偏移，改发 [T_a, T_b] 折边顶点（_hem_points：锚点 P_notch =
@@ -381,6 +387,10 @@ def add_seam_allowance(piece: PatternPiece,
                 miter = _mirror_point(corner, t_b, t_a, sa_b, sa_a)
             if miter is None:               # 镜像退化（平行）回退 miter
                 miter = _miter_point(corner, t_a, t_b, sa_a, sa_b)
+        elif treatment == "miter":
+            # 不限长尖角（前片裆尖等）：尖角是该角的工艺目标形态（缝边跟随净样
+            # 轮廓），非偶发尖刺，绕过 miter_limit；平行退化仍回退阶梯角
+            miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, float("inf"))
         else:
             miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, miter_limit)
         if miter is not None:

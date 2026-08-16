@@ -49,9 +49,11 @@ class PatternPiece:
     gross_notches: tuple[Point, ...] = ()
     notes: tuple[str, ...] = ()                 # 裁切过程记录（缩水率/缝份等）
     marks: tuple[LineSegment | CubicBezier, ...] = ()
-                                                # 内部标记弧线（净样坐标，不缩水；
-                                                #   如袋贴必须保留的袋口净线/省弧线，
-                                                #   前口袋裁片.md §1.1）
+                                                # 内部标记弧线（净样坐标，随缩水
+                                                #   同比例变换，前片裁片.md §3.3；
+                                                #   如袋贴必须保留的袋口净线/省弧线
+                                                #   前口袋裁片.md §1.1、前片内部
+                                                #   辅助线 臀围/膝围/毗围线）
 
     def with_shrunk(self, edges: tuple[PieceEdge, ...],
                     notches: tuple[Point, ...]) -> "PatternPiece":

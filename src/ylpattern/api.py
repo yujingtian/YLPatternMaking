@@ -18,7 +18,8 @@ from .params import (Measurements, PatternOptions, WaistbandGrain, WaistbandType
                      WaistbandSeamAllowances, YokeSeamAllowances,
                      FrontFacingSeamAllowances, FrontPatchSeamAllowances,
                      PouchSeamAllowances, FlySeamAllowances,
-                     WatchPocketSeamAllowances, BackPatchSeamAllowances)
+                     WatchPocketSeamAllowances, BackPatchSeamAllowances,
+                     FrontSeamAllowances)
 
 
 def _coerce_sa(v) -> WaistbandSeamAllowances:
@@ -96,6 +97,16 @@ def _coerce_back_patch_sa(v) -> BackPatchSeamAllowances:
         return BackPatchSeamAllowances.from_dict(v)
     raise TypeError("back_patch_seam_allowances 须为 dict 或 "
                     "BackPatchSeamAllowances")
+
+
+def _coerce_front_piece_sa(v) -> FrontSeamAllowances:
+    """dict -> FrontSeamAllowances（已是其类型则原样返回）。"""
+    if isinstance(v, FrontSeamAllowances):
+        return v
+    if isinstance(v, dict):
+        return FrontSeamAllowances.from_dict(v)
+    raise TypeError("front_piece_seam_allowances 须为 dict 或 "
+                    "FrontSeamAllowances")
 
 
 def run(*, waist: float, hip: float, knee: float, hem: float,
@@ -195,6 +206,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_patch_notch_depth: float = 0.3,
         back_patch_shrinkage_warp: float | None = None,
         back_patch_shrinkage_weft: float | None = None,
+        front_piece_seam_allowances: dict | object | None = None,
+        front_piece_crotch_corner: bool = True,
+        front_piece_notch_type: str = "I",
+        front_piece_shrinkage_warp: float | None = None,
+        front_piece_shrinkage_weft: float | None = None,
         front_pouch: bool = False,
         front_pouch_waist_safe: float = 4.0,
         front_pouch_side_safe: float = 8.0,
@@ -249,6 +265,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_fly_double_svg: str | None = None,
         watch_pocket_svg: str | None = None,
         back_patch_svg: str | None = None,
+        front_piece_svg: str | None = None,
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
@@ -409,6 +426,23 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_patch_shrinkage_warp / back_patch_shrinkage_weft
                           后贴袋裁片经/纬缩水率（大身面料；None=回退全局
                           shrinkage_warp/weft 全链路口径，后贴袋裁片.md §2）
+        front_piece_seam_allowances
+                          前片裁片九边独立缝份 dict {waist,rise,inseam,side,hem,
+                          mouth,fly_top,fly_outer,fly_bottom}（cm，前片裁片.md
+                          §2.1；waist 装腰 1.0、rise 前浪 1.0、inseam 下裆 1.0、
+                          side 侧缝 1.5、hem 裤口卷边 2.5、mouth 袋口挖削 1.0、
+                          fly_* 连裁门襟三边 1.0）
+        front_piece_crotch_corner
+                          前浪浪尖（裆尖）缝份角形态开关（§2.2 两态；默认
+                          True 外凸镜像折角补偿缝份翻折长度差防"缺肉"；
+                          False = 纯尖角跟随净样轮廓（不限长 miter 尖角，
+                          不抹圆））
+        front_piece_notch_type
+                          对位刀口类型 "V"/"I"（§2.3；仅工艺标注进 notes，
+                          不改位置几何）
+        front_piece_shrinkage_warp / front_piece_shrinkage_weft
+                          前片裁片经/纬缩水率（大身面料主裁片；None=回退全局
+                          shrinkage_warp/weft，§3.2）
         front_pouch        袋布绘制开关（袋布绘制.md §一~§五；依赖 front_pocket 主切口）
         front_pouch_waist_safe  腰缝锚点安全内延（沿腰弧自 P1 朝门襟，cm，推荐 3.5~5.0）
         front_pouch_side_safe  侧缝锚点安全垂深（自 P2 沿侧缝下探，cm，推荐 6.0~10.0）
@@ -504,6 +538,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          back_patch 开启（依赖 back_yoke 定位）；四形态净样 1:1
                          复制 + 袋口镜像折边/撇势/P_notch 对位刀口 + 竖向丝缕，
                          后贴袋裁片.md §1~§5 独立裁片）
+        front_piece_svg  前片裁片独立 SVG 输出路径（None=不输出；需完整整版；
+                         弯腰头剥离/口袋挖削/连裁门襟三形态净边装配 + 不等宽
+                         缝边 + 裆尖折角 + 刀口法向投影 + 内部辅助线，
+                         前片裁片.md §1~§3 独立裁片）
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
 
@@ -633,6 +671,13 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        back_patch_notch_depth=back_patch_notch_depth,
                        back_patch_shrinkage_warp=back_patch_shrinkage_warp,
                        back_patch_shrinkage_weft=back_patch_shrinkage_weft,
+                       **({"front_piece_seam_allowances":
+                           _coerce_front_piece_sa(front_piece_seam_allowances)}
+                          if front_piece_seam_allowances is not None else {}),
+                       front_piece_crotch_corner=front_piece_crotch_corner,
+                       front_piece_notch_type=front_piece_notch_type,
+                       front_piece_shrinkage_warp=front_piece_shrinkage_warp,
+                       front_piece_shrinkage_weft=front_piece_shrinkage_weft,
                        front_pouch=front_pouch,
                        front_pouch_waist_safe=front_pouch_waist_safe,
                        front_pouch_side_safe=front_pouch_side_safe,
@@ -731,6 +776,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
             piece, _bp_ctx = build_back_patch(ctx)
             piece_exp.write_piece_svg(piece, back_patch_svg)
             print(f"后贴袋裁片 SVG 已输出:{back_patch_svg}")
+        if front_piece_svg:
+            # 前片净样元素整版必有，无开关守卫；由输出 flag 直接驱动
+            from .flows.front_piece_flow import build_front_piece
+            piece, _fpc_ctx = build_front_piece(ctx)
+            piece_exp.write_piece_svg(piece, front_piece_svg)
+            print(f"前片裁片 SVG 已输出:{front_piece_svg}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")
