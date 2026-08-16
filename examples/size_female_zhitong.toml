@@ -292,7 +292,7 @@ front_piece_shrinkage_warp = 0.1   # 经向缩水率（0.1=10%；None=用全局 
 front_piece_shrinkage_weft = 0.06  # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
 front_piece_crotch_corner  = false  # 裆尖（前浪弧末端与下裆缝起点交点）角形态开关（§2.2 两态）：
                                    #   true = 镜像折角（前浪缝份翻折补缺肉，折轴 = 前浪缝本身）；
-                                   #   false = 纯尖角跟随净样轮廓（不限长 miter 尖角，不抹圆）
+                                   #   false = 纯尖角跟随净样轮廓（贝塞尔多项式自然外延求交成尖，不抹圆）
 front_piece_notch_type     = "I"   # 对位刀口类型："I" 剪口 / "V" 缺口（§2.3，仅工艺标注）
 # 九边独立缝份见文末 [options.front_piece_seam_allowances] 子表
 

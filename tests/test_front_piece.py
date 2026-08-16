@@ -10,8 +10,8 @@
     独立门襟与无门襟同形（fly_sep_* 为叠画元素不进边界）。
   §2.1 边长独立复算（从 ctx 元素 t_at_length/bezier_subrange 同式重算，不硬编）。
   §2.2 裆尖角部：True = mirror（== _mirror_point 复算角点）、False = 纯
-    尖角跟随净样（== _miter_point 不限长复算角点 ∈ 毛样顶点，裆尖尖角
-    保留、缝边与净样轮廓形态一致、无阶梯断点；不抹圆）。
+    尖角跟随净样（== _natural_join_sharp 复算外延链 ∈ 毛样：两侧缝边按
+    贝塞尔多项式自然外延求交成尖，裆尖尖角保留、无阶梯断点、不抹圆）。
   §2.3 刀口法向投影：全部 ∈ 毛样外沿（1e-6）；膝围双刀口距净点 == sa_side
     且 ⟂ 切线（绝对精准）；拉链止口 == 外缘链 point_along_chain(L)；
     刀口数按矩阵（膝2+臀1+卷边2+毗围1 基底，口袋 +2、连裁 +1、d>0 毗围内端 +1）。
@@ -352,15 +352,17 @@ def test_crotch_corner_treatment(wb):
         assert nearest_vertex(p_mirror, exp_m) < 1e-9
 
 
-# ---------- §2.2 裆尖纯尖角跟随净样（False 态，不限长 miter 尖角） ----------
+# ---------- §2.2 裆尖纯尖角跟随净样（False 态，"miter" 自然相交） ----------
 
 @pytest.mark.parametrize("wb", WBS, ids=[w.name for w in WBS])
 def test_crotch_miter_corner(wb):
-    """False：裆尖走 "miter" 不限长纯尖角（不抹圆），缝边 = 净样轮廓的等距
-    平行线、尖角保留（== _miter_point 同式复算角点 ∈ 毛样顶点）——角部形态
+    """False：裆尖走 "miter" 不限长纯尖角自然相交（不抹圆）——两侧缝边
+    按贝塞尔多项式自然外延（延续曲线自身张力与曲率）求首个交点成尖
+    （== _natural_join_sharp 同式复算链逐点 ∈ 毛样）——角部形态
     与净样轮廓一致，无圆弧过渡点（毛样无距裆尖 == 缝宽的等距弧顶点）、
-    无阶梯角断点（尖裆转角大时 miter 长 >1.5·缝宽，默认限长会回退阶梯角，
-    本态显式声明尖角为工艺目标形态、绕过限长）。"""
+    无阶梯角断点（尖裆转角大时切线 miter 长 >1.5·缝宽会触发
+    默认限长回退阶梯角，本态显式声明尖角为工艺目标形态、绕过限长）。"""
+    from ylpattern.cutter import _natural_join_sharp
     ctx, p_mit, _ = _build(waistband_type=wb, front_piece_crotch_corner=False)
     _, p_mir, _ = _build(waistband_type=wb, front_piece_crotch_corner=True)
     b = _b(ctx)
@@ -375,20 +377,21 @@ def test_crotch_miter_corner(wb):
     def nearest(piece, q):
         return min(p.distance_to(q) for p in piece.gross_polygon)
 
-    # 同式复算：不限长 miter 角点必为毛样顶点（尖角为工艺指定形态，绕过
-    # miter_limit——直筒等尖裆 miter 长 >1.5·缝宽，限长会回退阶梯角）
-    exp = _miter_point(c, t_a, t_b, SA.inseam, SA.rise, float("inf"))
-    assert exp is not None, "裆尖异名边转角有限，miter 必存在"
-    assert nearest(p_mit, exp) < 1e-9
-    # 无阶梯角断点：裆尖附近毛样顶点除 miter 角点外均落在两侧偏移折线上
-    # （阶梯角会多出 outer = c+n_a·sa_a+n_b·sa_b 台阶点）
+    # 同式复算：自然相交延续链逐点在毛样上，交点成尖（尖角为工艺指定形态）
+    exp = _natural_join_sharp(ne[iu].geom, ne[ri].geom,
+                              SA.inseam, SA.rise)
+    assert exp is not None, "裆尖多项式外延必相交"
+    for q in exp:
+        assert nearest(p_mit, q) < 1e-9
+    apex = exp[len(exp) // 2] if len(exp) % 2 else max(
+        exp, key=lambda q: q.distance_to(c))
+    # 尖角保留：交尖距裆尖 > 缝宽；且小于切线 miter 长（自然弧相交更近）
+    assert apex.distance_to(c) > max(SA.inseam, SA.rise) + 0.05
+    # 无阶梯角断点：阶梯角会多出 outer = c+n_a·sa_a+n_b·sa_b 台阶点
     step = c + t_a.perpendicular().scale(SA.inseam) \
         + t_b.perpendicular().scale(SA.rise)
-    if exp.distance_to(step) > 1e-9:        # miter 恰等于阶梯外点时无歧义
-        assert nearest(p_mit, step) > 1e-9
-    # 尖角保留：角点距裆尖 > 缝宽（等距弧顶点恰 == 缝宽，尖角必然更远）
-    assert exp.distance_to(c) > max(SA.inseam, SA.rise) + 0.05
-    # 无圆弧过渡：毛样除 miter 角点外无距裆尖 == 缝宽的等距弧顶点
+    assert nearest(p_mit, step) > 1e-9
+    # 无圆弧过渡：毛样除偏移端点外无距裆尖 == 缝宽的等距弧顶点
     sa_eq = [p for p in p_mit.gross_polygon
              if abs(p.distance_to(c) - SA.rise) < 1e-6]
     assert all(p.distance_to(c + t_a.perpendicular().scale(SA.inseam)) < 1e-9
