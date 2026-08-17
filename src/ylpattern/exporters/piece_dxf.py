@@ -10,7 +10,10 @@
   落在 INSERT 插入点上，块内容与片一一对应。
 - 刀口 = 图层 4 POINT，必须附组码 30（Z 深度，默认 1.524）与组码 50
   （开口角度，取刀口法向在 mm 输出系方向；缺角度 CAD 不知开口朝向、
-  不显示）；图层 3 存普通轮廓顶点/放码点，非刀口层。定位孔 = 图层 13
+  不显示）；且 ET 按裁切折线**顶点**吸附挂接刀口符号，段中间的刀口点
+  不显示（腰头刀口恰与阶梯角顶点重合而能显示、机头延长线交点全在段中
+  而不显示，即此坑）-> 裁切折线把刀口点共线插入为顶点（几何不变）；
+  图层 3 存普通轮廓顶点/放码点，非刀口层。定位孔 = 图层 13
   单纯 POINT（CAD 读 AAMA 见层 13 POINT 自动渲染标准、不受缩放影响的
   钻孔符号）。丝缕线省略箭头仅 LINE + TEXT "GRAIN"。
 - AAMA 裁片信息：块中央三行 TEXT（PIECE/SIZE/QTY，size/qty 由调用方
@@ -154,14 +157,45 @@ def _block_name(piece_name: str, used: set[str]) -> str:
     return unique
 
 
+def _with_notch_vertices(poly: tuple[Point, ...], notches: Sequence[Point]
+                         ) -> list[Point]:
+    """裁切折线共线插入刀口点为顶点（ET 顶点吸附）。
+
+    服装 CAD（ET 等）挂接层 4 刀口符号按裁切折线**顶点**吸附，段中间的
+    刀口点不显示；共线加点不改折线几何（其他 CAD 无副作用）。刀口点落在
+    某段内（垂距 <= 1e-3cm）且严格段中（非既有顶点）才插；不在折线上的
+    刀口（如无毛样时的净样位刀口）不插。逐刀口在最新折线上重扫描，同段
+    多刀口被先前插入分段后各自命中，亦正确。
+    """
+    out = list(poly)
+    for q in notches:
+        for i in range(len(out)):
+            a, b = out[i], out[(i + 1) % len(out)]
+            ex, ey = b.x - a.x, b.y - a.y
+            ll = ex * ex + ey * ey
+            if ll < 1e-18:
+                continue
+            t = ((q.x - a.x) * ex + (q.y - a.y) * ey) / ll
+            if not (1e-9 <= t <= 1.0 - 1e-9):     # 严格段中（顶点处无需插）
+                continue
+            dx = q.x - (a.x + ex * t)
+            dy = q.y - (a.y + ey * t)
+            if dx * dx + dy * dy <= 1e-6:         # 垂距 <= 1e-3cm，在段上
+                out.insert(i + 1, q)
+                break
+    return out
+
+
 def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
                        tolerance_cm: float) -> None:
     """单片写入 BLOCK（图层顺序同 piece_svg：CUT/NET/SHRUNK/MARK/GRAIN/
     DRILL/NOTCH，层名经 _LAYER_MAP 映射为 AAMA 数字层）。"""
-    # 毛样（最终裁切线，闭合）
+    notch_pts = piece.gross_notches or piece.shrunk_notches or piece.notches
+    # 毛样（最终裁切线，闭合；刀口点共线插入为顶点——ET 按顶点吸附挂符号）
     if piece.gross_polygon:
-        base.add_polyline(block, piece.gross_polygon, to_mm,
-                          layer=_LAYER_MAP["CUT"], closed=True)
+        base.add_polyline(block, _with_notch_vertices(piece.gross_polygon,
+                                                      notch_pts),
+                          to_mm, layer=_LAYER_MAP["CUT"], closed=True)
     # 净样（淡虚线；已缩水时省略--同 piece_svg，只留一条内轮廓基准线）
     if not piece.shrunk_edges:
         for e in piece.net_edges:
@@ -190,7 +224,7 @@ def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
     # 刀口：图层 4 POINT，必须附组码 30（Z 深度 1.524）与组码 50（开口
     # 角度）--缺角度 CAD 不知刀口朝哪个方向开、不显示。角度取刀口内法向
     # 在 mm 输出系的方向（局部系 Y 向下、输出 Y 翻转向上，故 dy 取负）
-    for q in piece.gross_notches or piece.shrunk_notches or piece.notches:
+    for q in notch_pts:
         x, y = to_mm(q)
         tip = _notch_segment(q, piece.gross_polygon)[1]
         d = tip - q

@@ -199,6 +199,84 @@ def test_dart_join_notches(ctx_dart):
     assert len(piece.notches) >= 3
 
 
+# ---------- 刀口毛样位（§5.1 净线延长线交缝边）----------
+
+def _poly_min_dist(poly, p) -> float:
+    """点到闭合折线的最小距离。"""
+    best = float("inf")
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        ex, ey = b.x - a.x, b.y - a.y
+        ll = ex * ex + ey * ey
+        t = max(0.0, min(1.0, ((p.x - a.x) * ex + (p.y - a.y) * ey) / ll)) if ll else 0.0
+        best = min(best, p.distance_to(Point(a.x + ex * t, a.y + ey * t)))
+    return best
+
+
+def _walk_corners(base):
+    """cutter 序相邻异名边角点：(角点, 入边末切向, 出边首切向)。"""
+    out = []
+    n = len(base)
+    for i in range(n):
+        a, b = base[i], base[(i + 1) % n]
+        if a.name != b.name:
+            out.append((_end(a.geom), _end_tan(a.geom), _start_tan(b.geom)))
+    return out
+
+
+def test_corner_notches_count_no_dart(ctx_straight):
+    """无省毛样刀口 = 4 角 × 2 + 后中 = 9，全部落在毛样外沿。"""
+    piece, _ = build_yoke(ctx_straight)
+    assert len(piece.gross_notches) == 9
+    for q in piece.gross_notches:
+        assert _poly_min_dist(piece.gross_polygon, q) < 1e-6
+
+
+def test_corner_notches_count_curved(ctx_curved_nodart):
+    """弯腰头无省同口径：4 角 × 2 + 后中 = 9（腰口换下腰头弧，角点拓扑不变）。"""
+    piece, _ = build_yoke(ctx_curved_nodart)
+    assert len(piece.gross_notches) == 9
+    for q in piece.gross_notches:
+        assert _poly_min_dist(piece.gross_polygon, q) < 1e-6
+
+
+def test_corner_notches_on_extension_rays(ctx_straight):
+    """角刀口顺净线延长线（§5.1）：与角点连线分别平行入边末切向 / 出边首切向
+    反向，且指向毛样外侧（沿净样线的延长线向外侧缝边打出）。"""
+    piece, _ = build_yoke(ctx_straight)
+    base = piece.shrunk_edges or piece.net_edges
+    corners = _walk_corners(base)
+    assert len(corners) == 4
+    gross = piece.gross_notches[:8]        # 前 8 个 = 角刀口（行走序、每角 2 刀）
+    for (p, t_a, t_b), q_in, q_out in zip(corners, gross[0::2], gross[1::2]):
+        for q, d in ((q_in, t_a), (q_out, t_b.scale(-1.0))):
+            v = q - p
+            cross = v.dx * d.dy - v.dy * d.dx
+            assert abs(cross) < 1e-6, f"刀口不在净线延长线上 cross={cross}"
+            assert v.dx * d.dx + v.dy * d.dy > 0, "刀口在延长线反方向"
+
+
+def test_cb_notch_at_seam_allowance(ctx_straight):
+    """后中刀口毛样位：cb 净中点沿外法向平移一个 cb 缝份（直线边解析精确，
+    同腰头后中「垂线交缝边」口径）。"""
+    piece, _ = build_yoke(ctx_straight)
+    base = piece.shrunk_edges or piece.net_edges
+    cb = next(e.geom for e in base if e.name == "cb")
+    mid = Point((_start(cb).x + _end(cb).x) / 2, (_start(cb).y + _end(cb).y) / 2)
+    n = _start_tan(cb).perpendicular()     # 外法向（cutter 外扩同约定）
+    sa_cb = ctx_straight.options.back_yoke_seam_allowances.cb
+    q = piece.gross_notches[-1]            # 末位 = 后中（行走序角刀口在前）
+    _assert_point_approx(q, mid + n.scale(sa_cb))
+
+
+def test_dart_notches_projected_to_gross(ctx_dart):
+    """有省毛样刀口 = 4 角 × 2 + 后中 + 省位 2 刀 = 11，省位刀口落毛样外沿。"""
+    piece, _ = build_yoke(ctx_dart)
+    assert len(piece.gross_notches) == 11
+    for q in piece.gross_notches[-2:]:
+        assert _poly_min_dist(piece.gross_polygon, q) < 1e-6
+
+
 def test_dart_negative_area(ctx_dart):
     piece, _ = build_yoke(ctx_dart)
     poly = []

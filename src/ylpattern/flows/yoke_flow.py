@@ -1,4 +1,4 @@
-"""后机头/育克裁片流程：净样提取 -> 缩水 -> 缝边（机头裁片.md §2~§5）。
+"""后机头/育克裁片流程：净样提取 -> 缩水 -> 缝边 -> 刀口（机头裁片.md §2~§5）。
 
 build_yoke(main_ctx) 从整版 ctx 提取机头四条边界（腰口/底边/后中/侧缝），在主版
 坐标系（Y 向上）装配净样闭合轮廓，经 _to_local 180° 旋转变换到裁片局部坐标系
@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import math
 import sys
+from collections.abc import Mapping
 
 from ..cutter import add_seam_allowance, apply_shrinkage
 from ..draft import DraftContext, curves
-from ..geometry import CubicBezier, LineSegment, Point
+from ..geometry import CubicBezier, LineSegment, Point, Vector
 from ..params import WaistbandType
 from ..pieces import PatternPiece, PieceEdge
 
@@ -381,10 +382,106 @@ def _assemble_dart(dart, bottom_chain: list, side_geom: CubicBezier,
     return edges, notches
 
 
+# ---------- 刀口毛样位（§5.1 净线延长线交缝边）----------
+
+def _edge_tangent(g: LineSegment | CubicBezier, at_end: bool) -> Vector:
+    """边首/末端沿走向的单位切线（直线取向量、贝塞尔取端点导矢；零向兜底水平）。"""
+    v = (g.b - g.a) if isinstance(g, LineSegment) else g.tangent_at(1.0 if at_end else 0.0)
+    return v.normalized() if v.length > 1e-12 else Vector(1.0, 0.0)
+
+
+def _ray_hit_poly(p: Point, d: Vector, poly: tuple[Point, ...]) -> Point | None:
+    """点 p 沿 d 射线与毛样折线的最近交点（s>0；d 为任意单位向量，非仅法向）。
+
+    同前片 _project_notch 求交口径：s 沿射线、u 沿折线段，取最近命中；无命中
+    返回 None（调用方回退）。
+    """
+    best: float | None = None
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        ex, ey = b.x - a.x, b.y - a.y
+        det = ex * d.dy - ey * d.dx
+        if abs(det) < 1e-12:
+            continue                               # 射线与折线段平行
+        rx, ry = a.x - p.x, a.y - p.y
+        s = (ex * ry - ey * rx) / det
+        u = (d.dx * ry - d.dy * rx) / det
+        if s > 1e-9 and -1e-9 <= u <= 1.0 + 1e-9 \
+                and (best is None or s < best):
+            best = s
+    return p + d.scale(best) if best is not None else None
+
+
+def _nearest_edge_tangent(base: tuple[PieceEdge, ...], p: Point) -> Vector:
+    """p 最近边在最近点处的走向切向（直线参数投影 clamp、贝塞尔 64 采样，同前片
+    _notch_normal 载边口径）。净刀口（后中/省位）都在边链上或其倒圆区内，
+    最近边即其载体边。"""
+    best_d, best_t = float("inf"), Vector(1.0, 0.0)
+    for e in base:
+        g = e.geom
+        if isinstance(g, LineSegment):
+            v = g.b - g.a
+            if v.length == 0.0:
+                continue
+            t = max(0.0, min(1.0, ((p.x - g.a.x) * v.dx + (p.y - g.a.y) * v.dy)
+                          / (v.dx * v.dx + v.dy * v.dy)))
+            d = p.distance_to(g.a + v.scale(t))
+            if d < best_d:
+                best_d, best_t = d, v.normalized()
+        else:
+            for i in range(65):
+                d = p.distance_to(g.point_at(i / 64))
+                if d < best_d:
+                    tan = g.tangent_at(i / 64)
+                    if tan.length > 1e-12:
+                        best_d, best_t = d, tan.normalized()
+    return best_t
+
+
+def _project_notches_to_sa(piece: PatternPiece, sa: Mapping[str, float]
+                          ) -> PatternPiece:
+    """角点刀口与净刀口换算至缝边位、整体替换毛样刀口（§5.1，flow 私有工艺
+    策略，同腰头/前片先例——投影规则是本裁片专属，不动 cutter 公开 API）。
+
+    角点刀口（§5.1 净样角点刀口）每角 2 刀：入边净线延长线交出边缝份边界、
+    出边净线反向延长线交入边缝份边界——两交点完整标出相邻两缝的真实起止，
+    确保车缝尺寸与净样 100% 吻合。净样刀口（后中、有省拼合线 C_in/St_in）
+    沿所在边外法向交缝份边界（后中同腰头 §四.2.1「垂线交缝边」口径）。
+
+    交点在毛样折线上求取（缩水 -> 缝边后的权威几何），自动兼容镜像折角；
+    射线无命中回退沿射线平移一个缝份（退化防御，缝份 0 时退化为净点本身）。
+    """
+    base = piece.shrunk_edges or piece.net_edges
+    net_notches = piece.shrunk_notches or piece.notches
+    poly = piece.gross_polygon
+    corners: list[Point] = []
+    n = len(base)
+    for i in range(n):
+        a, b = base[i], base[(i + 1) % n]
+        if a.name == b.name:
+            continue                          # 同名边平滑续接无角点
+        p = _geom_end(a.geom)                 # 角点（a 末端 == b 首端）
+        t_a = _edge_tangent(a.geom, True)     # 入边末端切向（延长线方向）
+        t_b = _edge_tangent(b.geom, False)    # 出边首端切向（反向延长线方向）
+        for d, sa_amt in ((t_a, sa.get(b.name, 0.0)),
+                          (t_b.scale(-1.0), sa.get(a.name, 0.0))):
+            q = _ray_hit_poly(p, d, poly)
+            corners.append(q if q is not None else p + d.scale(sa_amt))
+    mid: list[Point] = []
+    for p in net_notches:
+        t = _nearest_edge_tangent(base, p)
+        q = _ray_hit_poly(p, t.perpendicular(), poly)
+        mid.append(q if q is not None else p)
+    gross = tuple(corners + mid)
+    note = (f"刀口：净样角点 ×{len(corners)}（净线延长线交缝边）+ 净刀口法向"
+            f"交缝边 ×{len(mid)}（机头裁片.md §5.1）",)
+    return piece.with_gross(poly, gross, piece.notes + note)
+
+
 # ---------- 主入口 ----------
 
 def build_yoke(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContext]:
-    """整版跑完后构建后机头/育克裁片：净样 -> 缩水 -> 缝边（机头裁片.md §2~§5）。
+    """整版跑完后构建后机头/育克裁片：净样 -> 缩水 -> 缝边 -> 刀口（机头裁片.md §2~§5）。
 
     返回 (PatternPiece, 局部 DraftContext)：前者供 SVG 输出，后者含命名元素供调试。
     """
@@ -474,6 +571,9 @@ def build_yoke(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContext]:
     if o.back_yoke_cb_corner_mirror:
         corners[("bottom", "cb")] = "mirror"
     piece = add_seam_allowance(piece, sa, corners or None)
+    # 刀口毛样位（§5.1）：净样角点沿净线延长线交缝边、净刀口（后中/省位）沿
+    # 外法向交缝边，整体替换毛样刀口（缝合线位净刀口保留在 shrunk_notches）
+    piece = _project_notches_to_sa(piece, sa)
 
     # 局部 ctx 留命名元素供 trace/调试
     local = DraftContext(main_ctx.measurements, o)

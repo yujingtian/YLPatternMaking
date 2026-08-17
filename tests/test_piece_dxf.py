@@ -4,8 +4,9 @@
 金标（M 同 test_waistband_piece；back_yoke+back_patch 开启使 back_piece
 drills/marks 齐全）：
 - 每片一个 BLOCK + msp 恰一个同名 INSERT（插入点 = 平铺偏移）；
-- 图层为 AAMA 数字层：层 "1" CUT 闭合 POLYLINE 每片恰 1 条、顶点数 ==
-  gross_polygon 去重后点数；"8" NET/SHRUNK/MARK；NOTCH 层 "4" 每刀口一个
+- 图层为 AAMA 数字层：层 "1" CUT 闭合 POLYLINE 每片恰 1 条、顶点数 >=
+  gross_polygon 去重后点数（刀口点共线插入为顶点，ET 按顶点吸附挂刀口
+  符号）；"8" NET/SHRUNK/MARK；NOTCH 层 "4" 每刀口一个
   POINT 且附组码 30（Z=1.524）与组码 50（开口角度）；DRILL 层 "13" 每孔
   一个 POINT（CAD 自动渲染钻孔符号）；
 - Y 翻转：每片 CUT 折线 bbox 高 == 毛样高×10（翻转不改尺寸）；
@@ -106,7 +107,8 @@ def test_cut_closed_per_piece(pieces):
     assert len(cuts) == len(pieces)
     for cut, piece in zip(cuts, pieces):
         assert cut.is_closed
-        assert len(list(cut.vertices)) == len(_dedup_closed(piece.gross_polygon))
+        # >= ：刀口点共线插入为顶点（ET 顶点吸附），不裁弯、不丢点
+        assert len(list(cut.vertices)) >= len(_dedup_closed(piece.gross_polygon))
 
 
 def test_cut_y_flip_preserves_size(pieces):
@@ -168,6 +170,39 @@ def test_notches_points(pieces):
     # 层 4 不杂其他实体（LINE 刻线/伴随 TEXT 均禁止）
     assert len(_ents(doc, "LINE", "4")) == 0
     assert len(_ents(doc, "TEXT", "4")) == 0
+
+
+def test_notch_points_on_cut_vertices(pieces):
+    """落在裁切折线上的刀口 POINT 必为折线顶点（ET 顶点吸附：段中间的
+    刀口点不显示，CUT 折线把刀口点共线插入为顶点，几何不变——腰头当年
+    "恰好"刀口位与阶梯角顶点重合而能显示、机头延长线交点全在段中而不
+    显示，即此坑）。不在折线上的刀口（如后片卷边起折等内部位标记）不插
+    顶点、不在此断言范围。"""
+    doc = _doc(pieces)
+
+    def _seg_dist(px, py, a, b) -> float:
+        ex, ey = b[0] - a[0], b[1] - a[1]
+        ll = ex * ex + ey * ey
+        t = max(0.0, min(1.0, ((px - a[0]) * ex + (py - a[1]) * ey) / ll)) if ll else 0.0
+        return ((px - a[0] - ex * t) ** 2 + (py - a[1] - ey * t) ** 2) ** 0.5
+
+    for blk in (b for b in doc.blocks if not b.name.startswith("*")):
+        cuts = [e for e in blk if e.dxftype() == "POLYLINE"
+                and e.dxf.layer == "1"]
+        notches = [e for e in blk if e.dxftype() == "POINT"
+                   and e.dxf.layer == "4"]
+        if not cuts or not notches:
+            continue
+        verts = [(v.dxf.location.x, v.dxf.location.y) for v in cuts[0].vertices]
+        segs = [(verts[i], verts[(i + 1) % len(verts)])
+                for i in range(len(verts))]
+        for e in notches:
+            p = e.dxf.location
+            on_line = min(_seg_dist(p.x, p.y, a, b) for a, b in segs) <= 1e-3
+            if not on_line:                    # 内部位标记不在裁切线上
+                continue
+            assert any(abs(p.x - x) <= 1e-6 and abs(p.y - y) <= 1e-6
+                       for x, y in verts), "刀口不在裁切折线顶点上（ET 不显示）"
 
 
 def test_drills_points(pieces):

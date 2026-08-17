@@ -16,8 +16,8 @@ build_front_piece(main_ctx) 从整版 ctx 提取前片大片净样闭合轮廓�
 末端 ∩ 下裆缝起点）角部由 front_piece_crotch_corner 开关控制（默认开 =
 镜像折角；关闭 = 尖角跟随净样轮廓——两侧缝边按贝塞尔多项式自然外延（延续曲线自身张力与曲率）求首个交点成尖，
 不抹圆）。刀口（§2.3）：净样刀口沿外法向延伸投影到毛样外沿
-（flow 私有实现不动 cutter 公开 API——投影是本裁片专属工艺策略，yoke/
-back_patch 均未投影）。缩水（§3.2）：主面料率 front_piece_shrinkage_*
+（flow 私有实现不动 cutter 公开 API——投影是各裁片专属工艺策略，yoke 已按
+净线延长线交缝边投影（机头裁片.md §5.1）、back_patch 未投影）。缩水（§3.2）：主面料率 front_piece_shrinkage_*
 （None 回退全局）。内部辅助线（§3.3）：臀围/膝围/毗围水平线按净边链截断为
 marks，随缩水同比例变换（cutter.apply_shrinkage）。
 自含裁片，非 FlowRunner 编排（同 build_waistband / build_yoke 口径），
