@@ -64,4 +64,5 @@ def render_sheet_dxf(sheet: DraftSheet, *,
 
 def write_sheet_dxf(sheet: DraftSheet, path: str, *,
                     tolerance_cm: float = base.FLATTEN_TOL_CM) -> None:
-    render_sheet_dxf(sheet, tolerance_cm=tolerance_cm).saveas(path)
+    # save_doc：R12 兼容清洗（剥 handle/$HANDLING/EZDXF XDATA，防 ET 08 打不开）
+    base.save_doc(render_sheet_dxf(sheet, tolerance_cm=tolerance_cm), path)

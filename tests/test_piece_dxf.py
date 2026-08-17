@@ -1,13 +1,17 @@
-"""裁片合集 DXF 输出测试（R12/mm 平铺一张；.doc/python工程设计.md §10.3）。
+"""裁片合集 DXF 输出测试（AAMA/ASTMA 口径：R12/mm、数字图层、块结构；
+.doc/python工程设计.md §10.3）。
 
 金标（M 同 test_waistband_piece；back_yoke+back_patch 开启使 back_piece
 drills/marks 齐全）：
-- CUT 层闭合 POLYLINE 每片恰 1 条，顶点数 == gross_polygon 去重后点数；
-- Y 翻转：每片 CUT 折线 bbox 高 == 片 bbox 高×10（翻转平移不改尺寸）；
-- 平铺不重叠：两片 CUT bbox 在 X 方向有分隔（行内左->右摆放）；
-- NET/SHRUNK 互斥：默认全片有缩水态（0 缩水也填充）-> NET 空；
-- NOTCH 层每刀口一条 5mm LINE；DRILL 层每孔一个 r=0.5mm CIRCLE；
-- TEXT 全 ASCII 且含各 piece.name；写盘后 ezdxf.readfile 回读成功。
+- 每片一个 BLOCK + msp 恰一个同名 INSERT（插入点 = 平铺偏移）；
+- 图层为 AAMA 数字层：层 "1" CUT 闭合 POLYLINE 每片恰 1 条、顶点数 ==
+  gross_polygon 去重后点数；"8"/"3" NET/SHRUNK 互斥；NOTCH 层 "3" 每刀口
+  一条 5mm LINE；DRILL 层 "2" 每孔一个 r=0.5mm CIRCLE；
+- Y 翻转：每片 CUT 折线 bbox 高 == 毛样高×10（翻转不改尺寸）；
+- 平铺不重叠：两片 INSERT+CUT bbox 在 X 方向有分隔（行内左->右摆放）；
+- AAMA 信息文本：块中央三行 PIECE/SIZE/QTY；片名 TEXT 全 ASCII；
+- 写盘后 ezdxf.readfile 回读成功、$EXTMIN 非 ±1e20 哨兵值、文件头有
+  999 AAMA 注释组。
 ezdxf 缺席时逐条 importorskip。
 """
 
@@ -39,10 +43,23 @@ def pieces(ctx):
     return [wb, bp]
 
 
+def _doc(pieces):
+    pytest.importorskip("ezdxf")
+    return render_pieces_dxf(pieces)
+
+
 def _ents(doc, dxftype: str, layer: str | None = None) -> list:
-    msp = doc.modelspace()
-    return [e for e in msp if e.dxftype() == dxftype
-            and (layer is None or e.dxf.layer == layer)]
+    """收集全部块内 + msp 实体（裁片图元在 BLOCK 里，msp 只有 INSERT
+    与全局声明 TEXT）。"""
+    out = []
+    spaces = [b for b in doc.blocks if not b.name.startswith("*")]
+    spaces.append(doc.modelspace())
+    for space in spaces:
+        for e in space:
+            if e.dxftype() == dxftype \
+                    and (layer is None or e.dxf.layer == layer):
+                out.append(e)
+    return out
 
 
 def _dedup_closed(pts) -> list:
@@ -57,16 +74,35 @@ def _dedup_closed(pts) -> list:
     return out
 
 
-def _doc(pieces):
-    pytest.importorskip("ezdxf")
-    return render_pieces_dxf(pieces)
+# ---------- 块结构（AAMA 核心要求） ----------
+
+def test_block_per_piece_with_insert(pieces):
+    doc = _doc(pieces)
+    inserts = [e for e in doc.modelspace() if e.dxftype() == "INSERT"]
+    assert len(inserts) == len(pieces)
+    # 块名与片名对应（ASCII 大写化），每块被引用恰一次
+    names = [e.dxf.name for e in inserts]
+    assert len(set(names)) == len(names)
+    for piece in pieces:
+        assert sum(1 for n in names
+                   if n == piece.name.upper()) == 1
 
 
-# ---------- CUT 裁切轮廓 ----------
+def test_blockref_at_layout_offset(pieces):
+    """首片插入点贴原点（套料惯例），msp 内除 INSERT/TEXT 外无散线。"""
+    doc = _doc(pieces)
+    msp = doc.modelspace()
+    inserts = [e for e in msp if e.dxftype() == "INSERT"]
+    assert inserts[0].dxf.insert.x == pytest.approx(0.0)
+    assert inserts[0].dxf.insert.y == pytest.approx(0.0)
+    assert {e.dxftype() for e in msp} <= {"INSERT", "TEXT"}
+
+
+# ---------- CUT 裁切轮廓（AAMA 数字层 1） ----------
 
 def test_cut_closed_per_piece(pieces):
     doc = _doc(pieces)
-    cuts = _ents(doc, "POLYLINE", "CUT")
+    cuts = _ents(doc, "POLYLINE", "1")
     assert len(cuts) == len(pieces)
     for cut, piece in zip(cuts, pieces):
         assert cut.is_closed
@@ -74,48 +110,51 @@ def test_cut_closed_per_piece(pieces):
 
 
 def test_cut_y_flip_preserves_size(pieces):
-    """Y 翻转金标：片 bbox 高×10 == CUT 折线 bbox 高（翻转不改尺寸）。"""
+    """Y 翻转金标：毛样高×10 == CUT 折线 bbox 高（翻转不改尺寸）。"""
     doc = _doc(pieces)
-    cuts = _ents(doc, "POLYLINE", "CUT")
+    cuts = _ents(doc, "POLYLINE", "1")
     for cut, piece in zip(cuts, pieces):
         ys = [v.dxf.location.y for v in cut.vertices]
-        _x0, _y0, _x1, y1 = _piece_bounds(piece)
-        # _piece_bounds 的 y1 为片内最大 y；片高由 gross/net 全内容定，
-        # CUT 仅毛样轮廓，故只断言 CUT 自身高度 == 毛样高度×10
         gy = [p.y for p in piece.gross_polygon]
         gross_h = max(gy) - min(gy)
         assert max(ys) - min(ys) == pytest.approx(gross_h * 10, abs=1e-6)
 
 
 def test_layout_no_overlap(pieces):
-    """平铺不重叠：两片 CUT bbox 在 X 方向有分隔（首片先摆、第二片在右）。"""
+    """平铺不重叠：每片 bbox = 块内 CUT bbox + INSERT 插入点，两片在 X
+    方向有分隔（首片先摆、第二片在右）。"""
     doc = _doc(pieces)
-    cuts = _ents(doc, "POLYLINE", "CUT")
+    inserts = [e for e in doc.modelspace() if e.dxftype() == "INSERT"]
     boxes = []
-    for cut in cuts:
-        xs = [v.dxf.location.x for v in cut.vertices]
-        ys = [v.dxf.location.y for v in cut.vertices]
+    for e in inserts:
+        cuts = [p for p in doc.blocks.get(e.dxf.name)
+                if p.dxftype() == "POLYLINE" and p.dxf.layer == "1"]
+        assert len(cuts) == 1
+        xs = [v.dxf.location.x + e.dxf.insert.x for v in cuts[0].vertices]
+        ys = [v.dxf.location.y + e.dxf.insert.y for v in cuts[0].vertices]
         boxes.append((min(xs), min(ys), max(xs), max(ys)))
     (ax0, _ay0, ax1, _ay1), (bx0, _by0, _bx1, _by1) = boxes
     assert bx0 >= ax1                      # 第二片在首片右侧，无交叠
     assert all(y >= -1e-6 for _b in boxes for y in (_b[1], _b[3]))
 
 
-# ---------- 内轮廓三态 / 刀口 / 定位孔 ----------
+# ---------- 内轮廓三态 / 刀口 / 定位孔（数字层） ----------
 
 def test_net_shrunk_exclusive(pieces):
-    """默认全片有缩水态（0 缩水也填充 shrunk_edges）-> SHRUNK 齐、NET 空。"""
+    """默认全片有缩水态（0 缩水也填充 shrunk_edges）-> SHRUNK 与 NET 同落
+    层 8，条数 = 各片 shrunk_edges 之和；内部画线 MARK 亦落层 8（ET 08
+    实测层 8 显示最稳），另计各片 marks 之和。"""
     doc = _doc(pieces)
     assert all(p.shrunk_edges for p in pieces)
-    assert len(_ents(doc, "POLYLINE", "NET")) == 0
     expect = sum(len(p.shrunk_edges) for p in pieces)
-    assert len(_ents(doc, "POLYLINE", "SHRUNK")) == expect
+    expect_marks = sum(len(p.marks) for p in pieces)
+    assert len(_ents(doc, "POLYLINE", "8")) == expect + expect_marks
 
 
 def test_notches_inward_lines(pieces):
-    """NOTCH 层每刀口一条 LINE、长度 = 5mm。"""
+    """刀口（层 3）每刀口一条 LINE、长度 = 5mm。"""
     doc = _doc(pieces)
-    lines = _ents(doc, "LINE", "NOTCH")
+    lines = _ents(doc, "LINE", "3")
     expect = sum(len(p.gross_notches or p.shrunk_notches or p.notches)
                  for p in pieces)
     assert expect > 0
@@ -126,9 +165,9 @@ def test_notches_inward_lines(pieces):
 
 
 def test_drills_circles(pieces):
-    """DRILL 层每孔一个 r=0.5mm CIRCLE；back_piece 含后贴袋定位孔（非空）。"""
+    """定位孔（层 2）每孔一个 r=0.5mm CIRCLE；back_piece 含后贴袋定位孔。"""
     doc = _doc(pieces)
-    circles = _ents(doc, "CIRCLE", "DRILL")
+    circles = _ents(doc, "CIRCLE", "2")
     bp = pieces[1]
     assert bp.drills                                    # back_patch 开启 -> 有钻孔
     assert len(circles) == sum(len(p.drills) for p in pieces)
@@ -139,12 +178,20 @@ def test_drills_circles(pieces):
 def test_grain_line_and_text(pieces):
     doc = _doc(pieces)
     assert pieces[0].grain is not None                  # 腰头丝缕线必在
-    assert len(_ents(doc, "LINE", "GRAIN")) >= 1
+    assert len(_ents(doc, "LINE", "7")) >= 1
     texts = {e.dxf.text for e in _ents(doc, "TEXT")}
     assert "GRAIN" in texts
 
 
-# ---------- 标注与文件回读 ----------
+# ---------- AAMA 信息文本与文件回读 ----------
+
+def test_aama_info_texts(pieces):
+    doc = _doc(pieces)
+    texts = [e.dxf.text for e in _ents(doc, "TEXT")]
+    for piece in pieces:
+        assert f"PIECE: {piece.name}" in texts
+    assert "SIZE: -" in texts and "QTY: 1" in texts
+
 
 def test_text_ascii_and_names(pieces):
     doc = _doc(pieces)
@@ -153,21 +200,19 @@ def test_text_ascii_and_names(pieces):
     names = set(texts)
     for p in pieces:
         assert p.name in names
-    assert "UNITS=MM (DXF R12)" in names
+    assert "ANSI/AAMA" in names
 
 
 def test_extents_backfilled(pieces):
-    """$EXTMIN/$EXTMAX 已回填实体 bbox（ezdxf R12 默认 ±1e20 哨兵值，
-    老 CAD 如 ET 2008 拿它做初始视图 -> 黑屏）。"""
+    """$EXTMIN/$EXTMAX 已按 INSERT 展开回填实体 bbox（非 ±1e20 哨兵值，
+    防 ET08 黑屏）。"""
     doc = _doc(pieces)
     extmin, extmax = doc.header["$EXTMIN"], doc.header["$EXTMAX"]
     assert abs(extmin[0]) < 1e19 and abs(extmax[0]) < 1e19
-    xs = [v.dxf.location.x for c in _ents(doc, "POLYLINE", "CUT")
-          for v in c.vertices]
-    ys = [v.dxf.location.y for c in _ents(doc, "POLYLINE", "CUT")
-          for v in c.vertices]
-    assert extmin[0] <= min(xs) + 1e-6 and extmax[0] >= max(xs) - 1e-6
-    assert extmin[1] <= min(ys) + 1e-6 and extmax[1] >= max(ys) - 1e-6
+    # 与布局对照：首片贴原点、X 范围覆盖全部插入点
+    inserts = [e for e in doc.modelspace() if e.dxftype() == "INSERT"]
+    assert extmin[0] <= min(e.dxf.insert.x for e in inserts) + 1e-6
+    assert extmax[0] >= max(e.dxf.insert.x for e in inserts) - 1e-6
 
 
 def test_write_roundtrip(pieces, tmp_path):
@@ -181,3 +226,14 @@ def test_write_roundtrip(pieces, tmp_path):
     # 必须设到布局属性，否则写盘回读仍是 ±1e20 哨兵值（ET08 黑屏）
     assert abs(doc.header["$EXTMIN"][0]) < 1e19
     assert abs(doc.header["$EXTMAX"][0]) < 1e19
+    # 999 AAMA 注释组在文件最前
+    with open(path, encoding="ascii") as f:
+        first = f.readline().strip()
+        body = f.read().replace("\r\n", "\n")
+    assert first == "999"
+    # R12 兼容清洗：无 handle（group 5）、无 $HANDLING/$HANDSEED、无 1001
+    # XDATA--ezdxf 恒写这三样，ET 08 等老软件解析易打不开（对照大货 DXF
+    # 一个 group 5 都没有）
+    assert "\n  5\n" not in body
+    assert "$HANDLING" not in body and "$HANDSEED" not in body
+    assert "\n1001\n" not in body

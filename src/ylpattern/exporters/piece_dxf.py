@@ -1,20 +1,23 @@
-"""DXF 输出：全部独立裁片平铺合一张（与 piece_svg.py 同构；R12 / mm）。
+"""DXF 输出：全部独立裁片平铺合一张（AAMA/ASTMA 服装 CAD 口径；R12 / mm）。
 
 与 piece_svg.py 的差异：
-- 多片共一张图：shelf 行装箱平铺（行宽上限 ROW_LIMIT_CM、片间距
-  PIECE_GAP_CM），行内底边对齐；多片共用同一组功能图层（裁床惯例：
-  全部裁切线在同一层），裁片间靠 TEXT piece.name 区分。
-- 坐标：裁片局部系 **Y 向下**，变换 X=(x-x0+offx)*10、Y=(y1-y+offy)*10
-  ——翻转后 DXF（Y 向上）显示与 SVG 屏幕视觉逐点重合，手性不变
-  （裁片不镜像，裁床切出的物理片与 SVG 打印件一致）；片 bbox 平移到
-  (offx, offy) 处、首片左下角贴全局原点（套料惯例）。
+- **AAMA 结构**：服装 CAD（ET/富怡/格柏）不识别自定义英文层名与散线
+  裁片。每片定义为一个 BLOCK（片内局部 mm 坐标），Model Space 仅放
+  INSERT 引用（插入点 = 平铺偏移）；图层用 AAMA 数字层（见 _LAYER_MAP）。
+- 坐标：裁片局部系 **Y 向下**，块内变换 X=(x-x0)*10、Y=(y1-y)*10
+  --翻转后 DXF（Y 向上）显示与 SVG 屏幕视觉逐点重合，手性不变
+  （裁片不镜像，裁床切出的物理片与 SVG 打印件一致）；平铺偏移全部
+  落在 INSERT 插入点上，块内容与片一一对应。
 - 刀口 = 毛样外沿该点处垂直轮廓向内的 NOTCH_LEN_CM 短线（POINT 实体
   裁床难识别，不用）；丝缕线省略箭头仅 LINE + TEXT "GRAIN"。
-- 全 ASCII：标注取 piece.name 与净长宽数字，中文 label 留在 SVG。
+- AAMA 裁片信息：块中央三行 TEXT（PIECE/SIZE/QTY，size/qty 由调用方
+  传入，默认 "-" / 1）。
+- 全 ASCII：块名/标注取 piece.name 与净长宽数字，中文 label 留在 SVG。
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from ..geometry import Point, Vector
@@ -25,17 +28,34 @@ PIECE_GAP_CM = 3.0      # 平铺片间距
 ROW_LIMIT_CM = 200.0    # 行宽上限（典型裁床门幅内）
 
 UNITS_NOTE = "UNITS=MM (DXF R12)"
+AAMA_NOTE = "ANSI/AAMA"
+
+# 语义层 -> AAMA 数字图层映射（服装 CAD 只认数字层名，自定义英文名
+# 解析失败是 ET 08 等老软件黑屏的主因之一）：
+#   1=外轮廓/裁切线（含片名与信息文本）、8=净样/缝合线（含缩水净样
+#   与内部画线：臀/膝/毗围辅助线/袋口净线/省弧--ET 08 实测层 8 显示
+#   最稳，内部线也归 8）、3=刀口刻线、2=定位孔、7=纱向线
+_LAYER_MAP: dict[str, str] = {
+    "CUT": "1",
+    "NET": "8",
+    "SHRUNK": "8",
+    "MARK": "8",
+    "NOTCH": "3",
+    "DRILL": "2",
+    "GRAIN": "7",
+    "TEXT": "1",
+}
 
 _LAYERS: dict[str, base.LayerSpec] = {
-    "CUT":    (7, "CONTINUOUS"),   # 毛样裁切轮廓（闭合折线）
-    "NET":    (8, "DASHED"),       # 净样（仅未缩水时，同 piece_svg 规则）
-    "SHRUNK": (3, "DASHED"),       # 含缩水净样（缩水时唯一内轮廓基准）
-    "MARK":   (4, "DASHED"),       # 内部标记线（袋口净线/省弧/辅助线）
-    "GRAIN":  (5, "CONTINUOUS"),   # 丝缕线
-    "DRILL":  (1, "CONTINUOUS"),   # 定位孔
-    "NOTCH":  (1, "CONTINUOUS"),   # 刀口刻线（法向向内短线）
-    "TEXT":   (7, "CONTINUOUS"),   # 片名/净长宽/单位声明
+    "1": (7, "CONTINUOUS"),   # 毛样裁切轮廓（闭合折线）+ 文本
+    "8": (8, "DASHED"),       # 净样/缝合线（含缩水净样，AAMA 法定层）
+    "3": (3, "DASHED"),       # 内部画线（围度辅助线/刀口刻线等）
+    "2": (4, "DASHED"),       # 定位孔
+    "7": (5, "CONTINUOUS"),   # 丝缕线
 }
+
+_BLOCK_NAME_RE = re.compile(r"[^A-Za-z0-9_]")
+BLOCK_NAME_MAX = 31          # R12 符号表名长度上限
 
 
 def _piece_bounds(piece: PatternPiece) -> tuple[float, float, float, float]:
@@ -113,77 +133,130 @@ def _notch_segment(p: Point, polygon: tuple[Point, ...]
     return p, p + normal.scale(base.NOTCH_LEN_CM)
 
 
-def _render_piece_into(msp, piece: PatternPiece, to_mm: base.ToMm,
+def _block_name(piece_name: str, used: set[str]) -> str:
+    """AAMA 块名：ASCII 大写下划线、<=31 字符、全局唯一（重名加序号）。"""
+    name = _BLOCK_NAME_RE.sub("_", piece_name).upper()[:BLOCK_NAME_MAX]
+    if not name:
+        name = "PIECE"
+    unique, i = name, 2
+    while unique in used:
+        suffix = f"_{i}"
+        unique = name[:BLOCK_NAME_MAX - len(suffix)] + suffix
+        i += 1
+    used.add(unique)
+    return unique
+
+
+def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
                        tolerance_cm: float) -> None:
-    """单片写入（图层顺序同 piece_svg：CUT/NET/SHRUNK/MARK/GRAIN/DRILL/NOTCH）。"""
+    """单片写入 BLOCK（图层顺序同 piece_svg：CUT/NET/SHRUNK/MARK/GRAIN/
+    DRILL/NOTCH，层名经 _LAYER_MAP 映射为 AAMA 数字层）。"""
     # 毛样（最终裁切线，闭合）
     if piece.gross_polygon:
-        base.add_polyline(msp, piece.gross_polygon, to_mm,
-                          layer="CUT", closed=True)
-    # 净样（淡虚线；已缩水时省略——同 piece_svg，只留一条内轮廓基准线）
+        base.add_polyline(block, piece.gross_polygon, to_mm,
+                          layer=_LAYER_MAP["CUT"], closed=True)
+    # 净样（淡虚线；已缩水时省略--同 piece_svg，只留一条内轮廓基准线）
     if not piece.shrunk_edges:
         for e in piece.net_edges:
-            base.add_polyline(msp, base.flatten_geom(e.geom, tolerance_cm),
-                              to_mm, layer="NET")
+            base.add_polyline(block, base.flatten_geom(e.geom, tolerance_cm),
+                              to_mm, layer=_LAYER_MAP["NET"])
     if piece.shrunk_edges:
         for e in piece.shrunk_edges:
-            base.add_polyline(msp, base.flatten_geom(e.geom, tolerance_cm),
-                              to_mm, layer="SHRUNK")
+            base.add_polyline(block, base.flatten_geom(e.geom, tolerance_cm),
+                              to_mm, layer=_LAYER_MAP["SHRUNK"])
     # 内部标记线（净样坐标，如袋口净线/省弧/围度辅助线）
     for g in piece.marks:
-        base.add_polyline(msp, base.flatten_geom(g, tolerance_cm),
-                          to_mm, layer="MARK")
+        base.add_polyline(block, base.flatten_geom(g, tolerance_cm),
+                          to_mm, layer=_LAYER_MAP["MARK"])
     # 丝缕线（省略箭头）
     if piece.grain is not None:
-        msp.add_line(to_mm(piece.grain.a), to_mm(piece.grain.b),
-                     dxfattribs={"layer": "GRAIN"})
-        base.add_text(msp, "GRAIN", piece.grain.a, to_mm, height_mm=2.0)
+        block.add_line(to_mm(piece.grain.a), to_mm(piece.grain.b),
+                       dxfattribs={"layer": _LAYER_MAP["GRAIN"]})
+        base.add_text(block, "GRAIN", piece.grain.a, to_mm,
+                      layer=_LAYER_MAP["TEXT"], height_mm=2.0)
     # 定位孔
     for q in piece.drills:
         x, y = to_mm(q)
-        msp.add_circle((x, y), base.DRILL_RADIUS_MM,
-                       dxfattribs={"layer": "DRILL"})
+        block.add_circle((x, y), base.DRILL_RADIUS_MM,
+                         dxfattribs={"layer": _LAYER_MAP["DRILL"]})
     # 刀口（三态回退链同 piece_svg；法向向内短线）
     for q in piece.gross_notches or piece.shrunk_notches or piece.notches:
         a, b = _notch_segment(q, piece.gross_polygon)
-        msp.add_line(to_mm(a), to_mm(b), dxfattribs={"layer": "NOTCH"})
+        block.add_line(to_mm(a), to_mm(b),
+                       dxfattribs={"layer": _LAYER_MAP["NOTCH"]})
+
+
+def _add_piece_info(block, piece: PatternPiece, x0: float, y0: float,
+                    x1: float, y1: float, to_mm: base.ToMm,
+                    size: str, qty: int) -> None:
+    """AAMA 裁片信息三行 TEXT（片 bbox 中央，自下而上每 4mm 一行）。"""
+    cx = (x0 + x1) / 2.0
+    cy = (y0 + y1) / 2.0
+    lines = (f"PIECE: {piece.name}",
+             f"SIZE: {size}",
+             f"QTY: {qty}")
+    for i, text in enumerate(lines):
+        # 每行间隔 0.4cm=4mm；局部系 y 越小屏上越高（Y 翻转），自下而上排
+        base.add_text(block, text, Point(cx, cy - 0.4 * i), to_mm,
+                      layer=_LAYER_MAP["TEXT"],
+                      height_mm=base.TEXT_HEIGHT_MM)
 
 
 def render_pieces_dxf(pieces: Sequence[PatternPiece], *,
                       tolerance_cm: float = base.FLATTEN_TOL_CM,
-                      gap_cm: float = PIECE_GAP_CM):
-    """把全部裁片平铺渲染为一张 R12 DXF 文档（ezdxf Drawing）。"""
+                      gap_cm: float = PIECE_GAP_CM,
+                      size: str = "-", qty: int = 1):
+    """把全部裁片平铺渲染为一张 AAMA 风格 R12 DXF 文档（ezdxf Drawing）。
+
+    每片一个 BLOCK（局部 mm 坐标）+ Model Space INSERT（插入点 = 平铺
+    偏移）；size/qty 进片中央 AAMA 信息文本（PatternPiece 不携带尺码/
+    数量，由调用方按订单给出，默认 "-" / 1）。
+    """
     doc = base.new_doc(_LAYERS)
     msp = doc.modelspace()
+    used: set[str] = set()
     for piece, offx, offy in _layout(pieces, gap_cm):
-        x0, y0, _x1, y1 = _piece_bounds(piece)
+        x0, y0, x1, y1 = _piece_bounds(piece)
 
-        def to_mm(p: Point, x0=x0, y1=y1, offx=offx, offy=offy
-                  ) -> tuple[float, float]:
-            return ((p.x - x0 + offx) * base.MM_PER_CM,
-                    (y1 - p.y + offy) * base.MM_PER_CM)
+        def to_mm(p: Point, x0=x0, y1=y1) -> tuple[float, float]:
+            return ((p.x - x0) * base.MM_PER_CM,
+                    (y1 - p.y) * base.MM_PER_CM)
 
-        _render_piece_into(msp, piece, to_mm, tolerance_cm)
+        block = doc.blocks.new(name=_block_name(piece.name, used),
+                               base_point=(0.0, 0.0, 0.0))
+        # 块与块引用必须显式落层 1：默认层 0 会被 ET 08 直接过滤丢弃
+        block.block.dxf.layer = _LAYER_MAP["CUT"]
+        _render_piece_into(block, piece, to_mm, tolerance_cm)
+        _add_piece_info(block, piece, x0, y0, x1, y1, to_mm, size, qty)
+        msp.add_blockref(block.name,
+                         insert=(offx * base.MM_PER_CM,
+                                 offy * base.MM_PER_CM),
+                         dxfattribs={"layer": _LAYER_MAP["CUT"]})
         # 片名 + 净长宽标注：置于片 bbox 上沿之上（局部系 y 向上为负）
         net_pts = [q for e in piece.net_edges
                    for q in base.flatten_geom(e.geom, tolerance_cm)]
-        base.add_text(msp, piece.name, Point(x0, y0 - 0.8), to_mm)
+        base.add_text(block, piece.name, Point(x0, y0 - 0.8), to_mm,
+                      layer=_LAYER_MAP["TEXT"])
         if net_pts:
             nw = max(q.x for q in net_pts) - min(q.x for q in net_pts)
             nh = max(q.y for q in net_pts) - min(q.y for q in net_pts)
-            base.add_text(msp, f"NET {nw * 10:.0f}x{nh * 10:.0f}MM",
-                          Point(x0, y0 - 1.8), to_mm)
-    # 单位声明：全局原点下方（全部内容 y >= 0，不与任何片重叠）
+            base.add_text(block, f"NET {nw * 10:.0f}x{nh * 10:.0f}MM",
+                          Point(x0, y0 - 1.8), to_mm,
+                          layer=_LAYER_MAP["TEXT"])
+    # 单位/AAMA 声明：全局原点下方（全部内容 y >= 0，不与任何片重叠）
     def _mm(p: Point) -> tuple[float, float]:
         return (p.x * base.MM_PER_CM, p.y * base.MM_PER_CM)
 
-    base.add_text(msp, UNITS_NOTE, Point(0.0, -1.0), _mm)
-    base.set_extents(doc)      # 回填 $EXTMIN/$EXTMAX，防老 CAD（ET 08）黑屏
+    base.add_text(msp, AAMA_NOTE, Point(0.0, -1.0), _mm,
+                  layer=_LAYER_MAP["TEXT"])
+    base.set_extents(doc)      # 回填 $EXTMIN/$EXTMAX（含 INSERT 展开）
     return doc
 
 
 def write_pieces_dxf(pieces: Sequence[PatternPiece], path: str, *,
                      tolerance_cm: float = base.FLATTEN_TOL_CM,
-                     gap_cm: float = PIECE_GAP_CM) -> None:
-    render_pieces_dxf(pieces, tolerance_cm=tolerance_cm,
-                      gap_cm=gap_cm).saveas(path)
+                     gap_cm: float = PIECE_GAP_CM,
+                     size: str = "-", qty: int = 1) -> None:
+    doc = render_pieces_dxf(pieces, tolerance_cm=tolerance_cm,
+                            gap_cm=gap_cm, size=size, qty=qty)
+    base.save_doc(doc, path, comment=AAMA_NOTE)   # 前置 999 注释组
