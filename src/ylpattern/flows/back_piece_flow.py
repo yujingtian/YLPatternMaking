@@ -19,7 +19,8 @@ stderr 告警，省腿在裁片内部分进 marks（省量吸收主口径是 bac
 反折角，防缝合翻折缺角缺肉；关闭 = 尖角跟随净样轮廓，贝塞尔多项式自然
 外延求交成尖，不抹圆）。缩水（§3 顺序 1~3）：先提取净样 -> 再缩水 -> 后加
 缝边（缝份为绝对值不乘缩水率），主面料率 back_piece_shrinkage_*（None 回退
-全局）。刀口（§4）：脚口折边 / 后中拼接 / 浪尖对位 / 口袋对位 / 膝围 + 臀围、
+全局）。刀口（§4）：脚口（与脚口线对齐，不与卷边宽关联）/ 后中拼接 / 浪尖
+对位 / 口袋对位 / 膝围 + 臀围、
 横裆（§5 基准点），净样刀口沿外法向投影至毛样外沿（与前片同款 flow 私有
 实现，不动 cutter 公开 API）。内部线（§5）：臀围/膝围水平截断 + 毗围斜量线
 1:1（横裆线不画--用户口径：毗围线即其测量基准，横裆水平线冗余；横裆高度
@@ -354,21 +355,27 @@ def _pocket_refs(ctx: DraftContext,
     return notch, [pt1, pt2], [top_geom]
 
 
-def _notches(ctx: DraftContext, chain: list[LineSegment | CubicBezier],
-             sa_hem: float) -> list[Point]:
-    """净样刀口集（主版坐标，§4 关键对位 + §5 围度线基准点）：
+def _notches(ctx: DraftContext, chain: list[LineSegment | CubicBezier]
+             ) -> tuple[list[Point], list[Point]]:
+    """净样刀口集（主版坐标，§4 关键对位 + §5 围度线基准点），返回
+    (全部刀口, 角点刀口子集)：
 
-    脚口折边双刀口（卷边翻折对位）、后中拼接刀口 P0（后浪 ∩ 机头拼接交点，
-    无 yoke 时为腰缝后中端点）、浪尖对位刀口（后浪 ∩ 内侧缝交界，防扭腿）、
-    膝围双刀口（最关键上下对位点）、臀围/横裆线 ∩ 侧缝+内缝刀口（§5 绝对
-    基准点）、毗围双刀口（大腿围录入时）、口袋对位刀口（贴袋顶线延长 ∩ 侧缝）。"""
+    脚口双刀口（与净样脚口线对齐 = 内外侧缝 ∩ 脚口线角点，用户口径 2026-08：
+    脚口刀口不与卷边宽关联、不做翻折对位）、后中拼接刀口 P0（后浪 ∩ 机头
+    拼接交点，无 yoke 时为腰缝后中端点）、浪尖对位刀口（后浪 ∩ 内侧缝交界，
+    防扭腿）、膝围双刀口（最关键上下对位点）、臀围/横裆线 ∩ 侧缝+内缝刀口
+    （§5 绝对基准点）、毗围双刀口（大腿围录入时）、口袋对位刀口（贴袋顶线
+    延长 ∩ 侧缝）。
+    角点刀口子集（脚口×2、浪尖）**不外扩投影、保留净样位置**——角点本身是
+    净边顶点，刀口标的是净样角点而非缝合线外沿（后中拼接 P0 由 build 追加）。"""
+    corners = [ctx.point("back.crotch_vertex"),
+               ctx.point("back.hem_outseam_point"),
+               ctx.point("back.hem_inseam_point")]
     pts = [ctx.point("back.knee_outseam_point"),
            ctx.point("back.knee_inseam_point"),
            ctx.point("back.hip_outseam_point"),
            ctx.point("back.hip_inner_point"),
-           ctx.point("back.crotch_vertex"),
-           ctx.curve("back.outseam_lower").point_at_y(sa_hem),
-           ctx.curve("back.inseam_lower").point_at_y(sa_hem)]
+           *corners]
     # 横裆线（髀围线）∩ 净边链：侧缝/后浪侧两基准点（§5，载体边不预设）
     pts += _h_cross_points(chain, ctx.line("back.crotch_line").a.y)
     pocket, _drills, _marks = _pocket_refs(ctx, chain)
@@ -377,7 +384,7 @@ def _notches(ctx: DraftContext, chain: list[LineSegment | CubicBezier],
         pts.append(ctx.point("back.thigh_outseam_point"))
         if "back.thigh_inseam_point" in ctx.sheet:   # d=0 时内端 = 裆尖角点
             pts.append(ctx.point("back.thigh_inseam_point"))
-    return pts
+    return pts, corners
 
 
 def _internal_marks(ctx: DraftContext,
@@ -470,22 +477,31 @@ def _project_notch(p: Point, n: Vector, sa_amt: float,
     return p + n.scale(best_s)
 
 
-def _project_notches(piece: PatternPiece, sa, notch_type: str) -> PatternPiece:
+def _project_notches(piece: PatternPiece, sa, notch_type: str,
+                     keep: tuple[Point, ...] = ()) -> PatternPiece:
     """净样刀口沿外法向延伸投影到毛样外沿，整体替换 gross_notches（§4）。
 
     载体边基于缩水后净边（无缩水退化净样，与 cutter base 同口径）；缝合线位
     刀口（shrunk_notches）保留不丢信息，piece_svg 三级回退自动取毛样刀口。
+    keep：角点刀口子集（脚口/浪尖/后中拼接），**不外扩、保留净样位置**--
+    角点本身是净边顶点，刀口标的是净样角点（与净样脚口线对齐），若按角
+    平分法向投影会落到毛样外角点上（用户目检判定错位，2026-08）。
     刀口类型仅记 notes（I/V 型几何差异由输出层绘制，同前片/后贴袋先例）。"""
     base = piece.shrunk_edges or piece.net_edges
     notches = piece.shrunk_notches or piece.notches
     if not notches or not piece.gross_polygon:
         return piece
     projected = []
+    n_keep = 0
     for p in notches:
+        if any(p.distance_to(c) < 1e-9 for c in keep):
+            projected.append(p)          # 角点刀口不外扩：与净样轮廓对齐
+            n_keep += 1
+            continue
         n, amt = _notch_normal(base, p, sa)
         projected.append(_project_notch(p, n, amt, piece.gross_polygon))
-    note = (f"刀口：{notch_type} 型 ×{len(projected)}，净样刀口沿外法向"
-            "投影至毛样外沿（后片裁片.md §4）",)
+    note = (f"刀口：{notch_type} 型 ×{len(projected)}（其中角点 {n_keep} 个"
+            "保留净样位），净样刀口沿外法向投影至毛样外沿（后片裁片.md §4）",)
     return piece.with_gross(piece.gross_polygon, tuple(projected),
                             piece.notes + note)
 
@@ -513,11 +529,12 @@ def build_back_piece(main_ctx: DraftContext
 
     edges_main, cb_top = _net_edges(main_ctx, o)
     chain = [g for _, g in edges_main]
-    notches_main = _notches(main_ctx, chain, sa.hem)
+    notches_main, corners_main = _notches(main_ctx, chain)
     marks_main = _internal_marks(main_ctx, chain)
     marks_main += _dart_marks(main_ctx, chain)
     _pn, drills_main, _pm = _pocket_refs(main_ctx, chain)
     notches_main.append(cb_top)          # 后中拼接刀口（§4：后浪 ∩ 机头/腰缝）
+    corners_main.append(cb_top)          # 角点刀口：不外扩投影（同脚口/浪尖）
 
     # 1. 主版 -> 局部（Y 轴反射：X 不翻避镜像、Y 翻让腰头在上），origin = cb_top
     origin = cb_top
@@ -528,6 +545,7 @@ def build_back_piece(main_ctx: DraftContext
     net_edges = tuple(PieceEdge(n, g) for n, g in local_named)
     # 3. 刀口、标记、定位孔同步到局部坐标（内部线方向无关渲染，不随边界反转）
     notches = tuple(_to_local_point(p, origin) for p in notches_main)
+    notch_corners = tuple(_to_local_point(p, origin) for p in corners_main)
     marks = tuple(_to_local_geom(g, origin) for g in marks_main)
     drills = tuple(_to_local_point(p, origin) for p in drills_main)
     # 4. 丝缕线（竖向 = 经向，§5 与全局纱向平行一致）
@@ -556,8 +574,11 @@ def build_back_piece(main_ctx: DraftContext
     else:
         corners = {("cb", "inseam"): "miter"}
     piece = add_seam_allowance(piece, sa, corners)
-    # 8. 刀口法向投影到毛样外沿（§4，专属工艺策略）
-    piece = _project_notches(piece, sa, o.back_piece_notch_type)
+    # 8. 刀口法向投影到毛样外沿（§4，专属工艺策略；角点刀口保留净样位不外扩。
+    #    载体刀口 = 缩水后净样刀口，角点 keep 集同步按缩水缩放才可比坐标）
+    keep = tuple(Point(p.x * (1.0 + weft), p.y * (1.0 + warp))
+                 for p in notch_corners)
+    piece = _project_notches(piece, sa, o.back_piece_notch_type, keep)
     # 9. 局部 ctx 留命名元素供 trace/调试
     local = DraftContext(main_ctx.measurements, o)
     step = "build_back_piece"
