@@ -16,8 +16,7 @@ from ylpattern.draft.curves import waistband_curve
 from ylpattern.exporters.piece_svg import render_piece_svg
 from ylpattern.flows.back_flow import FULL_FLOW
 from ylpattern.flows.runner import FlowRunner
-from ylpattern.flows.waistband_flow import (_arc_length_of_point,
-                                            build_waistband,
+from ylpattern.flows.waistband_flow import (build_waistband,
                                             extract_waistband_spec)
 from ylpattern.geometry import CubicBezier, LineSegment, Point
 from ylpattern.params import (Measurements, PatternOptions, WaistbandGrain,
@@ -30,6 +29,12 @@ M = Measurements(waist=70, hip=96, knee=46, hem=36,
 def _assert_point_approx(a, b, *, abs=1e-3):
     assert a.x == pytest.approx(b.x, abs=abs)
     assert a.y == pytest.approx(b.y, abs=abs)
+
+
+def _line_dist(p, a, b):
+    """点 p 到直线 ab（无限延长线）的距离。"""
+    v = b - a
+    return abs(v.dx * (p.y - a.y) - v.dy * (p.x - a.x)) / v.length
 
 
 @pytest.fixture()
@@ -49,34 +54,22 @@ def ctx_darts():
 # ---------- 净长提取（§三 代数求和）----------
 
 def test_spec_no_dart(ctx):
-    """无省：L_half = 前+后腰弧长；侧缝刀口 = L_back。"""
+    """无省：L_half = 前+后腰弧长。"""
     spec = extract_waistband_spec(ctx)
     front_arc = ctx.curve("front.waistline_arc")
     back_arc = ctx.curve("back.waistline_arc")
     assert spec.l_front == pytest.approx(front_arc.length(), abs=1e-3)
     assert spec.l_back == pytest.approx(back_arc.length(), abs=1e-3)
     assert spec.l_half == pytest.approx(spec.l_front + spec.l_back)
-    assert spec.side_notch == pytest.approx(spec.l_back)
-    assert spec.back_dart_notches == ()
-    assert spec.front_dart_notch is None
-    assert not spec.has_front_dart and not spec.has_back_dart
 
 
 def test_spec_with_darts(ctx_darts):
-    """有省：L_back = 后弧长 − 后省宽；L_front = 前弧长 − 前吃省宽。"""
-    o = ctx_darts.options
+    """有省：L_back = 后弧长 − 后省宽；L_front = 前弧长 − 前吃省宽（省宽仅扣长）。"""
     spec = extract_waistband_spec(ctx_darts)
     front_arc = ctx_darts.curve("front.waistline_arc")
     back_arc = ctx_darts.curve("back.waistline_arc")
     assert spec.l_back == pytest.approx(back_arc.length() - 2.0, abs=1e-3)
     assert spec.l_front == pytest.approx(front_arc.length() - 1.5, abs=1e-3)
-    assert spec.has_back_dart and spec.has_front_dart
-    # 后省刀口 = p_in 投影到后腰弧的弧长（独立复算）
-    leg_inner = ctx_darts.line("back.dart1_leg_inner")
-    expect_s = _arc_length_of_point(back_arc, leg_inner.b)
-    assert spec.back_dart_notches[0] == pytest.approx(expect_s, abs=1e-3)
-    # 前省刀口 = L_back + p1_dist
-    assert spec.front_dart_notch == pytest.approx(spec.l_back + 8.0)
 
 
 # ---------- 轮廓闭合与形态 ----------
@@ -203,29 +196,85 @@ def test_curved_ends_right_angle():
     assert abs(cross) < 1e-9
 
 
-# ---------- 刀口（§三.2）----------
+# ---------- 刀口（§四.2 v0.4：后中净样位 + 四角缝边交点位）----------
 
-def test_notches_on_bottom_and_mirrored(ctx_darts):
-    """刀口在下口线上、左右镜像对称。"""
+def test_notches_net_positions(ctx_darts):
+    """净样刀口 5 点：后中 O + 左右两端下/上顶点（有省不打省位/侧缝刀口）。"""
     piece, local = build_waistband(ctx_darts)
-    spec = extract_waistband_spec(ctx_darts)
+    _assert_point_approx(local.point("wb.notch_back_center"), Point(0, 0))
+    # 右下顶点 = 下口线前中端；右上顶点 = 上口线前中端（top_right 反向后 p0）
     bot = local.sheet.get("wb.bottom_right").geom
-    # 侧缝刀口在右半下口线上（弧长 = L_back）
-    side = local.point("wb.notch_side")
-    if isinstance(bot, CubicBezier):
-        expect = bot.point_at_length(spec.side_notch)
-    else:
-        expect = bot.a.lerp(bot.b, spec.side_notch / spec.l_half)
-    _assert_point_approx(side, expect)
-    # 镜像刀口 x 取负、y 不变
-    side_m = local.point("wb.notch_side_mirror")
-    assert side_m.x == pytest.approx(-side.x)
-    assert side_m.y == pytest.approx(side.y)
-    # 后省、前省刀口各两个（右 + 镜像）
-    assert "wb.notch_back_dart1" in local.sheet
-    assert "wb.notch_back_dart1_mirror" in local.sheet
-    assert "wb.notch_front_dart" in local.sheet
-    assert "wb.notch_front_dart_mirror" in local.sheet
+    front = bot.b if isinstance(bot, LineSegment) else bot.p3
+    _assert_point_approx(local.point("wb.notch_right_bottom"), front)
+    top = local.sheet.get("wb.top_right").geom
+    front_top = top.a if isinstance(top, LineSegment) else top.p0
+    _assert_point_approx(local.point("wb.notch_right_top"), front_top)
+    # 左侧两顶点 = 搭门外端上下（bottom_fly.a == left_end.b / top_fly.b == left_end.a）
+    _assert_point_approx(local.point("wb.notch_left_bottom"),
+                         local.sheet.get("wb.bottom_fly").geom.a)
+    _assert_point_approx(local.point("wb.notch_left_top"),
+                         local.sheet.get("wb.left_end").geom.a)
+    assert len(piece.notches) == 5
+    # 旧省位/侧缝刀口不再上版（回归守卫）
+    for gone in ("wb.notch_side", "wb.notch_back_dart1", "wb.notch_front_dart"):
+        assert gone not in local.sheet
+
+
+def test_notches_gross_at_sa_crossings(ctx_darts):
+    """毛样刀口 5 点全在缝边交点上：净线延长线 ∩ 缝边线（§四.2 v0.4）。
+
+    直腰头金标：后中 (0, sa.bottom)、右下 (L_half, sa.bottom)、
+    右上 (L_half+sa.right, -W)、左上 (-(L_half+fly)-sa.left, -W)、
+    左下 (-(L_half+fly), sa.bottom)。
+    """
+    o = ctx_darts.options
+    piece, _ = build_waistband(ctx_darts)
+    spec = extract_waistband_spec(ctx_darts)
+    l, W, fly = spec.l_half, o.waistband_width, o.waistband_fly_extension
+    sa = o.waistband_seam_allowances
+    gn = piece.gross_notches
+    assert len(gn) == 5
+    _assert_point_approx(gn[0], Point(0, sa.bottom))                  # 后中：垂线∩下口缝边
+    _assert_point_approx(gn[1], Point(l, sa.bottom))                  # 右下：宽线∩下口缝边
+    _assert_point_approx(gn[2], Point(l + sa.right_end, -W))          # 右上：腰头线∩右端缝边
+    _assert_point_approx(gn[3], Point(-(l + fly) - sa.left_end, -W))  # 左上：腰头线∩左端缝边
+    _assert_point_approx(gn[4], Point(-(l + fly), sa.bottom))         # 左下：宽线∩下口缝边
+
+
+def test_notches_curved_gross_on_sa_lines():
+    """弯腰头毛样刀口：交点在对应缝边线上（距净边=缝份）且在净线延长线上。"""
+    o = PatternOptions(delta=1.0, waistband_type=WaistbandType.CURVED)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    piece, local = build_waistband(ctx)
+    sa = o.waistband_seam_allowances
+    gn = piece.gross_notches
+    assert len(gn) == 5
+    right_end = local.line("wb.right_end")
+    left_end = local.line("wb.left_end")
+    bf = local.sheet.get("wb.bottom_fly").geom
+    tf = local.sheet.get("wb.top_fly").geom
+    br = local.sheet.get("wb.bottom_right").geom      # CubicBezier（弯腰头下口）
+    tr = local.sheet.get("wb.top_right").geom
+    # 后中：在原点垂线（x=0）上、距下口线（后中起端切向）= bottom 缝份
+    assert gn[0].x == pytest.approx(0.0, abs=1e-6)
+    assert _line_dist(gn[0], br.p0, br.p0 + br.tangent_at(0.0)) == pytest.approx(
+        sa.bottom, abs=1e-6)
+    # 右下：在宽线（right_end 线）上、距下口线（末端切向）= bottom 缝份
+    assert _line_dist(gn[1], right_end.a, right_end.b) == pytest.approx(0.0, abs=1e-6)
+    assert _line_dist(gn[1], br.p3, br.p3 + br.tangent_at(1.0)) == pytest.approx(
+        sa.bottom, abs=1e-6)
+    # 右上：距右端封边线 = right_end 缝份、在上口切向线（top_right 起端）上
+    assert _line_dist(gn[2], right_end.a, right_end.b) == pytest.approx(
+        sa.right_end, abs=1e-6)
+    assert _line_dist(gn[2], tr.p0, tr.p0 + tr.tangent_at(0.0)) == pytest.approx(
+        0.0, abs=1e-6)
+    # 左上：距左端封边线 = left_end 缝份、在上口搭门线（top_fly）上
+    assert _line_dist(gn[3], left_end.a, left_end.b) == pytest.approx(
+        sa.left_end, abs=1e-6)
+    assert _line_dist(gn[3], tf.a, tf.b) == pytest.approx(0.0, abs=1e-6)
+    # 左下：在左端封边线上、距下口搭门线（bottom_fly）= bottom 缝份
+    assert _line_dist(gn[4], left_end.a, left_end.b) == pytest.approx(0.0, abs=1e-6)
+    assert _line_dist(gn[4], bf.a, bf.b) == pytest.approx(sa.bottom, abs=1e-6)
 
 
 # ---------- 缩水（§五.2）----------

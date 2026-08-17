@@ -20,16 +20,15 @@ from ..params import WaistbandGrain, WaistbandType
 
 @dataclass(frozen=True)
 class WaistbandSpec:
-    """腰头净长与刀口位（代数求和，腰头裁片.md §三）。"""
+    """腰头净长提取结果（代数求和，腰头裁片.md §三）。
+
+    省宽仅作长度扣减；刀口不随净长提取（§四.2 v0.4：仅后中对位 + 两端
+    边界，中段不打省位/侧缝对位刀口），由 draw_wb_notches 在净样端点定位。
+    """
     l_front: float                              # 前片净长（扣前省）
     l_back: float                               # 后片净长（扣后省）
     l_half: float                               # 半片总净长 = l_front + l_back
     computed_drop: float                        # 弯腰头弧深（自动推算或用户覆盖；直腰头=0；曲线向下凸呈 ∪）
-    side_notch: float                           # 侧缝刀口（自后中弧长 = l_back）
-    back_dart_notches: tuple[float, ...]        # 后省刀口（自后中弧长，已扣前序省宽）
-    front_dart_notch: float | None              # 前省刀口（自后中弧长 = l_back + p1_dist）
-    has_front_dart: bool
-    has_back_dart: bool
 
 
 _STEP = "draw_waistband"
@@ -104,14 +103,6 @@ def _mirror_x(geom: CubicBezier | LineSegment) -> CubicBezier | LineSegment:
                        Point(-geom.p1.x, geom.p1.y),
                        Point(-geom.p2.x, geom.p2.y),
                        Point(-geom.p3.x, geom.p3.y))
-
-
-def _point_at_arc(geom: CubicBezier | LineSegment, s: float,
-                  total: float) -> Point:
-    """下口线上自后中(0,0)起弧长 s 处的点。"""
-    if isinstance(geom, CubicBezier):
-        return geom.point_at_length(s)
-    return geom.a.lerp(geom.b, s / total if total else 0.0)
 
 
 # ---- 半片基础轮廓 ----
@@ -208,34 +199,52 @@ def draw_wb_ends(ctx: DraftContext, spec: WaistbandSpec) -> NamedLine:
     return ctx.sheet.get("wb.right_end")
 
 
-# ---- 刀口（§三.2） ----
+# ---- 刀口（§四.2） ----
 
 def draw_wb_notches(ctx: DraftContext, spec: WaistbandSpec) -> NamedPoint | None:
-    """下口线刀口（自后中沿弧长，单刀口；full_piece 左右镜像各打一个）。
+    """腰头刀口净样位（§四.2 v0.4）：后中对位 + 左右两端上下顶点，中段不打
+    省位/侧缝对位刀口。
 
-    后省对位点 / 侧缝对位点 / 前省对位点；刀口为下口线上的点，附垂直短记号线。
+    版上标记净样角点（后中 O、左/右端各下顶点+上顶点）；裁片毛样刀口位由
+    flows/waistband_flow 换算至缝边——下顶点沿腰头宽线交下口缝边、上顶点
+    沿腰头线交端头缝边（§四.2.2/§四.2.3「沿着…和缝边相交的地方」）。
+    刀口附垂直短记号线（下顶点朝下、上顶点朝上，均朝净样外侧 0.4cm）。
     """
     o = ctx.options
+    W = o.waistband_width
+    fly = o.waistband_fly_extension
     bot = _bottom_geom(o, spec.computed_drop, spec.l_half)
-    positions: list[tuple[str, float]] = []
-    for i, s in enumerate(spec.back_dart_notches, 1):
-        positions.append((f"back_dart{i}", s))
-    positions.append(("side", spec.side_notch))
-    if spec.front_dart_notch is not None:
-        positions.append(("front_dart", spec.front_dart_notch))
+    top = _top_geom(bot, W)
+    front = bot.b if isinstance(bot, LineSegment) else bot.p3
+    front_top = top.b if isinstance(top, LineSegment) else top.p3
+    bot_mirror = _mirror_x(bot)
+    top_mirror = _mirror_x(top)
+    left_front = (bot_mirror.b if isinstance(bot_mirror, LineSegment)
+                  else bot_mirror.p3)
+    left_front_top = (top_mirror.b if isinstance(top_mirror, LineSegment)
+                      else top_mirror.p3)
+    fly_bottom = left_front + _end_tangent(bot_mirror, at_front=True).scale(fly)
+    fly_top = left_front_top + _end_tangent(top_mirror, at_front=True).scale(fly)
 
+    positions: list[tuple[str, Point, float, str]] = [
+        ("back_center", Point(0, 0), 0.4,
+         "后中对位刀口（净样位；毛样位=原点垂线∩下口缝边，§四.2.1）"),
+        ("left_bottom", fly_bottom, 0.4,
+         "左下顶点刀口（净样位；毛样位=腰头宽线∩下口缝边，§四.2.2）"),
+        ("left_top", fly_top, -0.4,
+         "左上顶点刀口（净样位；毛样位=腰头线∩左端缝边，§四.2.2）"),
+        ("right_bottom", front, 0.4,
+         "右下顶点刀口（净样位；毛样位=腰头宽线∩下口缝边，§四.2.3）"),
+        ("right_top", front_top, -0.4,
+         "右上顶点刀口（净样位；毛样位=腰头线∩右端缝边，§四.2.3）"),
+    ]
     last: NamedPoint | None = None
-    for name, s in positions:
-        p = _point_at_arc(bot, s, spec.l_half)
-        p_mirror = Point(-p.x, p.y)             # 左半镜像
+    for name, p, tick_dy, note in positions:
         last = ctx.add_point(f"wb.notch_{name}", p, step=_STEP,
-                             basis=f"下口线自后中弧长 {s:.2f} 处刀口（腰头裁片.md §三.2）",
+                             basis=f"{note}（腰头裁片.md §四.2 v0.4）",
                              label=f"{name}刀口")
-        ctx.add_point(f"wb.notch_{name}_mirror", p_mirror, step=_STEP,
-                      basis=f"左半镜像刀口（弧长 −{s:.2f}）",
-                      label=f"{name}刀口镜像")
-        # 垂直短记号线（向下 0.4cm，示意刀口）
-        ctx.add_line(f"wb.notch_{name}_tick", LineSegment(p, Point(p.x, p.y + 0.4)),
+        ctx.add_line(f"wb.notch_{name}_tick",
+                     LineSegment(p, Point(p.x, p.y + tick_dy)),
                      step=_STEP, basis="刀口垂直短记号", role="struct")
     return last
 
