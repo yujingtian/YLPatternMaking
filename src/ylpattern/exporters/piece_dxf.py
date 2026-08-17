@@ -8,8 +8,11 @@
   --翻转后 DXF（Y 向上）显示与 SVG 屏幕视觉逐点重合，手性不变
   （裁片不镜像，裁床切出的物理片与 SVG 打印件一致）；平铺偏移全部
   落在 INSERT 插入点上，块内容与片一一对应。
-- 刀口 = 毛样外沿该点处垂直轮廓向内的 NOTCH_LEN_CM 短线（POINT 实体
-  裁床难识别，不用）；丝缕线省略箭头仅 LINE + TEXT "GRAIN"。
+- 刀口 = 图层 4 POINT，必须附组码 30（Z 深度，默认 1.524）与组码 50
+  （开口角度，取刀口法向在 mm 输出系方向；缺角度 CAD 不知开口朝向、
+  不显示）；图层 3 存普通轮廓顶点/放码点，非刀口层。定位孔 = 图层 13
+  单纯 POINT（CAD 读 AAMA 见层 13 POINT 自动渲染标准、不受缩放影响的
+  钻孔符号）。丝缕线省略箭头仅 LINE + TEXT "GRAIN"。
 - AAMA 裁片信息：块中央三行 TEXT（PIECE/SIZE/QTY，size/qty 由调用方
   传入，默认 "-" / 1）。
 - 全 ASCII：块名/标注取 piece.name 与净长宽数字，中文 label 留在 SVG。
@@ -17,6 +20,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 
@@ -32,25 +36,26 @@ AAMA_NOTE = "ANSI/AAMA"
 
 # 语义层 -> AAMA 数字图层映射（服装 CAD 只认数字层名，自定义英文名
 # 解析失败是 ET 08 等老软件黑屏的主因之一）：
-#   1=外轮廓/裁切线（含片名与信息文本）、8=净样/缝合线（含缩水净样
-#   与内部画线：臀/膝/毗围辅助线/袋口净线/省弧--ET 08 实测层 8 显示
-#   最稳，内部线也归 8）、3=刀口刻线、2=定位孔、7=纱向线
+#   1=外轮廓/裁切线（含片名与信息文本）、8=净样/缝合线（含缩水净样与
+#   内部画线）、3=普通轮廓顶点/放码点（勿放刀口）、4=刀口专属层
+#   （POINT 附组码 30/50）、13=定位孔专属层（POINT 自动渲染钻孔符号）、
+#   7=纱向线
 _LAYER_MAP: dict[str, str] = {
     "CUT": "1",
     "NET": "8",
     "SHRUNK": "8",
     "MARK": "8",
-    "NOTCH": "3",
-    "DRILL": "2",
+    "NOTCH": "4",   # 刀口专属层（层 3 是普通轮廓顶点/放码点）
+    "DRILL": "13",  # 定位孔专属层（CAD 自动渲染钻孔符号）
     "GRAIN": "7",
     "TEXT": "1",
 }
 
 _LAYERS: dict[str, base.LayerSpec] = {
     "1": (7, "CONTINUOUS"),   # 毛样裁切轮廓（闭合折线）+ 文本
-    "8": (8, "DASHED"),       # 净样/缝合线（含缩水净样，AAMA 法定层）
-    "3": (3, "DASHED"),       # 内部画线（围度辅助线/刀口刻线等）
-    "2": (4, "DASHED"),       # 定位孔
+    "8": (8, "DASHED"),       # 净样/缝合线（含缩水净样 + 内部画线）
+    "4": (4, "CONTINUOUS"),   # 刀口（POINT + 组码 30=1.524 / 50=角度）
+    "13": (6, "CONTINUOUS"),  # 定位孔（POINT，自动渲染钻孔符号）
     "7": (5, "CONTINUOUS"),   # 丝缕线
 }
 
@@ -113,9 +118,11 @@ def _layout(pieces: Sequence[PatternPiece], gap_cm: float
 
 def _notch_segment(p: Point, polygon: tuple[Point, ...]
                    ) -> tuple[Point, Point]:
-    """刀口刻线：p 在毛样轮廓上，取垂直轮廓、指向裁片内部（质心方向）
-    的 NOTCH_LEN_CM 短线；轮廓缺失/退化时回退竖直向下（局部系 Y 向下，
-    与 piece_svg 刀口 y+4px 向下同口径）。"""
+    """刀口方向短线（SVG 口径共用）：p 在毛样轮廓上，取垂直轮廓、指向裁片
+    内部（质心方向）的 NOTCH_LEN_CM 短线；轮廓缺失/退化时回退竖直向下
+    （局部系 Y 向下，与 piece_svg 刀口 y+4px 向下同口径）。
+    DXF 用其方向（内法向）换算刀口 POINT 的组码 50 开口角度--层 4 刀口
+    必须带 30/50 组码才显示（见 _render_piece_into 刀口段）。"""
     n = len(polygon)
     if n < 3:
         return p, p + Vector(0.0, base.NOTCH_LEN_CM)
@@ -174,16 +181,23 @@ def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
                        dxfattribs={"layer": _LAYER_MAP["GRAIN"]})
         base.add_text(block, "GRAIN", piece.grain.a, to_mm,
                       layer=_LAYER_MAP["TEXT"], height_mm=2.0)
-    # 定位孔
+    # 定位孔：图层 13 单纯 POINT--CAD 读 AAMA 见层 13 POINT 自动渲染标准、
+    # 不受缩放影响的钻孔十字/圆圈符号（真实 CIRCLE r=0.5mm 过小不可见）
     for q in piece.drills:
         x, y = to_mm(q)
-        block.add_circle((x, y), base.DRILL_RADIUS_MM,
-                         dxfattribs={"layer": _LAYER_MAP["DRILL"]})
-    # 刀口（三态回退链同 piece_svg；法向向内短线）
+        block.add_point((x, y), dxfattribs={"layer": _LAYER_MAP["DRILL"]})
+
+    # 刀口：图层 4 POINT，必须附组码 30（Z 深度 1.524）与组码 50（开口
+    # 角度）--缺角度 CAD 不知刀口朝哪个方向开、不显示。角度取刀口内法向
+    # 在 mm 输出系的方向（局部系 Y 向下、输出 Y 翻转向上，故 dy 取负）
     for q in piece.gross_notches or piece.shrunk_notches or piece.notches:
-        a, b = _notch_segment(q, piece.gross_polygon)
-        block.add_line(to_mm(a), to_mm(b),
-                       dxfattribs={"layer": _LAYER_MAP["NOTCH"]})
+        x, y = to_mm(q)
+        tip = _notch_segment(q, piece.gross_polygon)[1]
+        d = tip - q
+        angle = math.degrees(math.atan2(-d.dy, d.dx))
+        block.add_point((x, y, base.NOTCH_Z_MM),
+                        dxfattribs={"layer": _LAYER_MAP["NOTCH"],
+                                    "angle": angle})
 
 
 def _add_piece_info(block, piece: PatternPiece, x0: float, y0: float,

@@ -5,8 +5,9 @@
 drills/marks 齐全）：
 - 每片一个 BLOCK + msp 恰一个同名 INSERT（插入点 = 平铺偏移）；
 - 图层为 AAMA 数字层：层 "1" CUT 闭合 POLYLINE 每片恰 1 条、顶点数 ==
-  gross_polygon 去重后点数；"8"/"3" NET/SHRUNK 互斥；NOTCH 层 "3" 每刀口
-  一条 5mm LINE；DRILL 层 "2" 每孔一个 r=0.5mm CIRCLE；
+  gross_polygon 去重后点数；"8" NET/SHRUNK/MARK；NOTCH 层 "4" 每刀口一个
+  POINT 且附组码 30（Z=1.524）与组码 50（开口角度）；DRILL 层 "13" 每孔
+  一个 POINT（CAD 自动渲染钻孔符号）；
 - Y 翻转：每片 CUT 折线 bbox 高 == 毛样高×10（翻转不改尺寸）；
 - 平铺不重叠：两片 INSERT+CUT bbox 在 X 方向有分隔（行内左->右摆放）；
 - AAMA 信息文本：块中央三行 PIECE/SIZE/QTY；片名 TEXT 全 ASCII；
@@ -15,7 +16,6 @@ drills/marks 齐全）：
 ezdxf 缺席时逐条 importorskip。
 """
 
-import math
 
 import pytest
 
@@ -151,28 +151,35 @@ def test_net_shrunk_exclusive(pieces):
     assert len(_ents(doc, "POLYLINE", "8")) == expect + expect_marks
 
 
-def test_notches_inward_lines(pieces):
-    """刀口（层 3）每刀口一条 LINE、长度 = 5mm。"""
+def test_notches_points(pieces):
+    """刀口 = 层 4 POINT（层 3 存普通轮廓顶点/放码点，层 4 才是刀口专属
+    层），且必须附组码 30（Z=1.524，缺省 CAD 不识别）与组码 50（开口
+    角度，取刀口内法向在 mm 输出系方向）；层内不杂 LINE/TEXT；三态回退
+    链同 piece_svg。"""
     doc = _doc(pieces)
-    lines = _ents(doc, "LINE", "3")
+    points = _ents(doc, "POINT", "4")
     expect = sum(len(p.gross_notches or p.shrunk_notches or p.notches)
                  for p in pieces)
     assert expect > 0
-    assert len(lines) == expect
-    for e in lines:
-        d = math.hypot(e.dxf.end.x - e.dxf.start.x, e.dxf.end.y - e.dxf.start.y)
-        assert d == pytest.approx(5.0, abs=1e-6)
+    assert len(points) == expect
+    for e in points:
+        assert e.dxf.location.z == pytest.approx(1.524)  # 组码 30
+        assert -360.0 <= e.dxf.angle <= 360.0            # 组码 50 必在
+    # 层 4 不杂其他实体（LINE 刻线/伴随 TEXT 均禁止）
+    assert len(_ents(doc, "LINE", "4")) == 0
+    assert len(_ents(doc, "TEXT", "4")) == 0
 
 
-def test_drills_circles(pieces):
-    """定位孔（层 2）每孔一个 r=0.5mm CIRCLE；back_piece 含后贴袋定位孔。"""
+def test_drills_points(pieces):
+    """定位孔 = 层 13 单纯 POINT（CAD 读 AAMA 见层 13 POINT 自动渲染标准、
+    不受缩放影响的钻孔符号；真实 CIRCLE r=0.5mm 过小不可见）；
+    back_piece 含后贴袋定位孔。"""
     doc = _doc(pieces)
-    circles = _ents(doc, "CIRCLE", "2")
+    points = _ents(doc, "POINT", "13")
     bp = pieces[1]
     assert bp.drills                                    # back_patch 开启 -> 有钻孔
-    assert len(circles) == sum(len(p.drills) for p in pieces)
-    for c in circles:
-        assert c.dxf.radius == pytest.approx(0.5)
+    assert len(points) == sum(len(p.drills) for p in pieces)
+    assert len(_ents(doc, "CIRCLE", "13")) == 0
 
 
 def test_grain_line_and_text(pieces):

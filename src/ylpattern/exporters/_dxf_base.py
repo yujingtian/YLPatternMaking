@@ -2,8 +2,8 @@
 
 约定（详见 .doc/python工程设计.md §10.3 DXF 小节）：
 - 版本 DXF R12（AC1009）：富怡/ET/格柏等服装 CAD 与裁床兼容面最广；
-  实体白名单仅 LINE / CIRCLE / 2D POLYLINE / TEXT（LWPOLYLINE/SPLINE/
-  MTEXT 均 R13+，R12 下 ezdxf 直接抛错）。
+  实体白名单 LINE / CIRCLE / POINT / 2D POLYLINE / TEXT（LWPOLYLINE/
+  SPLINE/MTEXT 均 R13+，R12 下 ezdxf 直接抛错）。
 - 单位 mm：坐标写入前 cm × MM_PER_CM；R12 无 $INSUNITS（R2000+ 才有），
   以 TEXT "UNITS=MM" 兜底声明。
 - 全部层名与 TEXT 内容 ASCII：R12 单行 TEXT + SHX/DBCS 编码跨软件易乱码，
@@ -24,7 +24,8 @@ MM_PER_CM = 10.0        # cm -> mm
 FLATTEN_TOL_CM = 0.01   # 曲线离散弦高公差 0.1mm（裁床典型切割精度）
 MAX_FLATTEN_DEPTH = 12  # 递归细分深度上限（2^12 段，防病态输入）
 NOTCH_LEN_CM = 0.5      # 刀口刻线长 5mm（对位刀口通用画法）
-DRILL_RADIUS_MM = 0.5   # 定位孔显示半径（直径 1mm 钻孔）
+NOTCH_Z_MM = 1.524      # 刀口 POINT 组码 30（Z 深度）默认值（AAMA 口径）
+DRILL_RADIUS_MM = 0.5   # 整版关键点圆圈半径（裁片定位孔走层 13 POINT）
 TEXT_HEIGHT_MM = 10.0   # 单行 TEXT 字高（2.5mm 在 ET 08 下几乎不可见）
 
 LayerSpec = tuple[int, str]                      # (ACI 颜色号, 线型名)
