@@ -4,7 +4,8 @@
   以前口袋侧缝腰点 B 为基准，参考点（袋口外上角）= B + (+3.5, −4.0)
   （+X 朝内侧缝 = 裤片内部，"离口袋侧边"水平向内取 +；"离口袋顶部"垂直向下取 −）。
   双模式支持：
-    1. custom 模式（默认）：梯形/多边形自由锚点 + 逐边 line/arc/bezier 形态；
+    1. custom 模式：梯形/多边形自由锚点 + 逐边 line/arc/bezier 形态
+       （全局默认模式为 facing_intersect，本文件 custom 分支均显式指定）；
     2. facing_intersect 模式：袋口定宽，左右侧边向下延伸与袋贴内边 front.pocket_facing_inner 相交，
        底边取袋贴内边子段（NamedCurve）闭合。
   依赖说明：
@@ -14,13 +15,17 @@
 
 import pytest
 
+from ylpattern.draft import curves
 from ylpattern.flows.front_flow import FRONT_FLOW
 from ylpattern.flows.runner import FlowRunner
 from ylpattern.params import Measurements, PatternOptions, WaistbandType
 
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
-O = PatternOptions(delta=1.0, front_pocket=True, watch_pocket=True)
+# 分支 A（custom）测试夹具：全局默认 watch_pocket_mode 已是 facing_intersect
+# （强依赖袋贴），custom 分支须显式指定
+O = PatternOptions(delta=1.0, front_pocket=True, watch_pocket=True,
+                   watch_pocket_mode="custom")
 
 
 @pytest.fixture()
@@ -151,11 +156,13 @@ def test_watch_pocket_facing_intersect_construction():
            (seg3.p0.distance_to(pt4) < 1e-6 and seg3.p3.distance_to(pt3) < 1e-6)
 
     # 4. 验证底边交点确实落在袋贴内边弧线上
+    # 口径：法足投影距离（交点由 ray_intersect_bezier 在曲线上二分求得，
+    # 投影应≈0）；旧 sample(256) 最近采样点口径受采样间距影响——交点落在
+    # 两采样点之间时 0.006 级误报，并非几何误差
     facing_curve = ctx.curve("front.pocket_facing_inner")
     for pt in (pt3, pt4):
-        # 点到袋贴曲线的采样极小距离接近 0
-        min_d = min(pt.distance_to(p) for p in facing_curve.sample(256))
-        assert min_d == pytest.approx(0.0, abs=1e-3)
+        foot = curves.foot_on_bezier(facing_curve, pt)
+        assert pt.distance_to(foot) == pytest.approx(0.0, abs=1e-6)
 
 
 def test_watch_pocket_facing_intersect_requires_facing():
@@ -193,8 +200,9 @@ def test_watch_pocket_no_seam_allowance(ctx):
 
 
 def test_watch_pocket_curved_waistband():
-    # 弯腰头：基准 = 下侧缝腰点 B′
+    # 弯腰头：基准 = 下侧缝腰点 B′（custom 分支，模式须显式指定）
     o = PatternOptions(delta=1.0, front_pocket=True, watch_pocket=True,
+                       watch_pocket_mode="custom",
                        waistband_type=WaistbandType.CURVED)
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
     b_sub = ctx.point("front.lower_waist_side_point")

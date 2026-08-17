@@ -282,6 +282,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_patch_svg: str | None = None,
         front_piece_svg: str | None = None,
         back_piece_svg: str | None = None,
+        dxf: str | None = None,
+        pieces_dxf: str | None = None,
         until: str | None = None,
         trace: str | None = None,
         report: str | None = None) -> DraftContext:
@@ -577,6 +579,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          剥离腰头/机头三形态净边装配 + 不等宽缝边 + 浪尖折角 +
                          刀口法向投影 + 内部辅助线/贴袋定位孔，
                          后片裁片.md §1~§5 独立裁片）
+        dxf              整版 DXF 输出路径（None=不输出；R12/mm 裁床兼容口径，
+                         曲线按 0.1mm 弦高公差离散为折线；需可选依赖 ezdxf：
+                         pip install 'ylpattern[dxf]'）
+        pieces_dxf       全部裁片合集 DXF 输出路径（None=不输出；开启开关的裁片
+                         平铺合一张、功能图层 CUT/NET/SHRUNK/MARK/GRAIN/DRILL/
+                         NOTCH/TEXT，TEXT 取 ASCII 片名；同需 ezdxf）
         until            执行到指定步骤（含）停止，用于看中间状态
         trace / report   可选：同时输出追踪记录 / 尺寸报表到指定路径
 
@@ -777,29 +785,54 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                                              trace=bool(trace))
 
     if not until:
-        # 裁片独立 SVG 需完整整版（提取腰弧净长/机头边界），中断调版时不生成
+        # 裁片独立 SVG/DXF 需完整整版（提取腰弧净长/机头边界），中断调版时不生成；
+        # 传 pieces_dxf 时各裁片 build 一次、按需写 SVG 并收进合集，末尾一并出 DXF
         from .exporters import piece_svg as piece_exp
-        if waistband_svg:
+        dxf_pieces = []
+        if waistband_svg or pieces_dxf:
             from .flows.waistband_flow import build_waistband
             piece, _wb_ctx = build_waistband(ctx)
-            piece_exp.write_piece_svg(piece, waistband_svg)
-            print(f"腰头裁片 SVG 已输出:{waistband_svg}")
-        if yoke_svg and o.back_yoke:
+            if waistband_svg:
+                piece_exp.write_piece_svg(piece, waistband_svg)
+                print(f"腰头裁片 SVG 已输出:{waistband_svg}")
+            if pieces_dxf:
+                dxf_pieces.append(piece)
+        if (yoke_svg or pieces_dxf) and o.back_yoke:
             from .flows.yoke_flow import build_yoke
             piece, _yk_ctx = build_yoke(ctx)
-            piece_exp.write_piece_svg(piece, yoke_svg)
-            print(f"机头裁片 SVG 已输出:{yoke_svg}")
-        if front_pocket_svg and (o.front_pocket_facing or o.front_patch):
-            from .flows.front_pocket_flow import build_front_pocket
-            piece, _fp_ctx = build_front_pocket(ctx)
-            piece_exp.write_piece_svg(piece, front_pocket_svg)
-            print(f"前口袋裁片 SVG 已输出:{front_pocket_svg}")
-        if front_pouch_svg and o.front_pouch:
-            from .flows.front_pouch_flow import build_front_pouch
-            piece, _ph_ctx = build_front_pouch(ctx)
-            piece_exp.write_piece_svg(piece, front_pouch_svg)
-            print(f"袋布裁片 SVG 已输出:{front_pouch_svg}")
-        if (front_fly_single_svg or front_fly_double_svg) and o.fly_separate:
+            if yoke_svg:
+                piece_exp.write_piece_svg(piece, yoke_svg)
+                print(f"机头裁片 SVG 已输出:{yoke_svg}")
+            if pieces_dxf:
+                dxf_pieces.append(piece)
+        elif pieces_dxf and not o.back_yoke:
+            print("机头裁片未开启（back_yoke=False），跳过 DXF 合集")
+        if front_pocket_svg or pieces_dxf:
+            if not (o.front_pocket_facing or o.front_patch):
+                if pieces_dxf:
+                    print("前口袋裁片未开启（front_pocket_facing/front_patch 均为 False），跳过 DXF 合集")
+            else:
+                from .flows.front_pocket_flow import build_front_pocket
+                piece, _fp_ctx = build_front_pocket(ctx)
+                if front_pocket_svg:
+                    piece_exp.write_piece_svg(piece, front_pocket_svg)
+                    print(f"前口袋裁片 SVG 已输出:{front_pocket_svg}")
+                if pieces_dxf:
+                    dxf_pieces.append(piece)
+        if front_pouch_svg or pieces_dxf:
+            if not o.front_pouch:
+                if pieces_dxf:
+                    print("袋布裁片未开启（front_pouch=False），跳过 DXF 合集")
+            else:
+                from .flows.front_pouch_flow import build_front_pouch
+                piece, _ph_ctx = build_front_pouch(ctx)
+                if front_pouch_svg:
+                    piece_exp.write_piece_svg(piece, front_pouch_svg)
+                    print(f"袋布裁片 SVG 已输出:{front_pouch_svg}")
+                if pieces_dxf:
+                    dxf_pieces.append(piece)
+        if (front_fly_single_svg or front_fly_double_svg or pieces_dxf) \
+                and o.fly_separate:
             from .flows.front_fly_flow import build_front_fly
             p_single, p_double, _ff_ctx = build_front_fly(ctx)
             if front_fly_single_svg:
@@ -808,31 +841,65 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
             if front_fly_double_svg and p_double is not None:
                 piece_exp.write_piece_svg(p_double, front_fly_double_svg)
                 print(f"双排门襟裁片 SVG 已输出:{front_fly_double_svg}")
-        if watch_pocket_svg and o.watch_pocket:
-            from .flows.watch_pocket_flow import build_watch_pocket
-            piece, _wp_ctx = build_watch_pocket(ctx)
-            piece_exp.write_piece_svg(piece, watch_pocket_svg)
-            print(f"小表袋裁片 SVG 已输出:{watch_pocket_svg}")
-        if back_patch_svg and o.back_patch:
-            from .flows.back_patch_flow import build_back_patch
-            piece, _bp_ctx = build_back_patch(ctx)
-            piece_exp.write_piece_svg(piece, back_patch_svg)
-            print(f"后贴袋裁片 SVG 已输出:{back_patch_svg}")
-        if front_piece_svg:
+            if pieces_dxf:
+                dxf_pieces.append(p_single)
+                if p_double is not None:
+                    dxf_pieces.append(p_double)
+        elif pieces_dxf and not o.fly_separate:
+            print("门襟裁片未开启（fly_separate=False），跳过 DXF 合集")
+        if watch_pocket_svg or pieces_dxf:
+            if not o.watch_pocket:
+                if pieces_dxf:
+                    print("小表袋裁片未开启（watch_pocket=False），跳过 DXF 合集")
+            else:
+                from .flows.watch_pocket_flow import build_watch_pocket
+                piece, _wp_ctx = build_watch_pocket(ctx)
+                if watch_pocket_svg:
+                    piece_exp.write_piece_svg(piece, watch_pocket_svg)
+                    print(f"小表袋裁片 SVG 已输出:{watch_pocket_svg}")
+                if pieces_dxf:
+                    dxf_pieces.append(piece)
+        if back_patch_svg or pieces_dxf:
+            if not o.back_patch:
+                if pieces_dxf:
+                    print("后贴袋裁片未开启（back_patch=False），跳过 DXF 合集")
+            else:
+                from .flows.back_patch_flow import build_back_patch
+                piece, _bp_ctx = build_back_patch(ctx)
+                if back_patch_svg:
+                    piece_exp.write_piece_svg(piece, back_patch_svg)
+                    print(f"后贴袋裁片 SVG 已输出:{back_patch_svg}")
+                if pieces_dxf:
+                    dxf_pieces.append(piece)
+        if front_piece_svg or pieces_dxf:
             # 前片净样元素整版必有，无开关守卫；由输出 flag 直接驱动
             from .flows.front_piece_flow import build_front_piece
             piece, _fpc_ctx = build_front_piece(ctx)
-            piece_exp.write_piece_svg(piece, front_piece_svg)
-            print(f"前片裁片 SVG 已输出:{front_piece_svg}")
-        if back_piece_svg:
+            if front_piece_svg:
+                piece_exp.write_piece_svg(piece, front_piece_svg)
+                print(f"前片裁片 SVG 已输出:{front_piece_svg}")
+            if pieces_dxf:
+                dxf_pieces.append(piece)
+        if back_piece_svg or pieces_dxf:
             # 后片净样元素整版必有，无开关守卫；由输出 flag 直接驱动
             from .flows.back_piece_flow import build_back_piece
             piece, _bpc_ctx = build_back_piece(ctx)
-            piece_exp.write_piece_svg(piece, back_piece_svg)
-            print(f"后片裁片 SVG 已输出:{back_piece_svg}")
+            if back_piece_svg:
+                piece_exp.write_piece_svg(piece, back_piece_svg)
+                print(f"后片裁片 SVG 已输出:{back_piece_svg}")
+            if pieces_dxf:
+                dxf_pieces.append(piece)
+        if pieces_dxf and dxf_pieces:
+            from .exporters import piece_dxf
+            piece_dxf.write_pieces_dxf(dxf_pieces, pieces_dxf)
+            print(f"裁片合集 DXF 已输出:{pieces_dxf}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
     print(f"SVG 已输出:{svg}")
+    if dxf:
+        from .exporters import dxf as dxf_exp
+        dxf_exp.write_sheet_dxf(ctx.sheet, dxf)
+        print(f"DXF 已输出:{dxf}")
 
     if trace:
         with open(trace, "w", encoding="utf-8") as fp:

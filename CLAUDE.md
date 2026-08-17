@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 常用命令
 
 ```bash
-pip install -e ".[dev]"        # 安装（含 pytest）
+pip install -e ".[dev]"        # 安装（含 pytest + ezdxf，DXF 测试可跑；生产装 .[dxf] 即可）
 python -m pytest tests/ -q     # 全部测试
 python -m pytest tests/test_steps.py -q              # 单文件
 python -m pytest tests/ -k "waistline" -q            # 按名称过滤
@@ -25,6 +25,8 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
     --back-patch-svg out/back_patch.svg \
     --front-piece-svg out/front_piece.svg \
     --back-piece-svg out/back_piece.svg
+# DXF（裁床/服装 CAD，R12/mm 折线，需 pip install 'ylpattern[dxf]'）：
+#   --dxf out/sheet.dxf 整版一张；--pieces-dxf out/pieces.dxf 全部裁片平铺合一张
 # CLI 还支持 --until 步骤名：执行到该步停止，输出中间版调版
 # 代码内调用：from ylpattern import run；run(waist=..., hip=..., svg=...)（详见 api.run docstring）
 ```

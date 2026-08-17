@@ -390,8 +390,21 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 
 - `NamedLine.role` / `NamedCurve.role`：`"struct"`（结构线，实线深色 #2c3e50）/ `"ref"`（参考线，灰虚线 #999 dasharray）。`NamedLine` 默认 `ref`，`NamedCurve` 默认 `struct`。
 - SVG 图层顺序（后绘盖上）：`reference`(ref 线) → `struct`(struct 线) → `curves`(全部曲线，按 role 分 `.curve` 实线 / `.curveref` 虚线) → `elements`(点)。要让某条**曲线**画虚线，给 `add_curve(..., role="ref")`（曲线默认 struct 实线，现已支持 role 生效）。
-- 注意：§5.7 的图层表（net/seam/annotation…）原为设计期设想；`cutter.py`/`pieces.py` 已为腰头裁片落地（独立 SVG），`validation.py`/`dxf.py` 仍尚未实现。
+- 注意：§5.7 的图层表（net/seam/annotation…）原为设计期设想；`cutter.py`/`pieces.py` 已为腰头裁片落地（独立 SVG），`validation.py` 仍尚未实现。
 - 独立裁片 SVG（`exporters/piece_svg.py`）：裁片局部坐标 **Y 向下**，渲染时**不翻转**（仅缩放平移），区别于整版 `svg.py`（版坐标 Y 向上、渲染翻转）。图层：gross 毛样（实线）/ shrunk_net 含缩水净样（虚线；缩水时唯一内轮廓基准）/ net 净样（淡虚线；**仅在未缩水时绘制**，已缩水省略——两条内轮廓虚线并存易误读，曾致用户把未缩水净样认成多余轮廓）/ notches（红）/ grain 丝缕线（蓝）/ marks 内部标记弧线（绿虚线 `.markline`，袋贴的袋口净线/吃省边、前片的臀/膝/毗围辅助线等，净样坐标、随缩水同比例变换）。
+
+### 10.3.1 DXF 输出（exporters/_dxf_base.py + dxf.py + piece_dxf.py）
+
+裁床切割/服装 CAD（富怡/ET/格柏）口径，CLI `--dxf`（整版一张）+ `--pieces-dxf`（全部裁片平铺合一张），api.run 同名参数。依赖 ezdxf（可选 extra `dxf`，exporters 内 lazy import，未装且传参时 RuntimeError 带安装指引；核心零依赖不变）。
+
+- **版本 R12（AC1009）+ 折线**：实体白名单仅 LINE/CIRCLE/2D POLYLINE/TEXT（LWPOLYLINE/SPLINE/MTEXT 均 R13+，R12 下 ezdxf 抛错）；闭合用 `close=True` 不追加重复尾点；R12 无线宽/true color（CAD 端按颜色打印样式）。
+- **单位 mm**：坐标 cm×10；R12 无 $INSUNITS（R2000+），以 TEXT "UNITS=MM (DXF R12)" 兜底声明。
+- **曲线离散**：`_dxf_base.flatten_bezier` 弦高公差递归（判据=控制点到弦垂直距离上界，de Casteljau split 精确细分），默认公差 0.01cm=0.1mm（裁床典型精度），max_depth=12 防病态输入；共线控制点直接两端点。
+- **全 ASCII**：层名与 TEXT 均 ASCII（R12 单行 TEXT + cp1252/SHX 跨软件易乱码），元素标注取 name、裁片标注取 piece.name + 净长宽数字，中文 label 只留在 SVG。
+- **图层映射**：整版 REF(8,DASHED)/STRUCT(7)/CURVE(7)/POINT(1)/TEXT(7)，role→层与 SVG 同口径（ref 虚线入 REF）；裁片合集 CUT(7)/NET(8,DASHED)/SHRUNK(3,DASHED)/MARK(4,DASHED)/GRAIN(5)/DRILL(1)/NOTCH(1)/TEXT(7)，多片**共用**功能层（裁床惯例全部裁切线同层），三态/回退规则同 piece_svg。
+- **裁片坐标**：局部系 Y 向下，变换 X=(x−x0+offx)×10、Y=(y1−y+offy)×10 —— 翻转后 DXF 显示与 SVG 屏幕视觉逐点重合、手性不变（不镜像）；shelf 行装箱平铺（行宽上限 200cm、片间距 3cm）。
+- **刀口/定位孔画法**：刀口=毛样轮廓上该点垂直轮廓向内的 0.5cm LINE（POINT 实体裁床难识别）；drills=r0.5mm CIRCLE；丝缕线 LINE+TEXT "GRAIN"（省略箭头）。
+- **范围变量（老 CAD 黑屏坑）**：`saveas -> update_all()` 会用 **modelspace 布局属性** `msp.dxf.extmin/extmax/limmin/limmax` 覆写同名 header 变量，布局属性默认是 (±1e20) 哨兵值/A3 图幅——只写 header 会在写盘时被冲掉。`_dxf_base.set_extents(doc)` 在渲染完成后按实体 bbox 把值设到 **msp.dxf 上**（header 同步直写供保存前内存读取）；老服装 CAD（ET 2008 等）直接拿 $EXTMIN/$EXTMAX 做初始视图/全图缩放，哨兵值导致打开黑屏，AutoCAD 自行重算无碍。回归断言在**回读文件**上（内存断言抓不住 save 时覆写）。
 
 ### 10.4 架构约束细节
 
@@ -411,12 +424,14 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 
 ### 10.6 当前实现状态（已程序化）
 
-已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋 + 袋贴（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线；袋贴 `draw_front_pocket_facing` 详见下文）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、后贴袋（`back_patch_steps`，育克底线∩后浪线定位 + 局部 u-v 框四形态 + 仿射旋转）、毗围闭环（`flows/closure.py`）、腰头裁片（`steps/waistband_steps` + `flows/waistband_flow` + 裁切层 `pieces`/`cutter` + `exporters/piece_svg`，腰头裁片.md：直/弯腰头 × 有/无省，净样 -> 缩水 -> 缝边独立 SVG；`build_waistband(main_ctx)` 从整版提取前后腰弧净长代数求和）。裁切层（`pieces.PatternPiece` 三态净/缩水/毛 + 可选 `marks` 内部标记弧线〔净样坐标、随缩水同比例变换、不随缝边，前片裁片.md §3.3〕+ `cutter.apply_shrinkage`/`add_seam_allowance`〔含 `hem=` 袋口折边参数，`HemTreatment`〕）已为腰头、后机头、前口袋（袋贴/贴袋）、袋布（一片式对折）、门襟（单排/双排）、小表袋、后贴袋、前片大片落地（`add_seam_allowance` 的缝份参数鸭子类型化：任意字段名=边名的缝份 dataclass〔`WaistbandSeamAllowances`/`FrontFacingSeamAllowances`/`FrontPatchSeamAllowances`/`FlySeamAllowances`/`WatchPocketSeamAllowances`/`BackPatchSeamAllowances`/`FrontSeamAllowances`，cutter `_sa_amount` 走 `getattr`〕 或 边名→量 dict，机头用 `{top,bottom,cb,side}`），后片大片已随后片裁片落地（见下文）。尚未实现：DXF 导出、结构校验器。
+已实现：前片（`front_steps`）、后片（`back_steps`）、前口袋 + 袋贴（`front_pocket_steps`，含弯腰头+有省量时 P1/P1′ 延长至上腰头线；袋贴 `draw_front_pocket_facing` 详见下文）、袋布（`front_pouch_steps`）、前贴袋、小表袋、门襟（`front_fly_steps`，连裁/独立两形态）、后机头/育克（`back_yoke_steps`，弯/直腰头两端点弧长量取 + 下口线 N 点分段拓扑）、后贴袋（`back_patch_steps`，育克底线∩后浪线定位 + 局部 u-v 框四形态 + 仿射旋转）、毗围闭环（`flows/closure.py`）、腰头裁片（`steps/waistband_steps` + `flows/waistband_flow` + 裁切层 `pieces`/`cutter` + `exporters/piece_svg`，腰头裁片.md：直/弯腰头 × 有/无省，净样 -> 缩水 -> 缝边独立 SVG；`build_waistband(main_ctx)` 从整版提取前后腰弧净长代数求和）。裁切层（`pieces.PatternPiece` 三态净/缩水/毛 + 可选 `marks` 内部标记弧线〔净样坐标、随缩水同比例变换、不随缝边，前片裁片.md §3.3〕+ `cutter.apply_shrinkage`/`add_seam_allowance`〔含 `hem=` 袋口折边参数，`HemTreatment`〕）已为腰头、后机头、前口袋（袋贴/贴袋）、袋布（一片式对折）、门襟（单排/双排）、小表袋、后贴袋、前片大片落地（`add_seam_allowance` 的缝份参数鸭子类型化：任意字段名=边名的缝份 dataclass〔`WaistbandSeamAllowances`/`FrontFacingSeamAllowances`/`FrontPatchSeamAllowances`/`FlySeamAllowances`/`WatchPocketSeamAllowances`/`BackPatchSeamAllowances`/`FrontSeamAllowances`，cutter `_sa_amount` 走 `getattr`〕 或 边名→量 dict，机头用 `{top,bottom,cb,side}`），后片大片已随后片裁片落地（见下文）。尚未实现：结构校验器。
+
+DXF 导出已程序化（`exporters/_dxf_base.py` + `dxf.py` + `piece_dxf.py`，图层/坐标/编码约定详见 §10.3.1；裁床/服装 CAD 口径 R12/mm）：整版 `--dxf`（DraftSheet → REF/STRUCT/CURVE/POINT/TEXT 五层，role 分层同 SVG 口径）与裁片合集 `--pieces-dxf`（全部开启开关的裁片 shelf 行装箱平铺合一张，共用 CUT/NET/SHRUNK/MARK/GRAIN/DRILL/NOTCH/TEXT 八层，刀口=毛样轮廓法向向内 0.5cm LINE、裁片局部 Y 翻转不镜像、多片共用功能层靠 TEXT 片名区分）。入口：api.run 同名参数 `dxf`/`pieces_dxf` 与 cli `--dxf`/`--pieces-dxf` 平行实现已同步——裁片分支由 (xxx_svg or pieces_dxf) 触发、build 一次按需写 SVG 并收进合集末尾一并出 DXF，未开开关时打印跳过提示。ezdxf 为可选 extra `dxf`（exporters 内 lazy import，缺依赖 RuntimeError 带安装指引；dev extra 已含 ezdxf 供 19 个 DXF 测试用例跑，含 $EXTMIN/$EXTMAX 回读文件级回归断言——防老 CAD（ET 08）黑屏的 set_extents 坑，详见 §10.3.1 范围变量条目）。
 
 前浪裆弯弧度已可调：`PatternOptions.front_rise_handle_ratio`（默认 1/3，k1=k2=|BC|×本值，前浪绘制.md §4），由 `draw_front_rise` 传入 `curves.front_rise`；与后浪 `back_rise_alpha`/`back_rise_beta` 双参数不同--前浪按文档用单一对称比例，后浪因大裆弯更深需独立 α/β。
 
 前口袋袋贴（facing）已程序化：`draw_front_pocket_facing`（`front_pocket_steps`，前口袋绘制.md §三.3.(1)）。
-1. 定位两端点（支持非等距独立宽度）：腰头顶点 P_fw（有省自 P1′、无省自 P1 沿腰弧量取 w_waist=front_pocket_facing_width，默认 3.5）；侧缝顶点 P_fs（自 P2 沿外缝弧向下量取 w_side=front_pocket_facing_side_w or w_waist，推荐 6.0 防露白）。
+1. 定位两端点（支持非等距独立宽度）：腰头顶点 P_fw（有省自 P1′、无省自 P1 沿腰弧量取 w_waist=front_pocket_facing_width，默认 3.5）；侧缝顶点 P_fs（自 P2 沿外缝弧向下量取 w_side=front_pocket_facing_side_w or w_waist，推荐 6.0 防露白；但须满足 p2_drop + w_side < 外缝弧总长，否则步骤报"侧缝顶点越出外缝弧"——测试金标 M（H=96）外缝弧 ≈12.85、p2_drop 7.5，w_side 上限 <5.35，故测试夹具取 5.0）。
 2. 内边 L_inner 支持三模式（front_pocket_facing_mode）：
    - "tangent"（打版推荐，默认）：两端垂直切线贝塞尔（P_fw 端 ⟂ 腰弧、P_fs 端 ⟂ 外缝弧），由切线柄长 front_pocket_facing_h1/h2 控制下垂与向内进深（h1/h2 为控制柄距离/拉力，而非直线下垂长度）；
    - "offset"：基准线 C_ref 控制点域法向偏置（折角链沿弦法向平移），端点锁 P_fw/P_fs；
@@ -426,8 +441,8 @@ waistband_type = "straight" # straight 直腰头 / curved 弯腰头
 
 前小表袋（watch pocket）已程序化：`draw_front_watch_pocket`（`front_pocket_steps`，小表袋绘制.md §2~§4）。
 1. 两种生成模式（watch_pocket_mode）：
-   - "facing_intersect"（袋贴相交延伸模式）：袋口按 watch_pocket_width 定宽，左右侧边向下延伸（结合 watch_pocket_taper 内收倾斜），调 `curves.ray_intersect_bezier` 求得与袋贴内边 `front.pocket_facing_inner` 的两个交点及参数 [t1, t2]；底边取袋贴内边精确子段（`curves.bezier_subrange`）顺接闭合；强制依赖 `front_pocket_facing=True`；
-   - "custom"（独立全自定义模式，默认）：自定义净形锚点列表 watch_pocket_points（≥3 个）+ 逐边形态列表 watch_pocket_edges（line / arc / bezier），支持 watch_pocket_rotate_deg 绕参考点旋转。
+   - "facing_intersect"（袋贴相交延伸模式，默认）：袋口按 watch_pocket_width 定宽，左右侧边向下延伸（结合 watch_pocket_taper 内收倾斜），调 `curves.ray_intersect_bezier` 求得与袋贴内边 `front.pocket_facing_inner` 的两个交点及参数 [t1, t2]；底边取袋贴内边精确子段（`curves.bezier_subrange`）顺接闭合；强制依赖 `front_pocket_facing=True`；
+   - "custom"（独立全自定义模式）：自定义净形锚点列表 watch_pocket_points（≥3 个）+ 逐边形态列表 watch_pocket_edges（line / arc / bezier），支持 watch_pocket_rotate_deg 绕参考点旋转。
 2. 基准点 O = 前口袋侧缝腰点（弯腰头取下侧缝腰点 B'，直腰头取腰外缝顶点 B，经 effective_waist 同步）。
 选项字段：watch_pocket / watch_pocket_mode / watch_pocket_width / watch_pocket_taper / watch_pocket_offset_from_top / watch_pocket_offset_from_side / watch_pocket_rotate_deg / watch_pocket_points / watch_pocket_edges。
 

@@ -34,25 +34,39 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     if args.svg:
         svg_exp.write_sheet_svg(ctx.sheet, args.svg)
         print(f"SVG 已输出：{args.svg}")
-    if args.waistband_svg and not args.until:
+    if args.dxf:
+        from .exporters import dxf as dxf_exp
+        dxf_exp.write_sheet_dxf(ctx.sheet, args.dxf)
+        print(f"DXF 已输出：{args.dxf}")
+    # 裁片独立 SVG/DXF 需完整整版，--until 中断调版时不生成；传 --pieces-dxf
+    # 时各裁片 build 一次、按需写 SVG 并收进合集，末尾一并出 DXF
+    dxf_pieces = []
+    want_pieces = bool(args.pieces_dxf)
+    if (args.waistband_svg or want_pieces) and not args.until:
         from .flows.waistband_flow import build_waistband
         from .exporters import piece_svg as piece_exp
         piece, _wb = build_waistband(ctx)
-        piece_exp.write_piece_svg(piece, args.waistband_svg)
-        print(f"腰头裁片 SVG 已输出：{args.waistband_svg}")
-    elif args.waistband_svg and args.until:
+        if args.waistband_svg:
+            piece_exp.write_piece_svg(piece, args.waistband_svg)
+            print(f"腰头裁片 SVG 已输出：{args.waistband_svg}")
+        if want_pieces:
+            dxf_pieces.append(piece)
+    elif (args.waistband_svg or want_pieces) and args.until:
         print("警告：--until 中断调版时不生成腰头裁片（需完整整版提取腰弧净长）",
               file=sys.stderr)
-    if args.yoke_svg and not args.until:
+    if (args.yoke_svg or want_pieces) and not args.until:
         from .flows.yoke_flow import build_yoke
         from .exporters import piece_svg as piece_exp
         piece, _yk = build_yoke(ctx)
-        piece_exp.write_piece_svg(piece, args.yoke_svg)
-        print(f"机头裁片 SVG 已输出：{args.yoke_svg}")
-    elif args.yoke_svg and args.until:
+        if args.yoke_svg:
+            piece_exp.write_piece_svg(piece, args.yoke_svg)
+            print(f"机头裁片 SVG 已输出：{args.yoke_svg}")
+        if want_pieces:
+            dxf_pieces.append(piece)
+    elif (args.yoke_svg or want_pieces) and args.until:
         print("警告：--until 中断调版时不生成机头裁片（需完整整版提取机头边界）",
               file=sys.stderr)
-    if args.front_pocket_svg and not args.until:
+    if (args.front_pocket_svg or want_pieces) and not args.until:
         from .flows.front_pocket_flow import build_front_pocket
         from .exporters import piece_svg as piece_exp
         if not (ctx.options.front_pocket_facing or ctx.options.front_patch):
@@ -60,24 +74,30 @@ def _cmd_draft(args: argparse.Namespace) -> int:
                   file=sys.stderr)
         else:
             piece, _fp = build_front_pocket(ctx)
-            piece_exp.write_piece_svg(piece, args.front_pocket_svg)
-            print(f"前口袋裁片 SVG 已输出：{args.front_pocket_svg}")
-    elif args.front_pocket_svg and args.until:
+            if args.front_pocket_svg:
+                piece_exp.write_piece_svg(piece, args.front_pocket_svg)
+                print(f"前口袋裁片 SVG 已输出：{args.front_pocket_svg}")
+            if want_pieces:
+                dxf_pieces.append(piece)
+    elif (args.front_pocket_svg or want_pieces) and args.until:
         print("警告：--until 中断调版时不生成前口袋裁片（需完整整版提取口袋净样边界）",
               file=sys.stderr)
-    if args.front_pouch_svg and not args.until:
+    if (args.front_pouch_svg or want_pieces) and not args.until:
         from .flows.front_pouch_flow import build_front_pouch
         from .exporters import piece_svg as piece_exp
         if not ctx.options.front_pouch:
             print("警告：未开启 front_pouch，跳过袋布裁片", file=sys.stderr)
         else:
             piece, _ph = build_front_pouch(ctx)
-            piece_exp.write_piece_svg(piece, args.front_pouch_svg)
-            print(f"袋布裁片 SVG 已输出：{args.front_pouch_svg}")
-    elif args.front_pouch_svg and args.until:
+            if args.front_pouch_svg:
+                piece_exp.write_piece_svg(piece, args.front_pouch_svg)
+                print(f"袋布裁片 SVG 已输出：{args.front_pouch_svg}")
+            if want_pieces:
+                dxf_pieces.append(piece)
+    elif (args.front_pouch_svg or want_pieces) and args.until:
         print("警告：--until 中断调版时不生成袋布裁片（需完整整版提取袋布净样边界）",
               file=sys.stderr)
-    if (args.front_fly_single_svg or args.front_fly_double_svg) \
+    if (args.front_fly_single_svg or args.front_fly_double_svg or want_pieces) \
             and not args.until:
         from .flows.front_fly_flow import build_front_fly
         from .exporters import piece_svg as piece_exp
@@ -95,54 +115,74 @@ def _cmd_draft(args: argparse.Namespace) -> int:
                 else:
                     piece_exp.write_piece_svg(p_double, args.front_fly_double_svg)
                     print(f"双排门襟裁片 SVG 已输出：{args.front_fly_double_svg}")
-    elif (args.front_fly_single_svg or args.front_fly_double_svg) \
+            if want_pieces:
+                dxf_pieces.append(p_single)
+                if p_double is not None:
+                    dxf_pieces.append(p_double)
+    elif (args.front_fly_single_svg or args.front_fly_double_svg or want_pieces) \
             and args.until:
         print("警告：--until 中断调版时不生成门襟裁片（需完整整版提取门襟净样边界）",
               file=sys.stderr)
-    if args.watch_pocket_svg and not args.until:
+    if (args.watch_pocket_svg or want_pieces) and not args.until:
         from .flows.watch_pocket_flow import build_watch_pocket
         from .exporters import piece_svg as piece_exp
         if not ctx.options.watch_pocket:
             print("警告：未开启 watch_pocket，跳过小表袋裁片", file=sys.stderr)
         else:
             piece, _wp = build_watch_pocket(ctx)
-            piece_exp.write_piece_svg(piece, args.watch_pocket_svg)
-            print(f"小表袋裁片 SVG 已输出：{args.watch_pocket_svg}")
-    elif args.watch_pocket_svg and args.until:
+            if args.watch_pocket_svg:
+                piece_exp.write_piece_svg(piece, args.watch_pocket_svg)
+                print(f"小表袋裁片 SVG 已输出：{args.watch_pocket_svg}")
+            if want_pieces:
+                dxf_pieces.append(piece)
+    elif (args.watch_pocket_svg or want_pieces) and args.until:
         print("警告：--until 中断调版时不生成小表袋裁片（需完整整版提取小表袋净样边界）",
               file=sys.stderr)
-    if args.back_patch_svg and not args.until:
+    if (args.back_patch_svg or want_pieces) and not args.until:
         from .flows.back_patch_flow import build_back_patch
         from .exporters import piece_svg as piece_exp
         if not ctx.options.back_patch:
             print("警告：未开启 back_patch，跳过后贴袋裁片", file=sys.stderr)
         else:
             piece, _bp = build_back_patch(ctx)
-            piece_exp.write_piece_svg(piece, args.back_patch_svg)
-            print(f"后贴袋裁片 SVG 已输出：{args.back_patch_svg}")
-    elif args.back_patch_svg and args.until:
+            if args.back_patch_svg:
+                piece_exp.write_piece_svg(piece, args.back_patch_svg)
+                print(f"后贴袋裁片 SVG 已输出：{args.back_patch_svg}")
+            if want_pieces:
+                dxf_pieces.append(piece)
+    elif (args.back_patch_svg or want_pieces) and args.until:
         print("警告：--until 中断调版时不生成后贴袋裁片（需完整整版提取后贴袋净样边界）",
               file=sys.stderr)
-    if args.front_piece_svg and not args.until:
+    if (args.front_piece_svg or want_pieces) and not args.until:
         # 前片净样元素整版必有，无开关守卫；由输出 flag 直接驱动
         from .flows.front_piece_flow import build_front_piece
         from .exporters import piece_svg as piece_exp
         piece, _fpc = build_front_piece(ctx)
-        piece_exp.write_piece_svg(piece, args.front_piece_svg)
-        print(f"前片裁片 SVG 已输出：{args.front_piece_svg}")
-    elif args.front_piece_svg and args.until:
+        if args.front_piece_svg:
+            piece_exp.write_piece_svg(piece, args.front_piece_svg)
+            print(f"前片裁片 SVG 已输出：{args.front_piece_svg}")
+        if want_pieces:
+            dxf_pieces.append(piece)
+    elif (args.front_piece_svg or want_pieces) and args.until:
         print("警告：--until 中断调版时不生成前片裁片（需完整整版提取前片净样轮廓）",
               file=sys.stderr)
-    if args.back_piece_svg and not args.until:
+    if (args.back_piece_svg or want_pieces) and not args.until:
         # 后片净样元素整版必有，无开关守卫；由输出 flag 直接驱动
         from .flows.back_piece_flow import build_back_piece
         from .exporters import piece_svg as piece_exp
         piece, _bpc = build_back_piece(ctx)
-        piece_exp.write_piece_svg(piece, args.back_piece_svg)
-        print(f"后片裁片 SVG 已输出：{args.back_piece_svg}")
-    elif args.back_piece_svg and args.until:
+        if args.back_piece_svg:
+            piece_exp.write_piece_svg(piece, args.back_piece_svg)
+            print(f"后片裁片 SVG 已输出：{args.back_piece_svg}")
+        if want_pieces:
+            dxf_pieces.append(piece)
+    elif (args.back_piece_svg or want_pieces) and args.until:
         print("警告：--until 中断调版时不生成后片裁片（需完整整版提取后片净样轮廓）",
               file=sys.stderr)
+    if want_pieces and dxf_pieces and not args.until:
+        from .exporters import piece_dxf
+        piece_dxf.write_pieces_dxf(dxf_pieces, args.pieces_dxf)
+        print(f"裁片合集 DXF 已输出：{args.pieces_dxf}")
     if want_trace:
         with open(args.trace, "w", encoding="utf-8") as fp:
             fp.write(trace_text)
@@ -186,6 +226,10 @@ def main(argv: list[str] | None = None) -> int:
                          help="输出前片裁片独立 SVG 路径（弯腰头剥离/口袋挖削/连裁门襟三形态净边装配；需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--back-piece-svg",
                          help="输出后片裁片独立 SVG 路径（剥离腰头/机头三形态净边装配+浪尖折角+刀口投影；需完整整版，勿与 --until 同用）")
+    p_draft.add_argument("--dxf",
+                         help="输出整版 DXF 路径（R12/mm 裁床兼容，曲线按 0.1mm 弦高公差离散；需可选依赖：pip install 'ylpattern[dxf]'）")
+    p_draft.add_argument("--pieces-dxf",
+                         help="输出全部裁片合集 DXF 路径（开启开关的裁片平铺合一张，功能图层 CUT/NET/SHRUNK/MARK/GRAIN/DRILL/NOTCH/TEXT；R12/mm，需完整整版且 ezdxf）")
     p_draft.add_argument("--until", help="执行到指定步骤（含）后停止")
     p_draft.add_argument("--trace", help="输出逐步绘制追踪记录路径")
     p_draft.add_argument("--report", help="输出尺寸报表路径")

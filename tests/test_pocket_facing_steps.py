@@ -23,13 +23,16 @@ from ylpattern.params import Measurements, PatternOptions, WaistbandType
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
 # 默认采用打版师推荐的 tangent 模式进行全流程测试
+# side_w 取 5.0：外缝弧总长 ≈12.85 − P2 下落 7.5 = 可用 5.35，侧深须严格
+# 小于可用弧长（s_fs > 0 校验），取 6.0 会越界报错，且 5.0 ≠ w_waist 保持
+# "独立侧缝深"测试意图
 O = PatternOptions(
     delta=1.0,
     front_pocket=True,
     front_pocket_facing=True,
     front_pocket_facing_mode="tangent",
     front_pocket_facing_width=3.5,
-    front_pocket_facing_side_w=6.0,
+    front_pocket_facing_side_w=5.0,
     front_pocket_facing_h1=5.0,
     front_pocket_facing_h2=4.0,
 )
@@ -69,7 +72,7 @@ def test_facing_waist_vertex_along_waist_arc(ctx):
 
 
 def test_facing_side_vertex_independent_width(ctx):
-    # P_fs：自 P2 沿外缝弧向下量取独立侧缝深度 w_side = 6.0
+    # P_fs：自 P2 沿外缝弧向下量取独立侧缝深度 w_side = 5.0
     s_arc = ctx.curve("front.outseam_arc")
     p2 = ctx.point("front.pocket_p2")
     p_fs = ctx.point("front.pocket_facing_side")
@@ -118,7 +121,7 @@ def test_facing_closure_edges(ctx):
         O.front_pocket_p1_dist + O.front_pocket_dart_width
         + O.front_pocket_facing_width, abs=1e-2)
 
-    # 外缝弧 [P_fs->O]：弧长 = p2_drop + w_side (6.0)
+    # 外缝弧 [P_fs->O]：弧长 = p2_drop + w_side (5.0)
     outseam_edge = ctx.curve("front.pocket_facing_outseam_edge")
     assert outseam_edge.point_at(0).distance_to(p_fs) < 1e-6
     assert outseam_edge.point_at(1).distance_to(b) < 1e-6

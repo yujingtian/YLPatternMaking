@@ -13,7 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dxf = ["ezdxf>=1.1"]
-dev = ["pytest>=7.4"]
+dev = ["pytest>=7.4", "ezdxf>=1.1"]   # ezdxf：DXF 导出测试（exporters 懒加载，核心零依赖不变）
 
 [project.scripts]
 ylpattern = "ylpattern.cli:main"
