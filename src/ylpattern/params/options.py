@@ -243,6 +243,33 @@ class FrontSeamAllowances:
 
 
 @dataclass(frozen=True)
+class BackSeamAllowances:
+    """后片裁片各边独立缝份（cm，后片裁片.md §2）。
+
+    后片四周缝合工艺各不相同，按语义边独立设置（字段名 = 裁片边名，cutter
+    按名取值）：top 拼机头缝（机头开启时上边）/ waist 装腰缝（无机头时上边）/
+    cb 后浪缝（后中斜线+大裆弯弧两段同名平滑续接）/ inseam 内侧缝（大腿+小腿
+    两段同名）/ side 外侧缝（髋腰+大腿+小腿三段同名）/ hem 脚口折边（卷边量）。
+    """
+
+    top: float = 1.0
+    waist: float = 1.0
+    cb: float = 1.0
+    inseam: float = 1.0
+    side: float = 1.5
+    hem: float = 2.5
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "BackSeamAllowances":
+        return cls(top=float(d.get("top", 1.0)),
+                   waist=float(d.get("waist", 1.0)),
+                   cb=float(d.get("cb", 1.0)),
+                   inseam=float(d.get("inseam", 1.0)),
+                   side=float(d.get("side", 1.5)),
+                   hem=float(d.get("hem", 2.5)))
+
+
+@dataclass(frozen=True)
 class PatternOptions:
     delta: float = 1.0                     # 前后片臀围单侧调节量 Δ（推导文档 §四）
     front_crotch_adjust: float = 0.0       # 前小裆修正（紧身款 -0.5~-1.0，§三.2）
@@ -458,6 +485,24 @@ class PatternOptions:
                                            #   shrinkage_warp，§3.2）
     front_piece_shrinkage_weft: float | None = None
                                            # 前片裁片纬向缩水率（None=用全局，§3.2）
+    # -- 后片裁片（后片裁片.md；裁切链 flows/back_piece_flow，不在 FULL_FLOW 内）--
+    back_piece_seam_allowances: BackSeamAllowances = field(
+        default_factory=BackSeamAllowances)
+                                           # 后片裁片各边独立缝份（top 拼机头 1.0 /
+                                           #   waist 装腰 1.0 / cb 后浪 1.0 / inseam 1.0 /
+                                           #   side 1.5 / hem 卷边 2.5，§2 参数化口径）
+    back_piece_crotch_corner: bool = True  # 后浪浪尖（裆尖 = 后浪弧末端 ∩ 内侧缝起点）
+                                           #   缝份角形态开关（§2 两态）：True=向外
+                                           #   凸出的镜像折角/反折角（防缝合翻折后
+                                           #   缺角缺肉）；False=纯尖角跟随净样轮廓
+                                           #   （贝塞尔多项式自然外延求交成尖，不抹圆）
+    back_piece_notch_type: str = "I"       # 对位刀口类型："V" / "I"（§4；刀口位置几何
+                                           #   固定（法向投影至缝边外沿），类型仅工艺标注）
+    back_piece_shrinkage_warp: float | None = None
+                                           # 后片裁片经向缩水率（大身面料；None=用全局
+                                           #   shrinkage_warp，§3.3 顺序 2）
+    back_piece_shrinkage_weft: float | None = None
+                                           # 后片裁片纬向缩水率（None=用全局，§3.3）
     # —— 袋布（pouch）：嵌入式前口袋储物袋布大片/小片（袋布绘制.md §一~§五） ——
     front_pouch: bool = False              # 袋布绘制开关（依赖前口袋主切口，须先开 front_pocket）
     front_pouch_waist_safe: float = 4.0    # 腰缝锚点安全内延 ΔW_safe（沿腰弧自 P1 朝门襟，
@@ -915,6 +960,23 @@ class PatternOptions:
             if v is not None and not 0.0 <= v < 0.2:
                 raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
                                  f"得到 {v}")
+        # 后片裁片缝份/刀口/缩水校验（后片裁片.md §2~§3）
+        bpsa = self.back_piece_seam_allowances
+        if not isinstance(bpsa, BackSeamAllowances):
+            raise TypeError("back_piece_seam_allowances 须为 BackSeamAllowances")
+        for name in ("top", "waist", "cb", "inseam", "side", "hem"):
+            if getattr(bpsa, name) < 0:
+                raise ValueError(f"后片缝份 {name} 不能为负数，"
+                                 f"得到 {getattr(bpsa, name)}")
+        if self.back_piece_notch_type not in ("V", "I"):
+            raise ValueError(f"后片刀口类型只支持 V / I，"
+                             f"得到 {self.back_piece_notch_type!r}")
+        # 后片裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
+        for name in ("back_piece_shrinkage_warp", "back_piece_shrinkage_weft"):
+            v = getattr(self, name)
+            if v is not None and not 0.0 <= v < 0.2:
+                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
+                                 f"得到 {v}")
         # 袋布：节点/边形态归一化与校验（袋布绘制.md §三、§六）
         if self.front_pouch_waist_safe < 0 or self.front_pouch_side_safe < 0:
             raise ValueError("袋布安全内延/垂深不能为负数")
@@ -1087,4 +1149,7 @@ class PatternOptions:
         if "front_piece_seam_allowances" in data:
             data["front_piece_seam_allowances"] = FrontSeamAllowances.from_dict(
                 data["front_piece_seam_allowances"])
+        if "back_piece_seam_allowances" in data:
+            data["back_piece_seam_allowances"] = BackSeamAllowances.from_dict(
+                data["back_piece_seam_allowances"])
         return cls(**data)

@@ -81,8 +81,8 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
     两个参数语义为**沿裁片局部 X/Y 轴**的缩水率（形参命名 warp/weft 仅为腰头
     长向=经的默认场景）；当裁片经向方向不同（如腰头宽向=经）时，由调用方把面料
     经/纬率换序后传入（见 flows/waistband_flow.build_waistband）。
-    缩放保持贝塞尔性（控制点同步缩放）；刀口、丝缕线、内部标记线同步缩放
-    （内部辅助线随主裁片同比例变换，前片裁片.md §3.3）。
+    缩放保持贝塞尔性（控制点同步缩放）；刀口、丝缕线、内部标记线、定位孔
+    同步缩放（内部辅助线随主裁片同比例变换，前片裁片.md §3.3）。
     返回填充 shrunk_edges / shrunk_notches 的新裁片。
     """
     sx, sy = 1.0 + warp, 1.0 + weft
@@ -94,6 +94,7 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
         sgrain = LineSegment(_scale_point(piece.grain.a, sx, sy),
                              _scale_point(piece.grain.b, sx, sy))
     smarks = tuple(_scale_geom(g, sx, sy) for g in piece.marks)
+    sdrills = tuple(_scale_point(p, sx, sy) for p in piece.drills)
     out = piece.with_shrunk(shrunk, snotches)
     # 丝缕线随缩水更新（with_shrunk 不带 grain，重建一个）
     return PatternPiece(out.name, out.label, out.net_edges, out.notches,
@@ -101,7 +102,7 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
                         out.gross_polygon, out.gross_notches,
                         out.notes + (f"缩水：经 {warp*100:.1f}% / 纬 {weft*100:.1f}%",)
                         if warp or weft else out.notes,
-                        smarks)
+                        smarks, sdrills)
 
 
 def _edge_points(edge: PieceEdge) -> list[Point]:

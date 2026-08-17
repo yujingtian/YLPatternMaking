@@ -296,6 +296,18 @@ front_piece_crotch_corner  = false  # 裆尖（前浪弧末端与下裆缝起点
 front_piece_notch_type     = "I"   # 对位刀口类型："I" 剪口 / "V" 缺口（§2.3，仅工艺标注）
 # 九边独立缝份见文末 [options.front_piece_seam_allowances] 子表
 
+# 后片裁片（后片裁片.md；ylpattern draft --back-piece-svg。剥离腰头与机头：
+#   有 yoke 沿机头下口线截断 / 无 yoke 取腰口弧三形态按整版元素自动装配净边；
+#   主面料，缩水 None/省略 = 用全局 shrinkage_warp/weft；须位于 [options.*]
+#   子表之前（TOML 主表键））
+back_piece_shrinkage_warp = 0.1   # 经向缩水率（0.1=10%；None=用全局 shrinkage_warp）
+back_piece_shrinkage_weft = 0.06  # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
+back_piece_crotch_corner  = true # 后浪浪尖（后浪弧末端 ∩ 内侧缝起点）角形态开关（§2 两态）：
+                                   #   true = 镜像折角/反折角（防缝合翻折后缺角缺肉，折轴 = 后浪缝本身）；
+                                   #   false = 纯尖角跟随净样轮廓（贝塞尔多项式自然外延求交成尖，不抹圆）
+back_piece_notch_type     = "I"   # 对位刀口类型："I" 剪口 / "V" 缺口（§4，仅工艺标注）
+# 六边独立缝份见文末 [options.back_piece_seam_allowances] 子表
+
 fit                 = "regular"   # 版型：skinny 紧身 / slim 修身 / regular 标准 / loose 宽松
 seam_allowance      = 1.0         # 默认缝份宽度
 piece_gap           = 10.0        # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
@@ -383,3 +395,14 @@ fly_outer = 1.0    # 连裁门襟外缘缝边（含底角 J 型弧）
 fly_bottom = 1.0   # 连裁门襟底边缝边
 
 
+
+# 后片裁片六边独立缝份（cm，后片裁片.md §2；先缩水后缝边，缝份不叠加缩水；
+#   ylpattern draft --back-piece-svg）
+#   top/waist 二选一被消费：有 yoke 拼机头缝 top、无 yoke 装腰缝 waist
+[options.back_piece_seam_allowances]
+top = 1.0          # 拼机头缝缝边（机头开启时上边）
+waist = 1.0        # 装腰缝缝边（无机头时上边）
+cb = 1.0           # 后浪缝边（浪尖尖角跟随净样见 back_piece_crotch_corner）
+inseam = 1.0       # 内侧缝缝边
+side = 1.0         # 外侧缝缝边
+hem = 2.5          # 脚口卷边（双折边）

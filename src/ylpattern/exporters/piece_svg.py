@@ -4,7 +4,7 @@
 仅缩放平移、不翻转。图层：gross 毛样（实线，最终裁切线）/ shrunk_net
 含缩水净样（虚线；缩水时唯一内轮廓基准）/ net 净样（淡虚线；**仅在未缩水时
 绘制**，已缩水则省略——两条内轮廓虚线并存易误读）/ notches 刀口（红）/
-grain 丝缕线（蓝）。
+grain 丝缕线（蓝）/ drills 定位孔（红空心圈，后片裁片.md §6 定位图层）。
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ _STYLE = """<style>
   .notch     { stroke: #c0392b; stroke-width: 1.2; fill: none; }
   .notchpt   { fill: #c0392b; }
   .grain     { stroke: #2980b9; stroke-width: 1.0; fill: none; }
+  .drill    { stroke: #c0392b; stroke-width: 1.2; fill: none; }
   .label     { fill: #2c3e50; font: 12px monospace; }
   .small     { fill: #666; font: 9px monospace; }
 </style>"""
@@ -51,6 +52,8 @@ def _bounds(piece: PatternPiece) -> tuple[float, float, float, float]:
         for p in _edge_points(e):
             xs.append(p.x); ys.append(p.y)
     for p in piece.notches:
+        xs.append(p.x); ys.append(p.y)
+    for p in piece.drills:
         xs.append(p.x); ys.append(p.y)
     if piece.grain is not None:
         xs += [piece.grain.a.x, piece.grain.b.x]
@@ -136,6 +139,14 @@ def render_piece_svg(piece: PatternPiece) -> str:
                 f'{sx(p1.x):.1f},{sy(p1.y):.1f} {sx(p2.x):.1f},{sy(p2.y):.1f}"/>')
         parts.append(f'<text class="small" x="{sx(a.x):.1f}" '
                      f'y="{sy(a.y) - 5:.1f}">经向</text>')
+        parts.append('</g>')
+
+    # 定位孔（红空心小圈，内部点标记；后片裁片.md §6 定位图层 Drill）
+    if piece.drills:
+        parts.append('<g id="drills">')
+        for p in piece.drills:
+            parts.append(f'<circle class="drill" cx="{sx(p.x):.1f}" '
+                         f'cy="{sy(p.y):.1f}" r="2"/>')
         parts.append('</g>')
 
     # 刀口（红色短垂线 + 点）

@@ -54,13 +54,16 @@ class PatternPiece:
                                                 #   如袋贴必须保留的袋口净线/省弧线
                                                 #   前口袋裁片.md §1.1、前片内部
                                                 #   辅助线 臀围/膝围/毗围线）
+    drills: tuple[Point, ...] = ()             # 定位孔（净样坐标内部点，随缩水同步
+                                                #   变换，后片裁片.md §5/§6 定位图层；
+                                                #   如后贴袋上端两顶点钻孔）
 
     def with_shrunk(self, edges: tuple[PieceEdge, ...],
                     notches: tuple[Point, ...]) -> "PatternPiece":
         return PatternPiece(self.name, self.label, self.net_edges,
                             self.notches, self.grain, edges, notches,
                             self.gross_polygon, self.gross_notches, self.notes,
-                            self.marks)
+                            self.marks, self.drills)
 
     def with_gross(self, polygon: tuple[Point, ...],
                    notches: tuple[Point, ...],
@@ -68,4 +71,4 @@ class PatternPiece:
         return PatternPiece(self.name, self.label, self.net_edges,
                             self.notches, self.grain, self.shrunk_edges,
                             self.shrunk_notches, polygon, notches, notes,
-                            self.marks)
+                            self.marks, self.drills)
