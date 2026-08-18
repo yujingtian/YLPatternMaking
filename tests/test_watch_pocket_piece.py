@@ -8,8 +8,10 @@
   （bottom 字段不生效）。
 材质口径（§三）：口袋布里料缩水默认 0 绝对隔离大身面料（§3.1）；丝缕竖向
   继承主片径纬向，与小表袋在主版上的摆放旋转角无关（§3.2）。
-刀口（§4.2）：袋口两角折边刀口 pt1/pt2 + 底边（模式 A）/最长非顶边（模式 B）
-  弧长中点装配对位刀口。
+刀口（§4.2 v1.2）：袋口外上角/内上角各 2 刀共 4 刀——净样位 pt1/pt2
+  （缝合线位），毛样位 = 顶点顺着缝边延长线交袋口缝边、顺着顶部线延长线
+  交侧缝缝边（同前口袋 PATCH 每角 2 刀口径），严格落在毛样外沿上；
+  中段装配对位刀口已按新数量规范移除。
 断言口径：几何不变量 + 独立复算（不硬编坐标），同 test_pouch_piece。
 """
 
@@ -78,16 +80,6 @@ def _to_local(p: Point, ctx) -> Point:
     """主版 -> 裁片局部（Y 反射，origin=pt1 袋口外上角）。"""
     origin = ctx.point("front.watch_pocket_pt1")
     return Point(p.x - origin.x, origin.y - p.y)
-
-
-def _main_geoms(ctx):
-    """主版净样边序列（sheet.get 取 geom，line/curve 混合）。"""
-    geoms = []
-    i = 1
-    while f"front.watch_pocket_seg{i}" in ctx.sheet:
-        geoms.append(ctx.sheet.get(f"front.watch_pocket_seg{i}").geom)
-        i += 1
-    return geoms
 
 
 @pytest.fixture()
@@ -207,27 +199,97 @@ def test_bottom_lies_on_facing_inner(ctx_facing):
             f"底边点 {pb} 不在袋贴内边上"
 
 
-# ---------- 刀口（§4.2）：折边刀口 + 装配对位刀口 ----------
+# ---------- 刀口（§4.2 v1.2）：袋口两角折边刀口打在缝边上 ----------
+
+def _poly_dist(p: Point, poly) -> float:
+    """点到闭合折线的最短距离（刀口在毛样外沿上的判据）。"""
+    best = float("inf")
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        ex, ey = b.x - a.x, b.y - a.y
+        l2 = ex * ex + ey * ey
+        t = (0.0 if l2 == 0.0 else
+             max(0.0, min(1.0, ((p.x - a.x) * ex + (p.y - a.y) * ey) / l2)))
+        dx, dy = p.x - a.x - t * ex, p.y - a.y - t * ey
+        best = min(best, (dx * dx + dy * dy) ** 0.5)
+    return best
+
+
+def _tangent(g, at_end: bool):
+    v = (g.b - g.a) if isinstance(g, LineSegment) else \
+        g.tangent_at(1.0 if at_end else 0.0)
+    return v.normalized()
+
+
+def _line_cross(p, d, q, e):
+    """直线 (p,方向 d) ∩ 直线 (q,方向 e)（独立复算延长线交点）。"""
+    det = d.dx * e.dy - d.dy * e.dx
+    assert abs(det) > 1e-9, "两线平行，测试夹具异常"
+    s = ((q.x - p.x) * e.dy - (q.y - p.y) * e.dx) / det
+    return p + d.scale(s)
+
+
+def _top_corner_extension_hits(piece, sa):
+    """袋口两角各 2 刀毛样位（独立复算，§4.2 v1.2）：顺着缝边延长线（角点
+    沿入边末端切向）交出边缝份边界线、顺着顶部线反向延长（角点沿出边首端
+    切向反向）交入边缝份边界线（与 flow 的射线求交同构不同径，金标口径）。"""
+    base = piece.shrunk_edges or piece.net_edges
+    n = len(base)
+    j = [i for i, e in enumerate(base) if e.name == "top"][0]
+    top = base[j]
+    amt = {"top": sa.top, "side": sa.side, "bottom": sa.bottom}
+    outs = []
+    for in_e, out_e, corner in ((base[(j - 1) % n], top, _start(top.geom)),
+                                (top, base[(j + 1) % n], _end(top.geom))):
+        t_in, t_out = _tangent(in_e.geom, True), _tangent(out_e.geom, False)
+        # 顺着缝边延长：角点沿入边切向射线 ∩ 出边缝份边界线
+        s_out = corner + t_out.perpendicular().scale(amt[out_e.name])
+        outs.append(_line_cross(corner, t_in, s_out, t_out))
+        # 顺着顶部线反向延长：角点沿出边反向切向射线 ∩ 入边缝份边界线
+        s_in = corner + t_in.perpendicular().scale(amt[in_e.name])
+        outs.append(_line_cross(corner, t_out.scale(-1.0), s_in, t_in))
+    return outs
+
 
 def test_notches_facing(ctx_facing):
+    """§4.2 v1.2：净样刀口 = 袋口两角（缝合线位）×2；毛样刀口 ×4 = 外/内
+    上角各 2 刀——顺着缝边延长线交袋口缝边、顺着顶部线延长线交侧缝缝边
+    （独立复算解析交点），且严格落在毛样外沿上。"""
     ctx = ctx_facing
     piece, _ = build_watch_pocket(ctx)
-    assert len(piece.notches) == 3
-    # 折边刀口：袋口两角（局部化 pt1 = 原点、pt2）
+    assert len(piece.notches) == 2          # 无中段装配对位刀口（v1.2 移除）
     pt1_local = _to_local(ctx.point("front.watch_pocket_pt1"), ctx)
     pt2_local = _to_local(ctx.point("front.watch_pocket_pt2"), ctx)
     assert any(np.distance_to(pt1_local) < 1e-6 for np in piece.notches)
     assert any(np.distance_to(pt2_local) < 1e-6 for np in piece.notches)
-    # 装配对位刀口：底边弧长中点（方向无关，独立复算）
-    bottom_main = ctx.curve("front.watch_pocket_seg3")
-    mid_local = _to_local(
-        bottom_main.point_at_length(bottom_main.length() / 2), ctx)
-    assert any(np.distance_to(mid_local) < 1e-6 for np in piece.notches), \
-        f"缺少底边中点装配刀口 {mid_local}"
+    assert len(piece.gross_notches) == 4
+    for g, m in zip(piece.gross_notches,
+                    _top_corner_extension_hits(piece, WatchPocketSeamAllowances())):
+        assert g.distance_to(m) < 1e-6, f"折边刀口 {g} 不在延长线交点 {m}"
+        assert _poly_dist(g, piece.gross_polygon) < 1e-6, \
+            f"折边刀口 {g} 不在毛样外沿缝边上"
+
+
+def _top_corner_extension_rays(piece):
+    """袋口两角延长射线 (角点, 方向) ×4，发射序与 flow 一致（独立复算切向）：
+    每角顺着缝边延长（入边末端切向）+ 顺着顶部线反向延长（出边首端切向取反）。"""
+    base = piece.shrunk_edges or piece.net_edges
+    n = len(base)
+    j = [i for i, e in enumerate(base) if e.name == "top"][0]
+    top = base[j]
+    rays = []
+    for in_e, out_e, corner in ((base[(j - 1) % n], top, _start(top.geom)),
+                                (top, base[(j + 1) % n], _end(top.geom))):
+        t_in, t_out = _tangent(in_e.geom, True), _tangent(out_e.geom, False)
+        rays.append((corner, t_in))               # 顺着缝边延长
+        rays.append((corner, t_out.scale(-1.0)))  # 顺着顶部线反向延长
+    return rays
 
 
 def test_notches_custom_curved():
-    """模式 B 装配刀口 = 最长非顶边弧长/参数中点（独立复算，§4.2）。"""
+    """§4.2 v1.2 模式 B（line/arc/bezier 混合边）：毛样刀口 ×4 均严格落在
+    毛样外沿上、且各与袋口角沿切向延长线共线（弧切向倾斜交点可远离角，
+    距离无界不设角域，共线 + 外沿即"顺着延长线交缝边"的完整判据）。"""
     o = PatternOptions(delta=1.0, front_pocket=True, watch_pocket=True,
                        watch_pocket_mode="custom",
                        watch_pocket_points=[(0, 0), (10, 0), (10, 10), (0, 10)],
@@ -236,17 +298,16 @@ def test_notches_custom_curved():
                                            ("line",)])
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
     piece, _ = build_watch_pocket(ctx)
-    assert len(piece.notches) == 3
-    pt1_local = _to_local(ctx.point("front.watch_pocket_pt1"), ctx)
-    pt2_local = _to_local(ctx.point("front.watch_pocket_pt2"), ctx)
-    assert any(np.distance_to(pt1_local) < 1e-6 for np in piece.notches)
-    assert any(np.distance_to(pt2_local) < 1e-6 for np in piece.notches)
-    g = max(_main_geoms(ctx)[1:], key=edge_length)
-    mid_main = (g.point_at(0.5) if isinstance(g, LineSegment)
-                else g.point_at_length(g.length() / 2))
-    mid_local = _to_local(mid_main, ctx)
-    assert any(np.distance_to(mid_local) < 1e-6 for np in piece.notches), \
-        f"缺少最长非顶边中点装配刀口 {mid_local}"
+    assert len(piece.notches) == 2
+    assert len(piece.gross_notches) == 4
+    for g, (corner, d) in zip(piece.gross_notches,
+                              _top_corner_extension_rays(piece)):
+        assert _poly_dist(g, piece.gross_polygon) < 1e-6, \
+            f"折边刀口 {g} 不在毛样外沿缝边上"
+        cross = (g.x - corner.x) * d.dy - (g.y - corner.y) * d.dx
+        assert abs(cross) < 1e-6, f"折边刀口 {g} 不在角 {corner} 延长线上"
+        assert (g.x - corner.x) * d.dx + (g.y - corner.y) * d.dy > 0, \
+            f"折边刀口 {g} 在角 {corner} 延长线反向"
 
 
 # ---------- 丝缕（§3.2）：竖向 = 经，继承主片（与摆放旋转角无关） ----------
