@@ -276,22 +276,114 @@ def test_shrinkage_applied_when_set():
     assert any("缩水" in n for n in piece.notes)
 
 
-# ---------- 刀口（§5）：折叠对位 + 袋口起止 ----------
+# ---------- 辅助线（§5）：前口袋弧线（+有省省弧线）作底层画稿对位标记 ----------
 
-def test_notches(ctx_dart):
+def _marks_pts(piece):
+    return [p for g in piece.marks for p in _sample(g)]
+
+
+def test_marks_pocket_arcs(ctx_dart):
+    """有省：marks = 折叠线 + 前口袋弧线（净线）+ 口袋省弧线（切削线），局部坐标。"""
     ctx = ctx_dart
     piece, _ = build_front_pouch(ctx)
-    p_w0, k1 = ctx.point("front.pouch_waist_anchor"), ctx.point("front.pouch_node1")
-    expected_local = [
-        _to_local(p_w0, p_w0),                                   # P_w0 -> (0,0)
-        _to_local(k1, p_w0),                                     # K1
-        _to_local(_reflect_point(ctx.point("front.pocket_p1_transfer"), p_w0, k1), p_w0),
-        _to_local(_reflect_point(ctx.point("front.pocket_p2"), p_w0, k1), p_w0),
-    ]
-    assert len(piece.notches) == 4
-    for exp in expected_local:
+    p_w0 = ctx.point("front.pouch_waist_anchor")
+    mpts = _marks_pts(piece)
+    for name in ("front.pocket_mouth_baseline", "front.pocket_mouth"):
+        for p in _sample(ctx.curve(name)):
+            lp = _to_local(p, p_w0)
+            assert min(lp.distance_to(q) for q in mpts) < 1e-3, \
+                f"{name} 点 {lp} 不在 marks 上"
+    # 折叠线标记保留：两端 (0,0) 与 local_K1
+    k1_local = _to_local(ctx.point("front.pouch_node1"), p_w0)
+    assert any(q.distance_to(Point(0.0, 0.0)) < 1e-6 for q in mpts)
+    assert any(q.distance_to(k1_local) < 1e-6 for q in mpts)
+
+
+def test_marks_nodart_no_dart_arc(ctx_nodart):
+    """无省：省弧线免上版（切削线=净线重合），marks = 折叠线 + 前口袋弧线。"""
+    ctx = ctx_nodart
+    piece, _ = build_front_pouch(ctx)
+    assert len(piece.marks) == 2      # 默认 bulge 模式：折叠线 + 净线单曲线
+    p_w0 = ctx.point("front.pouch_waist_anchor")
+    mpts = _marks_pts(piece)
+    for p in _sample(ctx.curve("front.pocket_mouth_baseline")):
+        lp = _to_local(p, p_w0)
+        assert min(lp.distance_to(q) for q in mpts) < 1e-3
+
+
+def test_marks_polyline_chain():
+    """polyline 折角模式：辅助线/刀口切线走折角链（多段直线）不断链。"""
+    o = PatternOptions(delta=1.0, front_pocket=True, front_pouch=True,
+                       front_pocket_dart_width=1.5,
+                       front_pocket_mouth_mode="polyline",
+                       front_pocket_mouth_corners=((0.4, 1.2), (0.7, 0.8)))
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    piece, _ = build_front_pouch(ctx)
+    p_w0 = ctx.point("front.pouch_waist_anchor")
+    mpts = _marks_pts(piece)
+    i = 1
+    while f"front.pocket_mouth_baseline_seg{i}" in ctx.sheet:
+        for p in _sample(ctx.line(f"front.pocket_mouth_baseline_seg{i}")):
+            lp = _to_local(p, p_w0)
+            assert min(lp.distance_to(q) for q in mpts) < 1e-3
+        i += 1
+    _assert_closed(piece)
+    assert _signed_area(piece) < 0
+    assert all(_point_to_poly_dist(q, piece.gross_polygon) < 1e-6
+               for q in piece.gross_notches)
+
+
+# ---------- 刀口（§5.1/§5.2）：底层完整侧袋口弧线端点沿切线延长线交缝边 ----------
+
+def _point_to_poly_dist(p: Point, poly) -> float:
+    """点到闭合折线的最短距离（点到各段投影取最小）。"""
+    best = float("inf")
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        ex, ey = b.x - a.x, b.y - a.y
+        ll = ex * ex + ey * ey
+        t = 0.0 if ll < 1e-18 else max(
+            0.0, min(1.0, ((p.x - a.x) * ex + (p.y - a.y) * ey) / ll))
+        q = Point(a.x + ex * t, a.y + ey * t)
+        best = min(best, p.distance_to(q))
+    return best
+
+
+def test_notches_dart(ctx_dart):
+    """有省：净刀口 = P1/P1′/P2（底层端点；挖削侧免打口 §5.3，无镜像点）；
+    毛样刀口全部落在缝边（毛样折线）上且离净样线约一个缝份（§5.1）。"""
+    ctx = ctx_dart
+    piece, _ = build_front_pouch(ctx)
+    p_w0 = ctx.point("front.pouch_waist_anchor")
+    expected = [_to_local(ctx.point(n), p_w0) for n in
+                ("front.pocket_p1", "front.pocket_p1_transfer",
+                 "front.pocket_p2")]
+    assert len(piece.notches) == 3
+    for exp in expected:
         assert any(np.distance_to(exp) < 1e-6 for np in piece.notches), \
-            f"缺少刀口 {exp}"
+            f"缺少净刀口 {exp}"
+    assert len(piece.gross_notches) == 3
+    net_pts = [p for e in piece.net_edges for p in _sample(e.geom)]
+    for q in piece.gross_notches:
+        assert _point_to_poly_dist(q, piece.gross_polygon) < 1e-6, \
+            f"毛样刀口 {q} 不在缝边（毛样折线）上"
+        assert min(q.distance_to(p) for p in net_pts) > 0.3, \
+            f"毛样刀口 {q} 贴着净样线，不在缝边上"
+
+
+def test_notches_nodart(ctx_nodart):
+    """无省：净刀口 = P1/P2（无省顶 P1′），毛样刀口在缝边上。"""
+    ctx = ctx_nodart
+    piece, _ = build_front_pouch(ctx)
+    p_w0 = ctx.point("front.pouch_waist_anchor")
+    expected = [_to_local(ctx.point(n), p_w0)
+                for n in ("front.pocket_p1", "front.pocket_p2")]
+    assert len(piece.notches) == 2
+    for exp in expected:
+        assert any(np.distance_to(exp) < 1e-6 for np in piece.notches)
+    assert len(piece.gross_notches) == 2
+    for q in piece.gross_notches:
+        assert _point_to_poly_dist(q, piece.gross_polygon) < 1e-6
 
 
 # ---------- 丝缕（§6）：竖向=经，继承大片裤中线方向 ----------

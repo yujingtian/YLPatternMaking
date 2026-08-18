@@ -183,8 +183,10 @@ def _mouth_segments_reversed(ctx) -> list[tuple[str, CubicBezier]]:
     while f"front.pocket_mouth_seg{i}" in ctx.sheet:
         segs.append(ctx.line(f"front.pocket_mouth_seg{i}"))
         i += 1
-    # 折角链 P1′→…→P2 反向为 P2→…→P1′
+    # 折角链 P1′→…→P2 反向为 P2→…→P1′（直线升阶取均匀控制点：端点重合的退化
+    # 控制点会使端点切线为零向量，cutter 法向偏移在端点崩溃）
     for j, seg in enumerate(reversed(segs), 1):
         a, b = seg.b, seg.a
-        out.append((f"mouth_seg{j}", CubicBezier(a, a, b, b)))
+        out.append((f"mouth_seg{j}",
+                    CubicBezier(a, a.lerp(b, 1 / 3), a.lerp(b, 2 / 3), b)))
     return out
