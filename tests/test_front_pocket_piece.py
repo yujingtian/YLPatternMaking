@@ -2,9 +2,10 @@
 
 金标（M 同 test_pocket_facing_steps：W=70, H=96, Δ=1.0, outseam=102）：
   - INSET 袋贴：三段边界（腰弧 waist / 内边 inner / 外缝弧 side）1:1 复制前大片，
-    闭合截取；内部保留袋口净线/切削线 + 吃省边（§1.1）；刀口标袋口净线起止端点（§2.2）。
+    闭合截取；内部保留袋口净线/切削线 + 吃省边（§1.1）；刀口 = 袋口净线起止端点，
+    沿口袋弧线切线延长线投至缝边、净样线位 + 缝边位成对（§2.2）。
   - PATCH 贴袋：净样母线 C(t) 直接拷贝（§1.2）；seg1=袋口 top 折边、其余=四周 side 缝边；
-    刀口 = 各净角点（四周折边指示）。
+    刀口 = 各净角点沿相邻净边延长线投至缝边（每角 2 刀折边指示，§2.2）。
 断言口径：几何不变量（闭合、shoelace<0 自定向、外法向外扩、缩水轴向、刀口、丝缕竖向），
 不硬编坐标。cutter 外法向要求闭合多边形 shoelace<0（同 test_yoke_piece 口径）。
 """
@@ -68,6 +69,21 @@ def _assert_outward(gross, net_edges):
     assert min(p.x for p in gross) <= min(nxs) + 1e-9
     assert max(p.y for p in gross) >= max(nys) - 1e-9
     assert min(p.y for p in gross) <= min(nys) + 1e-9
+
+
+def _on_boundary(p, poly, tol=1e-6):
+    """点在闭合折线边界上（到任一段的最近距离 ≤ tol）。"""
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        ex, ey = b.x - a.x, b.y - a.y
+        L2 = ex * ex + ey * ey
+        if L2 == 0:
+            continue
+        t = max(0.0, min(1.0, ((p.x - a.x) * ex + (p.y - a.y) * ey) / L2))
+        dx, dy = p.x - (a.x + t * ex), p.y - (a.y + t * ey)
+        if dx * dx + dy * dy <= tol * tol:
+            return True
+    return False
 
 
 @pytest.fixture()
@@ -149,6 +165,58 @@ def test_facing_notches_two_endpoints(ctx_facing):
     assert len(piece.notches) == 2
 
 
+def test_facing_notches_projected_to_seam(ctx_facing):
+    """袋贴毛样刀口成对（§2.2：同时打在净样线与外侧缝边上）：偶数位 = 缩水
+    净刀口（净样线位）、奇数位 = 沿袋口切线延长线交缝边位——落在毛样折线上，
+    且越过缝份带（sa=1.0，斜交 > 1.0）。"""
+    piece, _ = build_front_facing(ctx_facing)
+    gross = piece.gross_notches
+    assert len(gross) == 4
+    net = piece.shrunk_notches or piece.notches
+    for k, p in enumerate(net):
+        seam = gross[2 * k + 1]
+        assert gross[2 * k] == p                     # 净样线位
+        assert _on_boundary(seam, piece.gross_polygon)
+        assert seam.distance_to(p) > 1.0             # 缝边位在缝份带外沿
+
+
+def test_facing_notch_dir_along_mouth_tangent(ctx_facing):
+    """刀口延伸方向顺着口袋弧线的切线延长线（§2.2）：缝边位 − 净样线位 与
+    局部反射（X 不翻、Y 翻）后的袋口切削线端切线平行同向（fixture 无缩水，
+    方向仅经反射）。首端（P1′）取切线反向、末端（P2）取正向。"""
+    piece, _ = build_front_facing(ctx_facing)
+    mouth = ctx_facing.curve("front.pocket_mouth")   # P1′ -> P2
+    t0 = mouth.tangent_at(0.0).normalized()
+    t1 = mouth.tangent_at(1.0).normalized()
+    dirs = [(-t0.dx, t0.dy), (t1.dx, -t1.dy)]       # 反射翻 Y + 首端反向
+    gross = piece.gross_notches
+    for k, (dx, dy) in enumerate(dirs):
+        v = gross[2 * k + 1] - gross[2 * k]
+        cross = v.dx * dy - v.dy * dx
+        assert abs(cross) < 1e-6 * max(1.0, v.length)    # 平行
+        assert v.dx * dx + v.dy * dy > 0                 # 同向（延长非内收）
+
+
+def test_facing_notches_projected_no_dart(ctx_facing_nodart):
+    """无省形态同款投影：净线（front.pocket_mouth_baseline）端切线延长交缝边。"""
+    piece, _ = build_front_facing(ctx_facing_nodart)
+    assert len(piece.gross_notches) == 4
+    assert all(_on_boundary(q, piece.gross_polygon)
+               for q in piece.gross_notches[1::2])
+
+
+def test_facing_notches_polyline_mode():
+    """polyline 折角链模式：两端切线取链首/链末段方向，投影同款落缝边。"""
+    o = PatternOptions(delta=1.0, front_pocket=True, front_pocket_facing=True,
+                       front_pocket_mouth_mode="polyline",
+                       front_pocket_mouth_corners=[(0.4, 1.2), (0.7, 0.8)])
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+    piece, _ = build_front_facing(ctx)
+    assert len(piece.gross_notches) == 4
+    assert all(_on_boundary(q, piece.gross_polygon)
+               for q in piece.gross_notches[1::2])
+
+
 def test_facing_marks_present_with_dart(ctx_facing):
     """有省：内部标记含袋口切削线 + 吃省边（§1.1 必须保留）。"""
     piece, _ = build_front_facing(ctx_facing)
@@ -205,9 +273,19 @@ def test_patch_named_edges(ctx_patch_rect):
 
 
 def test_patch_notches_corners(ctx_patch_rect):
-    """刀口 = 四周折边指示（各净角点，§2.2 PATCH 贴袋刀口）。rectangle 4 角。"""
+    """净刀口 = 各净角点（§2.2）；rectangle 4 角。"""
     piece, _ = build_front_patch(ctx_patch_rect)
     assert len(piece.notches) == 4
+
+
+def test_patch_notches_projected_to_seam(ctx_patch_rect):
+    """贴袋毛样刀口（§2.2 折边指示）：各净角点沿相邻净边延长线交缝边，每角
+    2 刀（rectangle 4 角 -> 8 刀），全部落在毛样折线上——入边延长线交出边
+    缝份（顶部内折线两端）、出边反向延长线交入边缝份（四周缝边折角）。"""
+    piece, _ = build_front_patch(ctx_patch_rect)
+    gross = piece.gross_notches
+    assert len(gross) == 8
+    assert all(_on_boundary(q, piece.gross_polygon) for q in gross)
 
 
 def test_patch_marks_empty(ctx_patch_rect):
@@ -222,12 +300,15 @@ def test_patch_negative_area(ctx_patch_rect):
 
 
 def test_patch_shield_closed_and_notches(ctx_patch_shield):
-    """baker_shield 5 角：闭合 + 5 刀口。"""
+    """baker_shield 5 角：闭合 + 净刀口 5 + 毛样刀口 10（每角 2 刀）。"""
     piece, _ = build_front_patch(ctx_patch_shield)
     es = piece.net_edges
     for i in range(len(es)):
         _assert_point_approx(_end(es[i].geom), _start(es[(i + 1) % len(es)].geom))
     assert len(piece.notches) == 5
+    assert len(piece.gross_notches) == 10
+    assert all(_on_boundary(q, piece.gross_polygon)
+               for q in piece.gross_notches)
 
 
 # ---------- 缩水（经向=局部 Y；apply_shrinkage(weft, warp)）----------
