@@ -149,7 +149,8 @@ class FlySeamAllowances:
     单排（单层）语义边：top 腰口（车入腰头，腰头线子弧）/ outer 外缘（外缘直线 +
     底角 J 型圆弧 + 底边的 G1 连续链，三段同名共用本值）/ inner 内边（与前浪
     缝合线重合）；bottom 仅双排（对折）消费（去底角弧后的底端直线闭合边）。
-    双排镜像边（outer_m/top_m/bottom_m）取对应基名值。
+    双排镜像边加 _m 后缀异名（top_m/outer_m/bottom_m）：缝份值与基边同组共用
+    本值；cutter 对折接缝（对折线两端 O/S）正常 miter，反射角交点自动裁剪。
     """
 
     top: float = 1.0

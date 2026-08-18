@@ -385,6 +385,9 @@ def add_seam_allowance(piece: PatternPiece,
     相邻异名边角点 p 处取两偏移边切线延伸交点（miter）连接——弯腰头弧端缝份
     顺曲线斜出、直角边 miter=外角点（直腰头矩形角不变）。切线平行时回退阶梯角
     （外角点 = p + n_a·sa_a + n_b·sa_b）。同名边（后中处上下口分段）平滑相接。
+    反射角（内角 >180°，边界谷底）时 miter 交点落在两边偏移曲线途中，偏移链
+    越过交点的采样尾/头部点被裁去（防两偏移链角部自交，门襟双排对折线顶端
+    两腰弧接缝即此；凸角交点在偏移端点之外，裁剪条件自然不触发，行为不变）。
     miter_limit：尖角限长，普通 miter 角点交点距角点超 max(sa)×本值时同样回退
     阶梯角（锐角 miter 长 = sa/sin(θ/2) 无界增长，袋布袋底×侧缝约 71° 角在
     side 缝份调大时长成尖刺，即此坑）；mirror 角（工艺翻折重合）不受限。
@@ -429,8 +432,11 @@ def add_seam_allowance(piece: PatternPiece,
                 break
     hem_notches: list[Point] = []
     poly: list[Point] = []
+    pending_head_trim: tuple[Point, Vector] | None = None
+    first_run_len = 0              # 首边偏移链长度（环回角裁头上界）
     for i, edge in enumerate(base):
         nxt = base[(i + 1) % n]
+        run_start = len(poly)      # 本边偏移链发射起点（反射角裁尾下界）
         if hem_ok and edge.name == hem.edge:
             # 折边链（§3）：T_a -> T_b；两端锚点 P_notch 由前后角点 miter 发射
             # （折边自毛样外侧缝边线起翻，翻盖全宽 = 毛样宽，拓扑凸链无台阶）
@@ -442,9 +448,16 @@ def add_seam_allowance(piece: PatternPiece,
                 if not poly or poly[-1] != p:
                     poly.append(p)
         else:
+            lead = pending_head_trim
+            pending_head_trim = None
             for p in _offset_edge_points(edge, sa):
+                # 反射角裁头（见角点段注释）：交点之前的偏移点裁去防自交
+                if lead is not None and _dot(p - lead[0], lead[1]) < -1e-9:
+                    continue
                 if not poly or poly[-1] != p:
                     poly.append(p)
+        if i == 0:
+            first_run_len = len(poly)
         # 角点：与下一条异名边 -> miter（或平行回退阶梯）
         if nxt.name == edge.name:
             continue
@@ -500,6 +513,27 @@ def add_seam_allowance(piece: PatternPiece,
         else:
             miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, miter_limit)
         if miter is not None:
+            # 反射角裁剪：内角 >180°（边界谷底，如门襟双排对折线顶端两腰弧
+            # 接缝）时 miter 交点落在两边偏移曲线**途中**，偏移链越过交点的
+            # 采样尾/头部点在交点另一侧——不裁则两偏移链在角部自交（DXF 目检
+            # 缝边多线交错即此）。裁尾：本边链中沿走向越过交点的尾部点；
+            # 裁头：下边链起点侧交点之前的头部点（环回角在循环后就地裁首边）。
+            # 凸角交点在两边偏移端点之外，两条件自然不触发，行为不变；
+            # sa=0 的净样点链不参与（裁剪只对真偏移链有意义）。
+            if sa_a > 0.0:
+                while (len(poly) > run_start
+                       and _dot(poly[-1] - miter, t_a) > 1e-9):
+                    poly.pop()
+            if sa_b > 0.0:
+                if i + 1 < n:
+                    pending_head_trim = (miter, t_b)
+                else:              # 环回角：下一条是首边，偏移链已在 poly 头部
+                    k = 0
+                    while (k < first_run_len and k < len(poly) - 1
+                           and _dot(poly[k] - miter, t_b) < -1e-9):
+                        k += 1
+                    if k:
+                        del poly[:k]
             if miter != poly[-1]:
                 poly.append(miter)
         else:

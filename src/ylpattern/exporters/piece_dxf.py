@@ -223,11 +223,17 @@ def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
 
     # 刀口：图层 4 POINT，必须附组码 30（Z 深度 1.524）与组码 50（开口
     # 角度）--缺角度 CAD 不知刀口朝哪个方向开、不显示。角度取刀口内法向
-    # 在 mm 输出系的方向（局部系 Y 向下、输出 Y 翻转向上，故 dy 取负）
-    for q in notch_pts:
+    # 在 mm 输出系的方向（局部系 Y 向下、输出 Y 翻转向上，故 dy 取负）；
+    # piece.gross_notch_dirs 显式方向优先（双排门襟对折线两端刀口沿对折轴、
+    # 与中心对称线共线，2026-08 口径），其余按折线切线法向自推
+    use_dirs = (notch_pts is piece.gross_notches
+                and piece.gross_notch_dirs)
+    for i, q in enumerate(notch_pts):
         x, y = to_mm(q)
-        tip = _notch_segment(q, piece.gross_polygon)[1]
-        d = tip - q
+        if use_dirs and i < len(use_dirs) and use_dirs[i] is not None:
+            d = use_dirs[i]
+        else:
+            d = _notch_segment(q, piece.gross_polygon)[1] - q
         angle = math.degrees(math.atan2(-d.dy, d.dx))
         block.add_point((x, y, base.NOTCH_Z_MM),
                         dxfattribs={"layer": _LAYER_MAP["NOTCH"],

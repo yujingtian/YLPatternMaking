@@ -8,12 +8,27 @@
   手柄常数按 90° 调定 -> 贝塞尔外凸，实测 ≈4.92；断言径向 = R + 弧长界于
   圆弧 R·θ 下界与控制多边形上界）；底边 = chord(T,O) − R（T 沿腰头线量取
   弧长 3.8，弦长实测 ≈3.80）；内边 = h = 12.75。
-  刀口 = 内边上自 O 开深 10.75 处（拉链止口/前浪对位，§2 Step3）。
+  刀口 = 内边上自 O 开深 10.75 处（拉链止口/前浪对位，§2 Step3）；毛样刀口沿
+  内边外法向投影至缝边线（净位 + 1.0，打在缝边上）。
   双排（§4）：外缘重构直线 T->E（E = T + 前浪方向·h）与内边严格平行且绝对
   等长 12.75（O,T,E,S 平行四边形）；底端 E->S 直线 = chord(T,O)；半边沿对折轴
-  O->S 镜像展开；刀口 = 对折线两端 O/S（§4 Step4 强制）+ 外缘开深 T+前浪方向·10.75。
+  O->S 镜像展开，镜像边加 _m 后缀**异名**（与基边同缝份值）：对折接缝 O/S 交
+  cutter 正常 miter，O 为反射角（两腰弧谷底对接、切线突变）交点落在两边偏移
+  链途中，越交点的采样尾/头部点被裁剪——同名跳过角点时两偏移链角部自交 =
+  顶部缝边三线交错（2026-08 DXF 报障）；刀口 = 对折线两端 O/S（§4 Step4
+  强制，**沿对折轴线向外投影**与中心对称线绝对共线——主边外法向带前浪斜度
+  必然歪斜，车间须沿直线对折；无缩水时轴线恰过缝边顶点：上端反射角裁剪
+  交点、下端凸角 miter 顶点，打口方向 gross_notch_dirs 沿轴显式给定）
+  + 外缘开深 T+前浪方向·10.75（外法向 +1.0）。
+  刀口落点口径（ET 顶点吸附）：刀口须落缝边线段中部或共线顶点——恰落
+  miter/阶梯角顶点（两侧折线不共线）时 CAD 无法判定切线方向、渲染成十字
+  孤立点；角点命中多条边时一律按斜率取 |dy| 最大主边外法向投影（不取法向
+  均值角平分——凸角均值落 miter 顶点、反射角均值落裁剪交点，均为角顶点），
+  如 fly_sep_extra=0 时单排 S 内边×底边、双排外缘 E 外缘×底边（⊥ 恰 1 缝份）。
   缩水轴向（§1）：丝缕竖直 = 经向 = 局部 Y -> X 吃纬 (1+weft)、Y 吃经 (1+warp)，
-  刀口同步缩放、缝边在缩水之后（缝份不叠加缩水）。
+  刀口同步缩放、缝边在缩水之后（缝份不叠加缩水）。拐角 miter：T/S/E 内角约
+  82°，miter 约 1.52×sa 恰超 cutter 默认限 1.5（曾回退阶梯角），flow 传
+  miter_limit=2.0 正常 miter。
 断言口径：独立复算几何量与闭环不变量，不硬编坐标（同 test_waistband_piece）。
 """
 
@@ -158,6 +173,9 @@ def test_single_notch_at_fly_depth(built):
 def test_double_edges_closure_orientation(built):
     _, _, double, _ = built
     names = tuple(e.name for e in double.net_edges)
+    # 镜像边加 _m 后缀异名（与基边同缝份值）：对折接缝 O/S 交 cutter 正常
+    # miter（O 反射角交点自动裁剪）——同名跳过角点时 O 两腰弧偏移链越过交点
+    # 自交 = 顶部缝边三线交错（DXF 报障）；局部 Y 反射后 shoelace < 0
     assert names == ("top", "outer", "bottom", "bottom_m", "outer_m", "top_m")
     _assert_closed(double)
     assert _shoelace(double) < 0
@@ -293,6 +311,209 @@ def test_gross_offsets_outward(built):
         assert max(gxs) > max(nxs) + 0.9
         assert min(gys) < min(nys) - 0.9
         assert max(gys) > max(nys) + 0.9
+
+
+# ---------- 刀口（§2 Step3 / §4 Step4：锚定净样位、打在缝边外沿）----------
+
+def _dist_to_poly(p: Point, poly) -> float:
+    """点 p 到闭合折线的最近距离（段上参数投影 clamp）。"""
+    best = float("inf")
+    n = len(poly)
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        v = b - a
+        L2 = v.dx * v.dx + v.dy * v.dy
+        t = max(0.0, min(1.0, ((p.x - a.x) * v.dx + (p.y - a.y) * v.dy) / L2)) \
+            if L2 > 0 else 0.0
+        best = min(best, p.distance_to(a + v.scale(t)))
+    return best
+
+
+def test_notches_projected_to_gross(built):
+    # 毛样刀口全部落在毛样折线上（打在缝边外沿=裁切线上；ET 按折线顶点吸附
+    # 挂刀口符号，净样位刀口不显示）；净样位刀口（shrunk_notches）保留
+    _, single, double, _ = built
+    for piece in (single, double):
+        for g in piece.gross_notches:
+            assert _dist_to_poly(g, piece.gross_polygon) < 1e-9
+        assert piece.shrunk_notches == piece.notches    # 缝合线位不丢
+
+
+def test_single_notch_offset_along_inner_normal(built):
+    # 单排唯一刀口（内边开深 L 前浪对位点）：毛样刀口 = 净刀口 + 内边外法向·
+    # sa.inner——垂于内边、距离恰一个缝份、同沿线位置（平行偏移到缝边线）
+    _, single, _, _ = built
+    inner = [e for e in single.net_edges if e.name == "inner"][0].geom
+    p = single.notches[0]
+    g = single.gross_notches[0]
+    d = g - p
+    assert d.length == pytest.approx(1.0)               # sa.inner = 1.0
+    t = (inner.b - inner.a).normalized()
+    assert abs(d.dx * t.dx + d.dy * t.dy) < 1e-9        # ⊥ 内边（法向）
+
+
+def test_double_notch_on_outer_offset(built):
+    # 双排外缘开深 L 刀口：外缘（重构直线）外法向一个缝份；O/S 对折线端点
+    # 刀口**沿对折轴线向外投影**（2026-08 口径：与中心对称线绝对共线供车间
+    # 直线对折——主边外法向带前浪斜度必然歪斜）；打口方向 gross_notch_dirs
+    # 同为轴向、指向对端（刀口切进方向沿轴）
+    _, _, double, _ = built
+    outer = [e for e in double.net_edges if e.name == "outer"][0].geom
+    p = double.notches[2]
+    g = double.gross_notches[2]
+    d = g - p
+    assert d.length == pytest.approx(1.0)
+    t = (outer.b - outer.a).normalized()
+    assert abs(d.dx * t.dx + d.dy * t.dy) < 1e-9
+    axis = (double.notches[1] - double.notches[0]).normalized()
+    for i in (0, 1):
+        d = double.gross_notches[i] - double.notches[i]
+        assert 1e-6 < d.length <= 2.0
+        cross = abs(d.dx * axis.dy - d.dy * axis.dx) / d.length
+        assert cross < 1e-9                     # 位移沿轴线（与中心线共线）
+        nd = double.gross_notch_dirs[i]
+        assert nd is not None
+        assert abs(nd.dx * axis.dy - nd.dy * axis.dx) < 1e-9   # 打口方向沿轴
+        sign = nd.dx * axis.dx + nd.dy * axis.dy
+        assert (sign > 0) if i == 0 else (sign < 0)            # 指向对端
+
+
+def _analytic_miter(p, t_a, t_b, sa_a, sa_b):
+    """角点 p 处不限长 miter 解析交点（两偏移切线延伸求交，独立复算）。"""
+    off_a = p + t_a.perpendicular().scale(sa_a)
+    off_b = p + t_b.perpendicular().scale(sa_b)
+    det = t_a.dx * t_b.dy - t_a.dy * t_b.dx
+    d = off_b - off_a
+    s = (d.dx * t_b.dy - d.dy * t_b.dx) / det
+    return off_a + t_a.scale(s)
+
+
+def test_corners_mitered_not_stair(built):
+    # 拐角 miter（miter_limit=2.0）：腰口×外缘 T、底边×内边 S 内角约 82°，
+    # miter 长约 1.52×sa 恰超 cutter 默认限 1.5 曾回退阶梯角（缝边拐角凸出
+    # 一个缝份量台阶，DXF 目检"前浪线外侧缝边不直"）；现毛样顶点应含解析
+    # miter 交点、不含阶梯外角点
+    _, single, double, _ = built
+    edges = single.net_edges           # [top, outer线, outer弧, outer线, inner]
+    sa = 1.0
+    # S 角：底边（outer[3]）× inner
+    bottom, inner = edges[3].geom, edges[4].geom
+    s_miter = _analytic_miter(bottom.b, (bottom.b - bottom.a).normalized(),
+                              (inner.b - inner.a).normalized(), sa, sa)
+    assert s_miter.distance_to(bottom.b) == pytest.approx(1.52, abs=0.01)
+    assert any(v.distance_to(s_miter) < 1e-9 for v in single.gross_polygon)
+    # T 角：top 腰口弧 × outer 直线
+    top, outer = edges[0].geom, edges[1].geom
+    t_miter = _analytic_miter(outer.a, top.tangent_at(1.0).normalized(),
+                              (outer.b - outer.a).normalized(), sa, sa)
+    assert any(v.distance_to(t_miter) < 1e-9 for v in single.gross_polygon)
+    # 阶梯外角点（corner + n_a + n_b）不应在毛样折线上
+    for corner, t_a, t_b in ((bottom.b, (bottom.b - bottom.a).normalized(),
+                              (inner.b - inner.a).normalized()),
+                             (outer.a, top.tangent_at(1.0).normalized(),
+                              (outer.b - outer.a).normalized())):
+        stair = corner + t_a.perpendicular() + t_b.perpendicular()
+        assert all(v.distance_to(stair) > 1e-6 for v in single.gross_polygon)
+    # 双排 E 角：outer × bottom 同口径
+    d_outer, d_bottom = double.net_edges[1].geom, double.net_edges[2].geom
+    e_miter = _analytic_miter(d_outer.b, (d_outer.b - d_outer.a).normalized(),
+                              (d_bottom.b - d_bottom.a).normalized(), sa, sa)
+    assert any(v.distance_to(e_miter) < 1e-9 for v in double.gross_polygon)
+    # 双排对折线两端 O/S：镜像边异名 -> cutter 正常 miter。O 为反射角（内角
+    # >180°，两腰弧谷底对接切线突变）：miter 交点落在两边偏移链**途中**，
+    # 越过交点的采样尾/头部点被裁剪（不裁则两偏移链角部自交 = 顶部缝边三线
+    # 交错，DXF 报障）——两腰弧在 O 的自然垂足（O + 切向法向·sa）均越过交点、
+    # 必须不在毛样折线上，交点本身必须在
+    d_top, d_top_m = double.net_edges[0].geom, double.net_edges[5].geom
+    tan_top_o = d_top.tangent_at(0.0).normalized()
+    tan_topm_o = d_top_m.tangent_at(1.0).normalized()
+    o_miter = _analytic_miter(Point(0.0, 0.0), tan_topm_o, tan_top_o, sa, sa)
+    assert any(v.distance_to(o_miter) < 1e-9 for v in double.gross_polygon)
+    foot_o = Point(0.0, 0.0) + tan_top_o.perpendicular().scale(sa)
+    foot_m_o = Point(0.0, 0.0) + tan_topm_o.perpendicular().scale(sa)
+    assert all(v.distance_to(foot_o) > 1e-6 for v in double.gross_polygon)
+    assert all(v.distance_to(foot_m_o) > 1e-6 for v in double.gross_polygon)
+    # S 为凸角（约 160°，bottom ∥ chord(T,O) 与镜像底边折 ~20°）：miter 长仅
+    # ≈1.02×sa 正常生成不回退阶梯，S + 2n·sa 尖刺外角点不在折线上
+    d_bottom_m = double.net_edges[3].geom
+    s_miter = _analytic_miter(
+        d_bottom.b, (d_bottom.b - d_bottom.a).normalized(),
+        (d_bottom_m.b - d_bottom_m.a).normalized(), sa, sa)
+    assert any(v.distance_to(s_miter) < 1e-9 for v in double.gross_polygon)
+    n_a = (d_bottom.b - d_bottom.a).normalized().perpendicular()
+    n_b = (d_bottom_m.b - d_bottom_m.a).normalized().perpendicular()
+    stair = d_bottom.b + n_a.scale(sa) + n_b.scale(sa)   # S + 2n·sa 尖刺外角点
+    assert all(v.distance_to(stair) > 1e-6 for v in double.gross_polygon)
+
+
+# ---------- 刀口落点（ET 顶点吸附：不落角顶点，切线可判）----------
+
+def _on_corner_vertex(g: Point, poly) -> bool:
+    """刀口 g 是否恰落毛样折线的**角顶点**（两侧折线不共线）。
+
+    ET 等服装 CAD 按裁切折线顶点吸附挂刀口符号，角顶点两侧折线不共线、切线
+    方向无法判定，刀口渲染成十字孤立点（DXF 报障即此）；段中或共线顶点
+    （切线唯一）为合法落点。
+    """
+    n = len(poly)
+    for i, v in enumerate(poly):
+        if v.distance_to(g) > 1e-9:
+            continue
+        a = poly[(i - 1) % n] - v
+        b = poly[(i + 1) % n] - v
+        if a.length < 1e-12 or b.length < 1e-12:
+            continue
+        cross = abs(a.dx * b.dy - a.dy * b.dx) / (a.length * b.length)
+        if cross > 1e-6:
+            return True
+    return False
+
+
+def test_notches_not_on_corner_vertices(built):
+    # 回归（DXF 刀口十字孤立点报障）：刀口坐标不得恰落缝边外沿的角顶点
+    # （miter/阶梯角顶点两侧折线不共线，ET 无法判定切线方向）。例外：双排
+    # 对折线两端 O/S 刀口为**工艺指定落点**——沿轴线投影，无缩水时轴线恰过
+    # 缝边顶点（上端反射角裁剪交点、下端凸角 miter 顶点），打口方向由
+    # gross_notch_dirs 沿轴显式给定、不依赖折线切线；改为断言与中心线共线
+    _, single, double, _ = built
+    for g in single.gross_notches:
+        assert not _on_corner_vertex(g, single.gross_polygon), \
+            f"{single.name} 刀口落在角顶点上（渲染十字孤立点）"
+    for g in double.gross_notches[2:]:
+        assert not _on_corner_vertex(g, double.gross_polygon), \
+            f"{double.name} 刀口落在角顶点上（渲染十字孤立点）"
+    axis = (double.notches[1] - double.notches[0]).normalized()
+    for i in (0, 1):
+        d = double.gross_notches[i] - double.notches[0]
+        cross = abs(d.dx * axis.dy - d.dy * axis.dx) / d.length
+        assert cross < 1e-9                     # 落在中心对称线上（绝对共线）
+
+
+def test_corner_notch_projects_along_main_edge():
+    # fly_sep_extra=0（zhitong 例）：单排刀口恰在 S 角点（内边×底边）、双排
+    # 外缘刀口恰在 E 角点（外缘×底边）——角点不走角平分均值（会落 miter
+    # 角顶点 -> 十字孤立点），按斜率取 |dy| 最大主边外法向：⊥ 内边/外缘恰
+    # 1 缝份，落点在该边缝边线上（共线顶点，切线可判）
+    o = PatternOptions(delta=1.0, fly_separate=True, fly_sep_extra=0.0)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    single, double, _ = build_front_fly(ctx)
+    inner = [e for e in single.net_edges if e.name == "inner"][0].geom
+    d = single.gross_notches[0] - single.notches[0]
+    assert d.length == pytest.approx(1.0)                  # sa.inner = 1.0
+    t = (inner.b - inner.a).normalized()
+    assert abs(d.dx * t.dx + d.dy * t.dy) < 1e-9           # ⊥ 内边（主边外法向）
+    outer = [e for e in double.net_edges if e.name == "outer"][0].geom
+    d = double.gross_notches[2] - double.notches[2]
+    assert d.length == pytest.approx(1.0)
+    t = (outer.b - outer.a).normalized()
+    assert abs(d.dx * t.dx + d.dy * t.dy) < 1e-9           # ⊥ 外缘（主边外法向）
+    for g in single.gross_notches:
+        assert _dist_to_poly(g, single.gross_polygon) < 1e-9
+        assert not _on_corner_vertex(g, single.gross_polygon)
+    for g in double.gross_notches:
+        assert _dist_to_poly(g, double.gross_polygon) < 1e-9
+    for g in double.gross_notches[2:]:          # 双排 O/S 沿轴线=工艺指定落点（同上）
+        assert not _on_corner_vertex(g, double.gross_polygon)
 
 
 # ---------- 开关与守卫 ----------

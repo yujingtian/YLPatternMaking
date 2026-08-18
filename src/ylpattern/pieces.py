@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .geometry import CubicBezier, LineSegment, Point
+from .geometry import CubicBezier, LineSegment, Point, Vector
 
 
 @dataclass(frozen=True)
@@ -57,18 +57,27 @@ class PatternPiece:
     drills: tuple[Point, ...] = ()             # 定位孔（净样坐标内部点，随缩水同步
                                                 #   变换，后片裁片.md §5/§6 定位图层；
                                                 #   如后贴袋上端两顶点钻孔）
+    gross_notch_dirs: tuple[Vector | None, ...] = ()
+                                                # 毛样刀口打口方向（与 gross_notches
+                                                #   按索引对齐，单位向量指向裁片内部）；
+                                                #   None/空 = 出口层按折线切线法向自推。
+                                                #   双排门襟对折线两端刀口沿对折轴
+                                                #   显式给定——与中心对称线共线，供
+                                                #   车间直接沿直线对折（2026-08 口径）
 
     def with_shrunk(self, edges: tuple[PieceEdge, ...],
                     notches: tuple[Point, ...]) -> "PatternPiece":
         return PatternPiece(self.name, self.label, self.net_edges,
                             self.notches, self.grain, edges, notches,
                             self.gross_polygon, self.gross_notches, self.notes,
-                            self.marks, self.drills)
+                            self.marks, self.drills, self.gross_notch_dirs)
 
     def with_gross(self, polygon: tuple[Point, ...],
                    notches: tuple[Point, ...],
-                   notes: tuple[str, ...]) -> "PatternPiece":
+                   notes: tuple[str, ...],
+                   notch_dirs: tuple[Vector | None, ...] = ()
+                   ) -> "PatternPiece":
         return PatternPiece(self.name, self.label, self.net_edges,
                             self.notches, self.grain, self.shrunk_edges,
                             self.shrunk_notches, polygon, notches, notes,
-                            self.marks, self.drills)
+                            self.marks, self.drills, notch_dirs)

@@ -149,11 +149,21 @@ def render_piece_svg(piece: PatternPiece) -> str:
                          f'cy="{sy(p.y):.1f}" r="2"/>')
         parts.append('</g>')
 
-    # 刀口（红色短垂线 + 点）
+    # 刀口（红色短线 + 点；方向优先 piece.gross_notch_dirs——双排门襟对折线
+    # 两端刀口沿对折轴、与中心对称线共线，2026-08 口径；其余保持向下 4px）
+    notch_pts = piece.gross_notches or piece.shrunk_notches or piece.notches
+    use_dirs = (notch_pts is piece.gross_notches
+                and piece.gross_notch_dirs)
     parts.append('<g id="notches">')
-    for p in piece.gross_notches or piece.shrunk_notches or piece.notches:
+    for i, p in enumerate(notch_pts):
+        d = (use_dirs[i] if use_dirs and i < len(use_dirs)
+             and use_dirs[i] is not None else None)
+        if d is not None:
+            ex, ey = p.x + d.dx * 0.4, p.y + d.dy * 0.4
+        else:
+            ex, ey = p.x, p.y + 0.4
         parts.append(f'<line class="notch" x1="{sx(p.x):.1f}" y1="{sy(p.y):.1f}" '
-                     f'x2="{sx(p.x):.1f}" y2="{sy(p.y) + 4:.1f}"/>')
+                     f'x2="{sx(ex):.1f}" y2="{sy(ey):.1f}"/>')
         parts.append(f'<circle class="notchpt" cx="{sx(p.x):.1f}" '
                      f'cy="{sy(p.y):.1f}" r="2"/>')
     parts.append('</g>')
