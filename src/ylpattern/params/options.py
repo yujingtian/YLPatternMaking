@@ -460,7 +460,11 @@ class PatternOptions:
     back_patch_top_hem_taper: float = -0.15
                                            # 袋口折边撇势（cm，≤0 向内；折边顶点沿袋口
                                            #   向内平移 |本值|，防折后毛边外露，§3 示例 −1.5mm）
-    back_patch_notch_type: str = "V"       # 袋口对位刀口类型："V" / "I"（§4）
+    back_patch_notch_type: str = "I"       # 袋口对位刀口类型："V" / "I"（§4 定
+                                           #   I=垂直一字刀口：净口两角沿侧缝边/
+                                           #   顶部线延长线交毛样外沿共 4 刀、
+                                           #   打在缝边上、底部不打口；类型仅
+                                           #   工艺标注不改几何）
     back_patch_notch_depth: float = 0.3    # 对位刀口深度（cm，§4 示例 3mm）
     back_patch_shrinkage_warp: float | None = None
                                            # 后贴袋裁片经向缩水率（大身面料；None=用全局

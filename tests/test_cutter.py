@@ -1,16 +1,20 @@
-"""cutter 缝边/折边金标测试（腰头裁片.md §五；后贴袋裁片.md §2~§4 HemTreatment）。
+"""cutter 缝边/折边金标测试（腰头裁片.md §五；后贴袋裁片.md §2~§3 HemTreatment）。
 
 手工演算（金标基准，无缩水，矩形净样 cm）：
     a=(0,0) b=(−14,0) c=(−14,16) d=(0,16)，边序 top a→b / side b→c /
     bottom c→d / side d→a（shoelace = −448 < 0，cutter 外法向外扩）。
     SA top=2.5 / side=bottom=1.0、撇势 taper=−0.15：
     t_h=(−1,0)、N=(0,−1)；锚点 P_notch = 袋口净线 y=0 ∩ 侧缝缝边线
-    x=−15 / x=1 → P_a=(1,0)、P_b=(−15,0)（§4 对位刀口位）；
+    x=−15 / x=1 → P_a=(1,0)、P_b=(−15,0)（作毛样角点锚定折边起翻；
+    亦为 flow 层顶部线延长刀口的落点，§4 刀口不在 cutter 层）；
     镜像方向 D=E−2(E·N)N（E=(0,1) 指向袋内）= (0,−1)，D·N=1 →
     M_a=P_a+D·2.5=(1,−2.5)、M_b=(−15,−2.5)；
     T1 = M_a+t_h·|taper| = (0.85,−2.5)、T2 = (−14.85,−2.5)
     （顶边长 15.7 = 毛样宽 − 2|taper|，倒梯形；翻盖底 = 毛样全宽 16，
-    自 P_notch 起翻盖住侧缝折边区——自净角起算会窄 2×SA_side）。
+    自 P_notch 起翻盖住侧缝折边区——自净角起算会窄 2×SA_side）；
+    hem 只产折边几何（T 顶点 / P_notch 角点）、不发刀口：毛样刀口维持
+    base（缩水/净样刀口），§4 袋口刀口由 flow 层生成
+    （back_patch_flow._top_hem_notches，见 test_back_patch_piece）。
     毛样全序（含 miter/偏移共线冗余点，逐点手算）：
     (0.85,−2.5)→(−14.85,−2.5)→(−15,0)→(−15,16)→(−15,17)→(−14,17)
     →(0,17)→(1,17)→(1,16)→(1,0)，闭合回 T1（凸链无台阶）。
@@ -52,7 +56,7 @@ def _assert_poly(poly, expected: list[tuple[float, float]]) -> None:
 
 
 def test_hem_rectangle_golden():
-    """矩形折边金标：倒梯形（底=毛样全宽）+ P_notch 角 + 毛样刀口（§3/§4 全链）。"""
+    """矩形折边金标：倒梯形（底=毛样全宽）；hem 不发刀口（§4 刀口在 flow 层）。"""
     out = add_seam_allowance(_rect_piece(), SA(), hem=HemTreatment("top", -0.15))
     _assert_poly(out.gross_polygon, [
         (0.85, -2.5), (-14.85, -2.5), (-15, 0), (-15, 16), (-15, 17),
@@ -60,21 +64,22 @@ def test_hem_rectangle_golden():
     # 翻盖底 = 两 P_notch 间毛样全宽 16（自净角起算的旧构造窄 2×SA_side 盖不住）
     assert out.gross_polygon[2].distance_to(out.gross_polygon[-1]) \
         == pytest.approx(16.0)
-    # P_notch 追加在缩水/净样刀口之后
-    assert out.gross_notches[-2] == pytest.approx(Point(-15, 0))
-    assert out.gross_notches[-1] == pytest.approx(Point(1, 0))
-    assert any("P_notch" in n for n in out.notes)
+    # hem 不发刀口（§4 袋口刀口由 flow 层 back_patch_flow._top_hem_notches
+    # 生成）：毛样刀口维持 base，方向空 = 出口层自推
+    assert out.gross_notches == _rect_piece().notches
+    assert out.gross_notch_dirs == ()
+    assert any("袋口折边" in n for n in out.notes)
+    assert not any("刀口 ×" in n for n in out.notes)
 
 
 def test_hem_taper_zero():
-    """taper=0：T=M 顶边同宽（= 毛样宽 16），P_notch 保留。"""
+    """taper=0：T=M 顶边同宽（= 毛样宽 16）。"""
     out = add_seam_allowance(_rect_piece(), SA(), hem=HemTreatment("top", 0.0))
     assert out.gross_polygon[0] == pytest.approx(Point(1.0, -2.5))
     assert out.gross_polygon[1] == pytest.approx(Point(-15.0, -2.5))
     assert out.gross_polygon[0].distance_to(out.gross_polygon[1]) \
         == pytest.approx(16.0)
-    assert out.gross_notches[-2:] == (pytest.approx(Point(-15, 0)),
-                                      pytest.approx(Point(1, 0)))
+    assert out.gross_notches == _rect_piece().notches
 
 
 def test_hem_curved_top_degrades():
@@ -129,7 +134,7 @@ def test_hem_after_shrinkage():
 
 
 def test_hem_side_sa_zero_no_step():
-    """两侧缝份 0：锚点 P_notch 退化为净角 -> 无 P_notch 刀口，链自然相接。"""
+    """两侧缝份 0：锚点 P_notch 退化为净角 -> 链自然相接（无台阶）。"""
     sa = BackPatchSeamAllowances(top=2.5, side=0.0, bottom=1.0)
     out = add_seam_allowance(_rect_piece(), sa, hem=HemTreatment("top", -0.15))
     assert out.gross_notches == _rect_piece().notches     # 无 P_notch 新增
@@ -153,8 +158,7 @@ def test_hem_top_last_in_chain_mirror():
         (-1, 0), (-1, 16), (-1, 17), (0, 17),
         (14, 17), (15, 17), (15, 16), (15, 0),
         (14.85, -2.5), (-0.85, -2.5)])
-    assert out.gross_notches[-2:] == (pytest.approx(Point(15, 0)),
-                                      pytest.approx(Point(-1, 0)))
+    assert out.gross_notches == piece.notches
 
 
 def test_miter_treatment_bypasses_limit():

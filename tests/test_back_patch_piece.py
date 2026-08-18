@@ -7,8 +7,11 @@
   angular 1/2/3（两斜切）、custom N==4 同 rectangle、N≠4 非顶边全 side。
   §3/§4 hem 金标独立复算（从 net_edges 重建 t_h/N/镜像方向，不硬编坐标）：
   锚点 P_notch = 袋口净线延长线 ∩ 侧缝缝边线（侧边外法向偏移 sa_side，
-  折边自毛样外侧缝边线起翻、翻盖全宽 = 毛样宽），
-  T = M + t_h·|taper|（M = P_notch 沿镜像方向上行 sa_top）。
+  折边自毛样外侧缝边线起翻、翻盖全宽 = 毛样宽，作毛样角点 + §4 顶部线
+  延长刀口的落点），T = M + t_h·|taper|（M = P_notch 沿镜像方向上行 sa_top）；
+  §4 袋口刀口（2026-08-19 口径）：净口两角各两刀共 4 刀、底部不打口——
+  沿侧缝边延长线交毛样外沿（折边顶边）一刀、沿顶部线延长线交毛样外沿
+  （= P_notch 毛样角点）一刀，方向 = 该处缝边内法向（gross_notch_dirs）。
   §2 缩水：大身面料全链路（None 回退全局，区别于小表袋里料 0 隔离）。
   §5 丝缕竖向 = 后大片经向（与摆放旋转角无关）。
 断言口径：几何不变量 + 独立复算，同 test_watch_pocket_piece。
@@ -134,6 +137,21 @@ def _in_poly(poly, p, tol=1e-9):
     return any(q.distance_to(p) < tol for q in poly)
 
 
+def _on_polyline(poly, p, tol=1e-6):
+    """点是否落在闭合折线任一段上（点-段最近距，§4 刀口打在缝边外沿）。"""
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        e = b - a
+        ll = e.dx ** 2 + e.dy ** 2
+        if ll < 1e-18:
+            continue
+        t = ((p.x - a.x) * e.dx + (p.y - a.y) * e.dy) / ll
+        t = max(0.0, min(1.0, t))
+        if p.distance_to(a + e.scale(t)) < tol:
+            return True
+    return False
+
+
 # ---------- 几何不变量（四形态） ----------
 
 @pytest.mark.parametrize("shape", ["rectangle", "baker_shield", "angular"])
@@ -218,10 +236,10 @@ def test_top_edge_length_custom():
         == pytest.approx(12.5, abs=1e-3)
 
 
-# ---------- hem 金标（§3 撇势倒梯形 + §4 P_notch 对位刀口） ----------
+# ---------- hem 金标（§3 撇势倒梯形 + §4 袋口 4 刀） ----------
 
 def test_hem_golden_independent_recompute():
-    """独立复算 T1/T2/P_notch ×2：全部出现在毛样上（公式级金标）。"""
+    """独立复算 T1/T2 + §4 袋口 4 刀位置/方向：全部命中毛样刀口（公式级金标）。"""
     o = PatternOptions(delta=1.0, back_yoke=True, back_patch=True,
                        back_patch_rotate_deg=6.0)     # 旋转摆放也成立
     ctx = FlowRunner(M, o).run(FULL_FLOW)
@@ -230,15 +248,71 @@ def test_hem_golden_independent_recompute():
                                  o.back_patch_top_hem_taper)
     assert _in_poly(piece.gross_polygon, t1), f"折边顶点 T1 {t1} 不在毛样上"
     assert _in_poly(piece.gross_polygon, t2), f"折边顶点 T2 {t2} 不在毛样上"
-    assert any(n.distance_to(pa) < 1e-9 for n in piece.gross_notches), \
-        f"P_notch(后浪侧) {pa} 不在毛样刀口中"
-    assert any(n.distance_to(pb) < 1e-9 for n in piece.gross_notches), \
-        f"P_notch(侧缝侧) {pb} 不在毛样刀口中"
+    # §4 袋口 4 刀、底部不打口：刀口全打在缝边上、不落净角点
+    assert len(piece.gross_notches) == 4
+    assert len(piece.gross_notch_dirs) == 4
+    corners = {q for e in piece.net_edges for q in (_start(e.geom), _end(e.geom))}
+    for q in piece.gross_notches:
+        assert not any(q.distance_to(c) < 1e-9 for c in corners), \
+            f"刀口 {q} 落净角点上（应打在缝边上，底部不打口）"
+    # 顶部线延长刀口 = P_notch 折边锚点（毛样角点，两角各一）
+    for p_notch in (pa, pb):
+        assert any(n.distance_to(p_notch) < 1e-9 for n in piece.gross_notches), \
+            f"顶部线延长刀口 {p_notch} 缺失"
+    # 侧缝边延长刀口：角点沿侧边切向越角延长交折边顶边线（独立 2x2 复算）
+    ne = piece.net_edges
+    j = next(i for i, e in enumerate(ne) if e.name == "top")
+    top, prev, nxt = ne[j].geom, ne[(j - 1) % len(ne)].geom, ne[(j + 1) % len(ne)].geom
+    t_h = (top.b - top.a).normalized()
+    e = t2 - t1
+    d_out_a = (prev.b - prev.a).normalized()      # 前侧边到达切向自 a 越角延长
+    d_out_b = (nxt.a - nxt.b).normalized()        # 后侧边出发切向取反自 b 越角
+    # 折边顶边内法向（指向袋身；袋口水平摆放时即经向竖直向下）
+    n_in = t_h.perpendicular()
+    mid = lambda g: Point((_start(g).x + _end(g).x) / 2, (_start(g).y + _end(g).y) / 2)
+    if n_in.dx * (mid(nxt).x - mid(top).x) + n_in.dy * (mid(nxt).y - mid(top).y) < 0:
+        n_in = n_in.scale(-1.0)
+    top_hits, corner_hits = [], []
+    for q, d in zip(piece.gross_notches, piece.gross_notch_dirs):
+        assert d is not None, "§4 袋口刀口方向须显式给定（gross_notch_dirs）"
+        assert d.dx * d.dx + d.dy * d.dy == pytest.approx(1.0, abs=1e-9)
+        (corner_hits if min(q.distance_to(pa), q.distance_to(pb)) < 1e-9
+         else top_hits).append((q, d))
+    assert len(top_hits) == 2 and len(corner_hits) == 2
+    for corner, d_out in ((top.a, d_out_a), (top.b, d_out_b)):
+        det = d_out.dx * e.dy - d_out.dy * e.dx
+        assert abs(det) > 1e-9                   # 侧缝边延长线与折边顶边不平行
+        r = t1 - corner
+        s = (r.dx * e.dy - r.dy * e.dx) / det
+        exp = corner + d_out.scale(s)            # 交点（打在缝边顶边上）
+        hit = next((q, d) for q, d in top_hits if q.distance_to(exp) < 1e-9)
+        assert hit[1].dx * n_in.dx + hit[1].dy * n_in.dy == pytest.approx(
+            1.0, abs=1e-9), "顶边刀口方向 = 折边顶边内法向"
+    # P_notch 角刀口方向 ≈ 沿袋口线向内（垂直侧缝缝边；镜像边界处微斜）
+    for _, d in corner_hits:
+        assert abs(d.dx * t_h.dx + d.dy * t_h.dy) > 0.99
     # 倒梯形顶边（折边线）∥ 袋口净线
     t_vec = t2 - t1
-    top = _edges_by_name(piece)["top"][0]
-    t_h = (top.b - top.a).normalized()
     assert abs(t_vec.dx * t_h.dy - t_vec.dy * t_h.dx) < 1e-9
+
+
+def test_hem_notch_on_seam_allowance():
+    """§4 袋口 4 刀全打在缝边（毛样外沿折线）上：净角点不打口（底部无刀口），
+    方向全显式给定为该处缝边内法向（毛样质心侧）。"""
+    piece, _ = build_back_patch(_run())
+    assert len(piece.gross_notches) == 4
+    assert len(piece.gross_notch_dirs) == 4
+    corners = {q for e in piece.net_edges for q in (_start(e.geom), _end(e.geom))}
+    cx = sum(p.x for p in piece.gross_polygon) / len(piece.gross_polygon)
+    cy = sum(p.y for p in piece.gross_polygon) / len(piece.gross_polygon)
+    for q, d in zip(piece.gross_notches, piece.gross_notch_dirs):
+        assert _on_polyline(piece.gross_polygon, q), \
+            f"袋口刀口 {q} 不在毛样缝边外沿上"
+        assert d is not None
+        assert d.dx * d.dx + d.dy * d.dy == pytest.approx(1.0, abs=1e-9)
+        assert d.dx * (cx - q.x) + d.dy * (cy - q.y) > 0.9, \
+            "刀口方向须指向裁片内部（缝边内法向）"
+        assert not any(q.distance_to(c) < 1e-9 for c in corners)
 
 
 def test_hem_taper_differential():
@@ -265,16 +339,18 @@ def test_hem_taper_zero_m_points_on_gross():
     assert _in_poly(piece.gross_polygon, t2), f"折边顶点 {t2} 不在毛样上"
 
 
-def test_notch_type_geometry_unchanged():
-    """刀口 V/I 型只进 notes，不改位置几何（§4：类型是工艺标注）。"""
-    o_v = PatternOptions(delta=1.0, back_yoke=True, back_patch=True)
-    o_i = PatternOptions(delta=1.0, back_yoke=True, back_patch=True,
-                         back_patch_notch_type="I", back_patch_notch_depth=0.5)
-    p_v, _ = build_back_patch(FlowRunner(M, o_v).run(FULL_FLOW))
-    p_i, _ = build_back_patch(FlowRunner(M, o_i).run(FULL_FLOW))
-    assert p_i.gross_polygon == p_v.gross_polygon
-    assert p_i.gross_notches == p_v.gross_notches
-    assert any("I 型 深 0.5" in note for note in p_i.notes)
+def test_notch_depth_notes_only():
+    """刀口深度只进 notes，不改位置几何（§4：类型已定 I，深度依工厂标准）。"""
+    o1 = PatternOptions(delta=1.0, back_yoke=True, back_patch=True)
+    o2 = PatternOptions(delta=1.0, back_yoke=True, back_patch=True,
+                        back_patch_notch_depth=0.5)
+    p1, _ = build_back_patch(FlowRunner(M, o1).run(FULL_FLOW))
+    p2, _ = build_back_patch(FlowRunner(M, o2).run(FULL_FLOW))
+    assert p2.gross_polygon == p1.gross_polygon
+    assert p2.gross_notches == p1.gross_notches
+    assert p2.gross_notch_dirs == p1.gross_notch_dirs
+    assert any("I 型 深 0.5" in note for note in p2.notes)
+    assert o1.back_patch_notch_type == "I"       # §4 定 I 型（垂直一字刀口）
 
 
 # ---------- custom 弧袋口降级（§3 无直线镜像轴） ----------
@@ -286,8 +362,8 @@ def test_custom_curved_top_degrades():
         back_patch_custom_edges=((1.2, 0.5), (0, 0), (0, 0), (0, 0), (0, 0))))
     assert isinstance(_edges_by_name(piece)["top"][0], CubicBezier)
     assert any("降级" in note for note in piece.notes)
-    # 刀口仅净角点：无 P_notch 追加
-    assert len(piece.gross_notches) == len(piece.net_edges)
+    # 刀口仅袋口两角（净样折边指示，§1 收集口径）：无 §4 袋口刀口、底部不打口
+    assert len(piece.gross_notches) == 2
 
 
 # ---------- 丝缕（§5）：竖向 = 后大片经向（与摆放旋转无关） ----------

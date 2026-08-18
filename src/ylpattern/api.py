@@ -212,7 +212,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_patch_custom_edges: list | tuple = (),
         back_patch_seam_allowances: dict | object | None = None,
         back_patch_top_hem_taper: float = -0.15,
-        back_patch_notch_type: str = "V",
+        back_patch_notch_type: str = "I",
         back_patch_notch_depth: float = 0.3,
         back_patch_shrinkage_warp: float | None = None,
         back_patch_shrinkage_weft: float | None = None,
@@ -439,8 +439,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_patch_top_hem_taper  袋口折边撇势（cm，≤0 向内；后贴袋裁片.md §3
                           示例 −1.5mm，防折后毛边外露成倒梯形）
         back_patch_notch_type / back_patch_notch_depth
-                          袋口对位刀口类型 "V"/"I" 与深度（cm，后贴袋裁片.md §4
-                          示例 3mm；仅工艺标注进 notes，不改位置几何）
+                          袋口对位刀口类型 "V"/"I"（默认 I=垂直一字刀口：净口
+                          两角沿侧缝边/顶部线延长线交毛样外沿共 4 刀、刀口
+                          打在缝边上、底部不打口）与深度（cm，§4 示例 3mm；
+                          均仅工艺标注进 notes，不改位置几何）
         back_patch_shrinkage_warp / back_patch_shrinkage_weft
                           后贴袋裁片经/纬缩水率（大身面料；None=回退全局
                           shrinkage_warp/weft 全链路口径，后贴袋裁片.md §2）
@@ -569,8 +571,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          小表袋裁片.md §一~§四 独立裁片）
         back_patch_svg   后贴袋裁片独立 SVG 输出路径（None=不输出；需完整整版且
                          back_patch 开启（依赖 back_yoke 定位）；四形态净样 1:1
-                         复制 + 袋口镜像折边/撇势/P_notch 对位刀口 + 竖向丝缕，
-                         后贴袋裁片.md §1~§5 独立裁片）
+                         复制 + 袋口镜像折边/撇势 + §4 袋口 4 刀（净口两角沿
+                         侧缝边/顶部线延长线交缝边、打在缝边上、底部不打口）
+                         + 竖向丝缕，后贴袋裁片.md §1~§5 独立裁片）
         front_piece_svg  前片裁片独立 SVG 输出路径（None=不输出；需完整整版；
                          弯腰头剥离/口袋挖削/连裁门襟三形态净边装配 + 不等宽
                          缝边 + 裆尖折角 + 刀口法向投影 + 内部辅助线，

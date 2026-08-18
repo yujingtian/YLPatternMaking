@@ -14,8 +14,11 @@ add_seam_allowance  各边按独立缝份沿**外法向**偏移（曲线逐点�
 可选 hem 指定一条边走袋口折边构造（HemTreatment，后贴袋裁片.md §3/§4）：
   折边自毛样外侧缝边线起翻——锚点 P_notch = 袋口净线延长线 ∩ 侧缝缝边线，
   折边线 = 侧缝缝边线关于袋口线的镜像（翻折后与侧缝折边区重合），顶端撇势
-  内收成倒梯形（底 = 毛样全宽）；P_notch 兼 §4 对位刀口。
+  内收成倒梯形（底 = 毛样全宽）。
   （勿自净角起算：翻盖会窄 2×SA_side，盖不住侧缝折边区。）
+  §4 对位刀口不在此层：cutter 只产折边几何（T 顶点 / P_notch 毛样角点），
+  刀口点与打口方向由调用方 flow 生成（back_patch_flow._top_hem_notches：
+  净口两角沿侧缝边/顶部线延长线交毛样外沿共 4 刀，打在缝边上）。
 
 依赖方向：cutter -> pieces -> geometry（禁止反向）。
 """
@@ -295,8 +298,9 @@ class HemTreatment:
     edge  折边边名（袋口，如 "top"，须在裁片边名中唯一）；
     taper 撇势（≤0；折边顶点沿袋口方向向内平移 |本值|，防折后毛边外露）。
     毛样折边链：P_notch_a -> T_a ->（顶边平行袋口距 sa_top）-> T_b ->
-    P_notch_b；锚点 P_notch = 侧缝缝边线与袋口净线延长线的交点（§4 对位
-    刀口位，由角点 miter 时折边侧 sa 传 0 自动得出）——折边自毛样外侧
+    P_notch_b；锚点 P_notch = 侧缝缝边线与袋口净线延长线的交点（由角点
+    miter 时折边侧 sa 传 0 自动得出；作毛样角点锚定折边起翻，亦是 flow 层
+    袋口顶部线延长刀口的落点，§4）——折边自毛样外侧
     缝边线起翻，翻盖全宽 = 毛样宽，翻折后恰与侧缝折边区重合；自净角起算
     翻盖会窄 2×SA_side，侧缝处盖不住缺量。
     前提（_hem_feasible 预扫描，不满足整条降级常规法向放缝）：袋口为直线、
@@ -407,13 +411,16 @@ def add_seam_allowance(piece: PatternPiece,
     机头内缝顶点（bottom, side）与后中底角（bottom, cb）用 mirror 使相邻缝份翻折后
     与裁片重合；直角角点 mirror 退化即 miter，故仅斜角相异。
 
-    hem：可选 HemTreatment，指定一条边（袋口）走折边构造（后贴袋裁片.md §3/§4）：
+    hem：可选 HemTreatment，指定一条边（袋口）走折边构造（后贴袋裁片.md §3）：
     该边不发常规偏移，改发 [T_a, T_b] 折边顶点（_hem_points：锚点 P_notch =
     袋口净线延长线 ∩ 侧缝缝边线，折边自毛样外侧缝边线起翻、翻盖全宽 = 毛样宽，
     镜像折线 + 撇势内收成倒梯形）；与相邻边的角点 miter 时折边侧 sa 按 0 传，
-    交点即 P_notch（§4 对位刀口位，记入毛样刀口）——该角为规范指定构造，
-    不限长、不走 corner_treatments。可行性由 _hem_feasible 预扫描统一判定，
-    不可行整条降级常规法向放缝（默认 None，现有裁片行为不变）。
+    交点即锚点 P_notch（作毛样角点，亦是 flow 层袋口顶部线延长刀口的落点，
+    §4）——该角为规范指定构造，不限长、不走 corner_treatments。本函数不发
+    袋口对位刀口（§4 刀口由调用方 flow 生成，见 back_patch_flow._top_hem_
+    notches：净口两角沿侧缝边/顶部线延长线交毛样外沿共 4 刀，打在缝边上）。
+    可行性由 _hem_feasible 预扫描统一判定，不可行整条降级常规法向放缝
+    （默认 None，现有裁片行为不变）。
     """
     base = piece.shrunk_edges or piece.net_edges
     base_notches = piece.shrunk_notches or piece.notches
@@ -430,7 +437,6 @@ def add_seam_allowance(piece: PatternPiece,
                 hem_ok = _hem_feasible(hedge, base[(j - 1) % n],
                                        base[(j + 1) % n], sa)
                 break
-    hem_notches: list[Point] = []
     poly: list[Point] = []
     pending_head_trim: tuple[Point, Vector] | None = None
     first_run_len = 0              # 首边偏移链长度（环回角裁头上界）
@@ -471,16 +477,15 @@ def add_seam_allowance(piece: PatternPiece,
         t_a = _unit_tangent(edge.geom, True)
         t_b = _unit_tangent(nxt.geom, False)
         if hem_a or hem_b:
-            # P_notch（§4）：折边侧缝份边界退化为袋口净线本身（off = 角点），
-            # 与相邻侧缝缝边线的交点即台阶角。规范指定构造而非偶发尖刺
-            # （长度 = sa/sin∠ 有界，近平行已被预扫描排除），不限长、不走
-            # corner_treatments；无论是否与 poly 末点 dedup 都记入毛样刀口。
+            # P_notch（§3 折边锚点）：折边侧缝份边界退化为袋口净线本身
+            # （off = 角点），与相邻侧缝缝边线的交点即台阶角。规范指定构造
+            # 而非偶发尖刺（长度 = sa/sin∠ 有界，近平行已被预扫描排除），
+            # 不限长、不走 corner_treatments；作毛样角点发射，亦是 flow 层
+            # 顶部线延长刀口的落点（§4，back_patch_flow._top_hem_notches）。
             miter = _miter_point(corner, t_a, t_b, sa_a, sa_b,
                                  miter_limit=float("inf"))
-            if miter is not None:
-                if not poly or miter != poly[-1]:
-                    poly.append(miter)
-                hem_notches.append(miter)
+            if miter is not None and (not poly or miter != poly[-1]):
+                poly.append(miter)
             continue
         # mirror 非对称：键 (折线边, 被镜像边)，首元素为翻折折线边。角点在 cutter
         # 序可能以 (本边,下边) 或其逆序出现，两种键都查；逆序命中则折线边=下边，
@@ -553,10 +558,10 @@ def add_seam_allowance(piece: PatternPiece,
 
     notes = piece.notes + (_sa_notes(sa),)
     if hem_ok:
-        notes = notes + (f"袋口折边：镜像折线+撇势 {hem.taper}，"
-                         "对位刀口 P_notch ×2（后贴袋裁片.md §3/§4）",)
-    return piece.with_gross(tuple(poly),
-                            tuple(base_notches) + tuple(hem_notches), notes)
+        notes = notes + (f"袋口折边：镜像折线+撇势 {hem.taper}"
+                         "（后贴袋裁片.md §3；§4 袋口刀口由 flow 层生成）",)
+    # 毛样刀口 = 缩水后刀口（方向 None 出口层自推）；hem 折边不发刀口
+    return piece.with_gross(tuple(poly), tuple(base_notches), notes)
 
 
 def _sa_notes(sa: "Mapping[str, float] | WaistbandSeamAllowances") -> str:
