@@ -14,7 +14,7 @@
     贝塞尔多项式自然外延求交成尖，裆尖尖角保留、无阶梯断点、不抹圆）。
   §2.3 刀口法向投影：全部 ∈ 毛样外沿（1e-6）；膝围双刀口距净点 == sa_side
     且 ⟂ 切线（绝对精准）；拉链止口 == 外缘链 point_along_chain(L)；
-    刀口数按矩阵（膝2+臀1+卷边2+毗围1 基底，口袋 +2、连裁 +1、d>0 毗围内端 +1）。
+    刀口数按矩阵（膝2+臀1+脚口2+毗围1 基底，口袋 +2、连裁 +1、d>0 毗围内端 +1）。
   §3.1 丝缕竖向；§3.2 缩水 None 回退全局 / 局部生效；§3.3 内部辅助线：
     臀/膝/毗围水平线截断（端点 ∈ 净边链、fly 组臀线右端落门襟外线），
     marks 随缩水同比例变换（净样 ×(1+weft, 1+warp)）。
@@ -141,7 +141,7 @@ COMBOS = [(wb, {**pk, **fl}, f"{wb.name}-{pkid}-{flid}")
 
 
 def _expected_notch_count(pk_kw, fly_on):
-    base = 6          # 膝围×2 + 臀围 + 卷边起折×2 + 毗围外缝点（thigh=58 录入）
+    base = 6          # 膝围×2 + 臀围 + 脚口×2 + 毗围外缝点（thigh=58 录入）
     return base + (2 if pk_kw.get("front_pocket") else 0) + (1 if fly_on else 0)
 
 
@@ -416,14 +416,15 @@ def test_crotch_miter_corner(wb):
 def test_notch_projection(wb, kw, cid):
     ctx, piece, _ = _build(waistband_type=wb, **kw)
     poly = piece.gross_polygon
-    # 全部刀口落在毛样外沿（真点-线段距离）
+    b = _b(ctx)
+    # 全部刀口落在毛样外沿（真点-线段距离；脚口角点刀口限定所在边投影，
+    # 落点在 side/inseam 毛样缝边上，用户口径 2026-08）
     for p in piece.gross_notches:
         d = min(_seg_dist(p, poly[i], poly[(i + 1) % len(poly)])
                 for i in range(len(poly)))
         assert d < 1e-6, f"刀口 {p} 距毛样外沿 {d:.2e}"
     # 膝围双刀口（防扭脚，绝对精准）：距净点 == 所在边缝宽（侧缝 1.5 / 下裆 1.0）
     # 且 ⟂ 该边切线（主版切线 → 局部 Y 翻转）
-    b = _b(ctx)
     for pt_name, tan_src, sa_amt in (
             ("front.knee_outseam_point", "front.outseam_upper", SA.side),
             ("front.knee_inseam_point", "front.inseam_upper", SA.inseam)):
@@ -437,6 +438,27 @@ def test_notch_projection(wb, kw, cid):
     # 缝合线位刀口保留（shrunk_notches = 净样刀口，不丢信息）
     assert len(piece.shrunk_notches) == len(piece.gross_notches)
     assert any("刀口" in n for n in piece.notes)
+
+
+@pytest.mark.parametrize("wb", WBS, ids=[w.name for w in WBS])
+def test_hem_notches_aligned_with_hem_line(wb):
+    """脚口双刀口与净样脚口线对齐（内外侧缝 ∩ 脚口线角点，用户口径 2026-08：
+    不与卷边宽关联），**打在内外缝毛样缝边上**——净样刀口 = 角点局部点；
+    毛样刀口 = 角点沿所在 side/inseam 边外法向外移该边缝宽且 ⟂ 该边切线
+    （同膝围双刀口绝对精准口径）。"""
+    ctx, piece, _ = _build(waistband_type=wb)
+    b = _b(ctx)
+    for pt_name, tan_src, sa_amt in (
+            ("front.hem_outseam_point", "front.outseam_lower", SA.side),
+            ("front.hem_inseam_point", "front.inseam_lower", SA.inseam)):
+        corner = _loc(ctx.point(pt_name), b)
+        assert min(p.distance_to(corner) for p in piece.shrunk_notches) < 1e-9
+        notch = min(piece.gross_notches, key=lambda p: p.distance_to(corner))
+        d = notch - corner
+        assert abs(d.length - sa_amt) < 1e-6
+        t_main = _tan(ctx.curve(tan_src), True)   # 净边脚口端切线 → 局部 Y 翻转
+        t_loc = LineSegment(Point(0, 0), Point(t_main.dx, -t_main.dy)).direction
+        assert abs(d.dx * t_loc.dx + d.dy * t_loc.dy) < 1e-6
 
 
 def test_thigh_inseam_notch_extra():
