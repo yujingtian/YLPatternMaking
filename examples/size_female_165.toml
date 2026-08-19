@@ -301,6 +301,7 @@ back_piece_notch_type     = "I"   # 对位刀口类型："I" 剪口 / "V" 缺口
 # 六边独立缝份见文末 [options.back_piece_seam_allowances] 子表
 
 fit                 = "regular"   # 版型：skinny 紧身 / slim 修身 / regular 标准 / loose 宽松
+size_label          = "29"        # 尺码标签（订单元数据；进裁片 DXF 片中央 SIZE 信息行，"-" = 未录入）
 seam_allowance      = 1.0         # 默认缝份宽度
 piece_gap           = 10.0        # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
 

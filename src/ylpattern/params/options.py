@@ -644,6 +644,8 @@ class PatternOptions:
                                            # 袋布裁片纬向缩水率（默认 0=不缩水，§3）
     fit: Fit = Fit.REGULAR
     seam_allowance: float = 1.0            # 默认缝份
+    size_label: str = "-"                  # 尺码标签（订单元数据，不参与几何；
+                                           #   进裁片 DXF 片中央 SIZE 信息行，"-" = 未录入）
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.delta <= 2.0:

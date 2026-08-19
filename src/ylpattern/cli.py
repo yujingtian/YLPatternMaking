@@ -181,7 +181,8 @@ def _cmd_draft(args: argparse.Namespace) -> int:
               file=sys.stderr)
     if want_pieces and dxf_pieces and not args.until:
         from .exporters import piece_dxf
-        piece_dxf.write_pieces_dxf(dxf_pieces, args.pieces_dxf)
+        piece_dxf.write_pieces_dxf(dxf_pieces, args.pieces_dxf,
+                                   size=ctx.options.size_label)
         print(f"裁片合集 DXF 已输出：{args.pieces_dxf}")
     if want_trace:
         with open(args.trace, "w", encoding="utf-8") as fp:

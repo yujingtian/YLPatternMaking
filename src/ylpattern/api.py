@@ -271,6 +271,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         thigh_max_iter: int = 6, thigh_tol: float = 0.3,
         piece_gap: float = 10.0,
         seam_allowance: float = 1.0,
+        size_label: str = "-",
         svg: str = "out/sheet.svg",
         waistband_svg: str | None = None,
         yoke_svg: str | None = None,
@@ -551,6 +552,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                            前/后裆尖累计调整上限（防卡耻骨 0.4 / 防下蹲崩破 1.0，§三.2）
         thigh_max_iter / thigh_tol  闭环最大迭代轮数（默认 6）/ 收敛容差（默认 0.3）
         piece_gap        前后片排版间距（后片整体置于前片右侧，分开不重叠）
+        size_label       尺码标签（订单元数据；进裁片 DXF 片中央 SIZE 信息行，"-" = 未录入）
         svg              SVG 输出路径
         waistband_svg    腰头裁片独立 SVG 输出路径（None=不输出；需完整整版，
                          中断调版 until 时不生成；腰头裁片.md §五 独立裁片）
@@ -782,7 +784,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        thigh_back_crotch_max=thigh_back_crotch_max,
                        thigh_max_iter=thigh_max_iter, thigh_tol=thigh_tol,
                        piece_gap=piece_gap,
-                       seam_allowance=seam_allowance)
+                       seam_allowance=seam_allowance,
+                       size_label=size_label)
 
     ctx, trace_text = run_with_thigh_closure(m, o, until=until,
                                              trace=bool(trace))
@@ -894,7 +897,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                 dxf_pieces.append(piece)
         if pieces_dxf and dxf_pieces:
             from .exporters import piece_dxf
-            piece_dxf.write_pieces_dxf(dxf_pieces, pieces_dxf)
+            piece_dxf.write_pieces_dxf(dxf_pieces, pieces_dxf,
+                                       size=o.size_label)
             print(f"裁片合集 DXF 已输出:{pieces_dxf}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
