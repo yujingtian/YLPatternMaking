@@ -170,28 +170,54 @@ def _miter_point(p: Point, t_a: Vector, t_b: Vector,
 
 def _mirror_point(p: Point, t_a: Vector, t_b: Vector,
                   sa_a: float, sa_b: float) -> Point | None:
-    """角点 p 处镜像折角：侧缝缝份边界线取原侧缝切线关于底边缝折线垂线的
-    轴对称镜像，再与底边缝份边界相交（机头裁片.md §镜像折角）。
+    """角点 p 处镜像折角（真反折角）：被镜像边缝份边界**整条线**关于折线边
+    净缝线（过 p、方向 t_a）轴对称后，与折线边缝份边界相交（机头裁片.md
+    §镜像折角；后片裁片.md §2 反折角防缺角缺肉）。
 
-    底边缝份沿底边（方向 t_a）车缝后向上/下翻折，翻折轴即底边缝折线 t_a，其垂线
-    n_a = t_a.perpendicular() 为对称轴。侧缝缝份边界线的**倾角**取原侧缝切线 t_b
-    关于 n_a 的镜像 t_b' = 2(t_b·n_a)n_a − t_b（仅改方向，锚点仍 off_b）——翻折后
-    缝份边缘恰与裁片轮廓重合。直角角点 t_b' = t_b（向量与其平行轴的镜像不变），
-    退化即 miter；仅斜角（如机头侧缝倾角）才与 miter 相异。镜像线与底边缝份边界
-    平行时返回 None，调用方回退 miter。
+    折线边缝份沿折线车缝后翻折，翻折轴 = 折线边净缝线本身。把被镜像边缝份
+    边界线整条关于该轴轴对称（R(v) = 2(v·t̂a)t̂a − v：锚点 off_b -> p +
+    sa_b·R(n_b)、方向 t_b -> R(t_b)），与折线边缝份边界（过 off_a、方向
+    t_a）交于 M——则 M 翻折后的像恰落在被镜像边毛缝边界上（像距被镜像边
+    净线 = sa_b），翻折边缘与裁片轮廓严丝合缝、不缺肉。仅镜像方向、锚点
+    不动（旧实现）在斜角处翻折落点距净线 sa_b·|cos∠(n_b,t_a)| < sa_b，
+    短缺 |缺量| 有界但真实存在。直角角点 n_b ∥ t_a，R(n_b) = n_b 锚点不动、
+    R(t_b) = −t_b 同线，退化即 miter；仅斜角（后浪裆尖约 65°、机头侧缝
+    倾角）才与 miter 相异。镜像线与折线边缝份边界平行时返回 None，调用方
+    回退 miter。
     """
+    ta = t_a.normalized()
     n_a = t_a.perpendicular()
     n_b = t_b.perpendicular()
     off_a = p + n_a.scale(sa_a)
-    off_b = p + n_b.scale(sa_b)
-    k = 2.0 * (t_b.dx * n_a.dx + t_b.dy * n_a.dy)
-    t_b_m = Vector(n_a.dx * k - t_b.dx, n_a.dy * k - t_b.dy)
-    d = off_b - off_a
+    # 被镜像边缝份边界整条关于折线（过 p、方向 t_a）轴对称：锚点与方向同步镜像
+    kb = 2.0 * (n_b.dx * ta.dx + n_b.dy * ta.dy)
+    kt = 2.0 * (t_b.dx * ta.dx + t_b.dy * ta.dy)
+    n_b_m = Vector(ta.dx * kb - n_b.dx, ta.dy * kb - n_b.dy)
+    t_b_m = Vector(ta.dx * kt - t_b.dx, ta.dy * kt - t_b.dy)
+    off_b_m = p + n_b_m.scale(sa_b)
+    d = off_b_m - off_a
     det = t_a.dx * t_b_m.dy - t_a.dy * t_b_m.dx
     if abs(det) < 1e-9:
         return None
     s = (d.dx * t_b_m.dy - d.dy * t_b_m.dx) / det
     return off_a + t_a.scale(s)
+
+
+def _axis_cross(p: Point, t_p: Vector, c: Point, t_c: Vector) -> Point | None:
+    """过 p 沿 t_p 的直线与翻折轴（过 c、方向 t_c）的交点，仅在交点位于 p
+    前方（s > 1e-6）时返回：被镜像边缝份边界延伸至翻折轴的穿越点 X。X 在
+    轴上（与角点等高），X -> M 段恰沿镜像线，翻折后整段像落在被镜像边毛缝
+    边界上；被镜像边缝边线也因此画到角点等高处（自然端点 = 角点法向投影
+    点，因倾角低 sa·sin∠，直接连弦会缺角部三角料）。平行（无交点）或交点
+    在后方返回 None，调用方保持旧直连行为。"""
+    det = t_p.dx * t_c.dy - t_p.dy * t_c.dx
+    if abs(det) < 1e-9:
+        return None
+    d = c - p
+    s = (d.dx * t_c.dy - d.dy * t_c.dx) / det
+    if s <= 1e-6:
+        return None
+    return p + t_p.scale(s)
 
 
 def _extrapolate_offset(g: LineSegment | CubicBezier, at_end: bool,
@@ -496,6 +522,7 @@ def add_seam_allowance(piece: PatternPiece,
         if treatment is None:
             treatment = ct.get((nxt.name, edge.name))
             fold_is_edge = False
+        cross = None
         if treatment == "mirror":
             if fold_is_edge:
                 miter = _mirror_point(corner, t_a, t_b, sa_a, sa_b)
@@ -503,6 +530,14 @@ def add_seam_allowance(piece: PatternPiece,
                 miter = _mirror_point(corner, t_b, t_a, sa_b, sa_a)
             if miter is None:               # 镜像退化（平行）回退 miter
                 miter = _miter_point(corner, t_a, t_b, sa_a, sa_b)
+            elif fold_is_edge and sa_b > 0.0:
+                # 真反折角补全：被镜像边 = 下边，其缝份边界自偏移起点沿本边
+                # 方向延伸至翻折轴（折线边净缝切线过角点）穿越点 X
+                off_b0 = corner + t_b.perpendicular().scale(sa_b)
+                cross = _axis_cross(off_b0, t_b, corner, t_a)
+            elif not fold_is_edge and sa_a > 0.0:
+                # 被镜像边 = 本边：其缝份边界自偏移链头沿走向延伸至翻折轴
+                cross = _axis_cross(poly[-1], t_a, corner, t_b)
         elif treatment == "miter":
             # 不限长自然尖角（前片裆尖等）：尖角是该角的工艺目标形态（缝边跟随净样
             # 曲线自然延伸交接），非偶发尖刺，绕过 miter_limit。
@@ -529,18 +564,27 @@ def add_seam_allowance(piece: PatternPiece,
                 while (len(poly) > run_start
                        and _dot(poly[-1] - miter, t_a) > 1e-9):
                     poly.pop()
+            # 被镜像边 = 下边的 mirror 角：头部裁剪/环回裁剪基准改 X（X 沿
+            # t_b 在 M 后方，按 M 裁会漏裁 X 与 M 之间的采样点、与补插的 X
+            # 成折返乱序）；其余角点无 X，基准仍为 M，行为不变
+            head_ref = cross if (cross is not None and fold_is_edge) else miter
             if sa_b > 0.0:
                 if i + 1 < n:
-                    pending_head_trim = (miter, t_b)
+                    pending_head_trim = (head_ref, t_b)
                 else:              # 环回角：下一条是首边，偏移链已在 poly 头部
                     k = 0
                     while (k < first_run_len and k < len(poly) - 1
-                           and _dot(poly[k] - miter, t_b) < -1e-9):
+                           and _dot(poly[k] - head_ref, t_b) < -1e-9):
                         k += 1
                     if k:
                         del poly[:k]
+            if (cross is not None and not fold_is_edge
+                    and cross != poly[-1] and cross != miter):
+                poly.append(cross)      # 被镜像边 = 本边：X 插在 M 之前
             if miter != poly[-1]:
                 poly.append(miter)
+            if cross is not None and fold_is_edge and cross != poly[-1]:
+                poly.append(cross)      # 被镜像边 = 下边：X 插在 M 之后
         else:
             # 切线平行回退：阶梯角（外角点 + 下边偏移起点）
             n_a = t_a.perpendicular()

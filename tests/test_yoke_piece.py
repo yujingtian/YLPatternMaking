@@ -462,15 +462,19 @@ def test_mirror_point_right_angle_equals_miter():
 
 
 def test_mirror_point_slanted_differs_from_miter():
-    """斜角（60° 侧缝）镜像侧缝方向 = 原侧缝关于底边垂线的镜像；与 miter 相异。"""
+    """斜角（60° 侧缝）镜像 = 侧缝缝份边界**整条线**关于底边净缝线轴对称
+    （锚点 + 方向同步镜像，2026-08-19 真反折角）；与 miter 相异。"""
     p = Point(0.0, 0.0)
     t_a = Vector(1.0, 0.0)
     t_b = Vector(0.5, math.sqrt(3) / 2)              # 60° 斜侧缝
     m = _mirror_point(p, t_a, t_b, 1.0, 1.0)
     mit = _miter_point(p, t_a, t_b, 1.0, 1.0)
-    # 演算（cutter._mirror_point）：miter=(-1/√3, 1)、mirror=(-2/√3, 1)
+    # 演算（cutter._mirror_point 真反折角）：miter=(-1/√3, 1)；
+    # 镜像锚点 off_b=(−√3/2,1/2) 轴对称至 (−√3/2,−1/2)、方向 (0.5,−√3/2)，
+    # 交底边缝份边界 y=1 于 mirror=(−√3, 1)；翻折像 (−√3,−1) 恰落侧缝
+    # 毛边线（off_b + t_b·(−√3)），缝份翻折不缺肉
     _assert_point_approx(mit, Point(-1.0 / math.sqrt(3), 1.0))
-    _assert_point_approx(m, Point(-2.0 / math.sqrt(3), 1.0))
+    _assert_point_approx(m, Point(-math.sqrt(3), 1.0))
     assert m.x != pytest.approx(mit.x)
 
 

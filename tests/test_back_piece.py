@@ -13,9 +13,14 @@
     口径同源）；§2.2 浪尖角部：True = mirror（== _mirror_point 复算角点，
     折线边 = 后浪缝）、False = 纯尖角跟随净样（== _natural_join_sharp 复算
     外延链 ∈ 毛样）。
-  §4 刀口法向投影：全部 ∈ 毛样外沿（1e-6）；膝围双刀口距净点 == sa 且 ⟂ 切线；
-    刀口数按矩阵（膝2+臀2+浪尖1+脚口2+横裆2+后中1 基底，毗围 +1、口袋 +1、
-    d>0 毗围内端 +1）。
+  §4 刀口法向投影：全部 ∈ 毛样外沿（1e-6）；膝围/脚口双刀口距净点 == sa 且
+    ⟂ 所在边切线（脚口 pinned 到 side/inseam 边，前后片统一口径 2026-08）；
+    刀口数按矩阵（法向投影基底 = 膝2+臀2+脚口2、**横裆线 ∩ 缝边交点不打口**
+    （用户口径 2026-08-19：d=0 与毗围刀口重复、后浪侧无对位用途）、毗围 +2
+    （外端 + 内端，
+    d=0 内端回退裆尖角点）、口袋 +1；上边界两角各双射线 +4（后浪/侧缝线 +
+    机头线延长线交毛样外沿，替换缝边顶点十字标记，用户口径 2026-08-19）、
+    贴袋对位顶部 +2（定位孔沿丝缕向上交顶缝边））。
   §5 内部线/定位孔：臀围/横裆/膝围（+毗围）水平线截断（端点 ∈ 净边链、
     主版高度 Y 翻转）；贴袋：顶线 mark + 上端两顶点 drills + 口袋对位刀口
     ∈ 侧缝链；后省穿越上边界：省腿裁片内子段进 marks + stderr 告警。
@@ -31,9 +36,10 @@ import pytest
 from ylpattern.cutter import _mirror_point, _natural_join_sharp, edge_length
 from ylpattern.exporters.piece_svg import render_piece_svg
 from ylpattern.flows.back_flow import FULL_FLOW
-from ylpattern.flows.back_piece_flow import build_back_piece
+from ylpattern.flows.back_piece_flow import (_junction_rays, _ray_hit,
+                                             build_back_piece)
 from ylpattern.flows.runner import FlowRunner
-from ylpattern.geometry import CubicBezier, LineSegment, Point
+from ylpattern.geometry import CubicBezier, LineSegment, Point, Vector
 from ylpattern.params import (BackSeamAllowances, Measurements,
                               PatternOptions, WaistbandType)
 
@@ -72,6 +78,17 @@ def _cb_top(ctx):
     if o.waistband_type is WaistbandType.CURVED:
         return ctx.point("back.lower_waist_center_point")
     return ctx.point("back.rise_top_point")
+
+
+def _side_top(ctx):
+    """侧缝链首顶点（§4 v1.1 侧缝机头拼接刀口）：有 yoke = PN / 无 yoke =
+    B 直腰头 / X′ 弯腰头。"""
+    o = ctx.options
+    if o.back_yoke:
+        return ctx.point("back.yoke_side_point")
+    if o.waistband_type is WaistbandType.CURVED:
+        return ctx.point("back.lower_waist_side_point")
+    return ctx.point("back.waist_side_point")
 
 
 def _loc(p, b):
@@ -141,9 +158,13 @@ COMBOS = [(wb, yk, f"{wb.name}-{'yoke' if yk else 'noyoke'}")
           for wb, (yk, _) in itertools.product(WBS, YKS)]
 
 
-def _expected_notch_count(piece_thigh=True, has_patch=False):
-    base = 10      # 膝×2 + 臀×2 + 浪尖 + 脚口×2 + 横裆×2 + 后中拼接
-    return base + (1 if piece_thigh else 0) + (1 if has_patch else 0)
+def _expected_notch_count(piece_thigh=2, has_patch=False):
+    """毛样刀口总数（用户口径 2026-08-19）：法向投影基底 + 上边界角点双
+    射线 ×4 + 贴袋对位顶部 ×2（有 drills 时）；横裆线 ∩ 缝边交点不打口。"""
+    base = 6       # 膝×2 + 臀×2 + 脚口×2（法向投影；横裆交点不打口）
+    rays = 4       # cb_top/side_top 各双射线：后浪/侧缝线 + 机头线延长线交外沿
+    top_pocket = 2 if has_patch else 0   # 贴袋定位孔沿丝缕向上交顶缝边
+    return base + piece_thigh + (1 if has_patch else 0) + rays + top_pocket
 
 
 # ---------- §1 条件矩阵：4 组合闭合/定向/结构/渲染 ----------
@@ -261,6 +282,16 @@ def test_crotch_corner_treatment(wb, yk, cid):
     exp_m = _mirror_point(c, t_b, t_a, SA.cb, SA.inseam)
     if exp_m is not None:                          # 平行退化回退 miter 则另算
         assert nearest_vertex(p_mirror, exp_m) < 1e-9
+        # 真反折角金标（2026-08-19）：M 关于后浪净缝线（过 c、方向 t_b）翻折
+        # 后的像 S(M) 恰落在内侧缝毛缝边界线上（距 == 0）——后浪缝份翻折贴
+        # 向内侧缝时边缘与裁片轮廓严丝合缝、不缺角缺肉（§2 工程目的）
+        ta_hat = t_b.normalized()
+        v = exp_m - c
+        k = 2.0 * (v.dx * ta_hat.dx + v.dy * ta_hat.dy)
+        s_m = c + Vector(ta_hat.dx * k - v.dx, ta_hat.dy * k - v.dy)
+        off_b = c + t_a.perpendicular().scale(SA.inseam)
+        cross = abs((s_m.x - off_b.x) * t_a.dy - (s_m.y - off_b.y) * t_a.dx)
+        assert cross < 1e-9, f"翻折像距内侧缝毛边 {cross:.2e}"
 
 
 @pytest.mark.parametrize("wb,yk,cid", COMBOS, ids=[c[2] for c in COMBOS])
@@ -303,19 +334,26 @@ def test_notch_projection(wb, yk, cid):
     ctx, piece, _ = _build(waistband_type=wb, back_yoke=yk)
     poly = piece.gross_polygon
     b = _cb_top(ctx)
-    # 角点刀口（脚口×2、浪尖、后中拼接）：不外扩、保留净样位（与净样轮廓
-    # 对齐，用户口径）；其余刀口全部落在毛样外沿（真点-线段距离）
-    corner_pts = [_loc(ctx.point(n), b) for n in
-                  ("back.crotch_vertex", "back.hem_outseam_point",
-                   "back.hem_inseam_point")] + [Point(0.0, 0.0)]
+    # 全部刀口落在毛样外沿（真点-线段距离；§4 总原则：打在最外缝边轮廓上、
+    # 不打内部净样线——脚口 pinned 投影亦在外沿缝边上）
     for p in piece.gross_notches:
-        if any(p.distance_to(c) < 1e-9 for c in corner_pts):
-            continue                              # 角点刀口保留净样位
         d = min(_seg_dist(p, poly[i], poly[(i + 1) % len(poly)])
                 for i in range(len(poly)))
         assert d < 1e-6, f"刀口 {p} 距毛样外沿 {d:.2e}"
-    for c in corner_pts:
-        assert min(p.distance_to(c) for p in piece.gross_notches) < 1e-9
+    # 上边界角点双射线刀口（用户口径 2026-08-19）：cb_top/side_top 每角
+    # 两条净线延长线（到达边切向越角直行 = 后浪/机头线延长线；出发边切向
+    # 反向 = 侧缝/机头线延长线）交毛样外沿，各落另一边缝边带上；替换原
+    # 角点十字标记——净角点不再出现于毛样刀口（打在缝边顶点上无用）
+    base_edges = piece.shrunk_edges or piece.net_edges
+    for corner in (Point(0.0, 0.0), _loc(_side_top(ctx), b)):
+        rays = _junction_rays(base_edges, corner)
+        assert len(rays) == 2
+        for d in rays:
+            hit = _ray_hit(corner, d, poly)
+            assert hit is not None
+            assert min(p.distance_to(hit[0])
+                       for p in piece.gross_notches) < 1e-9
+        assert min(p.distance_to(corner) for p in piece.gross_notches) > 0.5
     # 膝围双刀口（最关键上下对位点，绝对精准）：距净点 == 所在边缝宽
     # （侧缝 1.5 / 内缝 1.0）且 ⟂ 该边切线（主版切线 -> 局部 Y 翻转）
     for pt_name, tan_src, sa_amt in (
@@ -328,46 +366,72 @@ def test_notch_projection(wb, yk, cid):
         t_main = _tan(ctx.curve(tan_src), True)
         t_loc = LineSegment(Point(0, 0), Point(t_main.dx, -t_main.dy)).direction
         assert abs(d.dx * t_loc.dx + d.dy * t_loc.dy) < 1e-6
-    # 缝合线位刀口保留（shrunk_notches = 净样刀口，不丢信息）
-    assert len(piece.shrunk_notches) == len(piece.gross_notches)
+    # 缝合线位刀口保留（shrunk_notches = 净样刀口，不丢信息）；毛样刀口 =
+    # 法向投影 + 角点双射线（本测试组合无贴袋 -> 无贴袋对位顶部刀口）
+    assert len(piece.gross_notches) == len(piece.shrunk_notches) + 4
     assert any("刀口" in n for n in piece.notes)
 
 
 def test_thigh_notches():
-    """无大腿围录入：毗围刀口不存在（10 个）；d>0：毗围内端点非角点 +1。"""
+    """无大腿围录入：毗围刀口不存在（10 个 = 基底 6 + 双射线 4）；有录入
+    恒 12（毗围外端 +1、内端 +1：d>0 为上版内缝点 / d=0 回退裆尖角点，
+    §5 基准点完整）。"""
     _, p_no, _ = _build(m=M_NO_THIGH)
     assert len(p_no.gross_notches) == 10
-    _, p0, _ = _build()                             # d=0：内端 = 浪尖角点跳过
+    _, p0, _ = _build()                             # d=0：内端回退裆尖角点
     _, p1, _ = _build(thigh_measure_offset=2.54)
-    assert len(p0.gross_notches) == 11
+    assert len(p0.gross_notches) == 12
     assert len(p1.gross_notches) == 12
 
 
 @pytest.mark.parametrize("wb", WBS, ids=[w.name for w in WBS])
 def test_hem_notches_aligned_with_hem_line(wb):
-    """脚口双刀口与净样脚口线对齐（内外侧缝 ∩ 脚口线角点，用户口径：不与
-    卷边宽关联、不外扩投影）--净样刀口与毛样刀口均 = 脚口内外缝顶点局部点。"""
+    """脚口双刀口与净样脚口线对齐（内外侧缝 ∩ 脚口线角点，用户口径 2026-08
+    前后片统一：不与卷边宽关联），**打在内外缝毛样缝边上**——净样刀口 =
+    角点局部点；毛样刀口 = 角点沿所在 side/inseam 边外法向外移该边缝宽且
+    ⟂ 该边切线（同膝围双刀口绝对精准口径）。"""
     ctx, piece, _ = _build(waistband_type=wb, back_yoke=True)
     b = _cb_top(ctx)
-    for pt_name in ("back.hem_outseam_point", "back.hem_inseam_point"):
+    for pt_name, tan_src, sa_amt in (
+            ("back.hem_outseam_point", "back.outseam_lower", SA.side),
+            ("back.hem_inseam_point", "back.inseam_lower", SA.inseam)):
         corner = _loc(ctx.point(pt_name), b)
         assert min(p.distance_to(corner) for p in piece.shrunk_notches) < 1e-9
-        assert min(p.distance_to(corner) for p in piece.gross_notches) < 1e-9
+        notch = min(piece.gross_notches, key=lambda p: p.distance_to(corner))
+        d = notch - corner
+        assert abs(d.length - sa_amt) < 1e-6
+        t_main = _tan(ctx.curve(tan_src), True)   # 净边脚口端切线 -> 局部 Y 翻转
+        t_loc = LineSegment(Point(0, 0), Point(t_main.dx, -t_main.dy)).direction
+        assert abs(d.dx * t_loc.dx + d.dy * t_loc.dy) < 1e-6
 
 
 @pytest.mark.parametrize("wb", WBS, ids=[w.name for w in WBS])
-def test_corner_notches_not_projected_with_shrinkage(wb):
-    """有缩水时角点刀口仍保留（缩水后）净样位不外扩：毛样刀口 = 净角点
-    ×(1+weft, 1+warp)（直筒 0.1/0.06 缩水场景，keep 集同步缩放防失配）。"""
+def test_hem_pinned_notches_with_shrinkage(wb):
+    """有缩水时脚口 pinned 刀口仍打在毛样缝边上：距缩水后净角点 == 所在边
+    缝宽、⟂ 缩水后该边切线（主版端切线 X×(1+weft)、局部 Y 翻转再 ×(1+warp)；
+    直筒 0.1/0.06 缩水场景，pinned 集同步缩放防失配）；拼接双刀口仍投影至
+    毛样外沿。"""
     ctx, piece, _ = _build(waistband_type=wb, back_yoke=True,
                            back_piece_shrinkage_warp=0.1,
                            back_piece_shrinkage_weft=0.06)
     b = _cb_top(ctx)
-    for pt_name in ("back.crotch_vertex", "back.hem_outseam_point",
-                    "back.hem_inseam_point"):
+    for pt_name, tan_src, sa_amt in (
+            ("back.hem_outseam_point", "back.outseam_lower", SA.side),
+            ("back.hem_inseam_point", "back.inseam_lower", SA.inseam)):
         net = _loc(ctx.point(pt_name), b)
-        expect = Point(net.x * 1.06, net.y * 1.1)
-        assert min(p.distance_to(expect) for p in piece.gross_notches) < 1e-9
+        corner = Point(net.x * 1.06, net.y * 1.1)      # 缩水后净角点
+        notch = min(piece.gross_notches, key=lambda p: p.distance_to(corner))
+        d = notch - corner
+        assert abs(d.length - sa_amt) < 1e-6
+        t_main = _tan(ctx.curve(tan_src), True)
+        tx, ty = t_main.dx * 1.06, -t_main.dy * 1.1    # 局部 Y 翻转 + 缩水
+        assert abs(d.dx * tx + d.dy * ty) < 1e-6
+    poly = piece.gross_polygon
+    for top_pt in (Point(0.0, 0.0), _loc(_side_top(ctx), b)):
+        proj = min(piece.gross_notches, key=lambda p: p.distance_to(top_pt))
+        assert proj.distance_to(top_pt) > 1e-9
+        assert min(_seg_dist(proj, poly[i], poly[(i + 1) % len(poly)])
+                   for i in range(len(poly))) < 1e-6
 
 
 # ---------- §5 内部辅助线 / 贴袋引用 / 后省 ----------
@@ -385,7 +449,8 @@ def test_internal_marks(wb, yk, cid):
         assert mk.a.y == pytest.approx(b.y - ctx.line(name).a.y)  # 主版 Y 翻转
         _chain_dist(mk.a, geoms)
         _chain_dist(mk.b, geoms)
-    # 横裆线不进 marks（毗围斜量线即其测量基准）；其高度交点仍进 §4 刀口
+    # 横裆线不进 marks（毗围斜量线即其测量基准）；其高度交点也不打刀口
+    # （用户口径 2026-08-19：d=0 与毗围刀口重复、后浪侧无对位用途）
     crotch_y = ctx.line("back.crotch_line").a.y
     assert not any(isinstance(m, LineSegment) and m.a.y == m.b.y
                    and m.a.y == pytest.approx(b.y - crotch_y)
@@ -423,6 +488,15 @@ def test_patch_refs(wb):
                  key=lambda p: p.distance_to(Point(0.0, 0.0)))
     side_geoms = _edges_by_name(piece)["side"]
     _chain_dist(pocket, side_geoms, tol=5e-3)      # 采样交点量化容差
+    # 贴袋对位顶部刀口（用户口径 2026-08-19）：每个定位孔沿丝缕（局部 -Y）
+    # 向上恰一刀，x 与定位孔相同、在孔上方、落在毛样外沿（顶缝边）
+    poly = piece.gross_polygon
+    for d in piece.drills:
+        ups = [p for p in piece.gross_notches
+               if abs(p.x - d.x) < 1e-9 and p.y < d.y]
+        assert len(ups) == 1
+        assert min(_seg_dist(ups[0], poly[i], poly[(i + 1) % len(poly)])
+                   for i in range(len(poly))) < 1e-6
 
 
 @pytest.mark.parametrize("wb", WBS, ids=[w.name for w in WBS])

@@ -19,10 +19,15 @@ stderr 告警，省腿在裁片内部分进 marks（省量吸收主口径是 bac
 反折角，防缝合翻折缺角缺肉；关闭 = 尖角跟随净样轮廓，贝塞尔多项式自然
 外延求交成尖，不抹圆）。缩水（§3 顺序 1~3）：先提取净样 -> 再缩水 -> 后加
 缝边（缝份为绝对值不乘缩水率），主面料率 back_piece_shrinkage_*（None 回退
-全局）。刀口（§4）：脚口（与脚口线对齐，不与卷边宽关联）/ 后中拼接 / 浪尖
-对位 / 口袋对位 / 膝围 + 臀围、
-横裆（§5 基准点），净样刀口沿外法向投影至毛样外沿（与前片同款 flow 私有
-实现，不动 cutter 公开 API）。内部线（§5）：臀围/膝围水平截断 + 毗围斜量线
+全局）。刀口（§4 v1.1，总原则：打在最外缝边轮廓上、不打内部净样线）：脚口
+双刀口沿所在 side/inseam 边外法向投影至毛样缝边（与净样脚口线对齐、不与
+卷边宽关联；用户口径 2026-08 前后片统一 pinned 机制，文档"保留净样位"系
+v1.0 遗留表述）；口袋对位 / 膝围 + 臀围、横裆、毗围（§5 基准点）沿外法向
+投影至毛样外沿（与前片同款 flow 私有实现，不动 cutter 公开 API；浪尖对位
+刀口 v1.1 移除）；上边界两角各双射线刀口 + 贴袋对位顶部刀口（用户口径
+2026-08-19：后浪顶点顺后浪线/机头线延长线各一刀、侧缝顶点顺侧缝线/机头线
+延长线各一刀交毛样外沿，替换原缝边顶点十字标记；贴袋定位孔沿丝缕向上交
+顶缝边——不走法向投影，毛样生成后追发）。内部线（§5）：臀围/膝围水平截断 + 毗围斜量线
 1:1（横裆线不画--用户口径：毗围线即其测量基准，横裆水平线冗余；横裆高度
 交点仍进 §4 刀口）+ 后贴袋顶线拷贝、贴袋上端两顶点进 drills 定位孔（§6）；
 丝缕线竖向（经向 = 局部 Y，与全局纱向平行一致），均随缩水同比例变换。
@@ -156,12 +161,14 @@ def _yoke_bottom_chain(ctx: DraftContext) -> list[LineSegment | CubicBezier]:
 
 
 def _net_edges(ctx: DraftContext, o) -> tuple[list[tuple[str, LineSegment
-                                                          | CubicBezier]], Point]:
+                                                          | CubicBezier]], Point,
+                                               Point]:
     """主版坐标净边装配（自然 CCW 序）：上边 -> 外侧缝（下行三段同名）->
     脚口 -> 内侧缝（上行两段同名）-> 后浪（上行曲线+斜线残段同名），闭合。
 
-    返回 (edges, cb_top)：cb_top = 后浪链首顶点（有 yoke = P0 / 无 yoke =
-    A 直腰头 / O′ 弯腰头），作局部化 origin。后浪/侧缝下行链：
+    返回 (edges, cb_top, side_top)：cb_top = 后浪链首顶点（有 yoke = P0 / 无 yoke =
+    A 直腰头 / O′ 弯腰头），作局部化 origin；side_top = 侧缝链首顶点（有 yoke = PN / 无 yoke =
+B 直腰头 / X' 弯腰头），与 cb_top 同为上边界端点、作拼接刀口（§4）。后浪/侧缝下行链：
       后浪 = (rise_slant, rise_curve)（A -> 臀围内缝点 -> 裆尖）；
       侧缝 = (反向髋腰弧, outseam_upper, outseam_lower)（腰端 -> 臀 -> 膝 -> 脚口）；
     自链首顶点（A/B 或 P0/PN，即上边界端点）取后缀 -- 有 yoke 时两端点由
@@ -189,18 +196,21 @@ def _net_edges(ctx: DraftContext, o) -> tuple[list[tuple[str, LineSegment
         d_side = o.waistband_width + o.back_yoke_side_dist if curved \
             else o.back_yoke_side_dist
         cb_top = p0
+        side_top = pn
     elif curved:
         # 形态 C：上边 = 后下腰头线（O' -> X'，弧原方向即 cb->side 侧），
         # 链自下腰头两端点起（沿链再下移 W 的后缀）
         edges = [("waist", ctx.curve("back.lower_waistline_arc"))]
         d_cb = d_side = o.waistband_width
         cb_top = ctx.point("back.lower_waist_center_point")   # O'
+        side_top = ctx.point("back.lower_waist_side_point")   # X'
     else:
         # 形态 B：上边 = 后腰头线弧（A -> B，弧原方向即 cb->side 侧），
         # 链自腰头线两端点起完整
         edges = [("waist", ctx.curve("back.waistline_arc"))]
         d_cb = d_side = 0.0
         cb_top = ctx.point("back.rise_top_point")
+        side_top = ctx.point("back.waist_side_point")
 
     # 外侧缝下行（PN/X'/B -> 脚口外缝顶点）
     edges += [("side", g) for g in _chain_suffix(side_chain, d_side)]
@@ -212,7 +222,7 @@ def _net_edges(ctx: DraftContext, o) -> tuple[list[tuple[str, LineSegment
     # 后浪上行（裆尖 -> 臀围内缝点 -> P0/A/O'：下行后缀逆序逐段反向）
     cb_suffix = _chain_suffix(cb_chain, d_cb)
     edges += [("cb", _reverse_geom(g)) for g in reversed(cb_suffix)]
-    return edges, cb_top
+    return edges, cb_top, side_top
 
 
 # ---------- 内部辅助线 / 口袋对位 / 定位孔（§4、§5）----------
@@ -256,30 +266,6 @@ def _chain_hit(chain: list[LineSegment | CubicBezier],
                 best_d = s
                 best = Point(seg.a.x + fx * s, seg.a.y + fy * s)
     return best
-
-
-def _h_cross_points(chain: list[LineSegment | CubicBezier], y: float
-                    ) -> list[Point]:
-    """水平线 y 与净边链折线采样的全部交点（§5 围度线 ∩ 外轮廓基准点）。
-
-    后片横裆线常高于臀围外缝点：侧缝交点落在髋腰弧（而非大腿弧）、内侧交点
-    落在后浪弧（而非内缝弧），故按整条净边链求交、不预设载体边。正常两交点
-    （左 = 外侧缝、右 = 后浪/内缝）。"""
-    pts: list[Point] = []
-    for g in chain:
-        samples = _geom_sample(g, 64)
-        for a, b in zip(samples, samples[1:]):
-            if (a.y - y) * (b.y - y) < 0:
-                x = a.x + (b.x - a.x) * (y - a.y) / (b.y - a.y)
-                pts.append(Point(x, y))
-            elif a.y == y:
-                pts.append(Point(a.x, y))
-    # 去重（相邻段公共端点触线会重复报点）
-    uniq: list[Point] = []
-    for p in sorted(pts, key=lambda q: q.x):
-        if not uniq or uniq[-1].distance_to(p) > 1e-9:
-            uniq.append(p)
-    return uniq
 
 
 def _point_in_chain(p: Point, chain: list[LineSegment | CubicBezier]) -> bool:
@@ -356,35 +342,43 @@ def _pocket_refs(ctx: DraftContext,
 
 
 def _notches(ctx: DraftContext, chain: list[LineSegment | CubicBezier]
-             ) -> tuple[list[Point], list[Point]]:
-    """净样刀口集（主版坐标，§4 关键对位 + §5 围度线基准点），返回
-    (全部刀口, 角点刀口子集)：
+             ) -> tuple[list[Point], list[tuple[Point, str]]]:
+    """净样刀口集（主版坐标，§4 v1.1 关键对位 + §5 围度线基准点），返回
+    (全部刀口, 脚口角点刀口 (点, 限定载体边名) 子集)：
 
-    脚口双刀口（与净样脚口线对齐 = 内外侧缝 ∩ 脚口线角点，用户口径 2026-08：
-    脚口刀口不与卷边宽关联、不做翻折对位）、后中拼接刀口 P0（后浪 ∩ 机头
-    拼接交点，无 yoke 时为腰缝后中端点）、浪尖对位刀口（后浪 ∩ 内侧缝交界，
-    防扭腿）、膝围双刀口（最关键上下对位点）、臀围/横裆线 ∩ 侧缝+内缝刀口
-    （§5 绝对基准点）、毗围双刀口（大腿围录入时）、口袋对位刀口（贴袋顶线
-    延长 ∩ 侧缝）。
-    角点刀口子集（脚口×2、浪尖）**不外扩投影、保留净样位置**——角点本身是
-    净边顶点，刀口标的是净样角点而非缝合线外沿（后中拼接 P0 由 build 追加）。"""
-    corners = [ctx.point("back.crotch_vertex"),
-               ctx.point("back.hem_outseam_point"),
-               ctx.point("back.hem_inseam_point")]
+    脚口双刀口（与净样脚口线对齐 = 内外侧缝 ∩ 脚口线角点，用户口径 2026-08
+    前后片统一：不与卷边宽关联、不做翻折对位，**打在内外缝毛样缝边上**——
+    沿所在 side/inseam 边外法向投影，同前片 pinned 机制；文档"保留净样位"
+    系 v1.0 遗留表述，已被目检口径取代）、膝围双刀口（最关键上下对位点）、
+    臀围双刀口（§5 绝对基准点；**横裆线 ∩ 缝边交点不打刀口**——用户口径
+    2026-08：d=0 时与毗围刀口重复、后浪侧无对位用途）、毗围双刀口（大腿围录入
+    时；d=0 内端未单独上版时回退裆尖角点，保 §5 基准点完整）、口袋对位刀口
+    （贴袋顶线延长 ∩ 侧缝）。上边界角点双射线刀口与贴袋对位顶部刀口由
+    build 在毛样生成后以净线延长线交毛样外沿追发（不走法向投影，本函数
+    不含）；浪尖对位刀口自 v1.1 起移除。"""
     pts = [ctx.point("back.knee_outseam_point"),
            ctx.point("back.knee_inseam_point"),
            ctx.point("back.hip_outseam_point"),
            ctx.point("back.hip_inner_point"),
-           *corners]
-    # 横裆线（髀围线）∩ 净边链：侧缝/后浪侧两基准点（§5，载体边不预设）
-    pts += _h_cross_points(chain, ctx.line("back.crotch_line").a.y)
+           ctx.point("back.hem_outseam_point"),
+           ctx.point("back.hem_inseam_point")]
     pocket, _drills, _marks = _pocket_refs(ctx, chain)
     pts += pocket
+    pinned = [(ctx.point("back.hem_outseam_point"), "side"),
+              (ctx.point("back.hem_inseam_point"), "inseam")]
     if "back.thigh_line" in ctx.sheet:
         pts.append(ctx.point("back.thigh_outseam_point"))
-        if "back.thigh_inseam_point" in ctx.sheet:   # d=0 时内端 = 裆尖角点
+        # d=0 时内端未单独上版（= 裆尖角点），回退取角点保 §5 基准点完整；
+        # 角点命中 cb/inseam 两边，角平分法向会把浪尖刀口推斜——pin 到
+        # 内缝边沿其外法向投影，垂直打在内缝缝边上（= 反折角起点，与 d>0
+        # 时内端刀口同载体边，缝内缝时前后片对位；用户口径 2026-08）
+        if "back.thigh_inseam_point" in ctx.sheet:
             pts.append(ctx.point("back.thigh_inseam_point"))
-    return pts, corners
+        else:
+            crotch = ctx.point("back.crotch_vertex")
+            pts.append(crotch)
+            pinned.append((crotch, "inseam"))
+    return pts, pinned
 
 
 def _internal_marks(ctx: DraftContext,
@@ -433,13 +427,18 @@ def _edge_distance_tangent(g: LineSegment | CubicBezier, p: Point
     return best_d, g.tangent_at(best_i / 64).normalized()
 
 
-def _notch_normal(edges: tuple[PieceEdge, ...], p: Point, sa
+def _notch_normal(edges: tuple[PieceEdge, ...], p: Point, sa,
+                  only_name: str | None = None
                   ) -> tuple[Vector, float]:
     """刀口 p 的（外法向, 所在边缝份）：与 p 距离 ≤1e-6 的边为命中--角点
-    命中多条边（浪尖、膝围点等）时法向取各边外法向均值（角平分方向）；无命中
-    回退全链最近边（数值兜底）。shoelace<0 走向下切线逆时针 90° 即朝外，
-    与 cutter 外扩同约定。"""
+    命中多条边（拼接角点、膝围点等）时法向取各边外法向均值（角平分方向）；
+    无命中回退全链最近边（数值兜底）。only_name 限定载体边（脚口角点刀口
+    pin 到所在 side/inseam 边取单边法向——角平分方向会把投影推到毛样
+    外角点上，用户口径 2026-08 前后片统一）。shoelace<0 走向下切线逆时针
+    90° 即朝外，与 cutter 外扩同约定。"""
     scored = [(*_edge_distance_tangent(e.geom, p), e.name) for e in edges]
+    if only_name is not None:
+        scored = [s for s in scored if s[2] == only_name]
     near = [s for s in scored if s[0] <= 1e-6]
     if not near:
         near = [min(scored, key=lambda s: s[0])]
@@ -478,32 +477,131 @@ def _project_notch(p: Point, n: Vector, sa_amt: float,
 
 
 def _project_notches(piece: PatternPiece, sa, notch_type: str,
-                     keep: tuple[Point, ...] = ()) -> PatternPiece:
+                     pinned: tuple[tuple[Point, str], ...] = ()
+                     ) -> PatternPiece:
     """净样刀口沿外法向延伸投影到毛样外沿，整体替换 gross_notches（§4）。
 
     载体边基于缩水后净边（无缩水退化净样，与 cutter base 同口径）；缝合线位
     刀口（shrunk_notches）保留不丢信息，piece_svg 三级回退自动取毛样刀口。
-    keep：角点刀口子集（脚口/浪尖/后中拼接），**不外扩、保留净样位置**--
-    角点本身是净边顶点，刀口标的是净样角点（与净样脚口线对齐），若按角
-    平分法向投影会落到毛样外角点上（用户目检判定错位，2026-08）。
+    pinned：脚口角点刀口 (点, 限定载体边名) 子集（pin 到所在 side/inseam
+    边）——沿**所在边**外法向投影到毛样缝边上、与净样脚口线对齐（用户口径
+    2026-08 前后片统一：打在缝边上，非净样位；角平分法向投影会落到毛样
+    外角点上，亦非）。其余刀口（含后中/侧缝机头拼接）沿角平分外法向投影
+    至毛样外沿（§4 总原则：刀口打在最外缝边轮廓上、不打内部净样线）。
     刀口类型仅记 notes（I/V 型几何差异由输出层绘制，同前片/后贴袋先例）。"""
     base = piece.shrunk_edges or piece.net_edges
     notches = piece.shrunk_notches or piece.notches
     if not notches or not piece.gross_polygon:
         return piece
     projected = []
-    n_keep = 0
+    n_pin = 0
     for p in notches:
-        if any(p.distance_to(c) < 1e-9 for c in keep):
-            projected.append(p)          # 角点刀口不外扩：与净样轮廓对齐
-            n_keep += 1
-            continue
-        n, amt = _notch_normal(base, p, sa)
+        only = next((name for q, name in pinned if p.distance_to(q) < 1e-9),
+                    None)
+        if only is not None:
+            n_pin += 1
+        n, amt = _notch_normal(base, p, sa, only_name=only)
         projected.append(_project_notch(p, n, amt, piece.gross_polygon))
-    note = (f"刀口：{notch_type} 型 ×{len(projected)}（其中角点 {n_keep} 个"
-            "保留净样位），净样刀口沿外法向投影至毛样外沿（后片裁片.md §4）",)
+    note = (f"刀口：{notch_type} 型 ×{len(projected)}（其中角点 {n_pin} 个"
+            "限定所在边投影），净样刀口沿外法向投影至毛样外沿"
+            "（后片裁片.md §4）",)
     return piece.with_gross(piece.gross_polygon, tuple(projected),
                             piece.notes + note)
+
+
+# ---------- 角点双射线刀口 / 贴袋对位顶部刀口（§4，用户口径 2026-08-19）----------
+
+def _edge_endpoint(g: LineSegment | CubicBezier, at_end: bool) -> Point:
+    return (g.b if at_end else g.a) if isinstance(g, LineSegment) \
+        else (g.p3 if at_end else g.p0)
+
+
+def _edge_unit(g: LineSegment | CubicBezier, at_end: bool) -> Vector:
+    """边端单位切线（沿链行走方向；直线端点差、贝塞尔端点导数）。"""
+    v = (g.b - g.a) if isinstance(g, LineSegment) \
+        else g.tangent_at(1.0 if at_end else 0.0)
+    return v.normalized() if v.length > 1e-12 else Vector(1.0, 0.0)
+
+
+def _ray_hit(p: Point, d: Vector,
+             poly: tuple[Point, ...]) -> tuple[Point, Vector] | None:
+    """射线 p+s·d 与闭合毛样折线的最近正距交点 + 该处缝边内法向（§4，与
+    back_patch_flow._ray_hit 同款 flow 私有口径）。
+
+    刀口 = 净线延长线与缝边（毛样外沿）的交点，取最近者（s 最小）；s<=1e-6
+    弃（起点贴边无缝边可打）。打口方向 = 交点处缝边段的内法向（垂直缝边
+    向内、指向折线质心侧）。"""
+    cx = sum(q.x for q in poly) / len(poly)
+    cy = sum(q.y for q in poly) / len(poly)
+    best: tuple[float, Point, Vector] | None = None
+    for i in range(len(poly)):
+        c, e = poly[i], poly[(i + 1) % len(poly)]
+        f = e - c
+        if f.length < 1e-12:
+            continue
+        det = d.dx * f.dy - d.dy * f.dx
+        if abs(det) < 1e-12:               # 延长线与该缝边段平行
+            continue
+        r = c - p
+        s = (r.dx * f.dy - r.dy * f.dx) / det
+        u = (r.dx * d.dy - r.dy * d.dx) / det
+        if s <= 1e-6 or not (-1e-9 <= u <= 1.0 + 1e-9):
+            continue
+        if best is None or s < best[0] - 1e-12:
+            hit = p + d.scale(s)
+            n = f.normalized().perpendicular()
+            if n.dx * (cx - hit.x) + n.dy * (cy - hit.y) < 0.0:
+                n = n.scale(-1.0)
+            best = (s, hit, n)
+    return None if best is None else (best[1], best[2])
+
+
+def _junction_rays(edges: tuple[PieceEdge, ...],
+                   corner: Point) -> list[Vector]:
+    """上边界角点的两条净线延长线方向（§4 用户口径 2026-08-19）：到达边
+    切向越角直行（后浪/机头线延长线）+ 出发边切向反向（侧缝/机头线延长线），
+    各交毛样外沿一刀——替换原角点十字标记（打在缝边顶点上无用）。"""
+    n = len(edges)
+    for i, e in enumerate(edges):
+        if _edge_endpoint(e.geom, True).distance_to(corner) < 1e-9:
+            nxt = edges[(i + 1) % n]
+            return [_edge_unit(e.geom, True),
+                    _edge_unit(nxt.geom, False).scale(-1.0)]
+    return []
+
+
+def _corner_ray_notches(piece: PatternPiece,
+                        corners: tuple[Point, ...]
+                        ) -> tuple[tuple[Point, ...], tuple[Vector, ...]]:
+    """上边界两角（cb_top / side_top）各双射线刀口：后浪顶点顺后浪线延长线
+    一刀 + 顺机头线延长线一刀；侧缝顶点顺侧缝线延长线一刀 + 顺机头线延长线
+    一刀，全部交毛样外沿（打在缝边上）。角点在缩水局部系（cb_top 原点缩放
+    不动、side_top 同 pinned 口径 ×(1+weft,1+warp)），切向取缩水后净边。"""
+    base = piece.shrunk_edges or piece.net_edges
+    pts: list[Point] = []
+    dirs: list[Vector] = []
+    for corner in corners:
+        for d in _junction_rays(base, corner):
+            hit = _ray_hit(corner, d, piece.gross_polygon)
+            if hit is not None:
+                pts.append(hit[0])
+                dirs.append(hit[1])
+    return tuple(pts), tuple(dirs)
+
+
+def _pocket_top_notches(piece: PatternPiece
+                        ) -> tuple[tuple[Point, ...], tuple[Vector, ...]]:
+    """贴袋对位顶部刀口（§4 用户口径 2026-08-19）：贴袋定位孔（drills，
+    缩水局部系）沿丝缕（局部 -Y 向上、平行经向）射线交毛样顶缝边——车缝
+    贴袋时顶部对位直接看缝边刀口。无 drills 时为空。"""
+    pts: list[Point] = []
+    dirs: list[Vector] = []
+    for q in piece.drills:
+        hit = _ray_hit(q, Vector(0.0, -1.0), piece.gross_polygon)
+        if hit is not None:
+            pts.append(hit[0])
+            dirs.append(hit[1])
+    return tuple(pts), tuple(dirs)
 
 
 # ---------- 主入口 ----------
@@ -527,14 +625,12 @@ def build_back_piece(main_ctx: DraftContext
             "（整版不完整）")
     sa = o.back_piece_seam_allowances
 
-    edges_main, cb_top = _net_edges(main_ctx, o)
+    edges_main, cb_top, side_top = _net_edges(main_ctx, o)
     chain = [g for _, g in edges_main]
-    notches_main, corners_main = _notches(main_ctx, chain)
+    notches_main, pinned_main = _notches(main_ctx, chain)
     marks_main = _internal_marks(main_ctx, chain)
     marks_main += _dart_marks(main_ctx, chain)
     _pn, drills_main, _pm = _pocket_refs(main_ctx, chain)
-    notches_main.append(cb_top)          # 后中拼接刀口（§4：后浪 ∩ 机头/腰缝）
-    corners_main.append(cb_top)          # 角点刀口：不外扩投影（同脚口/浪尖）
 
     # 1. 主版 -> 局部（Y 轴反射：X 不翻避镜像、Y 翻让腰头在上），origin = cb_top
     origin = cb_top
@@ -545,7 +641,8 @@ def build_back_piece(main_ctx: DraftContext
     net_edges = tuple(PieceEdge(n, g) for n, g in local_named)
     # 3. 刀口、标记、定位孔同步到局部坐标（内部线方向无关渲染，不随边界反转）
     notches = tuple(_to_local_point(p, origin) for p in notches_main)
-    notch_corners = tuple(_to_local_point(p, origin) for p in corners_main)
+    pinned_local = tuple((_to_local_point(p, origin), name)
+                         for p, name in pinned_main)
     marks = tuple(_to_local_geom(g, origin) for g in marks_main)
     drills = tuple(_to_local_point(p, origin) for p in drills_main)
     # 4. 丝缕线（竖向 = 经向，§5 与全局纱向平行一致）
@@ -574,11 +671,32 @@ def build_back_piece(main_ctx: DraftContext
     else:
         corners = {("cb", "inseam"): "miter"}
     piece = add_seam_allowance(piece, sa, corners)
-    # 8. 刀口法向投影到毛样外沿（§4，专属工艺策略；角点刀口保留净样位不外扩。
-    #    载体刀口 = 缩水后净样刀口，角点 keep 集同步按缩水缩放才可比坐标）
-    keep = tuple(Point(p.x * (1.0 + weft), p.y * (1.0 + warp))
-                 for p in notch_corners)
-    piece = _project_notches(piece, sa, o.back_piece_notch_type, keep)
+    # 8. 刀口法向投影到毛样外沿（§4 总原则，专属工艺策略；脚口角点刀口
+    #    限定所在 side/inseam 边投影到毛样缝边，用户口径 2026-08 前后片
+    #    统一 pinned 机制。载体刀口 = 缩水后净样刀口，pinned 集同步按缩水
+    #    缩放才可比坐标）
+    pinned = tuple((Point(p.x * (1.0 + weft), p.y * (1.0 + warp)), name)
+                   for p, name in pinned_local)
+    piece = _project_notches(piece, sa, o.back_piece_notch_type, pinned)
+    # 8b. 上边界角点双射线刀口 + 贴袋对位顶部刀口（§4，用户口径 2026-08-19，
+    #     替换原角点十字标记——打在缝边顶点上无用）：后浪顶点顺后浪线/机头线
+    #     延长线各一刀、侧缝顶点顺侧缝线/机头线延长线各一刀，全部交毛样外沿；
+    #     贴袋定位孔沿丝缕向上交顶缝边。角点切向取缩水后净边、角点坐标同
+    #     pinned 口径缩放（cb_top 原点缩放不动）。
+    side_top_shrunk = Point(_to_local_point(side_top, origin).x * (1.0 + weft),
+                            _to_local_point(side_top, origin).y * (1.0 + warp))
+    ray_pts, ray_dirs = _corner_ray_notches(piece, (Point(0.0, 0.0),
+                                                    side_top_shrunk))
+    pocket_pts, pocket_dirs = _pocket_top_notches(piece)
+    n_prev = len(piece.gross_notches)
+    piece = piece.with_gross(
+        piece.gross_polygon,
+        piece.gross_notches + ray_pts + pocket_pts,
+        piece.notes + (f"刀口：上边界角点双射线 ×{len(ray_pts)}"
+                       "（后浪/侧缝线及机头线延长线交毛样外沿，替换角点标记）"
+                       f" + 贴袋对位顶部 ×{len(pocket_pts)}"
+                       "（定位孔沿丝缕向上交顶缝边）",),
+        notch_dirs=((None,) * n_prev) + ray_dirs + pocket_dirs)
     # 9. 局部 ctx 留命名元素供 trace/调试
     local = DraftContext(main_ctx.measurements, o)
     step = "build_back_piece"

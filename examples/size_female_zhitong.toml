@@ -402,7 +402,7 @@ fly_bottom = 1.0   # 连裁门襟底边缝边
 [options.back_piece_seam_allowances]
 top = 1.0          # 拼机头缝缝边（机头开启时上边）
 waist = 1.0        # 装腰缝缝边（无机头时上边）
-cb = 1.0           # 后浪缝边（浪尖尖角跟随净样见 back_piece_crotch_corner）
+cb = 1.0           # 后浪缝边（浪尖镜像折角见 back_piece_crotch_corner）
 inseam = 1.0       # 内侧缝缝边
 side = 1.0         # 外侧缝缝边
 hem = 2.5          # 脚口卷边（双折边）
