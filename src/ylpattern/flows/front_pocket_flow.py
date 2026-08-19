@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ..cutter import add_seam_allowance, apply_shrinkage
+from ..cutter import add_seam_allowance, apply_shrinkage, shrink_scale
 from ..draft import DraftContext
 from ..geometry import CubicBezier, LineSegment, Point, Vector
 from ..pieces import PatternPiece, PieceEdge
@@ -285,8 +285,8 @@ def _finish_piece(main_ctx: DraftContext,
     #    同刀口点/标记线变换口径——各向异性缩放会转动方向，须映射后才与
     #    缩水后袋口弧线切线一致），再沿射线交毛样折线
     if dirs_local is not None:
-        dirs_final = [Vector(d.dx * (1.0 + weft), d.dy * (1.0 + warp))
-                      for d in dirs_local]
+        dirs_final = [Vector(d.dx * shrink_scale(weft),
+                             d.dy * shrink_scale(warp)) for d in dirs_local]
         piece = _project_notches(piece, sa, dirs_final)
     else:
         piece = _project_notches(piece, sa)

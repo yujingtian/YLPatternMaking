@@ -25,7 +25,7 @@
   孤立点；角点命中多条边时一律按斜率取 |dy| 最大主边外法向投影（不取法向
   均值角平分——凸角均值落 miter 顶点、反射角均值落裁剪交点，均为角顶点），
   如 fly_sep_extra=0 时单排 S 内边×底边、双排外缘 E 外缘×底边（⊥ 恰 1 缝份）。
-  缩水轴向（§1）：丝缕竖直 = 经向 = 局部 Y -> X 吃纬 (1+weft)、Y 吃经 (1+warp)，
+  缩水轴向（§1）：丝缕竖直 = 经向 = 局部 Y -> X 吃纬 1/(1-weft)、Y 吃经 1/(1-warp)，
   刀口同步缩放、缝边在缩水之后（缝份不叠加缩水）。拐角 miter：T/S/E 内角约
   82°，miter 约 1.52×sa 恰超 cutter 默认限 1.5（曾回退阶梯角），flow 传
   miter_limit=2.0 正常 miter。
@@ -244,7 +244,7 @@ def test_double_notches_and_marks(built):
 # ---------- 缩水（§1：主面料，None=回退全局；先缩水后缝边）----------
 
 def test_shrinkage_axes():
-    # 经向 = 丝缕竖直 = 局部 Y：shrunk = net × (1+weft, 1+warp)，刀口同步
+    # 经向 = 丝缕竖直 = 局部 Y：shrunk = net / (1-weft, 1-warp)，刀口同步
     o = PatternOptions(delta=1.0, fly_separate=True,
                        shrinkage_warp=0.03, shrinkage_weft=0.02)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
@@ -252,11 +252,11 @@ def test_shrinkage_axes():
     for piece in (single, double):
         for e_net, e_shrunk in zip(piece.net_edges, piece.shrunk_edges):
             for p_net, p_sh in zip(_sample(e_net.geom), _sample(e_shrunk.geom)):
-                assert p_sh.x == pytest.approx(p_net.x * 1.02)   # X 吃纬
-                assert p_sh.y == pytest.approx(p_net.y * 1.03)   # Y 吃经
+                assert p_sh.x == pytest.approx(p_net.x / 0.98)   # X 吃纬
+                assert p_sh.y == pytest.approx(p_net.y / 0.97)   # Y 吃经
         for p_net, p_sh in zip(piece.notches, piece.shrunk_notches):
-            assert p_sh.x == pytest.approx(p_net.x * 1.02)
-            assert p_sh.y == pytest.approx(p_net.y * 1.03)
+            assert p_sh.x == pytest.approx(p_net.x / 0.98)
+            assert p_sh.y == pytest.approx(p_net.y / 0.97)
 
 
 def test_shrinkage_override_global():
@@ -269,8 +269,8 @@ def test_shrinkage_override_global():
     e_net = single.net_edges[0].geom
     e_shrunk = single.shrunk_edges[0].geom
     p_net, p_sh = _start(e_net), _start(e_shrunk)
-    assert p_sh.x == pytest.approx(p_net.x * 1.04)
-    assert p_sh.y == pytest.approx(p_net.y * 1.05)
+    assert p_sh.x == pytest.approx(p_net.x / 0.96)
+    assert p_sh.y == pytest.approx(p_net.y / 0.95)
 
 
 # ---------- 丝缕线（§1：与前/后片经向一致 = 竖直）----------

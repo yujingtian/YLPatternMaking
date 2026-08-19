@@ -123,14 +123,14 @@ def test_hem_none_unchanged():
 
 def test_hem_after_shrinkage():
     """先缩水后折边：折边距缩水后袋口线 sa_top，撇势为绝对量不随缩水放大。"""
-    piece = apply_shrinkage(_rect_piece(), 0.02, 0.03)   # x·1.02 / y·1.03
+    piece = apply_shrinkage(_rect_piece(), 0.02, 0.03)   # x/(1-0.02) / y/(1-0.03)
     out = add_seam_allowance(piece, SA(), hem=HemTreatment("top", -0.15))
     t1, t2 = out.gross_polygon[0], out.gross_polygon[1]
     assert t1.y == pytest.approx(-2.5, abs=1e-9)          # 距缩水后袋口线 2.5
     assert t2.y == pytest.approx(-2.5, abs=1e-9)
     assert t1.x == pytest.approx(1.0 - 0.15, abs=1e-9)    # 锚点 P_notch x=1（缩水
     # 后侧缝缝边线偏移 1.0）+ 撇势绝对量内收
-    assert t2.x == pytest.approx(-14 * 1.02 - 1.0 + 0.15, abs=1e-9)
+    assert t2.x == pytest.approx(-14 / 0.98 - 1.0 + 0.15, abs=1e-9)
 
 
 def test_hem_side_sa_zero_no_step():

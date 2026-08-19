@@ -17,7 +17,7 @@
     刀口数按矩阵（膝2+臀1+脚口2+毗围1 基底，口袋 +2、连裁 +1、d>0 毗围内端 +1）。
   §3.1 丝缕竖向；§3.2 缩水 None 回退全局 / 局部生效；§3.3 内部辅助线：
     臀/膝/毗围水平线截断（端点 ∈ 净边链、fly 组臀线右端落门襟外线），
-    marks 随缩水同比例变换（净样 ×(1+weft, 1+warp)）。
+    marks 随缩水同比例变换（净样 /(1-weft, 1-warp)）。
 断言口径：几何不变量 + 独立复算，同 test_back_patch_piece。
 """
 
@@ -521,17 +521,17 @@ def test_shrinkage(wb):
         assert _start(e_net.geom) == _start(e_sh.geom)
         assert _end(e_net.geom) == _end(e_sh.geom)
     assert not any("缩水" in n for n in p0.notes)
-    # 局部缩水生效：净边/刀口/丝缕/marks 同比例（X 吃纬 1.02、Y 吃经 1.03）
+    # 局部缩水生效：净边/刀口/丝缕/marks 同比例（X 吃纬 1/0.98、Y 吃经 1/0.97）
     _, p1, _ = _build(waistband_type=wb,
                       front_piece_shrinkage_warp=0.03,
                       front_piece_shrinkage_weft=0.02)
     assert any("缩水" in n for n in p1.notes)
     for e_net, e_sh in zip(p0.net_edges, p1.shrunk_edges):
-        assert _start(e_net.geom).x * 1.02 == pytest.approx(_start(e_sh.geom).x)
-        assert _start(e_net.geom).y * 1.03 == pytest.approx(_start(e_sh.geom).y)
+        assert _start(e_net.geom).x / 0.98 == pytest.approx(_start(e_sh.geom).x)
+        assert _start(e_net.geom).y / 0.97 == pytest.approx(_start(e_sh.geom).y)
     for m0, m1 in zip(p0.marks, p1.marks):
-        assert m0.a.x * 1.02 == pytest.approx(m1.a.x)
-        assert m0.a.y * 1.03 == pytest.approx(m1.a.y)
+        assert m0.a.x / 0.98 == pytest.approx(m1.a.x)
+        assert m0.a.y / 0.97 == pytest.approx(m1.a.y)
     # None 回退全局：与全局率直出等价
     _, p2, _ = _build(waistband_type=wb, shrinkage_warp=0.03, shrinkage_weft=0.02)
     assert p2.gross_polygon == p1.gross_polygon

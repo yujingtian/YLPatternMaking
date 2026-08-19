@@ -77,9 +77,21 @@ def _scale_geom(g: LineSegment | CubicBezier,
                        _scale_point(g.p2, sx, sy), _scale_point(g.p3, sx, sy))
 
 
+def shrink_scale(rate: float) -> float:
+    """缩水率换算缩放因子（§五.2 除法口径）：1/(1-rate)。
+
+    缩水率以**缩水前（毛坯）尺寸为基准**：净样先除以 (1-率) 放大，洗水按率
+    缩回后恰好回到净样；旧乘法口径 x·(1+率) 以净样为基准，洗后偏小约
+    率² 量级，2026-08 弃用。凡需自行叠缩放因子的 flow（pinned 刀口、
+    切向方向向量、缝边交点换算等）一律调本函数，勿手写 1.0+rate。
+    率域经 options 校验在 [0, 0.2)，分母恒正。
+    """
+    return 1.0 / (1.0 - rate)
+
+
 def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
                     ) -> PatternPiece:
-    """应用缩水（§五.2）：x·(1+warp)、y·(1+weft) 仿射缩放。
+    """应用缩水（§五.2，除法口径）：x/(1-warp)、y/(1-weft) 仿射缩放。
 
     两个参数语义为**沿裁片局部 X/Y 轴**的缩水率（形参命名 warp/weft 仅为腰头
     长向=经的默认场景）；当裁片经向方向不同（如腰头宽向=经）时，由调用方把面料
@@ -88,7 +100,7 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
     同步缩放（内部辅助线随主裁片同比例变换，前片裁片.md §3.3）。
     返回填充 shrunk_edges / shrunk_notches 的新裁片。
     """
-    sx, sy = 1.0 + warp, 1.0 + weft
+    sx, sy = shrink_scale(warp), shrink_scale(weft)
     shrunk = tuple(PieceEdge(e.name, _scale_geom(e.geom, sx, sy))
                    for e in piece.net_edges)
     snotches = tuple(_scale_point(p, sx, sy) for p in piece.notches)

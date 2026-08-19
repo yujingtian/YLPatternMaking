@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ..cutter import add_seam_allowance, apply_shrinkage
+from ..cutter import add_seam_allowance, apply_shrinkage, shrink_scale
 from ..draft import DraftContext
 from ..draft import curves
 from ..formulas import fly as fly_f
@@ -458,8 +458,8 @@ def build_front_piece(main_ctx: DraftContext
     # 8. 刀口法向投影到毛样外沿（§2.3，专属工艺策略；脚口角点刀口限定所在
     #    side/inseam 边投影到毛样缝边。载体刀口 = 缩水后净样刀口，pinned 集
     #    同步按缩水缩放才可比坐标）
-    pinned = tuple((Point(p.x * (1.0 + weft), p.y * (1.0 + warp)), name)
-                   for p, name in pinned_local)
+    pinned = tuple((Point(p.x * shrink_scale(weft), p.y * shrink_scale(warp)),
+                    name) for p, name in pinned_local)
     piece = _project_notches(piece, sa, o.front_piece_notch_type, pinned)
     # 9. 局部 ctx 留命名元素供 trace/调试
     local = DraftContext(main_ctx.measurements, o)

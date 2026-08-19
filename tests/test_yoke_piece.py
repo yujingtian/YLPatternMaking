@@ -312,7 +312,7 @@ def test_shrinkage_axes():
                        shrinkage_warp=0.03, shrinkage_weft=0.02)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     piece, _ = build_yoke(ctx)
-    sx, sy = 1.02, 1.03      # X=纬 1+weft、Y=经 1+warp
+    sx, sy = 1 / 0.98, 1 / 0.97   # X=纬 1/(1-weft)、Y=经 1/(1-warp)
     # cb 边末端（P0 局部坐标，x/y 多半均非零）双轴校验
     nb = _end(_edges_by_name(piece)["cb"][0])
     sb = _end(piece.shrunk_edges[[e.name for e in piece.net_edges].index("cb")].geom)
@@ -335,7 +335,7 @@ def test_shrinkage_dedicated_overrides_global():
                        back_yoke_shrinkage_weft=0.04)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     piece, _ = build_yoke(ctx)
-    sx, sy = 1.04, 1.05      # X=纬 1+weft(0.04)、Y=经 1+warp(0.05)
+    sx, sy = 1 / 0.96, 1 / 0.95   # X=纬 1/(1-0.04)、Y=经 1/(1-0.05)
     nb = _end(_edges_by_name(piece)["cb"][0])
     sb = _end(piece.shrunk_edges[[e.name for e in piece.net_edges].index("cb")].geom)
     assert sb.x == pytest.approx(nb.x * sx)

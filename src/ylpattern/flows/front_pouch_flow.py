@@ -25,7 +25,7 @@ C_cut 挖削），故面层腰弧边须取 P1′->P_w0（省顶至 P_w0）以闭
 
 from __future__ import annotations
 
-from ..cutter import add_seam_allowance, apply_shrinkage
+from ..cutter import add_seam_allowance, apply_shrinkage, shrink_scale
 from ..draft import DraftContext, curves
 from ..geometry import CubicBezier, LineSegment, Point, Vector
 from ..pieces import PatternPiece, PieceEdge
@@ -320,7 +320,8 @@ def build_front_pouch(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContex
     # 局部反射（Y 翻）+ 缩水缩放（局部 X 吃纬、Y 吃经，与刀口点同一仿射链，同
     # 前口袋裁片 §2.2 口径），自（缩水后）净刀口点沿射线交毛样折线，整体替换
     # 毛样刀口；射线无命中回退沿射线平移一个缝份（退化防御）。
-    sx, sy = 1.0 + o.front_pouch_shrinkage_weft, 1.0 + o.front_pouch_shrinkage_warp
+    sx = shrink_scale(o.front_pouch_shrinkage_weft)
+    sy = shrink_scale(o.front_pouch_shrinkage_warp)
     gross_notches = []
     for p_base, (_, d_main, sa_amt) in zip(piece.gross_notches, notch_src):
         d = Vector(d_main.dx * sx, -d_main.dy * sy)

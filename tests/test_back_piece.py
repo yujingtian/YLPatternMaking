@@ -21,11 +21,12 @@
     d=0 内端回退裆尖角点）、口袋 +1；上边界两角各双射线 +4（后浪/侧缝线 +
     机头线延长线交毛样外沿，替换缝边顶点十字标记，用户口径 2026-08-19）、
     贴袋对位顶部 +2（定位孔沿丝缕向上交顶缝边））。
-  §5 内部线/定位孔：臀围/横裆/膝围（+毗围）水平线截断（端点 ∈ 净边链、
-    主版高度 Y 翻转）；贴袋：顶线 mark + 上端两顶点 drills + 口袋对位刀口
+  §5 内部线/定位孔：臀围 = 最终后臀围线 1:1（斜量线端点 ∈ 净边链、
+    弦长 = H后）、膝围水平截断、毗围 1:1（基础水平臀围线/横裆线不画）；
+    贴袋：顶线 mark + 上端两顶点 drills + 口袋对位刀口
     ∈ 侧缝链；后省穿越上边界：省腿裁片内子段进 marks + stderr 告警。
   §3 缩水 None 回退全局 / 局部生效（净边/刀口/marks/drills 同比例
-    ×(1+weft, 1+warp)）。
+    /(1-weft, 1-warp)）。
 断言口径：几何不变量 + 独立复算，同 test_front_piece。
 """
 
@@ -408,7 +409,7 @@ def test_hem_notches_aligned_with_hem_line(wb):
 @pytest.mark.parametrize("wb", WBS, ids=[w.name for w in WBS])
 def test_hem_pinned_notches_with_shrinkage(wb):
     """有缩水时脚口 pinned 刀口仍打在毛样缝边上：距缩水后净角点 == 所在边
-    缝宽、⟂ 缩水后该边切线（主版端切线 X×(1+weft)、局部 Y 翻转再 ×(1+warp)；
+    缝宽、⟂ 缩水后该边切线（主版端切线 X/(1-weft)、局部 Y 翻转再 /(1-warp)；
     直筒 0.1/0.06 缩水场景，pinned 集同步缩放防失配）；拼接双刀口仍投影至
     毛样外沿。"""
     ctx, piece, _ = _build(waistband_type=wb, back_yoke=True,
@@ -419,12 +420,12 @@ def test_hem_pinned_notches_with_shrinkage(wb):
             ("back.hem_outseam_point", "back.outseam_lower", SA.side),
             ("back.hem_inseam_point", "back.inseam_lower", SA.inseam)):
         net = _loc(ctx.point(pt_name), b)
-        corner = Point(net.x * 1.06, net.y * 1.1)      # 缩水后净角点
+        corner = Point(net.x / 0.94, net.y / 0.9)      # 缩水后净角点
         notch = min(piece.gross_notches, key=lambda p: p.distance_to(corner))
         d = notch - corner
         assert abs(d.length - sa_amt) < 1e-6
         t_main = _tan(ctx.curve(tan_src), True)
-        tx, ty = t_main.dx * 1.06, -t_main.dy * 1.1    # 局部 Y 翻转 + 缩水
+        tx, ty = t_main.dx / 0.94, -t_main.dy / 0.9    # 局部 Y 翻转 + 缩水
         assert abs(d.dx * tx + d.dy * ty) < 1e-6
     poly = piece.gross_polygon
     for top_pt in (Point(0.0, 0.0), _loc(_side_top(ctx), b)):
@@ -440,15 +441,32 @@ def test_hem_pinned_notches_with_shrinkage(wb):
 def test_internal_marks(wb, yk, cid):
     ctx, piece, _ = _build(waistband_type=wb, back_yoke=yk)
     b = _cb_top(ctx)
-    assert len(piece.marks) == 3          # 臀围 + 膝围 + 毗围（thigh=58；横裆线不画）
+    assert len(piece.marks) == 3       # 臀围(最终线) + 膝围 + 毗围（thigh=58；
+                                       # 横裆线/基础水平臀围线均不画）
     geoms = [e.geom for e in piece.net_edges]
-    names = ("back.hip_line", "back.knee_line")
-    for mk, name in zip(piece.marks, names):
-        assert isinstance(mk, LineSegment)
-        assert mk.a.y == pytest.approx(mk.b.y)       # 局部水平
-        assert mk.a.y == pytest.approx(b.y - ctx.line(name).a.y)  # 主版 Y 翻转
-        _chain_dist(mk.a, geoms)
-        _chain_dist(mk.b, geoms)
+    # 臀围线 = 最终后臀围线 1:1 拷贝（内高外低斜量线，两端点在净边上：
+    # 内缝顶点在后中斜线 cb 链、外缝点 = 髋腰外缝弧起点 side 链；弦长 = H后）
+    hip = piece.marks[0]
+    hf = ctx.line("back.hip_line_final")
+    assert isinstance(hip, LineSegment)
+    assert hip.a.distance_to(_loc(hf.a, b)) < 1e-9
+    assert hip.b.distance_to(_loc(hf.b, b)) < 1e-9
+    assert hip.a.y != pytest.approx(hip.b.y)     # 斜线（内缝端高、外缝端低）
+    assert hip.a.distance_to(hip.b) == pytest.approx(96 / 4 + 1.0)  # H后 = 25
+    _chain_dist(hip.a, geoms)
+    _chain_dist(hip.b, geoms)
+    # 基础水平臀围线不进 marks（最终斜量线即测量基准，水平线冗余）
+    hip_y = ctx.line("back.hip_line").a.y
+    assert not any(isinstance(m, LineSegment) and m.a.y == m.b.y
+                   and m.a.y == pytest.approx(b.y - hip_y)
+                   for m in piece.marks)
+    # 膝围线按净边链水平截断（局部水平、主版高度 Y 翻转、端点 ∈ 净边链）
+    knee = piece.marks[1]
+    assert isinstance(knee, LineSegment)
+    assert knee.a.y == pytest.approx(knee.b.y)
+    assert knee.a.y == pytest.approx(b.y - ctx.line("back.knee_line").a.y)
+    _chain_dist(knee.a, geoms)
+    _chain_dist(knee.b, geoms)
     # 横裆线不进 marks（毗围斜量线即其测量基准）；其高度交点也不打刀口
     # （用户口径 2026-08-19：d=0 与毗围刀口重复、后浪侧无对位用途）
     crotch_y = ctx.line("back.crotch_line").a.y
@@ -545,21 +563,21 @@ def test_shrinkage(wb, yk, cid):
     assert not any("缩水" in n for n in p0.notes)
     # 贴袋依赖机头定位：drills 仅 yoke 组合有（back_patch=yk 已带依赖语义）
     assert len(p0.drills) == (2 if yk else 0)
-    # 局部缩水生效：净边/刀口/丝缕/marks/drills 同比例（X 吃纬 1.02、Y 吃经 1.03）
+    # 局部缩水生效：净边/刀口/丝缕/marks/drills 同比例（X 吃纬 1/0.98、Y 吃经 1/0.97）
     _, p1, _ = _build(waistband_type=wb, back_yoke=yk, back_patch=yk,
                       back_piece_shrinkage_warp=0.03,
                       back_piece_shrinkage_weft=0.02)
     assert any("缩水" in n for n in p1.notes)
     for e_net, e_sh in zip(p0.net_edges, p1.shrunk_edges):
-        assert _start(e_net.geom).x * 1.02 == pytest.approx(_start(e_sh.geom).x)
-        assert _start(e_net.geom).y * 1.03 == pytest.approx(_start(e_sh.geom).y)
+        assert _start(e_net.geom).x / 0.98 == pytest.approx(_start(e_sh.geom).x)
+        assert _start(e_net.geom).y / 0.97 == pytest.approx(_start(e_sh.geom).y)
     for m0, m1 in zip(p0.marks, p1.marks):
-        assert m0.a.x * 1.02 == pytest.approx(m1.a.x)
-        assert m0.a.y * 1.03 == pytest.approx(m1.a.y)
+        assert m0.a.x / 0.98 == pytest.approx(m1.a.x)
+        assert m0.a.y / 0.97 == pytest.approx(m1.a.y)
     assert len(p1.drills) == len(p0.drills)
     for d0, d1 in zip(p0.drills, p1.drills):
-        assert d1.x == pytest.approx(d0.x * 1.02)
-        assert d1.y == pytest.approx(d0.y * 1.03)
+        assert d1.x == pytest.approx(d0.x / 0.98)
+        assert d1.y == pytest.approx(d0.y / 0.97)
     # None 回退全局：与全局率直出等价
     _, p2, _ = _build(waistband_type=wb, back_yoke=yk, back_patch=yk,
                       shrinkage_warp=0.03, shrinkage_weft=0.02)

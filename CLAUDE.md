@@ -49,6 +49,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 
 - **坐标系**（与打版流程.md 一致）：原点 = 外侧缝参考线 ∩ 脚口线；X 向右朝内侧缝（裤宽），Y 向上朝腰头（裤长）；单位 cm，内部 float。
 - **腰头扣除口径**：`outseam`/`front_rise`/`back_rise` 均为**含腰头的成衣量**。直腰头打版时统一经 `PatternOptions.rise_on_pattern()` 换算（扣腰头宽）；弯腰头不扣。任何使用浪长/裤长的步骤都必须走这一个口子，不要自行扣减。
+- **缩水口径（除法）**：净样 ÷ (1−率)——缩水率以**缩水前毛坯**为基准，洗水缩回后恰为净样（旧乘法 ×(1+率) 以净样为基准、洗后偏小，2026-08 弃用）。缩放因子统一走 `cutter.shrink_scale(rate)`（`apply_shrinkage` 内部同源）；flow 里任何要自叠缩放因子的地方（pinned 刀口/切向方向/缝边交点换算）都必须调它，禁止手写 `1.0+rate`。
 - **前后片调节量方向**：一律**前减后加**（臀围 Δ、腰围 balance 同向）。前片 = H/4 − Δ、W/4 − balance。
 - **可选步骤（开关驱动）**：口袋 / 袋贴 / 贴袋 / 袋布 / 小表袋 / 后片腰省 / 后机头 / 毗围限制等都是 `PatternOptions` 上的 `bool` 开关；开关关闭或前置条件不满足（如**袋贴 `front_pocket_facing`、袋布 `front_pouch`、小表袋 `watch_pocket` 均依赖 `front_pocket` 主切口；小表袋相交模式 `facing_intersect` 额外强依赖 `front_pocket_facing`**；毗围依赖大腿围录入）时步骤返回 `None`，`FlowRunner` 标注"跳过"不上版。开关与几何参数同收敛于 `PatternOptions`。
 - **测试风格**：金标测试——测试文件头部注释写明参数下的手工演算结果，断言精确值；推导文档里的案例直接转成公式层金标（见 tests/test_waist.py）。

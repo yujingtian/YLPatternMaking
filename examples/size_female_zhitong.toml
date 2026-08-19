@@ -251,8 +251,8 @@ waistband_width     = 4.0         # 腰头宽（直腰头打版时从裤长中�
 waistband_fly_extension = 0   # 门襟搭门量（cm，左片前中端外延；0=无搭门）
 waistband_full_piece  = true      # true=整条（后中折线对称）；false=沿后中分两片（本期实现 true）
 waistband_grain       = "width"   # 腰头经向方向："width" 宽向(=裤长)为经（默认，横裁）/ "length" 长向为经（直裁）；决定丝缕线方向与缩水经/纬→X/Y 映射
-shrinkage_warp        = 0.0       # 经向缩水率（面料经/warp；0.03=3%；映射到腰头 X/Y 轴见 waistband_grain；缝份不叠加缩水）
-shrinkage_weft        = 0.0       # 纬向缩水率（面料纬/weft）
+shrinkage_warp        = 0.1       # 经向缩水率（面料经/warp；0.03=3%；映射到腰头 X/Y 轴见 waistband_grain；缝份不叠加缩水）
+shrinkage_weft        = 0.06       # 纬向缩水率（面料纬/weft）
 # 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
 side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
 front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
@@ -288,8 +288,8 @@ watch_pocket_shrinkage_weft = 0.06    # 纬向缩水率（0 = 不缩水）
 # 前片裁片（前片裁片.md；ylpattern draft --front-piece-svg。弯腰头剥离/口袋挖削/
 #   连裁门襟三形态按整版元素自动装配净边；主面料，缩水 None/省略 = 用全局
 #   shrinkage_warp/weft；须位于 [options.*] 子表之前（TOML 主表键））
-front_piece_shrinkage_warp = 0.1   # 经向缩水率（0.1=10%；None=用全局 shrinkage_warp）
-front_piece_shrinkage_weft = 0.06  # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
+front_piece_shrinkage_warp = 0.0   # 经向缩水率（0.1=10%；None=用全局 shrinkage_warp）
+front_piece_shrinkage_weft = 0.0  # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
 front_piece_crotch_corner  = false  # 裆尖（前浪弧末端与下裆缝起点交点）角形态开关（§2.2 两态）：
                                    #   true = 镜像折角（前浪缝份翻折补缺肉，折轴 = 前浪缝本身）；
                                    #   false = 纯尖角跟随净样轮廓（贝塞尔多项式自然外延求交成尖，不抹圆）
@@ -300,8 +300,8 @@ front_piece_notch_type     = "I"   # 对位刀口类型："I" 剪口 / "V" 缺�
 #   有 yoke 沿机头下口线截断 / 无 yoke 取腰口弧三形态按整版元素自动装配净边；
 #   主面料，缩水 None/省略 = 用全局 shrinkage_warp/weft；须位于 [options.*]
 #   子表之前（TOML 主表键））
-back_piece_shrinkage_warp = 0.1   # 经向缩水率（0.1=10%；None=用全局 shrinkage_warp）
-back_piece_shrinkage_weft = 0.06  # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
+back_piece_shrinkage_warp = 0.0   # 经向缩水率（0.1=10%；None=用全局 shrinkage_warp）
+back_piece_shrinkage_weft = 0.0  # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
 back_piece_crotch_corner  = true # 后浪浪尖（后浪弧末端 ∩ 内侧缝起点）角形态开关（§2 两态）：
                                    #   true = 镜像折角/反折角（防缝合翻折后缺角缺肉，折轴 = 后浪缝本身）；
                                    #   false = 纯尖角跟随净样轮廓（贝塞尔多项式自然外延求交成尖，不抹圆）

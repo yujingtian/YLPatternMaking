@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import math
 
-from ..cutter import add_seam_allowance, apply_shrinkage, edge_length
+from ..cutter import (add_seam_allowance, apply_shrinkage, edge_length,
+                      shrink_scale)
 from ..draft import DraftContext
 from ..geometry import CubicBezier, LineSegment, Point, Vector
 from ..params import WaistbandGrain, WaistbandType
@@ -211,5 +212,6 @@ def build_waistband(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContext]
     piece = add_seam_allowance(piece, o.waistband_seam_allowances)
     # 四角刀口换算至缝边位（§四.2 v0.4）：缝边交点须在缩水后几何上求取，
     # 故在缩水->缝边两段之后整体替换毛样刀口
-    piece = _project_corner_notches(piece, local, 1.0 + x_rate, 1.0 + y_rate)
+    piece = _project_corner_notches(piece, local,
+                                    shrink_scale(x_rate), shrink_scale(y_rate))
     return piece, local

@@ -285,7 +285,7 @@ def test_shrinkage_scales_geometry(ctx):
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     piece, _ = build_waistband(ctx)
     assert o.waistband_grain is WaistbandGrain.WIDTH          # 默认宽向=经
-    sx, sy = 1.02, 1.03      # WIDTH：X(长向)=纬 1+weft、Y(宽向)=经 1+warp
+    sx, sy = 1 / 0.98, 1 / 0.97   # WIDTH：X(长向)=纬、Y(宽向)=经（÷(1-r) 口径）
     # 右端封边（EDGE_ORDER[1]）末端 (X,−W)：x、y 均非零，同时校验两轴
     n0 = piece.net_edges[1].geom
     s0 = piece.shrunk_edges[1].geom
@@ -305,7 +305,7 @@ def test_shrinkage_length_grain_swaps_axes():
                        shrinkage_warp=0.03, shrinkage_weft=0.02)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     piece, _ = build_waistband(ctx)
-    sx, sy = 1.03, 1.02      # LENGTH：X=经 1+warp、Y=纬 1+weft
+    sx, sy = 1 / 0.97, 1 / 0.98   # LENGTH：X=经、Y=纬（÷(1-r) 口径）
     n0 = piece.net_edges[1].geom
     s0 = piece.shrunk_edges[1].geom
     nb = n0.b if isinstance(n0, LineSegment) else n0.p3

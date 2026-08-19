@@ -319,7 +319,7 @@ def test_shrinkage_axes():
                        shrinkage_warp=0.03, shrinkage_weft=0.02)
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
     piece, _ = build_front_facing(ctx)
-    sx, sy = 1.02, 1.03      # X=纬 1+weft、Y=经 1+warp
+    sx, sy = 1 / 0.98, 1 / 0.97   # X=纬 1/(1-weft)、Y=经 1/(1-warp)
     for ne, se in zip(piece.net_edges, piece.shrunk_edges):
         for npt, spt in zip(_sample(ne.geom), _sample(se.geom)):
             assert spt.x == pytest.approx(npt.x * sx, abs=1e-6)
@@ -337,7 +337,7 @@ def test_shrinkage_dedicated_overrides_global():
                        front_pocket_shrinkage_weft=0.04)
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
     piece, _ = build_front_facing(ctx)
-    sx, sy = 1.04, 1.05      # X=纬 1+weft(0.04)、Y=经 1+warp(0.05)
+    sx, sy = 1 / 0.96, 1 / 0.95   # X=纬 1/(1-0.04)、Y=经 1/(1-0.05)
     for ne, se in zip(piece.net_edges, piece.shrunk_edges):
         for npt, spt in zip(_sample(ne.geom), _sample(se.geom)):
             assert spt.x == pytest.approx(npt.x * sx, abs=1e-6)
