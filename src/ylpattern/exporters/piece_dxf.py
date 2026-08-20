@@ -16,8 +16,15 @@
   图层 3 存普通轮廓顶点/放码点，非刀口层。定位孔 = 图层 13
   单纯 POINT（CAD 读 AAMA 见层 13 POINT 自动渲染标准、不受缩放影响的
   钻孔符号）。丝缕线省略箭头仅 LINE + TEXT "GRAIN"。
-- AAMA 裁片信息：块中央三行 TEXT（PIECE/SIZE/QTY，size/qty 由调用方
-  传入，默认 "-" / 1）。
+- AAMA 裁片信息：块中央 5 行魔法标签 TEXT（Piece Name/Size/Annotation/
+  Quantity/Category，图层 1；ET08 不按图层名识码，靠抓取图层 1 内这 5 行
+  固定格式文本自动重构尺码表，需求.md §3.2；size/qty 由调用方传入，默认
+  "-" / 1）。块名 = {片名}-{尺码}（如 WAISTBAND-30），多尺码同文件不冲突。
+- 全局 AAMA 文档头：模型空间（ENTITIES）另带 6 行 TEXT（Style Name/
+  Creation Date/Author/Sample Size/Grading Rule Table/Units: METRIC，
+  图层 1）——逆向 ET08 自导出件所得（两份大货样本同构）：**Sample Size
+  行是 ET08 底部尺码栏的数据源**，缺组则尺码栏显示 "*"；块内标签行序为
+  Piece Name 最下、Y 逐行 +15mm 递增，Category 填逐片序号（0 起）。
 - 全 ASCII：块名/标注取 piece.name 与净长宽数字，中文 label 留在 SVG。
 """
 
@@ -26,6 +33,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Sequence
+from datetime import datetime
 
 from ..geometry import Point, Vector
 from ..pieces import PatternPiece
@@ -38,7 +46,8 @@ UNITS_NOTE = "UNITS=MM (DXF R12)"
 AAMA_NOTE = "ANSI/AAMA"
 
 # 语义层 -> AAMA 数字图层映射（服装 CAD 只认数字层名，自定义英文名
-# 解析失败是 ET 08 等老软件黑屏的主因之一）：
+# 解析失败是 ET 08 等老软件黑屏的主因之一）。静态固化：禁止任何"动态
+# 尺码图层"重构（重命名触发 ET08 图层校验黑屏，需求.md §3.1）：
 #   1=外轮廓/裁切线（含片名与信息文本）、8=净样/缝合线（含缩水净样与
 #   内部画线）、3=普通轮廓顶点/放码点（勿放刀口）、4=刀口专属层
 #   （POINT 附组码 30/50）、13=定位孔专属层（POINT 自动渲染钻孔符号）、
@@ -62,7 +71,7 @@ _LAYERS: dict[str, base.LayerSpec] = {
     "7": (5, "CONTINUOUS"),   # 丝缕线
 }
 
-_BLOCK_NAME_RE = re.compile(r"[^A-Za-z0-9_]")
+_BLOCK_NAME_RE = re.compile(r"[^A-Za-z0-9_-]")   # 连字符合法：{片名}-{尺码}
 BLOCK_NAME_MAX = 31          # R12 符号表名长度上限
 
 
@@ -143,9 +152,11 @@ def _notch_segment(p: Point, polygon: tuple[Point, ...]
     return p, p + normal.scale(base.NOTCH_LEN_CM)
 
 
-def _block_name(piece_name: str, used: set[str]) -> str:
-    """AAMA 块名：ASCII 大写下划线、<=31 字符、全局唯一（重名加序号）。"""
-    name = _BLOCK_NAME_RE.sub("_", piece_name).upper()[:BLOCK_NAME_MAX]
+def _block_name(piece_name: str, size: str, used: set[str]) -> str:
+    """AAMA 块名：{片名}-{尺码}（如 WAISTBAND-30，多尺码同文件不冲突），
+    正则清洗为 ASCII 大写（字母数字/下划线/连字符）、<=31 字符、全局唯一
+    （重名加序号）。"""
+    name = _BLOCK_NAME_RE.sub("_", f"{piece_name}-{size}").upper()[:BLOCK_NAME_MAX]
     if not name:
         name = "PIECE"
     unique, i = name, 2
@@ -242,16 +253,58 @@ def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
 
 def _add_piece_info(block, piece: PatternPiece, x0: float, y0: float,
                     x1: float, y1: float, to_mm: base.ToMm,
-                    size: str, qty: int) -> None:
-    """AAMA 裁片信息三行 TEXT（片 bbox 中央，自下而上每 4mm 一行）。"""
+                    size: str, qty: int, index: int) -> None:
+    """AAMA 裁片信息 5 行魔法标签 TEXT（ET08 自动识码，需求.md §3.2）。
+
+    ET08 不按图层名识码，而是抓取图层 1 内固定格式的 5 行文本逆向重构
+    裁片名称/尺码/属性；标签严格如下（冒号+空格，无注释也必须留行）：
+    Piece Name / Size / Annotation / Quantity / Category。
+    **行序对齐 ET08 自导出件**（逆向大货样本）：Piece Name 在最下、mm Y
+    逐行 +15mm 递增（屏上自下而上 Piece Name -> Category），行距 1.5 倍
+    字高，整组以片 bbox 中央居中；Category 填**逐片序号**（0 起，同尺码
+    集内递增），非固定值。
+    """
     cx = (x0 + x1) / 2.0
     cy = (y0 + y1) / 2.0
-    lines = (f"PIECE: {piece.name}",
-             f"SIZE: {size}",
-             f"QTY: {qty}")
+    lines = (f"Piece Name: {piece.name}",
+             f"Size: {size}",
+             "Annotation: ",
+             f"Quantity: {qty}",
+             f"Category: {index}")
+    pitch_cm = 1.5 * base.TEXT_HEIGHT_MM / base.MM_PER_CM  # 1.5 倍字高行距
+    half = pitch_cm * (len(lines) - 1) / 2.0
     for i, text in enumerate(lines):
-        # 每行间隔 0.4cm=4mm；局部系 y 越小屏上越高（Y 翻转），自下而上排
-        base.add_text(block, text, Point(cx, cy - 0.4 * i), to_mm,
+        # 局部系 Y 向下：i 越大局部 y 越小 = mm Y 越大，屏上逐行向上
+        base.add_text(block, text, Point(cx, cy + half - pitch_cm * i), to_mm,
+                      layer=_LAYER_MAP["TEXT"],
+                      height_mm=base.TEXT_HEIGHT_MM)
+
+
+def _creation_date() -> str:
+    """ET08 口径时间戳 Y/M/D/H/Min（如 2026/5/15/0/25，无前导零）。"""
+    t = datetime.now()
+    return f"{t.year}/{t.month}/{t.day}/{t.hour}/{t.minute}"
+
+
+def _add_doc_header(msp, size: str, style_name: str, _mm: base.ToMm) -> None:
+    """全局 AAMA 文档头 6 行 TEXT（模型空间 ENTITIES，图层 1）。
+
+    逆向 ET08 自导出件所得（两份大货样本同构）：ET08 导出恒在模型空间带
+    Style Name / Creation Date / Author / Sample Size / Grading Rule
+    Table / Units 六行，导入按标签逆向重构文档属性与**当前尺码**（底部
+    尺码栏）；缺这组文本时尺码栏显示 "*"（2026-08 实测：只补块内 5 行
+    魔法标签仍为 "*"）。行距 1.5 倍字高、mm Y 逐行递减（自上而下），
+    置于全局原点下方不与任何片重叠。style_name 无订单元数据来源，默认
+    "noname"（ET08 自身缺省口径）。
+    """
+    lines = (f"Style Name: {style_name}",
+             f"Creation Date: {_creation_date()}",
+             "Author: YLPATTERN",
+             f"Sample Size: {size}",
+             f"Grading Rule Table: {style_name}",
+             "Units: METRIC")
+    for i, text in enumerate(lines):
+        base.add_text(msp, text, Point(0.0, -2.5 - 1.5 * i), _mm,
                       layer=_LAYER_MAP["TEXT"],
                       height_mm=base.TEXT_HEIGHT_MM)
 
@@ -259,29 +312,33 @@ def _add_piece_info(block, piece: PatternPiece, x0: float, y0: float,
 def render_pieces_dxf(pieces: Sequence[PatternPiece], *,
                       tolerance_cm: float = base.FLATTEN_TOL_CM,
                       gap_cm: float = PIECE_GAP_CM,
-                      size: str = "-", qty: int = 1):
+                      size: str = "-", qty: int = 1,
+                      style_name: str = "noname"):
     """把全部裁片平铺渲染为一张 AAMA 风格 R12 DXF 文档（ezdxf Drawing）。
 
     每片一个 BLOCK（局部 mm 坐标）+ Model Space INSERT（插入点 = 平铺
-    偏移）；size/qty 进片中央 AAMA 信息文本（PatternPiece 不携带尺码/
-    数量，由调用方按订单给出，默认 "-" / 1）。
+    偏移）；块名 = {片名}-{尺码}，size/qty 进片中央 5 行魔法标签信息文本
+    （PatternPiece 不携带尺码/数量，由调用方按订单给出，默认 "-" / 1）；
+    模型空间另带 6 行全局文档头（Sample Size 行 = ET08 底部尺码栏数据源，
+    见 _add_doc_header），style_name 进 Style Name/Grading Rule Table 两行
+    （默认 "noname"，ET08 自身缺省口径）。
     """
     doc = base.new_doc(_LAYERS)
     msp = doc.modelspace()
     used: set[str] = set()
-    for piece, offx, offy in _layout(pieces, gap_cm):
+    for index, (piece, offx, offy) in enumerate(_layout(pieces, gap_cm)):
         x0, y0, x1, y1 = _piece_bounds(piece)
 
         def to_mm(p: Point, x0=x0, y1=y1) -> tuple[float, float]:
             return ((p.x - x0) * base.MM_PER_CM,
                     (y1 - p.y) * base.MM_PER_CM)
 
-        block = doc.blocks.new(name=_block_name(piece.name, used),
+        block = doc.blocks.new(name=_block_name(piece.name, size, used),
                                base_point=(0.0, 0.0, 0.0))
         # 块与块引用必须显式落层 1：默认层 0 会被 ET 08 直接过滤丢弃
         block.block.dxf.layer = _LAYER_MAP["CUT"]
         _render_piece_into(block, piece, to_mm, tolerance_cm)
-        _add_piece_info(block, piece, x0, y0, x1, y1, to_mm, size, qty)
+        _add_piece_info(block, piece, x0, y0, x1, y1, to_mm, size, qty, index)
         msp.add_blockref(block.name,
                          insert=(offx * base.MM_PER_CM,
                                  offy * base.MM_PER_CM),
@@ -303,6 +360,7 @@ def render_pieces_dxf(pieces: Sequence[PatternPiece], *,
 
     base.add_text(msp, AAMA_NOTE, Point(0.0, -1.0), _mm,
                   layer=_LAYER_MAP["TEXT"])
+    _add_doc_header(msp, size, style_name, _mm)
     base.set_extents(doc)      # 回填 $EXTMIN/$EXTMAX（含 INSERT 展开）
     return doc
 
@@ -310,7 +368,9 @@ def render_pieces_dxf(pieces: Sequence[PatternPiece], *,
 def write_pieces_dxf(pieces: Sequence[PatternPiece], path: str, *,
                      tolerance_cm: float = base.FLATTEN_TOL_CM,
                      gap_cm: float = PIECE_GAP_CM,
-                     size: str = "-", qty: int = 1) -> None:
+                     size: str = "-", qty: int = 1,
+                     style_name: str = "noname") -> None:
     doc = render_pieces_dxf(pieces, tolerance_cm=tolerance_cm,
-                            gap_cm=gap_cm, size=size, qty=qty)
+                            gap_cm=gap_cm, size=size, qty=qty,
+                            style_name=style_name)
     base.save_doc(doc, path, comment=AAMA_NOTE)   # 前置 999 注释组

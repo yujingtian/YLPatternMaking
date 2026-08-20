@@ -3,7 +3,8 @@
 
 金标（M 同 test_waistband_piece；back_yoke+back_patch 开启使 back_piece
 drills/marks 齐全）：
-- 每片一个 BLOCK + msp 恰一个同名 INSERT（插入点 = 平铺偏移）；
+- 每片一个 BLOCK + msp 恰一个同名 INSERT（插入点 = 平铺偏移）；块名 =
+  {片名}-{尺码}（如 WAISTBAND-30，多尺码同文件不冲突）；
 - 图层为 AAMA 数字层：层 "1" CUT 闭合 POLYLINE 每片恰 1 条、顶点数 >=
   gross_polygon 去重后点数（刀口点共线插入为顶点，ET 按顶点吸附挂刀口
   符号）；"8" NET/SHRUNK/MARK；NOTCH 层 "4" 每刀口一个
@@ -11,7 +12,11 @@ drills/marks 齐全）：
   一个 POINT（CAD 自动渲染钻孔符号）；
 - Y 翻转：每片 CUT 折线 bbox 高 == 毛样高×10（翻转不改尺寸）；
 - 平铺不重叠：两片 INSERT+CUT bbox 在 X 方向有分隔（行内左->右摆放）；
-- AAMA 信息文本：块中央三行 PIECE/SIZE/QTY；片名 TEXT 全 ASCII；
+- AAMA 信息文本：块中央 5 行魔法标签（Piece Name/Size/Annotation/
+  Quantity/Category，ET08 自动识码口径）全落图层 1、垂直等距 1.5 倍字高
+  （15mm 行距）、Piece Name 在最下自下而上排（ET08 自导出件同构）；
+  模型空间 6 行全局文档头（Sample Size = 尺码栏数据源）；片名 TEXT
+  全 ASCII；
 - 写盘后 ezdxf.readfile 回读成功、$EXTMIN 非 ±1e20 哨兵值、文件头有
   999 AAMA 注释组。
 ezdxf 缺席时逐条 importorskip。
@@ -46,7 +51,7 @@ def pieces(ctx):
 
 def _doc(pieces):
     pytest.importorskip("ezdxf")
-    return render_pieces_dxf(pieces)
+    return render_pieces_dxf(pieces, size="30")
 
 
 def _ents(doc, dxftype: str, layer: str | None = None) -> list:
@@ -81,12 +86,12 @@ def test_block_per_piece_with_insert(pieces):
     doc = _doc(pieces)
     inserts = [e for e in doc.modelspace() if e.dxftype() == "INSERT"]
     assert len(inserts) == len(pieces)
-    # 块名与片名对应（ASCII 大写化），每块被引用恰一次
+    # 块名与片名-尺码对应（ASCII 大写化），每块被引用恰一次
     names = [e.dxf.name for e in inserts]
     assert len(set(names)) == len(names)
     for piece in pieces:
         assert sum(1 for n in names
-                   if n == piece.name.upper()) == 1
+                   if n == f"{piece.name.upper()}-30") == 1
 
 
 def test_blockref_at_layout_offset(pieces):
@@ -228,11 +233,65 @@ def test_grain_line_and_text(pieces):
 # ---------- AAMA 信息文本与文件回读 ----------
 
 def test_aama_info_texts(pieces):
+    """5 行魔法标签（ET08 不认图层名，靠抓取图层 1 内固定格式 5 行文本
+    自动识码重构尺码表；Annotation 无注释也必须留行，Category 为逐片
+    序号 0 起——逆向 ET08 自导出件口径）。"""
     doc = _doc(pieces)
     texts = [e.dxf.text for e in _ents(doc, "TEXT")]
     for piece in pieces:
-        assert f"PIECE: {piece.name}" in texts
-    assert "SIZE: -" in texts and "QTY: 1" in texts
+        assert f"Piece Name: {piece.name}" in texts
+    assert "Size: 30" in texts
+    assert "Annotation: " in texts
+    assert "Quantity: 1" in texts
+    assert "Category: 0" in texts and "Category: 1" in texts
+
+
+def test_aama_magic_tag_layout(pieces):
+    """魔法标签排版金标：5 行全落图层 1、字高 10mm、垂直等距 1.5 倍字高
+    （15mm 行距）；行序对齐 ET08 自导出件——Piece Name 在最下、mm Y 逐行
+    递增（屏上自下而上 Piece Name -> Category）；每片一套。"""
+    labels = ("Piece Name:", "Size:", "Annotation:",
+              "Quantity:", "Category:")
+    doc = _doc(pieces)
+    # 排除 ezdxf 骨架块（*Model_Space 等 + setup=True 的 _ARCHTICK 箭头块，
+    # 皆空块），只查裁片块
+    blocks = [b for b in doc.blocks
+              if not b.name.startswith(("*", "$", "_"))]
+    assert len(blocks) == len(pieces)
+    for blk in blocks:
+        rows = sorted(
+            (e for e in blk if e.dxftype() == "TEXT"
+             and e.dxf.text.startswith(labels)),
+            key=lambda e: e.dxf.insert.y)
+        assert len(rows) == 5
+        assert tuple(e.dxf.text.split(":")[0] + ":" for e in rows) == labels
+        assert all(e.dxf.layer == "1" for e in rows)
+        assert all(e.dxf.height == pytest.approx(10.0) for e in rows)
+        ys = [e.dxf.insert.y for e in rows]
+        for y1, y2 in zip(ys, ys[1:]):
+            assert y2 - y1 == pytest.approx(15.0)
+
+
+def test_doc_header_texts(pieces):
+    """全局 6 行文档头（模型空间，图层 1）：ET08 自导出件同构，Sample Size
+    行是底部尺码栏数据源（缺组显示 "*"）；mm Y 逐行递减 15mm 自上而下。"""
+    doc = _doc(pieces)
+    msp_texts = [e for e in doc.modelspace() if e.dxftype() == "TEXT"]
+    lines = sorted((e for e in msp_texts
+                    if e.dxf.text.startswith(("Style Name:", "Creation Date:",
+                                              "Author:", "Sample Size:",
+                                              "Grading Rule Table:",
+                                              "Units:"))),
+                   key=lambda e: -e.dxf.insert.y)
+    assert [e.dxf.text.split(":")[0] + ":" for e in lines] == [
+        "Style Name:", "Creation Date:", "Author:",
+        "Sample Size:", "Grading Rule Table:", "Units:"]
+    assert "Sample Size: 30" in [e.dxf.text for e in lines]
+    assert "Units: METRIC" in [e.dxf.text for e in lines]
+    assert all(e.dxf.layer == "1" for e in lines)
+    ys = [e.dxf.insert.y for e in lines]
+    for y1, y2 in zip(ys, ys[1:]):
+        assert y1 - y2 == pytest.approx(15.0)
 
 
 def test_text_ascii_and_names(pieces):
