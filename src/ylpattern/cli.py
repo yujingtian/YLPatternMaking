@@ -138,6 +138,21 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     elif (args.watch_pocket_svg or want_pieces) and args.until:
         print("警告：--until 中断调版时不生成小表袋裁片（需完整整版提取小表袋净样边界）",
               file=sys.stderr)
+    if (args.belt_loop_svg or want_pieces) and not args.until:
+        from .flows.belt_loop_flow import build_belt_loop
+        from .exporters import piece_svg as piece_exp
+        if not ctx.options.belt_loop:
+            print("警告：未开启 belt_loop，跳过裤耳裁片", file=sys.stderr)
+        else:
+            piece, _bl = build_belt_loop(ctx)
+            if args.belt_loop_svg:
+                piece_exp.write_piece_svg(piece, args.belt_loop_svg)
+                print(f"裤耳裁片 SVG 已输出：{args.belt_loop_svg}")
+            if want_pieces:
+                dxf_pieces.append(piece)
+    elif (args.belt_loop_svg or want_pieces) and args.until:
+        print("警告：--until 中断调版时不生成裤耳裁片（需完整整版）",
+              file=sys.stderr)
     if (args.back_patch_svg or want_pieces) and not args.until:
         from .flows.back_patch_flow import build_back_patch
         from .exporters import piece_svg as piece_exp
@@ -221,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
                          help="输出双排（对折）门襟裁片独立 SVG 路径（fly_separate + fly_sep_double 开启；需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--watch-pocket-svg",
                          help="输出小表袋裁片独立 SVG 路径（watch_pocket 开启；按 watch_pocket_mode 派发，需完整整版，勿与 --until 同用）")
+    p_draft.add_argument("--belt-loop-svg",
+                         help="输出裤耳裁片独立 SVG 路径（belt_loop 开启；净宽×总长长方形整根连裁，净裁无缝份，勿与 --until 同用）")
     p_draft.add_argument("--back-patch-svg",
                          help="输出后贴袋裁片独立 SVG 路径（back_patch 开启（依赖 back_yoke）；四形态净样+袋口折边，需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--front-piece-svg",

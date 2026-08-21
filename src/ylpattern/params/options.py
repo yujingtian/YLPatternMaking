@@ -560,6 +560,12 @@ class PatternOptions:
                                            #   默认 0=不缩水，绝对隔离大身面料，§3.1）
     watch_pocket_shrinkage_weft: float = 0.0
                                            # 小表袋裁片纬向缩水率（里料独立口径，§3.1）
+    # -- 裤耳（belt loop）：整根连裁的净尺寸长方形（裤耳裁片.md） --
+    belt_loop: bool = False                # 裤耳裁片开关（独立裁片，不依赖整版几何）
+    belt_loop_width: float = 1.2           # 成品净宽（cm，§2 净裁无任何缝份）
+    belt_loop_unit_length: float = 6.0     # 单根成品长（cm，§2）
+    belt_loop_count: int = 5               # 总根数（§2 通常 5 根）
+    belt_loop_waste: float = 3.0           # 裁剪与车缝损耗（cm，§2 加在总长末尾）
     # —— 门襟（连裁门襟，门襟绘制.md §2.2、§3、§4） ——
     fly: bool = False                    # 门襟绘制开关（可选步骤；连裁门襟上版于前片）
     fly_width: float = 3.8               # 门襟宽 W（常规 YKK 5# 拉链，3.5~4.2）

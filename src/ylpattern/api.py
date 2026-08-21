@@ -246,6 +246,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         watch_pocket_seam_allowances: dict | object | None = None,
         watch_pocket_shrinkage_warp: float = 0.0,
         watch_pocket_shrinkage_weft: float = 0.0,
+        belt_loop: bool = False,
+        belt_loop_width: float = 1.2,
+        belt_loop_unit_length: float = 6.0,
+        belt_loop_count: int = 5,
+        belt_loop_waste: float = 3.0,
         fly: bool = False,
         fly_width: float = 3.8,
         fly_length_ratio: float = 0.35,
@@ -280,6 +285,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_fly_single_svg: str | None = None,
         front_fly_double_svg: str | None = None,
         watch_pocket_svg: str | None = None,
+        belt_loop_svg: str | None = None,
         back_patch_svg: str | None = None,
         front_piece_svg: str | None = None,
         back_piece_svg: str | None = None,
@@ -513,6 +519,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         watch_pocket_shrinkage_warp / watch_pocket_shrinkage_weft
                           小表袋裁片经/纬缩水率（口袋布里料独立口径，
                           默认 0=不缩水，§3.1）
+        belt_loop         裤耳裁片开关（独立净尺寸裁片，不依赖整版几何）
+        belt_loop_width / belt_loop_unit_length / belt_loop_count / belt_loop_waste
+                          裤耳成品净宽 / 单根成品长 / 总根数（通常 5）/
+                          裁剪损耗（cm，裤耳裁片.md §2；总长 = 单根长 ×
+                          根数 + 损耗，净裁无缝份不折边，§1）
         fly              门襟（连裁门襟）绘制开关（可选步骤，门襟绘制.md §3、§4；
                            上版于前片，弯腰头时原点取下前中腰点 A'）
         fly_width        门襟宽 W（常规 YKK 5# 拉链 3.8，3.5~4.2）
@@ -571,6 +582,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         watch_pocket_svg 小表袋裁片独立 SVG 输出路径（None=不输出；需完整整版且
                          watch_pocket 开启；按 watch_pocket_mode 派发净样提取，
                          小表袋裁片.md §一~§四 独立裁片）
+        belt_loop_svg   裤耳裁片独立 SVG 输出路径（None=不输出；belt_loop 开启；
+                         净宽 × 总长长方形一条整根连裁，净裁无缝份不折边，
+                         裤耳裁片.md §1~§4 独立裁片）
         back_patch_svg   后贴袋裁片独立 SVG 输出路径（None=不输出；需完整整版且
                          back_patch 开启（依赖 back_yoke 定位）；四形态净样 1:1
                          复制 + 袋口镜像折边/撇势 + §4 袋口 4 刀（净口两角沿
@@ -757,6 +771,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                           if watch_pocket_seam_allowances is not None else {}),
                        watch_pocket_shrinkage_warp=watch_pocket_shrinkage_warp,
                        watch_pocket_shrinkage_weft=watch_pocket_shrinkage_weft,
+                       belt_loop=belt_loop,
+                       belt_loop_width=belt_loop_width,
+                       belt_loop_unit_length=belt_loop_unit_length,
+                       belt_loop_count=belt_loop_count,
+                       belt_loop_waste=belt_loop_waste,
                        fly=fly,
                        fly_width=fly_width,
                        fly_length_ratio=fly_length_ratio,
@@ -863,6 +882,18 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                 if watch_pocket_svg:
                     piece_exp.write_piece_svg(piece, watch_pocket_svg)
                     print(f"小表袋裁片 SVG 已输出:{watch_pocket_svg}")
+                if pieces_dxf:
+                    dxf_pieces.append(piece)
+        if belt_loop_svg or pieces_dxf:
+            if not o.belt_loop:
+                if pieces_dxf:
+                    print("裤耳裁片未开启（belt_loop=False），跳过 DXF 合集")
+            else:
+                from .flows.belt_loop_flow import build_belt_loop
+                piece, _bl_ctx = build_belt_loop(ctx)
+                if belt_loop_svg:
+                    piece_exp.write_piece_svg(piece, belt_loop_svg)
+                    print(f"裤耳裁片 SVG 已输出:{belt_loop_svg}")
                 if pieces_dxf:
                     dxf_pieces.append(piece)
         if back_patch_svg or pieces_dxf:
