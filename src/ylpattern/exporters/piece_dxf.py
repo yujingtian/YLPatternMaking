@@ -4,6 +4,11 @@
 - **AAMA 结构**：服装 CAD（ET/富怡/格柏）不识别自定义英文层名与散线
   裁片。每片定义为一个 BLOCK（片内局部 mm 坐标），Model Space 仅放
   INSERT 引用（插入点 = 平铺偏移）；图层用 AAMA 数字层（见 _LAYER_MAP）。
+- **净样环与毛样同构**：净样/缩水净样整圈链成**一条闭合 POLYLINE** 落
+  **层 14**（ET08 方言净样层，逆向 5336 大货样本；标准 AAMA 的层 8 在
+  ET08 只是普通内部线，净样落 8 显示白色散线不被识别，且 ET 以毛样轮廓
+  兜底 -> 毛样净样重叠，2026-08 ET08 实测）；与层 1 CUT 闭合折线同构，
+  缩水净样对毛样的内缩间距即缝份。
 - 坐标：裁片局部系 **Y 向下**，块内变换 X=(x-x0)*10、Y=(y1-y)*10
   --翻转后 DXF（Y 向上）显示与 SVG 屏幕视觉逐点重合，手性不变
   （裁片不镜像，裁床切出的物理片与 SVG 打印件一致）；平铺偏移全部
@@ -45,17 +50,20 @@ ROW_LIMIT_CM = 200.0    # 行宽上限（典型裁床门幅内）
 UNITS_NOTE = "UNITS=MM (DXF R12)"
 AAMA_NOTE = "ANSI/AAMA"
 
-# 语义层 -> AAMA 数字图层映射（服装 CAD 只认数字层名，自定义英文名
+# 语义层 -> ET08 方言数字图层映射（服装 CAD 只认数字层名，自定义英文名
 # 解析失败是 ET 08 等老软件黑屏的主因之一）。静态固化：禁止任何"动态
-# 尺码图层"重构（重命名触发 ET08 图层校验黑屏，需求.md §3.1）：
-#   1=外轮廓/裁切线（含片名与信息文本）、8=净样/缝合线（含缩水净样与
-#   内部画线）、3=普通轮廓顶点/放码点（勿放刀口）、4=刀口专属层
-#   （POINT 附组码 30/50）、13=定位孔专属层（POINT 自动渲染钻孔符号）、
-#   7=纱向线
+# 尺码图层"重构（重命名触发 ET08 图层校验黑屏，需求.md §3.1）。
+# **层号按 ET08 方言，不照搬标准 AAMA**（逆向 5336 大货样本：净样=层 14
+# 闭合环而非标准 AAMA 的层 8——层 8 在 ET08 只是普通内部线，净样落 8
+# 显示为白色散线、不被识别为缝合线）：
+#   1=毛样裁切轮廓（闭合折线，含片名与信息文本）、14=净样/缝合线（含缩水
+#   净样，闭合环）、8=内部画线（袋口净线/省弧/围度辅助线）、3=普通轮廓
+#   顶点/放码点（勿放刀口）、4=刀口专属层（POINT 附组码 30/50）、13=定位
+#   孔专属层（POINT 自动渲染钻孔符号）、7=纱向线
 _LAYER_MAP: dict[str, str] = {
     "CUT": "1",
-    "NET": "8",
-    "SHRUNK": "8",
+    "NET": "14",    # ET08 方言净样层（标准 AAMA 为 8，ET08 不识别）
+    "SHRUNK": "14",
     "MARK": "8",
     "NOTCH": "4",   # 刀口专属层（层 3 是普通轮廓顶点/放码点）
     "DRILL": "13",  # 定位孔专属层（CAD 自动渲染钻孔符号）
@@ -65,7 +73,8 @@ _LAYER_MAP: dict[str, str] = {
 
 _LAYERS: dict[str, base.LayerSpec] = {
     "1": (7, "CONTINUOUS"),   # 毛样裁切轮廓（闭合折线）+ 文本
-    "8": (8, "DASHED"),       # 净样/缝合线（含缩水净样 + 内部画线）
+    "14": (8, "DASHED"),      # 净样/缝合线（ET08 方言层，含缩水净样闭合环）
+    "8": (3, "DASHED"),       # 内部画线（袋口净线/省弧/围度辅助线）
     "4": (4, "CONTINUOUS"),   # 刀口（POINT + 组码 30=1.524 / 50=角度）
     "13": (6, "CONTINUOUS"),  # 定位孔（POINT，自动渲染钻孔符号）
     "7": (5, "CONTINUOUS"),   # 丝缕线
@@ -207,15 +216,19 @@ def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
         base.add_polyline(block, _with_notch_vertices(piece.gross_polygon,
                                                       notch_pts),
                           to_mm, layer=_LAYER_MAP["CUT"], closed=True)
-    # 净样（淡虚线；已缩水时省略--同 piece_svg，只留一条内轮廓基准线）
-    if not piece.shrunk_edges:
-        for e in piece.net_edges:
-            base.add_polyline(block, base.flatten_geom(e.geom, tolerance_cm),
-                              to_mm, layer=_LAYER_MAP["NET"])
-    if piece.shrunk_edges:
-        for e in piece.shrunk_edges:
-            base.add_polyline(block, base.flatten_geom(e.geom, tolerance_cm),
-                              to_mm, layer=_LAYER_MAP["SHRUNK"])
+    # 净样/缩水净样：整圈链成**一条闭合 POLYLINE** 落层 14（ET08 方言净样
+    # 层，逆向 5336 大货样本；已缩水时省略未缩水净样--同 piece_svg，只留
+    # 一条内轮廓基准线）。层 8 只是 ET08 的普通内部线层，净样落 8 显示白
+    # 色散线不被识别、ET 以毛样轮廓兜底 -> 毛样净样重叠；逐边开放折线同
+    # 样不行。net/shrunk_edges 为有序闭合轮廓，直接首尾相接，接口重复点
+    # 与闭合首尾点由 add_polyline 统一去重。
+    contour = piece.shrunk_edges or piece.net_edges
+    if contour:
+        pts = [p for e in contour
+               for p in base.flatten_geom(e.geom, tolerance_cm)]
+        layer = (_LAYER_MAP["SHRUNK"] if piece.shrunk_edges
+                 else _LAYER_MAP["NET"])
+        base.add_polyline(block, pts, to_mm, layer=layer, closed=True)
     # 内部标记线（净样坐标，如袋口净线/省弧/围度辅助线）
     for g in piece.marks:
         base.add_polyline(block, base.flatten_geom(g, tolerance_cm),

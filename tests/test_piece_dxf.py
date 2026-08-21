@@ -7,7 +7,9 @@ drills/marks 齐全）：
   {片名}-{尺码}（如 WAISTBAND-30，多尺码同文件不冲突）；
 - 图层为 AAMA 数字层：层 "1" CUT 闭合 POLYLINE 每片恰 1 条、顶点数 >=
   gross_polygon 去重后点数（刀口点共线插入为顶点，ET 按顶点吸附挂刀口
-  符号）；"8" NET/SHRUNK/MARK；NOTCH 层 "4" 每刀口一个
+  符号）；"14" NET/SHRUNK 每片恰 1 条**闭合**净样环（ET08 方言净样层，
+  逆向 5336 大货样本；标准 AAMA 层 8 在 ET08 只是普通内部线）；
+  "8" 仅 MARK 内部画线逐条开放；NOTCH 层 "4" 每刀口一个
   POINT 且附组码 30（Z=1.524）与组码 50（开口角度）；DRILL 层 "13" 每孔
   一个 POINT（CAD 自动渲染钻孔符号）；
 - Y 翻转：每片 CUT 折线 bbox 高 == 毛样高×10（翻转不改尺寸）；
@@ -25,6 +27,7 @@ ezdxf 缺席时逐条 importorskip。
 
 import pytest
 
+from ylpattern.exporters import _dxf_base as base
 from ylpattern.exporters.piece_dxf import _piece_bounds, render_pieces_dxf
 from ylpattern.flows.back_flow import FULL_FLOW
 from ylpattern.flows.back_piece_flow import build_back_piece
@@ -148,14 +151,26 @@ def test_layout_no_overlap(pieces):
 # ---------- 内轮廓三态 / 刀口 / 定位孔（数字层） ----------
 
 def test_net_shrunk_exclusive(pieces):
-    """默认全片有缩水态（0 缩水也填充 shrunk_edges）-> SHRUNK 与 NET 同落
-    层 8，条数 = 各片 shrunk_edges 之和；内部画线 MARK 亦落层 8（ET 08
-    实测层 8 显示最稳），另计各片 marks 之和。"""
+    """净样/缩水净样 = **层 14** 单条闭合 POLYLINE（ET08 方言净样层，逆向
+    5336 大货样本：净样=层 14 闭合环、缩水净样对毛样内缩即缝份；标准 AAMA
+    的层 8 在 ET08 只是普通内部线，净样落 8 显示白色散线不被识别、ET 以
+    毛样轮廓兜底 -> 毛样净样重叠，2026-08 实测）；顶点数 = 各边离散点首尾
+    相接去接口与闭合点（add_polyline 同口径）。层 8 只放内部画线 MARK
+    （真开放线，逐条逐片计），不得混入闭合净样环。"""
     doc = _doc(pieces)
     assert all(p.shrunk_edges for p in pieces)
-    expect = sum(len(p.shrunk_edges) for p in pieces)
+    loops = _ents(doc, "POLYLINE", "14")
+    assert len(loops) == len(pieces)
+    for loop, piece in zip(loops, pieces):
+        assert loop.is_closed
+        pts: list = []
+        for e in piece.shrunk_edges:
+            pts.extend(base.flatten_geom(e.geom))
+        assert len(list(loop.vertices)) == len(_dedup_closed(pts))
     expect_marks = sum(len(p.marks) for p in pieces)
-    assert len(_ents(doc, "POLYLINE", "8")) == expect + expect_marks
+    marks = _ents(doc, "POLYLINE", "8")
+    assert len(marks) == expect_marks
+    assert all(not e.is_closed for e in marks)
 
 
 def test_notches_points(pieces):
