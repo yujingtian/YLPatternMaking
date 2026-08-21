@@ -45,6 +45,8 @@ from ..pieces import PatternPiece
 from . import _dxf_base as base
 
 PIECE_GAP_CM = 3.0      # 平铺片间距
+BAND_GAP_CM = 8.0       # 码带间距（多码 DXF 每码一条摆放带，大于片间距
+                        #   形成视觉分带；带沿 Y 叠放，首带贴原点）
 ROW_LIMIT_CM = 200.0    # 行宽上限（典型裁床门幅内）
 
 UNITS_NOTE = "UNITS=MM (DXF R12)"
@@ -322,60 +324,106 @@ def _add_doc_header(msp, size: str, style_name: str, _mm: base.ToMm) -> None:
                       height_mm=base.TEXT_HEIGHT_MM)
 
 
+def render_size_run_dxf(
+        groups: Sequence[tuple[str, Sequence[PatternPiece]]], *,
+        sample_size: str,
+        tolerance_cm: float = base.FLATTEN_TOL_CM,
+        gap_cm: float = PIECE_GAP_CM,
+        band_gap_cm: float = BAND_GAP_CM,
+        qty: int = 1,
+        style_name: str = "noname"):
+    """多码单文件推码 DXF（ezdxf Drawing）：groups = [(码标签, 该码裁片
+    列表), ...]（码序），逐码参数化重打版后各码裁片合一张。
+
+    每码一条摆放带：带内沿用 _layout shelf 行装箱（行宽 200cm、片间
+    gap_cm、行内底对齐），带高 = 该码 shelf 总高，带与带沿 Y 叠放、间距
+    band_gap_cm，首带贴原点。每片 BLOCK（局部 mm 坐标）+ Model Space
+    INSERT（插入点 = 平铺偏移）；块名 = _block_name(片名, 码) 全沿用
+    （跨码天然不冲突）；**Category 序号码内 0 起**（ET08 参考件口径，
+    单码行为不变）；块内 5 行魔法标签 Size 行 = 本码；多码时每带左上画
+    码标 TEXT（层 1，ASCII，如 "SIZE 30"，人读辅助——ET08 分码靠块内
+    Size 标签与全局 Sample Size 头，不依赖它）。_add_doc_header：
+    Sample Size = 基码（ET08 底部尺码栏数据源）。
+    """
+    doc = base.new_doc(_LAYERS)
+    msp = doc.modelspace()
+    used: set[str] = set()
+    multi = len(groups) > 1
+
+    # 单位/AAMA 声明与文档头共用：全局原点下方（全部内容 y >= 0）
+    def _mm(p: Point) -> tuple[float, float]:
+        return (p.x * base.MM_PER_CM, p.y * base.MM_PER_CM)
+
+    band_y = 0.0                      # 当前摆放带底边（cm，全局 Y 向上）
+    for size, pieces in groups:
+        band_h = 0.0
+        for index, (piece, offx, offy) in enumerate(_layout(pieces, gap_cm)):
+            x0, y0, x1, y1 = _piece_bounds(piece)
+
+            def to_mm(p: Point, x0=x0, y1=y1) -> tuple[float, float]:
+                return ((p.x - x0) * base.MM_PER_CM,
+                        (y1 - p.y) * base.MM_PER_CM)
+
+            block = doc.blocks.new(name=_block_name(piece.name, size, used),
+                                   base_point=(0.0, 0.0, 0.0))
+            # 块与块引用必须显式落层 1：默认层 0 会被 ET 08 直接过滤丢弃
+            block.block.dxf.layer = _LAYER_MAP["CUT"]
+            _render_piece_into(block, piece, to_mm, tolerance_cm)
+            _add_piece_info(block, piece, x0, y0, x1, y1, to_mm,
+                            size, qty, index)
+            msp.add_blockref(block.name,
+                             insert=(offx * base.MM_PER_CM,
+                                     (band_y + offy) * base.MM_PER_CM),
+                             dxfattribs={"layer": _LAYER_MAP["CUT"]})
+            # 片名 + 净长宽标注：置于片 bbox 上沿之上（局部系 y 向上为负）
+            net_pts = [q for e in piece.net_edges
+                       for q in base.flatten_geom(e.geom, tolerance_cm)]
+            base.add_text(block, piece.name, Point(x0, y0 - 0.8), to_mm,
+                          layer=_LAYER_MAP["TEXT"])
+            if net_pts:
+                nw = max(q.x for q in net_pts) - min(q.x for q in net_pts)
+                nh = max(q.y for q in net_pts) - min(q.y for q in net_pts)
+                base.add_text(block, f"NET {nw * 10:.0f}x{nh * 10:.0f}MM",
+                              Point(x0, y0 - 1.8), to_mm,
+                              layer=_LAYER_MAP["TEXT"])
+            band_h = max(band_h, offy + (y1 - y0))
+        if multi:
+            base.add_text(msp, f"SIZE {size}",
+                          Point(0.0, band_y + band_h + 2.0), _mm,
+                          layer=_LAYER_MAP["TEXT"])
+        band_y += band_h + band_gap_cm
+    # 单位/AAMA 声明：全局原点下方（不与任何片重叠）
+    base.add_text(msp, AAMA_NOTE, Point(0.0, -1.0), _mm,
+                  layer=_LAYER_MAP["TEXT"])
+    _add_doc_header(msp, sample_size, style_name, _mm)
+    base.set_extents(doc)      # 回填 $EXTMIN/$EXTMAX（含 INSERT 展开，覆盖全带）
+    return doc
+
+
+def write_size_run_dxf(
+        groups: Sequence[tuple[str, Sequence[PatternPiece]]], path: str, *,
+        sample_size: str,
+        tolerance_cm: float = base.FLATTEN_TOL_CM,
+        gap_cm: float = PIECE_GAP_CM,
+        band_gap_cm: float = BAND_GAP_CM,
+        qty: int = 1,
+        style_name: str = "noname") -> None:
+    doc = render_size_run_dxf(groups, sample_size=sample_size,
+                              tolerance_cm=tolerance_cm, gap_cm=gap_cm,
+                              band_gap_cm=band_gap_cm, qty=qty,
+                              style_name=style_name)
+    base.save_doc(doc, path, comment=AAMA_NOTE)   # 前置 999 注释组
+
+
 def render_pieces_dxf(pieces: Sequence[PatternPiece], *,
                       tolerance_cm: float = base.FLATTEN_TOL_CM,
                       gap_cm: float = PIECE_GAP_CM,
                       size: str = "-", qty: int = 1,
                       style_name: str = "noname"):
-    """把全部裁片平铺渲染为一张 AAMA 风格 R12 DXF 文档（ezdxf Drawing）。
-
-    每片一个 BLOCK（局部 mm 坐标）+ Model Space INSERT（插入点 = 平铺
-    偏移）；块名 = {片名}-{尺码}，size/qty 进片中央 5 行魔法标签信息文本
-    （PatternPiece 不携带尺码/数量，由调用方按订单给出，默认 "-" / 1）；
-    模型空间另带 6 行全局文档头（Sample Size 行 = ET08 底部尺码栏数据源，
-    见 _add_doc_header），style_name 进 Style Name/Grading Rule Table 两行
-    （默认 "noname"，ET08 自身缺省口径）。
-    """
-    doc = base.new_doc(_LAYERS)
-    msp = doc.modelspace()
-    used: set[str] = set()
-    for index, (piece, offx, offy) in enumerate(_layout(pieces, gap_cm)):
-        x0, y0, x1, y1 = _piece_bounds(piece)
-
-        def to_mm(p: Point, x0=x0, y1=y1) -> tuple[float, float]:
-            return ((p.x - x0) * base.MM_PER_CM,
-                    (y1 - p.y) * base.MM_PER_CM)
-
-        block = doc.blocks.new(name=_block_name(piece.name, size, used),
-                               base_point=(0.0, 0.0, 0.0))
-        # 块与块引用必须显式落层 1：默认层 0 会被 ET 08 直接过滤丢弃
-        block.block.dxf.layer = _LAYER_MAP["CUT"]
-        _render_piece_into(block, piece, to_mm, tolerance_cm)
-        _add_piece_info(block, piece, x0, y0, x1, y1, to_mm, size, qty, index)
-        msp.add_blockref(block.name,
-                         insert=(offx * base.MM_PER_CM,
-                                 offy * base.MM_PER_CM),
-                         dxfattribs={"layer": _LAYER_MAP["CUT"]})
-        # 片名 + 净长宽标注：置于片 bbox 上沿之上（局部系 y 向上为负）
-        net_pts = [q for e in piece.net_edges
-                   for q in base.flatten_geom(e.geom, tolerance_cm)]
-        base.add_text(block, piece.name, Point(x0, y0 - 0.8), to_mm,
-                      layer=_LAYER_MAP["TEXT"])
-        if net_pts:
-            nw = max(q.x for q in net_pts) - min(q.x for q in net_pts)
-            nh = max(q.y for q in net_pts) - min(q.y for q in net_pts)
-            base.add_text(block, f"NET {nw * 10:.0f}x{nh * 10:.0f}MM",
-                          Point(x0, y0 - 1.8), to_mm,
-                          layer=_LAYER_MAP["TEXT"])
-    # 单位/AAMA 声明：全局原点下方（全部内容 y >= 0，不与任何片重叠）
-    def _mm(p: Point) -> tuple[float, float]:
-        return (p.x * base.MM_PER_CM, p.y * base.MM_PER_CM)
-
-    base.add_text(msp, AAMA_NOTE, Point(0.0, -1.0), _mm,
-                  layer=_LAYER_MAP["TEXT"])
-    _add_doc_header(msp, size, style_name, _mm)
-    base.set_extents(doc)      # 回填 $EXTMIN/$EXTMAX（含 INSERT 展开）
-    return doc
+    """单码裁片合集 = 多码渲染的单组退化（Sample Size = 本码）。"""
+    return render_size_run_dxf([(size, pieces)], sample_size=size,
+                               tolerance_cm=tolerance_cm, gap_cm=gap_cm,
+                               qty=qty, style_name=style_name)
 
 
 def write_pieces_dxf(pieces: Sequence[PatternPiece], path: str, *,
@@ -383,7 +431,6 @@ def write_pieces_dxf(pieces: Sequence[PatternPiece], path: str, *,
                      gap_cm: float = PIECE_GAP_CM,
                      size: str = "-", qty: int = 1,
                      style_name: str = "noname") -> None:
-    doc = render_pieces_dxf(pieces, tolerance_cm=tolerance_cm,
-                            gap_cm=gap_cm, size=size, qty=qty,
-                            style_name=style_name)
-    base.save_doc(doc, path, comment=AAMA_NOTE)   # 前置 999 注释组
+    write_size_run_dxf([(size, pieces)], path, sample_size=size,
+                       tolerance_cm=tolerance_cm, gap_cm=gap_cm,
+                       qty=qty, style_name=style_name)

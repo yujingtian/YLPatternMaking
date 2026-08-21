@@ -416,3 +416,33 @@ cb = 1.0           # 后浪缝边（浪尖镜像折角见 back_piece_crotch_corn
 inseam = 1.0       # 内侧缝缝边
 side = 1.0         # 外侧缝缝边
 hem = 2.5          # 脚口卷边（双折边）
+
+# ============================================================
+# 推码尺码表（[size_run] 段）：--size 指向本文件即进入多码推码模式
+#（ylpattern draft --size 本文件 --pieces-dxf out/pieces_run.dxf；
+#  整版 SVG/追踪/报表只出基码；enabled = false 或删本段即退化单码模式）
+# 依据：推码方案（.claude/plans/lucky-dreaming-wilkinson.md）
+# ============================================================
+
+[size_run]
+enabled = true  # 推码总开关：false = 本段整体失效、--size 走单码模式（免删段）
+base  = "30"    # 基码（Sample Size；缺省回退上方 [options] size_label）
+style = "YL-A2708-F"    # 订单号（ASCII，进 DXF 头两行）
+order = ["27", "28", "29", "30", "31", "32"]   # 可省略
+
+# 分段档差：29-32 小码段（对应工厂"29-32 小"）
+[[size_run.band]]
+sizes = ["27", "28", "29", "30", "31", "32"]
+waist      = 2.5   # 每档腰围步进（cm）
+hip        = 2.5
+knee       = 1.3
+hem        = 1.0
+front_rise = 0.3
+back_rise  = 0.5
+outseam    = 1.2
+thigh      = 1.3   # 基码 thigh=0（未录入）时本行无效
+
+# 逐码显式覆盖（可选；优先级高于档差展开，单码特调）
+# [size_run.sizes.31]
+# waist      = 80.2
+# front_rise = 29.4

@@ -28,8 +28,13 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
     --back-piece-svg out/back_piece.svg
 # DXF（裁床/服装 CAD，R12/mm 折线，需 pip install 'ylpattern[dxf]'）：
 #   --dxf out/sheet.dxf 整版一张；--pieces-dxf out/pieces.dxf 全部裁片平铺合一张
+# 多码推码（尺寸单含 [size_run] 段且 enabled = true 时自动进入：逐码重打版 ->
+#   多码单文件 DXF；整版 SVG/追踪/报表只出基码，enabled = false 或删段即退化单码模式）：
+python -m ylpattern.cli draft --size examples/size_female_zhitong.toml \
+    --pieces-dxf out/pieces_run.dxf --svg out/base.svg
 # CLI 还支持 --until 步骤名：执行到该步停止，输出中间版调版
 # 代码内调用：from ylpattern import run；run(waist=..., hip=..., svg=...)（详见 api.run docstring）
+#             多码：from ylpattern.api import run_size_run（详见其 docstring）
 ```
 
 ## 文档驱动的开发方式（本项目最重要的工作流）

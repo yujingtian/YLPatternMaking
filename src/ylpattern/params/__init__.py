@@ -8,6 +8,7 @@ from .options import (PatternOptions, WaistbandType, WaistbandGrain, Fit,
                       FlySeamAllowances, WatchPocketSeamAllowances,
                       BackPatchSeamAllowances, FrontSeamAllowances,
                       BackSeamAllowances)
+from .sizerun import MEASURE_KEYS, SizeBand, SizeEntry, SizeRun, load_size_run
 
 __all__ = ["Measurements", "PatternOptions", "WaistbandType", "WaistbandGrain",
            "Fit", "DELTA_PRESETS", "WaistbandSeamAllowances",
@@ -15,4 +16,5 @@ __all__ = ["Measurements", "PatternOptions", "WaistbandType", "WaistbandGrain",
            "FrontPatchSeamAllowances", "PouchSeamAllowances",
            "FlySeamAllowances", "WatchPocketSeamAllowances",
            "BackPatchSeamAllowances", "FrontSeamAllowances",
-           "BackSeamAllowances"]
+           "BackSeamAllowances", "MEASURE_KEYS", "SizeBand", "SizeEntry",
+           "SizeRun", "load_size_run"]
