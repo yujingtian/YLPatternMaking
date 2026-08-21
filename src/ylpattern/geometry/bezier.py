@@ -46,6 +46,30 @@ class CubicBezier:
             + 3 * t**2 * (self.p3.y - self.p2.y),
         )
 
+    def curvature_at(self, t: float) -> float:
+        """t 处带符号曲率 κ = cross(B′, B″) / |B′|³（对任意 t 成立，含 t>1/t<0 外推域）。
+
+        正号 = 曲线朝切线**逆时针侧**弯（= Vector.perpendicular 法向一侧）。
+        缝边偏移用途（cutter）：朝法向偏移 sa 后曲率 κ/(1−sa·κ)，
+        sa·κ → 1 时发散（offset 尖点/自交），是缝边有效性的判据量。
+        驻点（|B′|≈0）返回 0（曲率无定义，按平直处理）。
+        """
+        mt = 1 - t
+        d1x = (3 * mt**2 * (self.p1.x - self.p0.x)
+               + 6 * mt * t * (self.p2.x - self.p1.x)
+               + 3 * t**2 * (self.p3.x - self.p2.x))
+        d1y = (3 * mt**2 * (self.p1.y - self.p0.y)
+               + 6 * mt * t * (self.p2.y - self.p1.y)
+               + 3 * t**2 * (self.p3.y - self.p2.y))
+        d2x = 6 * mt * (self.p2.x - 2 * self.p1.x + self.p0.x) \
+            + 6 * t * (self.p3.x - 2 * self.p2.x + self.p1.x)
+        d2y = 6 * mt * (self.p2.y - 2 * self.p1.y + self.p0.y) \
+            + 6 * t * (self.p3.y - 2 * self.p2.y + self.p1.y)
+        m = (d1x * d1x + d1y * d1y) ** 1.5
+        if m < 1e-18:
+            return 0.0
+        return (d1x * d2y - d1y * d2x) / m
+
     def sample(self, n: int = 32) -> list[Point]:
         """按参数 t 均匀采样 n+1 个点（含首尾）。"""
         return [self.point_at(i / n) for i in range(n + 1)]

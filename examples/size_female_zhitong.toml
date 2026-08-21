@@ -348,7 +348,7 @@ side = 1.0         # 侧缝缝边（拼前片侧缝）
 #   袋贴外边界 1:1 复制前大片（腰弧段 + 外缝弧段），三边均与大片拼合
 [options.front_pocket_facing_seam_allowances]
 waist = 1.0        # 腰弧段缝边（车入腰头）
-inner = 1.0        # 袋贴内边缝边（接袋布）
+inner = 0.0       # 袋贴内边缝边（接袋布）
 side = 1.0         # 外缝弧段缝边（车入侧缝）
 
 # 袋布裁片五边独立缝份（cm，口袋布裁片.md §4；ylpattern draft --front-pouch-svg）

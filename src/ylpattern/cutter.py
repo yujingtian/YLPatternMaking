@@ -1,10 +1,14 @@
 """裁切层：净样 -> 缩水 -> 缝边（腰头裁片.md §五）。
 
 apply_shrinkage  仿射缩放（经/纬），保持贝塞尔性，刀口同步。
-add_seam_allowance  各边按独立缝份沿**外法向**偏移（曲线逐点真法向 offset，
-  直线=轴向偏移）；相邻异名边角点取两偏移边切线延伸的交点（miter）连接——
-  弯腰头弧线端缝份顺曲线斜出（不再轴对方直角折），直角边 miter 即外角点
-  （=原阶梯角，直腰头矩形不变）。同名边（如后中处上下口分段）平滑相接无角点。
+add_seam_allowance  各边按独立缝份沿**外法向**偏移（曲线逐点真法向 offset、
+  直线=轴向偏移）；曲线离散为**公差驱动自适应**（SEAM_OFFSET_TOL_CM
+  = 0.1mm 弦高，与出口层 flatten 同口径：紧弧自动加密、平缓段自动塌缩，
+  2026-08 起替代固定 sample(32)），缝份 >= 内凹曲率半径的尖点自交由
+  _trim_offset_loops 局部裁剪兜底；相邻异名边角点取两偏移边切线延伸的
+  交点（miter）连接——弯腰头弧线端缝份顺曲线斜出（不再轴对方直角折），
+  直角边 miter 即外角点（=原阶梯角，直腰头矩形不变）。同名边（如后中处
+  上下口分段）平滑相接无角点。
   普通 miter 角有尖角限长 miter_limit（默认 1.5）：锐角交点距角点超 max(sa)×
   本值时回退阶梯角（miter 长 = sa/sin(θ/2) 随角变锐无界增长，不限则长尖刺）。
   可选 corner_treatments 指定特定角点改用镜像折角（_mirror_point：缝份翻折后
@@ -25,12 +29,23 @@ add_seam_allowance  各边按独立缝份沿**外法向**偏移（曲线逐点�
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 from .geometry import CubicBezier, LineSegment, Point, Vector
 from .pieces import PieceEdge, PatternPiece
 from .params import WaistbandSeamAllowances
+
+# 缝边偏移离散口径：0.1mm 弦高公差 = 出口层 _dxf_base.FLATTEN_TOL_CM 同源
+# （裁床切割精度地板，净样 flatten 与毛样偏移统一口径）。cutter 属核心层
+# 不能 import exporters（依赖方向红线），故独立成常量，两处改动须同步。
+SEAM_OFFSET_TOL_CM = 0.01
+_OFFSET_MAX_DEPTH = 12      # 自适应细分深度上限（2^12 段，防病态输入死递归）
+_OFFSET_STEP_MAX_CM = 2.0   # 外延偏移步长上限（平缓段防跨过交点搜索区）
+_OFFSET_STEP_MIN_CM = 0.02  # 外延偏移步长下限（急弯段防步长塌缩）
+_TRIM_LOOP_MAX_CM = 16.0    # 自交局部裁剪的环长上界（尖点环 ≈ π·sa，
+                            # sa≤4cm 时 ≈12.6；超界视为拓扑异常只告警不裁）
 
 
 # 各语义边的缝份量（§五.3）：方向由边几何的外法向决定，此处只给量。
@@ -120,36 +135,76 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
                         smarks, sdrills)
 
 
-def _edge_points(edge: PieceEdge) -> list[Point]:
-    """边采样为点序列（直线取端点；曲线采样 32 段）。"""
-    g = edge.geom
-    if isinstance(g, LineSegment):
-        return [g.a, g.b]
-    return g.sample(32)
+def _offset_point(g: CubicBezier, t: float, amt: float) -> Point:
+    """曲线上 t 处沿外法向偏移 amt 的点（perpendicular 已归一化，真单位法向）。
+
+    驻点（切线零长）无切线可转，退用弦向法向（防御其他来源退化边，正常
+    打版曲线无驻点）。"""
+    v = g.tangent_at(t)
+    if v.length == 0.0:
+        chord = g.p3 - g.p0
+        v = chord if chord.length > 0.0 else Vector(0.0, 1.0)
+    return g.point_at(t) + v.perpendicular().scale(amt)
+
+
+def _chord_dev(p: Point, a: Point, b: Point) -> float:
+    """点 p 到弦 a→b 的垂距（弦退化取点距）；自适应细分接受判据。"""
+    v = b - a
+    if v.length < 1e-12:
+        return p.distance_to(a)
+    w = p - a
+    cross = v.dx * w.dy - v.dy * w.dx
+    return abs(cross) / v.length
+
+
+def _offset_points_adaptive(g: CubicBezier, amt: float, tol: float,
+                            depth: int = 0) -> list[Point]:
+    """公差驱动自适应偏移离散（de Casteljau 细分 + 偏移域弦高判据）。
+
+    子段两端偏移点连弦，1/4、1/2、3/4 三处真偏移点到弦的垂距均 <= tol
+    即接受（三点判据保守于单中点判据，折线对真 offset 曲线的弦高误差
+    上界即 tol）；否则中分递归。端点 t=0/1 精确保留（角部切线/miter 角
+    解析计算不受采样影响）。缝份为 0 时即净样线自身的同口径离散。
+    与旧固定 sample(32) 的差异：紧弧自动加密（弦高从最长弧的 ~0.5mm 级
+    压到 tol）、平缓段自动塌缩（微段贝塞尔 33 点 -> 2~3 点，DXF/裁床
+    数据更轻）。缝份 >= 内凹曲率半径（sa·κ >= 1，offset 尖点）时该
+    区间判据永不满足，细分到 _OFFSET_MAX_DEPTH 返回最密折线，自交由
+    _trim_offset_loops 事后裁剪（本函数只管离散精度、不管有效性）。
+    """
+    a = _offset_point(g, 0.0, amt)
+    b = _offset_point(g, 1.0, amt)
+    if depth < _OFFSET_MAX_DEPTH:
+        dev = max(_chord_dev(_offset_point(g, t, amt), a, b)
+                  for t in (0.25, 0.5, 0.75))
+        if dev > tol:
+            left, right = g.split(0.5)
+            return (_offset_points_adaptive(left, amt, tol, depth + 1)[:-1]
+                    + _offset_points_adaptive(right, amt, tol, depth + 1))
+    return [a, b]
 
 
 def _offset_edge_points(edge: PieceEdge,
                         sa: "Mapping[str, float] | WaistbandSeamAllowances"
                         ) -> list[Point]:
-    """边各采样点沿外法向偏移缝份（曲线逐点真法向、直线=整体平移=轴向）。
+    """边各点沿外法向偏移缝份（曲线逐点真法向、直线=整体平移=轴向）。
 
     外法向 = 走向切线逆时针转 90°（Vector.perpendicular）：逆时针走向下，腰头
-    下口外法向朝下、上口朝上、左端朝左、右端朝右，与§五.3 一致。缝份为 0 时
-    返回原采样点。
+    下口外法向朝下、上口朝上、左端朝左、右端朝右，与§五.3 一致。
+    离散口径：直线解析两点；曲线走 _offset_points_adaptive 公差驱动
+    （0.1mm 弦高，SEAM_OFFSET_TOL_CM）；缝份 0 时曲线同样自适应离散
+    （净样线本身上毛样边界，口径一致）。
     """
     amt = _sa_amount(edge.name, sa)
     g = edge.geom
-    if amt == 0.0:
-        return _edge_points(edge)
     if isinstance(g, LineSegment):
+        if amt == 0.0:
+            return [g.a, g.b]
         v = g.b - g.a
         if v.length == 0.0:               # 零长退化边无切线，不偏移（防御其他来源退化边）
             return []
         nv = v.normalized().perpendicular().scale(amt)
         return [g.a + nv, g.b + nv]
-    pts = g.sample(32)
-    return [p + g.tangent_at(i / 32).perpendicular().scale(amt)
-            for i, p in enumerate(pts)]
+    return _offset_points_adaptive(g, amt, SEAM_OFFSET_TOL_CM)
 
 
 def _miter_point(p: Point, t_a: Vector, t_b: Vector,
@@ -235,10 +290,13 @@ def _axis_cross(p: Point, t_p: Vector, c: Point, t_c: Vector) -> Point | None:
 def _extrapolate_offset(g: LineSegment | CubicBezier, at_end: bool,
                         sa: float, max_dist: float) -> list[Point]:
     """外延偏移：多项式外推贝塞尔曲线（t>1 或 t<0），自然延续原曲线的加速度与曲率。
-    避免固定圆弧曲率导致的平直或鼓包，实现打版软件原生的顺滑交接。"""
-    ds = 0.5  # 采样步长（0.5单元格/毫米），保证打点足够细腻以求得精确交点
-    steps = max(10, int(max_dist / ds))
-    
+    避免固定圆弧曲率导致的平直或鼓包，实现打版软件原生的顺滑交接。
+
+    步长按偏移后曲率自适应（单位 cm，非毫米）：ds = √(8·tol/κ_off)，
+    κ_off = κ/(1−sa·κ)（curvature_at 带符号、正 = 弯向法向一侧），口径同
+    缝边偏移 0.1mm 弦高（SEAM_OFFSET_TOL_CM）；平缓段上限 2cm、急弯段
+    下限 0.02cm，搜索距离仍由 max_dist 封顶。直线外延为精确直线，两端
+    两点即可（交点搜索按线段求交，无需中间打点）。"""
     if isinstance(g, LineSegment):
         t_dir = (g.b - g.a).normalized()
         if t_dir.length == 0.0:
@@ -246,37 +304,47 @@ def _extrapolate_offset(g: LineSegment | CubicBezier, at_end: bool,
         n = t_dir.perpendicular()
         bp = g.b if at_end else g.a
         travel = t_dir if at_end else t_dir.scale(-1.0)
-        return [bp + travel.scale(k * ds) + n.scale(sa) for k in range(steps + 1)]
+        return [bp + n.scale(sa),
+                bp + travel.scale(max_dist) + n.scale(sa)]
 
-    # 对于贝塞尔，基于端点速度估算参数 t 的步长 dt
-    v0 = g.tangent_at(1.0 if at_end else 0.0)
-    speed = v0.length
-    if speed < 1e-6:
-        speed = 100.0
-    dt = (ds / speed) * (1.0 if at_end else -1.0)
-    
-    pts = []
+    pts: list[Point] = []
     t = 1.0 if at_end else 0.0
-    for _ in range(steps + 1):
+    sign = 1.0 if at_end else -1.0
+    travelled = 0.0
+    while travelled <= max_dist:
         mt = 1.0 - t
-        
+
         # 精确计算外推多项式坐标 B(t)
         p_x = (mt**3)*g.p0.x + 3*(mt**2)*t*g.p1.x + 3*mt*(t**2)*g.p2.x + (t**3)*g.p3.x
         p_y = (mt**3)*g.p0.y + 3*(mt**2)*t*g.p1.y + 3*mt*(t**2)*g.p2.y + (t**3)*g.p3.y
-        
+
         # 精确计算外推处的一阶导数 B'(t) 以获取最真实的法向
         d1x = 3*(mt**2)*(g.p1.x-g.p0.x) + 6*mt*t*(g.p2.x-g.p1.x) + 3*(t**2)*(g.p3.x-g.p2.x)
         d1y = 3*(mt**2)*(g.p1.y-g.p0.y) + 6*mt*t*(g.p2.y-g.p1.y) + 3*(t**2)*(g.p3.y-g.p2.y)
-        
+
         sp = (d1x**2 + d1y**2)**0.5
         if sp > 1e-12:
             nx, ny = -d1y/sp, d1x/sp
         else:
             nx, ny = 0.0, 0.0
-            
+
         pts.append(Point(p_x + nx*sa, p_y + ny*sa))
-        t += dt
-        
+
+        # 步长：偏移后曲率 κ_off = κ/(1−sa·κ)；κ 带符号（正 = 弯向法向），
+        # 朝法向偏移使曲率放大、1−sa·κ → 0 发散（外推域尖点按无穷曲率
+        # 处理 = 最小步长）。sp≈0 驻点处曲率无定义，按平直（上限步长）。
+        if sp > 1e-12:
+            k = g.curvature_at(t)
+            denom = 1.0 - sa * k
+            k_off = abs(k / denom) if abs(denom) > 1e-9 else float("inf")
+        else:
+            k_off = 0.0
+        ds = (math.sqrt(8.0 * SEAM_OFFSET_TOL_CM / k_off)
+              if k_off * SEAM_OFFSET_TOL_CM > 1e-12 else _OFFSET_STEP_MAX_CM)
+        ds = min(max(ds, _OFFSET_STEP_MIN_CM), _OFFSET_STEP_MAX_CM)
+        travelled += ds
+        t += sign * ds / sp if sp > 1e-12 else sign * ds
+
     return pts
 
 
@@ -292,6 +360,95 @@ def _seg_cross(a: Point, b: Point, c: Point, d: Point) -> Point | None:
     if -1e-12 <= s <= 1.0 + 1e-12 and -1e-12 <= u <= 1.0 + 1e-12:
         return Point(a.x + s * ex, a.y + s * ey)
     return None
+
+
+def _ring_dist(i: int, j: int, n: int) -> int:
+    """闭合环上两顶点序号的环距（min(|i−j|, n−|i−j|)）。"""
+    d = abs(i - j)
+    return min(d, n - d)
+
+
+def _arc_len(poly: list[Point], i: int, j: int) -> float:
+    """闭合环上沿顶点序 i→j（i<=j）的折线弧长（含两端段）。"""
+    n = len(poly)
+    total = 0.0
+    for k in range(i, j):
+        total += poly[k].distance_to(poly[(k + 1) % n])
+    return total
+
+
+def _dedupe_ring(poly: list[Point]) -> list[Point]:
+    """去除闭合环上连续重复点（含首尾相接处），防零长度段。"""
+    out: list[Point] = []
+    for p in poly:
+        if not out or p != out[-1]:
+            out.append(p)
+    while len(out) > 1 and out[0] == out[-1]:
+        out.pop()
+    return out
+
+
+def _trim_offset_loops(poly: list[Point], *,
+                       max_loop: float = _TRIM_LOOP_MAX_CM
+                       ) -> tuple[list[Point], int, int]:
+    """毛样折线局部自交检测与裁剪（缝边 offset 有效性兜底）。
+
+    偏移尖点（缝份 >= 内凹曲率半径，sa·κ>=1）与谷底自交在角部反射
+    裁剪之外仍可能出现：对闭合折线做非邻接线段相交扫描（按段 min_x
+    排序 + 扫掠窗剪枝），命中则裁去两交段之间**较短弧**（自交围成的
+    局部小环，环长 <= max_loop 才裁，防误裁大段拓扑），在交点处拼接
+    后整趟重扫（裁剪改变索引，重扫防同环多处自交漏检）。超界的自交
+    不裁、计数返回，调用方写 notes 告警人工检查（生产口径：可见的
+    坏轮廓优于静默吞掉）。返回 (裁剪后折线, 裁剪数, 告警数)。
+    """
+    n_trim = 0
+    n_warn = 0
+    while True:
+        poly = _dedupe_ring(poly)
+        m = len(poly)
+        if m < 4:
+            break
+        # 扫掠窗：按段 min_x 排序，只比对 x 区间重叠的段对
+        segs = sorted(
+            (min(poly[i].x, poly[(i + 1) % m].x),
+             max(poly[i].x, poly[(i + 1) % m].x), i)
+            for i in range(m)
+            if poly[i] != poly[(i + 1) % m])
+        hit: tuple[int, int, Point, bool] | None = None
+        warn = 0
+        for a in range(len(segs)):
+            _, ax_max, i = segs[a]
+            for b in range(a + 1, len(segs)):
+                bx_min, _, j = segs[b]
+                if bx_min > ax_max:
+                    break                   # 已按 min_x 排序，后续段更远
+                if _ring_dist(i, j, m) < 2:
+                    continue                # 邻接段共享顶点，非自交
+                x = _seg_cross(poly[i], poly[(i + 1) % m],
+                               poly[j], poly[(j + 1) % m])
+                if x is None:
+                    continue
+                if i > j:                   # 统一前向弧 i→j
+                    i, j = j, i
+                fwd = _arc_len(poly, i, j)
+                bwd = _arc_len(poly, 0, m) - fwd
+                if min(fwd, bwd) > max_loop:
+                    warn += 1               # 环长超界：疑似拓扑异常不裁
+                    continue
+                hit = (i, j, x, fwd <= bwd)
+                break
+            if hit is not None:
+                break
+        if hit is None:
+            n_warn += warn
+            break
+        i, j, x, remove_fwd = hit
+        if remove_fwd:   # 裁前向弧（顶点 i+1..j）：p_i -> x -> p_{j+1}
+            poly = poly[:i + 1] + [x] + poly[j + 1:]
+        else:            # 裁后向弧：保留前向弧，环自 x 起重建
+            poly = [x] + poly[i + 1:j + 1]
+        n_trim += 1
+    return poly, n_trim, n_warn
 
 
 def _natural_join_sharp(g_a: LineSegment | CubicBezier,
@@ -423,13 +580,17 @@ def add_seam_allowance(piece: PatternPiece,
                        ) -> PatternPiece:
     """各边按独立缝份沿外法向偏移生成毛样（§五.3，真法向 offset + miter 角）。
 
-    基底为 shrunk_edges（无缩水时退化为 net_edges）。各边点序列沿外法向偏移；
+    基底为 shrunk_edges（无缩水时退化为 net_edges）。各边点序列沿外法向偏移
+    （曲线走 _offset_points_adaptive 公差驱动离散，弦高误差上界
+    SEAM_OFFSET_TOL_CM = 0.1mm，与出口层 flatten 同口径；直线解析两点）；
     相邻异名边角点 p 处取两偏移边切线延伸交点（miter）连接——弯腰头弧端缝份
     顺曲线斜出、直角边 miter=外角点（直腰头矩形角不变）。切线平行时回退阶梯角
     （外角点 = p + n_a·sa_a + n_b·sa_b）。同名边（后中处上下口分段）平滑相接。
     反射角（内角 >180°，边界谷底）时 miter 交点落在两边偏移曲线途中，偏移链
     越过交点的采样尾/头部点被裁去（防两偏移链角部自交，门襟双排对折线顶端
     两腰弧接缝即此；凸角交点在偏移端点之外，裁剪条件自然不触发，行为不变）。
+    角部裁剪之外的自交（缝份 >= 内凹曲率半径的偏移尖点环）由 _trim_offset_
+    loops 兜底：局部小环裁剪、超界告警，均写入 notes。
     miter_limit：尖角限长，普通 miter 角点交点距角点超 max(sa)×本值时同样回退
     阶梯角（锐角 miter 长 = sa/sin(θ/2) 无界增长，袋布袋底×侧缝约 71° 角在
     side 缝份调大时长成尖刺，即此坑）；mirror 角（工艺翻折重合）不受限。
@@ -608,11 +769,20 @@ def add_seam_allowance(piece: PatternPiece,
             if nxt_start != poly[-1]:
                 poly.append(nxt_start)
 
+    # 缝边自交兜底（偏移尖点/谷底，角部反射裁剪覆盖不到的）：
+    # 局部小环裁剪 + 超界告警进 notes（透明可溯源）
+    poly, n_trim, n_cross = _trim_offset_loops(poly)
+
     # 去除与首点重合的末点（闭合多边形不重复首点）
     if len(poly) > 1 and poly[-1] == poly[0]:
         poly.pop()
 
     notes = piece.notes + (_sa_notes(sa),)
+    if n_trim:
+        notes = notes + (f"缝边自交局部裁剪 ×{n_trim}"
+                         f"（偏移尖点环，环长 ≤ {_TRIM_LOOP_MAX_CM:.0f}cm）",)
+    if n_cross:
+        notes = notes + (f"缝边自交 ×{n_cross} 超局部裁剪范围，请人工检查",)
     if hem_ok:
         notes = notes + (f"袋口折边：镜像折线+撇势 {hem.taper}"
                          "（后贴袋裁片.md §3；§4 袋口刀口由 flow 层生成）",)
