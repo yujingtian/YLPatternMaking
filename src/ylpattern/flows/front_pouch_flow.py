@@ -302,8 +302,9 @@ def build_front_pouch(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContex
                          notches=notches, grain=grain, marks=marks)
 
     # 缩水（§3）：口袋布默认 0=不缩水，绝对隔离大身面料；非 0 才应用
-    warp = o.front_pouch_shrinkage_warp
-    weft = o.front_pouch_shrinkage_weft
+    # （shrinkage_rates 含总开关收缩，刀口缩放同源，见下方 sx/sy）
+    warp, weft = o.shrinkage_rates(o.front_pouch_shrinkage_warp,
+                                   o.front_pouch_shrinkage_weft)
     if warp or weft:
         piece = apply_shrinkage(piece, weft, warp)
 
@@ -320,8 +321,8 @@ def build_front_pouch(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContex
     # 局部反射（Y 翻）+ 缩水缩放（局部 X 吃纬、Y 吃经，与刀口点同一仿射链，同
     # 前口袋裁片 §2.2 口径），自（缩水后）净刀口点沿射线交毛样折线，整体替换
     # 毛样刀口；射线无命中回退沿射线平移一个缝份（退化防御）。
-    sx = shrink_scale(o.front_pouch_shrinkage_weft)
-    sy = shrink_scale(o.front_pouch_shrinkage_warp)
+    sx = shrink_scale(weft)
+    sy = shrink_scale(warp)
     gross_notches = []
     for p_base, (_, d_main, sa_amt) in zip(piece.gross_notches, notch_src):
         d = Vector(d_main.dx * sx, -d_main.dy * sy)

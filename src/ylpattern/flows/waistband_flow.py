@@ -204,10 +204,14 @@ def build_waistband(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContext]
     # 裁切三段：缩水 -> 缝边（缝份不叠加缩水，§五）
     # 缩水率按面料经/纬（warp/weft）给；映射到腰头局部 X/Y 轴由经向方向决定
     # （§五.2）：LENGTH 长向(X)=经 -> X 吃 warp；WIDTH 宽向(Y)=经 -> Y 吃 warp
+    # 腰头裁片专用缩水（None=用全局；shrinkage_rates 含总开关收缩）
+    # （§五.2）：LENGTH 长向(X)=经 -> X 吃 warp；WIDTH 宽向(Y)=经 -> Y 吃 warp
     if o.waistband_grain is WaistbandGrain.LENGTH:
-        x_rate, y_rate = o.shrinkage_warp, o.shrinkage_weft
+        x_rate, y_rate = o.shrinkage_rates(o.waistband_shrinkage_warp,
+                                           o.waistband_shrinkage_weft)
     else:  # WIDTH（默认）
-        x_rate, y_rate = o.shrinkage_weft, o.shrinkage_warp
+        y_rate, x_rate = o.shrinkage_rates(o.waistband_shrinkage_warp,
+                                           o.waistband_shrinkage_weft)
     piece = apply_shrinkage(piece, x_rate, y_rate)
     piece = add_seam_allowance(piece, o.waistband_seam_allowances)
     # 四角刀口换算至缝边位（§四.2 v0.4）：缝边交点须在缩水后几何上求取，

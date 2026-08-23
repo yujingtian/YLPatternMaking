@@ -479,8 +479,17 @@ class PatternOptions:
     waistband_full_piece: bool = True      # True=整条（后中折线对称）；False=沿后中分两片（本期实现 True）
     waistband_grain: WaistbandGrain = WaistbandGrain.WIDTH
                                            # 腰头经向方向（§五.2）：WIDTH 宽向=经（默认，横裁）/ LENGTH 长向=经（直裁）
+    shrinkage_enabled: bool = True           # 缩水总开关（False = 全部裁片不缩水：
+                                           #   全局率与各裁片专用率一并失效，净样直接加缝边；
+                                           #   True 不放大任何率，仅放行--率仍以全局/专用
+                                           #   各字段为准。袋布/小表袋里料本就默认 0 不受影响）
     shrinkage_warp: float = 0.0            # 经向缩水率（面料经/warp；0.03 表示 3%，§二.2/§五.2）
     shrinkage_weft: float = 0.0            # 纬向缩水率（面料纬/weft，§二.2/§五.2）
+    waistband_shrinkage_warp: float | None = None
+                                           # 腰头裁片经向缩水率（None=用全局 shrinkage_warp；
+                                           #   腰头换布/不同批次时可单独控制）
+    waistband_shrinkage_weft: float | None = None
+                                           # 腰头裁片纬向缩水率（None=用全局 shrinkage_weft）
     waistband_seam_allowances: WaistbandSeamAllowances = field(
         default_factory=WaistbandSeamAllowances)
                                            # 四边独立缝份（§二.3/§五.3；缝份不叠加缩水）
@@ -561,6 +570,10 @@ class PatternOptions:
         _check_sa(self.waistband_seam_allowances,
                   "waistband_seam_allowances", WaistbandSeamAllowances,
                   "", ("top", "bottom", "left_end", "right_end"))
+        # 腰头裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
+        _check_shrinkage(self, ("waistband_shrinkage_warp",
+                                "waistband_shrinkage_weft"),
+                         True, "None=用全局，0.03=3%")
 
     def _check_back_dart(self) -> None:
         """后片腰省：省数 / 省量归一化与广播 / 省中线长。"""
@@ -883,6 +896,16 @@ class PatternOptions:
         _check_shrinkage(self, ("back_patch_shrinkage_warp",
                                 "back_patch_shrinkage_weft"),
                          True, "None=用全局，0.03=3%")
+
+    def shrinkage_rates(self, warp: float | None, weft: float | None
+                        ) -> tuple[float, float]:
+        """裁片缩水率解析口（所有 flow 统一走这里，勿在 flow 里手写回退）：
+        专用率 None 回退全局率（主面料口径），总开关 shrinkage_enabled=False
+        时一律归 (0, 0)。返回 (warp, weft) 供 cutter（含换序）消费。"""
+        if not self.shrinkage_enabled:
+            return (0.0, 0.0)
+        return (self.shrinkage_warp if warp is None else warp,
+                self.shrinkage_weft if weft is None else weft)
 
     def rise_on_pattern(self, rise: float) -> float:
         """版上浪长：前浪/后浪均为含腰头的成衣量（自腰头顶量起），

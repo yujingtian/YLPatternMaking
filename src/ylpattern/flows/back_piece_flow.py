@@ -663,10 +663,8 @@ def build_back_piece(main_ctx: DraftContext
     # 6. 先缩水后缝边（§3 顺序 2/3：缝份为绝对值不乘缩水率）：主面料率
     #    None 回退全局；经向 = 局部 Y -> Y 吃 warp、X 吃 weft（换序传参，
     #    同前片/机头口径）
-    warp = (o.back_piece_shrinkage_warp
-            if o.back_piece_shrinkage_warp is not None else o.shrinkage_warp)
-    weft = (o.back_piece_shrinkage_weft
-            if o.back_piece_shrinkage_weft is not None else o.shrinkage_weft)
+    warp, weft = o.shrinkage_rates(o.back_piece_shrinkage_warp,
+                                   o.back_piece_shrinkage_weft)
     piece = apply_shrinkage(piece, weft, warp)
     # 7. 缝边（§2）：后浪浪尖（后浪弧末端 ∩ 内侧缝起点）角部两态--
     #    镜像折角（back_piece_crotch_corner=True，默认）：键序 (折线边, 被镜像边)

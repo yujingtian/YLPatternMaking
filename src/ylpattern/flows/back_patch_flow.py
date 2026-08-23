@@ -277,10 +277,8 @@ def build_back_patch(main_ctx: DraftContext) \
                          notches=notches, grain=grain, notes=notes)
 
     # 2. 缩水（§2，大身面料 None 回退全局；竖向丝缕 -> Y 吃 warp）
-    warp = (o.back_patch_shrinkage_warp
-            if o.back_patch_shrinkage_warp is not None else o.shrinkage_warp)
-    weft = (o.back_patch_shrinkage_weft
-            if o.back_patch_shrinkage_weft is not None else o.shrinkage_weft)
+    warp, weft = o.shrinkage_rates(o.back_patch_shrinkage_warp,
+                                   o.back_patch_shrinkage_weft)
     if warp or weft:
         piece = apply_shrinkage(piece, weft, warp)
 

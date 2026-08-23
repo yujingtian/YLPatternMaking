@@ -277,10 +277,8 @@ def _finish_fly_piece(main_ctx: DraftContext,
                          grain=grain, marks=marks)
     # 6. 先缩水后缝边（缝份不叠加缩水，§1）；经向=局部 Y -> Y 吃 warp、X 吃 weft；
     #    门襟裁片专用缩水（None=回退全局 shrinkage_warp/weft，主面料口径）
-    warp = (o.fly_shrinkage_warp
-            if o.fly_shrinkage_warp is not None else o.shrinkage_warp)
-    weft = (o.fly_shrinkage_weft
-            if o.fly_shrinkage_weft is not None else o.shrinkage_weft)
+    warp, weft = o.shrinkage_rates(o.fly_shrinkage_warp,
+                                   o.fly_shrinkage_weft)
     piece = apply_shrinkage(piece, weft, warp)
     # miter_limit 2.0：门襟拐角（腰口×外缘 T、底边×内边 S 等）内角约 82°，
     # miter 长约 1.52×max(sa) 恰超默认限 1.5 回退阶梯角——缝边拐角凸出一个

@@ -252,7 +252,8 @@ def _finish_piece(main_ctx: DraftContext,
                          notches=notches, grain=grain)
     # 6. 缩水（§3.1）：口袋布里料材质独立，默认 0=不缩水，绝对隔离大身
     #    面料；非 0 才应用。竖向丝缕 -> Y 吃 warp、X 吃 weft
-    warp, weft = o.watch_pocket_shrinkage_warp, o.watch_pocket_shrinkage_weft
+    warp, weft = o.shrinkage_rates(o.watch_pocket_shrinkage_warp,
+                                   o.watch_pocket_shrinkage_weft)
     if warp or weft:
         piece = apply_shrinkage(piece, weft, warp)
     piece = add_seam_allowance(piece, o.watch_pocket_seam_allowances)

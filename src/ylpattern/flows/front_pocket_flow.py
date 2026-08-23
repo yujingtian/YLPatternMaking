@@ -275,10 +275,8 @@ def _finish_piece(main_ctx: DraftContext,
                          grain=grain, marks=marks)
     # 6. 先缩水后缝边（缝份不叠加缩水，§2.1）；经向=局部 Y -> Y 吃 warp、X 吃 weft
     #    前口袋裁片专用缩水（None=回退全局 shrinkage_warp/weft）
-    warp = (o.front_pocket_shrinkage_warp
-            if o.front_pocket_shrinkage_warp is not None else o.shrinkage_warp)
-    weft = (o.front_pocket_shrinkage_weft
-            if o.front_pocket_shrinkage_weft is not None else o.shrinkage_weft)
+    warp, weft = o.shrinkage_rates(o.front_pocket_shrinkage_warp,
+                                   o.front_pocket_shrinkage_weft)
     piece = apply_shrinkage(piece, weft, warp)
     piece = add_seam_allowance(piece, sa)
     # 7. 刀口投影至缝边（§2.2）：方向向量叠加缩水仿射（X 吃 weft、Y 吃 warp，

@@ -434,10 +434,8 @@ def build_front_piece(main_ctx: DraftContext
                          notches=notches, grain=grain, marks=marks)
     # 6. 先缩水后缝边（缝份不叠加缩水）：主面料率 None 回退全局；
     #    经向 = 局部 Y -> Y 吃 warp、X 吃 weft（换序传参，同 front_pocket 口径）
-    warp = (o.front_piece_shrinkage_warp
-            if o.front_piece_shrinkage_warp is not None else o.shrinkage_warp)
-    weft = (o.front_piece_shrinkage_weft
-            if o.front_piece_shrinkage_weft is not None else o.shrinkage_weft)
+    warp, weft = o.shrinkage_rates(o.front_piece_shrinkage_warp,
+                                   o.front_piece_shrinkage_weft)
     piece = apply_shrinkage(piece, weft, warp)
     # 7. 缝边：裆尖（前浪弧末端 ∩ 下裆缝起点）角部两态（§2.2）——
     #    镜像折角（front_piece_crotch_corner=True，默认）：键序 (折线边, 被镜像边)

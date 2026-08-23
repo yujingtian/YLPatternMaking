@@ -71,8 +71,8 @@ crotch_drop_adjust  = 0.0         # 后片落裆调节量 Δc（落裆量 = H/10
 
 # 膝围/脚口前后片调整量 δ（前减后加：前片宽 = 总/2 − δ，后片宽 = 总/2 + δ）
 # 标准无弹 1.0（前后差 2cm）；高弹款 0.5~0.75，见 脚口膝围外缝点推导.md §五.1
-knee_adjust         = 2.5
-hem_adjust          = 2.5
+knee_adjust         = 1.0
+hem_adjust          = 1.0
 
 # 裤中线自定义调节量 e（前后片分别独立录入，前后片裤中线推导.md §五）
 # 常规 0；修身显瘦 -0.5~-0.8；粗腿体型 +0.5~+1.0；后片常规与前片一致，特体独立设定
@@ -260,13 +260,17 @@ waistband_width     = 4.0         # 腰头宽（直腰头打版时从裤长中�
 waistband_fly_extension = 0   # 门襟搭门量（cm，左片前中端外延；0=无搭门）
 waistband_full_piece  = true      # true=整条（后中折线对称）；false=沿后中分两片（本期实现 true）
 waistband_grain       = "width"   # 腰头经向方向："width" 宽向(=裤长)为经（默认，横裁）/ "length" 长向为经（直裁）；决定丝缕线方向与缩水经/纬→X/Y 映射
-shrinkage_warp        = 0.1       # 经向缩水率（面料经/warp；0.03=3%；映射到腰头 X/Y 轴见 waistband_grain；缝份不叠加缩水）
-shrinkage_weft        = 0.06       # 纬向缩水率（面料纬/weft）
+
 # 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
 side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
 front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
 back_waist_curve_sag  = 0.4     # 后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，后腰头绘制推导.md §二）
                                 #   （0 = 无额外下凹，但 90° 正交平顺段的弯曲仍在，非直线）
+
+# 腰头裁片专用缩水（可选；None/省略=用全局 shrinkage_warp/weft；换布/不同批次时单独录入；
+#   到腰头 X/Y 轴的映射由 waistband_grain 决定）
+waistband_shrinkage_warp = 0.1    # 经向缩水率（None=用全局 shrinkage_warp）
+waistband_shrinkage_weft = 0.06   # 纬向缩水率（None=用全局 shrinkage_weft）
 
 # 前口袋裁片专用缩水（可选，前口袋裁片.md §2.1；None/省略=用全局 shrinkage_warp/weft）
 #   袋贴/贴袋换布、不同批次时单独录入；须位于 [options.*] 子表之前（TOML 主表键）
@@ -325,6 +329,11 @@ show_seam_allowance = false        # 缝边显示总开关：false = 裁片 SVG 
                                   #   随缝边同步隐藏（DXF 刀口回退净线口径）；几何计算/报表不受影响。
                                   #   true = 默认带缝边输出
 piece_gap           = 10.0        # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
+# ---- 全局缩水（面料级，所有主面料裁片共享；各裁片专用缩水见下方逐片块）----
+shrinkage_enabled    = true      # 缩水总开关：false = 全部裁片不缩水（全局率与各裁片
+                                #   专用率一并失效，净样直接加缝边）；true 不放大任何率，仅放行
+shrinkage_warp        = 0.1       # 全局经向缩水率（面料经/warp；0.03=3%；缝份不叠加缩水）
+shrinkage_weft        = 0.06       # 全局纬向缩水率（面料纬/weft）
 
 # ---- 毗围限制（可选步骤，打版流程.md 后片步骤 8；前后片毗围推导.md §三） ----
 # 大腿围（measurements.thigh）未录入或填 0 时整步自动跳过，以下参数全部无效

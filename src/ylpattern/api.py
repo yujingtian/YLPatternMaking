@@ -135,8 +135,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         waistband_fly_extension: float = 3.5,
         waistband_full_piece: bool = True,
         waistband_grain: WaistbandGrain | str = WaistbandGrain.WIDTH,
+        shrinkage_enabled: bool = True,
         shrinkage_warp: float = 0.0,
         shrinkage_weft: float = 0.0,
+        waistband_shrinkage_warp: float | None = None,
+        waistband_shrinkage_weft: float | None = None,
         waistband_seam_allowances: dict | object | None = None,
         side_rise: float = 0.0,
         front_waist_curve_sag: float = 0.3, back_waist_curve_sag: float = 0.3,
@@ -318,8 +321,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         waistband_fly_extension  门襟搭门量（cm，左片前中端外延，§三.3）
         waistband_full_piece  True=整条腰头（后中折线对称）；False=沿后中分两片（本期实现 True）
         waistband_grain  腰头经向方向（§五.2）："width" 宽向=经（默认，横裁，=裤长方向）/ "length" 长向=经（直裁）
+        shrinkage_enabled  缩水总开关（默认 True）；False = 全部裁片不缩水（全局率与
+                          各裁片专用率一并失效），净样直接加缝边
         shrinkage_warp / shrinkage_weft  面料经/纬向缩水率（0.03=3%）；映射到腰头 X/Y 轴
                           由 waistband_grain 决定；裁片先缩水再加缝边，缝份不叠加缩水，§五
+        waistband_shrinkage_warp / waistband_shrinkage_weft
+                          腰头裁片专用缩水率（None=用全局 shrinkage_warp/weft）
         waistband_seam_allowances  四边独立缝份 dict {top,bottom,left_end,right_end}
                           （cm；后中折线不外扩；§二.3/§五.3）
         side_rise        侧缝腰头抬高量 h（0 = 腰围外缝顶点压基础线，常取 0~1.5）
@@ -637,8 +644,11 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        waistband_fly_extension=waistband_fly_extension,
                        waistband_full_piece=waistband_full_piece,
                        waistband_grain=WaistbandGrain(waistband_grain),
+                       shrinkage_enabled=shrinkage_enabled,
                        shrinkage_warp=shrinkage_warp,
                        shrinkage_weft=shrinkage_weft,
+                       waistband_shrinkage_warp=waistband_shrinkage_warp,
+                       waistband_shrinkage_weft=waistband_shrinkage_weft,
                        **({"waistband_seam_allowances":
                            _coerce_sa(waistband_seam_allowances)}
                           if waistband_seam_allowances is not None else {}),
