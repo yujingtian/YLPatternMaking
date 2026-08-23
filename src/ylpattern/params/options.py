@@ -5,6 +5,11 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass, field
 
+from .seam_allowances import (BackPatchSeamAllowances, BackSeamAllowances,
+                              FlySeamAllowances, FrontFacingSeamAllowances,
+                              FrontPatchSeamAllowances, FrontSeamAllowances,
+                              PouchSeamAllowances, WatchPocketSeamAllowances,
+                              WaistbandSeamAllowances, YokeSeamAllowances)
 from .sizefile import load_size_file
 
 
@@ -43,231 +48,84 @@ DELTA_PRESETS: dict[str, tuple[float, str]] = {
 }
 
 
-@dataclass(frozen=True)
-class WaistbandSeamAllowances:
-    """腰头裁片四边独立缝份（cm，腰头裁片.md §二.3）。
-
-    full_piece=True 时四边均为裁切边（后中为折线不外扩）：
-    top 上口线 / bottom 下口线（拼接线）/ left_end 左端（含门襟搭门侧）/
-    right_end 右端（常规侧）。
-    """
-    top: float = 1.0
-    bottom: float = 1.0
-    left_end: float = 1.2
-    right_end: float = 1.0
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "WaistbandSeamAllowances":
-        return cls(top=float(d.get("top", 1.0)),
-                   bottom=float(d.get("bottom", 1.0)),
-                   left_end=float(d.get("left_end", 1.2)),
-                   right_end=float(d.get("right_end", 1.0)))
+# ---- __post_init__ 校验助手（模块级纯函数；报错文案与拆分前逐字一致，勿随手改写）----
 
 
-@dataclass(frozen=True)
-class YokeSeamAllowances:
-    """后机头/育克裁片四边独立缝份（cm，机头裁片.md §4.1）。
-
-    底边（拼后大身、埋夹工艺）做阴阳缝份 1.2~1.5；腰口/后中/侧缝常规 1.0~1.2。
-    top 腰口（上腰头/拷边）/ bottom 底边（埋夹）/ cb 后中（拼对称片）/
-    side 侧缝（拼前片侧缝）。后中为拼合线仍外扩（非折线），与腰头后中折线不同。
-    """
-    top: float = 1.0
-    bottom: float = 1.2
-    cb: float = 1.0
-    side: float = 1.0
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "YokeSeamAllowances":
-        return cls(top=float(d.get("top", 1.0)),
-                   bottom=float(d.get("bottom", 1.2)),
-                   cb=float(d.get("cb", 1.0)),
-                   side=float(d.get("side", 1.0)))
+def _check_shrinkage(o, names, none_ok, note):
+    """缩水率区间校验 [0, 0.2)。none_ok=True 时空值 None 放行
+    （= 该裁片回退全局 shrinkage_warp/weft）；note 为文案内口径注记
+    （"0.03=3%" / "None=用全局，0.03=3%" / "口袋布默认 0=不缩水，§3"）。"""
+    for name in names:
+        v = getattr(o, name)
+        if v is None and none_ok:
+            continue
+        if not 0.0 <= v < 0.2:
+            raise ValueError(f"{name} 须在 [0, 0.2) 内（{note}），得到 {v}")
 
 
-@dataclass(frozen=True)
-class FrontFacingSeamAllowances:
-    """前口袋袋贴裁片三边独立缝份（cm，前口袋裁片.md §2.1）。
-
-    袋贴外边界完美复制前大片（腰弧段 + 外缝弧段），三条边均与大片拼合：
-    waist 腰弧段（车入腰头）/ inner 袋贴内边（接袋布）/ side 外缝弧段（车入侧缝）。
-    """
-    waist: float = 1.0
-    inner: float = 1.0
-    side: float = 1.0
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "FrontFacingSeamAllowances":
-        return cls(waist=float(d.get("waist", 1.0)),
-                   inner=float(d.get("inner", 1.0)),
-                   side=float(d.get("side", 1.0)))
+def _check_sa(sa, attr, typ, label, names):
+    """裁片独立缝份校验：dataclass 类型 + 各语义边非负。
+    label 为报错前缀（"机头"/"袋贴"/"前片"……，腰头为空串）。"""
+    if not isinstance(sa, typ):
+        raise TypeError(f"{attr} 须为 {typ.__name__}")
+    for name in names:
+        if getattr(sa, name) < 0:
+            raise ValueError(f"{label}缝份 {name} 不能为负数，"
+                             f"得到 {getattr(sa, name)}")
 
 
-@dataclass(frozen=True)
-class FrontPatchSeamAllowances:
-    """前贴袋裁片缝份（cm，前口袋裁片.md §2.2）。
-
-    贴袋为折边口袋：top 袋口内折边（向反面折转缝合，常规 3.0 = 30mm 双折）；
-    side 四周缝边（常规 1.2 = 12mm，含底边与两侧、最终折光车缝到前大片）。
-    """
-    top: float = 3.0
-    side: float = 1.2
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "FrontPatchSeamAllowances":
-        return cls(top=float(d.get("top", 3.0)),
-                   side=float(d.get("side", 1.2)))
-
-
-@dataclass(frozen=True)
-class PouchSeamAllowances:
-    """前口袋袋布裁片缝份（cm，口袋布裁片.md §4）。
-
-    一片式对折裁片五语义边：fold 对折线（内边对称轴，放量为 0，内部边周界不使用）/
-    mouth 挖削袋口弧线（常规 1.0）/ waist 腰头边（与前片腰头缝份一致）/
-    side 侧缝边（与前片侧缝缝份一致）/ bottom 袋底与外围（1.0~1.5）。
-    """
-    fold: float = 0.0
-    mouth: float = 1.0
-    waist: float = 1.0
-    side: float = 1.0
-    bottom: float = 1.2
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "PouchSeamAllowances":
-        return cls(fold=float(d.get("fold", 0.0)),
-                   mouth=float(d.get("mouth", 1.0)),
-                   waist=float(d.get("waist", 1.0)),
-                   side=float(d.get("side", 1.0)),
-                   bottom=float(d.get("bottom", 1.2)))
+def _normalize_edge_specs(edges, kind, arc_lo, arc_hi, arc_open, arc_msg):
+    """边形态列表归一化：每条 ("line",) / ("arc", 弧高, 弧顶分位) /
+    ("bezier", α°, κ1, β°, κ2) 转 float 元组并逐边校验。kind 为不支持
+    形态的报错前缀（"机头"/"袋布"/"小表袋"）；arc 弧顶分位 arc_open=True
+    开区间 (arc_lo, arc_hi)、False 闭区间 [arc_lo, arc_hi]，arc_msg 为
+    区间报错文案。边数与锚点/节点数的匹配留在调用处（口径各异）。"""
+    specs = []
+    for e in edges:
+        spec = (e[0],) + tuple(float(x) for x in e[1:])
+        if spec[0] == "line":
+            if len(spec) != 1:
+                raise ValueError(f"line 边不带参数，得到 {e}")
+        elif spec[0] == "arc":
+            if len(spec) != 3:
+                raise ValueError(f"arc 边须为 (弧高, 弧顶分位)，得到 {e}")
+            if abs(spec[1]) > 10.0:
+                raise ValueError(f"arc 弧高绝对值不超过 10.0，得到 {e}")
+            ok = (arc_lo < spec[2] < arc_hi if arc_open
+                  else arc_lo <= spec[2] <= arc_hi)
+            if not ok:
+                raise ValueError(f"arc 弧顶分位须在 {arc_msg} 内，得到 {e}")
+        elif spec[0] == "bezier":
+            if len(spec) != 5:
+                raise ValueError(f"bezier 边须为 (α°, κ1, β°, κ2)，得到 {e}")
+            if abs(spec[1]) > 90.0 or abs(spec[3]) > 90.0:
+                raise ValueError(f"bezier 夹角建议在 ±90° 内，得到 {e}")
+            if not 0.0 < spec[2] <= 1.0 or not 0.0 < spec[4] <= 1.0:
+                raise ValueError(f"bezier 手柄弦长比须在 (0, 1] 内，得到 {e}")
+        else:
+            raise ValueError(f"{kind}边形态只支持 line / arc / bezier，得到 {e}")
+        specs.append(spec)
+    return tuple(specs)
 
 
-@dataclass(frozen=True)
-class FlySeamAllowances:
-    """独立门襟裁片缝份（cm，门襟裁片.md §1；先缩水后缝边，缝份不叠加缩水）。
-
-    单排（单层）语义边：top 腰口（车入腰头，腰头线子弧）/ outer 外缘（外缘直线 +
-    底角 J 型圆弧 + 底边的 G1 连续链，三段同名共用本值）/ inner 内边（与前浪
-    缝合线重合）；bottom 仅双排（对折）消费（去底角弧后的底端直线闭合边）。
-    双排镜像边加 _m 后缀异名（top_m/outer_m/bottom_m）：缝份值与基边同组共用
-    本值；cutter 对折接缝（对折线两端 O/S）正常 miter，反射角交点自动裁剪。
-    """
-
-    top: float = 1.0
-    outer: float = 1.0
-    bottom: float = 1.0
-    inner: float = 1.0
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "FlySeamAllowances":
-        return cls(top=float(d.get("top", 1.0)),
-                   outer=float(d.get("outer", 1.0)),
-                   bottom=float(d.get("bottom", 1.0)),
-                   inner=float(d.get("inner", 1.0)))
-
-
-@dataclass(frozen=True)
-class WatchPocketSeamAllowances:
-    """小表袋裁片缝份（cm，小表袋裁片.md §4.1）。
-
-    小表袋为缝于袋布上的贴袋：top 袋口折边（向反面折转、双折边明线车缝，
-    常规 2.0~2.5）/ side 两侧常规缝边。bottom 与袋贴拼接侧一致：仅模式 A
-    （facing_intersect，底边=袋贴内边子段）与 custom 四边闭合按底边消费；
-    custom N≠4 多边形无可靠底边识别，全走 side（bottom 不生效）。
-    """
-
-    top: float = 2.5
-    side: float = 1.0
-    bottom: float = 1.0     # 默认恰与袋贴 inner 一致（§4.1 拼接缝份口径）
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "WatchPocketSeamAllowances":
-        return cls(top=float(d.get("top", 2.5)),
-                   side=float(d.get("side", 1.0)),
-                   bottom=float(d.get("bottom", 1.0)))
-
-
-@dataclass(frozen=True)
-class BackPatchSeamAllowances:
-    """后贴袋裁片缝份（cm，后贴袋裁片.md §2）。
-
-    后贴袋为缝于后大片表面的折边口袋：top 袋口折边（双折，§2 示例 25mm=2.5）/
-    side 两侧常规缝边 / bottom 底边常规缝边（§2 示例 10mm=1.0）。bottom 仅
-    rectangle、baker_shield/angular 底边链与 custom 四边闭合按底边消费；
-    custom N≠4 多边形无可靠底边识别，全走 side（bottom 不生效，同小表袋口径）。
-    """
-
-    top: float = 2.5
-    side: float = 1.0
-    bottom: float = 1.0
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "BackPatchSeamAllowances":
-        return cls(top=float(d.get("top", 2.5)),
-                   side=float(d.get("side", 1.0)),
-                   bottom=float(d.get("bottom", 1.0)))
-
-
-@dataclass(frozen=True)
-class FrontSeamAllowances:
-    """前片裁片各边独立缝份（cm，前片裁片.md §2.1）。
-
-    前片四周缝合工艺各不相同，按语义边独立设置（字段名 = 裁片边名，cutter
-    按名取值）：waist 装腰缝 / rise 前浪缝（斜线+裆弯弧两段同名平滑续接）/
-    inseam 下裆缝（大腿+小腿两段同名）/ side 侧缝（小腿+大腿+腰臀弧三段
-    同名）/ hem 裤口卷边（折边量）/ mouth 袋口挖削边（接袋贴，有省/无省
-    切削线，polyline 折角链同名多段）/ fly_* 连裁门襟三边（顶边车入腰头、
-    外缘接拉链、底角弧+融合弧同名 "fly_bottom" G1 平滑续接）。
-    """
-
-    waist: float = 1.0
-    rise: float = 1.0
-    inseam: float = 1.0
-    side: float = 1.5
-    hem: float = 2.5
-    mouth: float = 1.0
-    fly_top: float = 1.0
-    fly_outer: float = 1.0
-    fly_bottom: float = 1.0
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "FrontSeamAllowances":
-        return cls(waist=float(d.get("waist", 1.0)),
-                   rise=float(d.get("rise", 1.0)),
-                   inseam=float(d.get("inseam", 1.0)),
-                   side=float(d.get("side", 1.5)),
-                   hem=float(d.get("hem", 2.5)),
-                   mouth=float(d.get("mouth", 1.0)),
-                   fly_top=float(d.get("fly_top", 1.0)),
-                   fly_outer=float(d.get("fly_outer", 1.0)),
-                   fly_bottom=float(d.get("fly_bottom", 1.0)))
-
-
-@dataclass(frozen=True)
-class BackSeamAllowances:
-    """后片裁片各边独立缝份（cm，后片裁片.md §2）。
-
-    后片四周缝合工艺各不相同，按语义边独立设置（字段名 = 裁片边名，cutter
-    按名取值）：top 拼机头缝（机头开启时上边）/ waist 装腰缝（无机头时上边）/
-    cb 后浪缝（后中斜线+大裆弯弧两段同名平滑续接）/ inseam 内侧缝（大腿+小腿
-    两段同名）/ side 外侧缝（髋腰+大腿+小腿三段同名）/ hem 脚口折边（卷边量）。
-    """
-
-    top: float = 1.0
-    waist: float = 1.0
-    cb: float = 1.0
-    inseam: float = 1.0
-    side: float = 1.5
-    hem: float = 2.5
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "BackSeamAllowances":
-        return cls(top=float(d.get("top", 1.0)),
-                   waist=float(d.get("waist", 1.0)),
-                   cb=float(d.get("cb", 1.0)),
-                   inseam=float(d.get("inseam", 1.0)),
-                   side=float(d.get("side", 1.5)),
-                   hem=float(d.get("hem", 2.5)))
+def _normalize_custom_shape(points, edges, validate, prefix):
+    """custom 净形角点/边形态归一化（前/后贴袋共用）：无条件转 float
+    元组；validate=True（shape=="custom"）时校验角点 ≥3、边数 = 角点数、
+    弧高 |b| ≤ 10、弧边（b≠0）弧顶分位 (0, 1)。返回 (pts, edges)。"""
+    pts = tuple((float(x), float(y)) for x, y in points)
+    eds = tuple((float(b), float(at)) for b, at in edges)
+    if validate:
+        if len(pts) < 3:
+            raise ValueError(f"{prefix}净形角点至少 3 个，得到 {len(pts)} 个")
+        if len(eds) != len(pts):
+            raise ValueError(f"{prefix}边形态个数须等于角点数 {len(pts)}，"
+                             f"得到 {len(eds)} 个")
+        for b, at in eds:
+            if abs(b) > 10.0:
+                raise ValueError(f"{prefix}边弧高绝对值不超过 10.0，得到 {eds}")
+            if b != 0.0 and not 0.0 < at < 1.0:
+                raise ValueError(f"{prefix}弧边弧顶位置须在 (0, 1) 内，得到 {eds}")
+    return pts, eds
 
 
 @dataclass(frozen=True)
@@ -663,30 +521,49 @@ class PatternOptions:
                                            #   进裁片 DXF 片中央 SIZE 信息行，"-" = 未录入）
 
     def __post_init__(self) -> None:
+        # 校验按特征分组（2026-08 自 460 行单体方法拆分，行为与报错文案不变）；
+        # 组间顺序大体沿原文件特征出现顺序。
+        self._check_common()
+        self._check_waistband()
+        self._check_back_dart()
+        self._check_back_yoke()
+        self._check_thigh_closure()
+        self._check_front_pocket()
+        self._check_front_facing()
+        self._check_front_patch()
+        self._check_front_pouch()
+        self._check_watch_pocket()
+        self._check_fly()
+        self._check_front_piece()
+        self._check_back_piece()
+        self._check_back_patch()
+
+    def _check_common(self) -> None:
+        """全局量：Δ / 腰头宽 / 全局缩水 / 默认缝份 / 毗围实测下移量。"""
         if not 0.0 <= self.delta <= 2.0:
             raise ValueError(f"Δ={self.delta} 超出常规范围 0~2.0 cm")
         if self.waistband_width < 0:
             raise ValueError("腰头宽不能为负数")
-        # 腰头裁片参数校验（腰头裁片.md §二）
+        _check_shrinkage(self, ("shrinkage_warp", "shrinkage_weft"),
+                         False, "0.03=3%")
+        if self.seam_allowance <= 0:
+            raise ValueError("缝份必须为正数")
+        if self.thigh_measure_offset < 0:
+            raise ValueError("毗围实测下移量 d 不能为负数")
+
+    def _check_waistband(self) -> None:
+        """腰头主干（弯腰头弧深/门襟搭门）与腰头裁片缝份（腰头裁片.md §二）。"""
         if (self.waistband_front_drop is not None
                 and self.waistband_front_drop < 0):
             raise ValueError(f"弯腰头弧深量不能为负数（凸向已内置向下凹 ∪，勿传负），得到 {self.waistband_front_drop}")
         if self.waistband_fly_extension < 0:
             raise ValueError(f"门襟搭门量不能为负数，得到 {self.waistband_fly_extension}")
-        for name in ("shrinkage_warp", "shrinkage_weft"):
-            v = getattr(self, name)
-            if not 0.0 <= v < 0.2:
-                raise ValueError(f"{name} 须在 [0, 0.2) 内（0.03=3%），得到 {v}")
-        sa = self.waistband_seam_allowances
-        if not isinstance(sa, WaistbandSeamAllowances):
-            raise TypeError("waistband_seam_allowances 须为 WaistbandSeamAllowances")
-        for name in ("top", "bottom", "left_end", "right_end"):
-            if getattr(sa, name) < 0:
-                raise ValueError(f"缝份 {name} 不能为负数，得到 {getattr(sa, name)}")
-        if self.seam_allowance <= 0:
-            raise ValueError("缝份必须为正数")
-        if self.thigh_measure_offset < 0:
-            raise ValueError("毗围实测下移量 d 不能为负数")
+        _check_sa(self.waistband_seam_allowances,
+                  "waistband_seam_allowances", WaistbandSeamAllowances,
+                  "", ("top", "bottom", "left_end", "right_end"))
+
+    def _check_back_dart(self) -> None:
+        """后片腰省：省数 / 省量归一化与广播 / 省中线长。"""
         if self.back_dart_count not in (1, 2):
             raise ValueError(f"后片省数只支持 1 或 2，得到 {self.back_dart_count}")
         # 省量归一化为元组：标量 → 单元素；单元素且两个省 → 广播共用
@@ -705,7 +582,10 @@ class PatternOptions:
         object.__setattr__(self, "back_dart_width", widths)
         if self.back_dart_length <= 0:
             raise ValueError(f"省中线长必须为正数，得到 {self.back_dart_length}")
-        # 后机头：端点距离/锚点/边形态校验（后机头绘制.md §1、§2）
+
+    def _check_back_yoke(self) -> None:
+        """后机头：端点距离 / 锚点 / 边形态归一化（后机头绘制.md §1、§2）；
+        裁片缝份与拼合倒圆（机头裁片.md §4.1、§2.2.3）；专用缩水。"""
         if self.back_yoke_cb_dist <= 0:
             raise ValueError(f"机头后浪端点距离必须为正数，得到 {self.back_yoke_cb_dist}")
         if self.back_yoke_side_dist <= 0:
@@ -719,87 +599,29 @@ class PatternOptions:
         if any(yanchors[i + 1][0] <= yanchors[i][0]
                for i in range(len(yanchors) - 1)):
             raise ValueError(f"机头锚点弦上位置须严格递增，得到 {yanchors}")
-        yedges: list = []
         if len(self.back_yoke_edges) == 0:
             # 空 edges = 全段直线（打版流程.md：无控制点即直线；省略 edges 即直线连接）
             yedges = [("line",)] * (len(yanchors) + 1)
         else:
-            for e in self.back_yoke_edges:
-                spec = (e[0],) + tuple(float(x) for x in e[1:])
-                if spec[0] == "line":
-                    if len(spec) != 1:
-                        raise ValueError(f"line 边不带参数，得到 {e}")
-                elif spec[0] == "arc":
-                    if len(spec) != 3:
-                        raise ValueError(f"arc 边须为 (弧高, 弧顶分位)，得到 {e}")
-                    if abs(spec[1]) > 10.0:
-                        raise ValueError(f"arc 弧高绝对值不超过 10.0，得到 {e}")
-                    if not 0.0 < spec[2] < 1.0:
-                        raise ValueError(f"arc 弧顶分位须在 (0, 1) 内，得到 {e}")
-                elif spec[0] == "bezier":
-                    if len(spec) != 5:
-                        raise ValueError(f"bezier 边须为 (α°, κ1, β°, κ2)，得到 {e}")
-                    if abs(spec[1]) > 90.0 or abs(spec[3]) > 90.0:
-                        raise ValueError(f"bezier 夹角建议在 ±90° 内，得到 {e}")
-                    if not 0.0 < spec[2] <= 1.0 or not 0.0 < spec[4] <= 1.0:
-                        raise ValueError(f"bezier 手柄弦长比须在 (0, 1] 内，得到 {e}")
-                else:
-                    raise ValueError(f"机头边形态只支持 line / arc / bezier，得到 {e}")
-                yedges.append(spec)
+            yedges = _normalize_edge_specs(self.back_yoke_edges, "机头",
+                                           0.0, 1.0, True, "(0, 1)")
             if len(yedges) != len(yanchors) + 1:
                 raise ValueError(f"机头边形态个数须为锚点数 + 1（{len(yanchors) + 1}），"
                                  f"得到 {len(yedges)} 个")
         object.__setattr__(self, "back_yoke_mid_anchors", yanchors)
         object.__setattr__(self, "back_yoke_edges", tuple(yedges))
-        # 机头裁片缝份/倒圆校验（机头裁片.md §4.1、§2.2.3）
-        ysa = self.back_yoke_seam_allowances
-        if not isinstance(ysa, YokeSeamAllowances):
-            raise TypeError("back_yoke_seam_allowances 须为 YokeSeamAllowances")
-        for name in ("top", "bottom", "cb", "side"):
-            if getattr(ysa, name) < 0:
-                raise ValueError(f"机头缝份 {name} 不能为负数，得到 {getattr(ysa, name)}")
+        _check_sa(self.back_yoke_seam_allowances,
+                  "back_yoke_seam_allowances", YokeSeamAllowances,
+                  "机头", ("top", "bottom", "cb", "side"))
         if self.back_yoke_join_fillet < 0:
             raise ValueError(f"机头拼合倒圆量不能为负数，得到 {self.back_yoke_join_fillet}")
-        # 前口袋袋贴/贴袋裁片缝份校验（前口袋裁片.md §2）
-        # 机头裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
-        for name in ("back_yoke_shrinkage_warp", "back_yoke_shrinkage_weft"):
-            v = getattr(self, name)
-            if v is not None and not 0.0 <= v < 0.2:
-                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
-                                 f"得到 {v}")
-        fsa = self.front_pocket_facing_seam_allowances
-        if not isinstance(fsa, FrontFacingSeamAllowances):
-            raise TypeError("front_pocket_facing_seam_allowances 须为 "
-                            "FrontFacingSeamAllowances")
-        for name in ("waist", "inner", "side"):
-            if getattr(fsa, name) < 0:
-                raise ValueError(f"袋贴缝份 {name} 不能为负数，得到 {getattr(fsa, name)}")
-        psa = self.front_patch_seam_allowances
-        if not isinstance(psa, FrontPatchSeamAllowances):
-            raise TypeError("front_patch_seam_allowances 须为 "
-                            "FrontPatchSeamAllowances")
-        for name in ("top", "side"):
-            if getattr(psa, name) < 0:
-                raise ValueError(f"贴袋缝份 {name} 不能为负数，得到 {getattr(psa, name)}")
-        # 前口袋裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
-        for name in ("front_pocket_shrinkage_warp", "front_pocket_shrinkage_weft"):
-            v = getattr(self, name)
-            if v is not None and not 0.0 <= v < 0.2:
-                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
-                                 f"得到 {v}")
-        # 袋布裁片缝份/缩水校验（口袋布裁片.md §3、§4）
-        pusa = self.front_pouch_seam_allowances
-        if not isinstance(pusa, PouchSeamAllowances):
-            raise TypeError("front_pouch_seam_allowances 须为 "
-                            "PouchSeamAllowances")
-        for name in ("fold", "mouth", "waist", "side", "bottom"):
-            if getattr(pusa, name) < 0:
-                raise ValueError(f"袋布缝份 {name} 不能为负数，得到 {getattr(pusa, name)}")
-        for name in ("front_pouch_shrinkage_warp", "front_pouch_shrinkage_weft"):
-            v = getattr(self, name)
-            if not 0.0 <= v < 0.2:
-                raise ValueError(f"{name} 须在 [0, 0.2) 内（口袋布默认 0=不缩水，§3），"
-                                 f"得到 {v}")
+        # 专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
+        _check_shrinkage(self, ("back_yoke_shrinkage_warp",
+                                "back_yoke_shrinkage_weft"),
+                         True, "None=用全局，0.03=3%")
+
+    def _check_thigh_closure(self) -> None:
+        """毗围闭环：前片分配比 / 双轨分流阈值 / 裆弯系数与上限 / 迭代控制。"""
         if not 0.0 < self.thigh_front_share < 1.0:
             raise ValueError(f"大差量前片分配比须在 (0, 1) 内，得到 {self.thigh_front_share}")
         for name in ("thigh_piece_split_max", "thigh_dual_track_min",
@@ -811,6 +633,14 @@ class PatternOptions:
             raise ValueError(f"闭环最大迭代轮数必须 ≥ 1，得到 {self.thigh_max_iter}")
         if self.thigh_tol <= 0:
             raise ValueError(f"闭环收敛容差必须为正数，得到 {self.thigh_tol}")
+
+    def _check_front_pocket(self) -> None:
+        """前口袋主干：袋口净线参数与折角归一化（前口袋绘制.md）；
+        裁片专用缩水（前口袋裁片.md §2）。"""
+        # 专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
+        _check_shrinkage(self, ("front_pocket_shrinkage_warp",
+                                "front_pocket_shrinkage_weft"),
+                         True, "None=用全局，0.03=3%")
         if self.front_pocket_p1_dist <= 0:
             raise ValueError(f"P1 弧长距离必须为正数，得到 {self.front_pocket_p1_dist}")
         if self.front_pocket_p2_drop <= 0:
@@ -845,7 +675,10 @@ class PatternOptions:
                for i in range(len(corners) - 1)):
             raise ValueError(f"折角位置须按弦上比例严格递增，得到 {corners}")
         object.__setattr__(self, "front_pocket_mouth_corners", corners)
-        # 前口袋袋贴（Facing：挖削嵌入式袋口贴布，前口袋绘制.md §三.3.(1)）----
+
+    def _check_front_facing(self) -> None:
+        """前口袋袋贴（Facing：挖削嵌入式袋口贴布，前口袋绘制.md §三.3.(1)）；
+        裁片缝份（前口袋裁片.md §2.1）。"""
         if not 0.0 < self.front_pocket_facing_width <= 10.0:
             raise ValueError(f"袋贴腰头宽建议在 0~10.0 cm 内（常规 3.0~4.0），"
                              f"得到 {self.front_pocket_facing_width}")
@@ -863,7 +696,14 @@ class PatternOptions:
             raise ValueError(f"袋贴内边弧高绝对值不超过 10.0，得到 {self.front_pocket_facing_bulge}")
         if not 0.0 < self.front_pocket_facing_bulge_at < 1.0:
             raise ValueError(f"袋贴内边弧顶位置须在 (0, 1) 内，得到 {self.front_pocket_facing_bulge_at}")
-        # 前贴袋：定位/尺寸/形态校验（前贴袋绘制.md §四、§五）
+        _check_sa(self.front_pocket_facing_seam_allowances,
+                  "front_pocket_facing_seam_allowances",
+                  FrontFacingSeamAllowances, "袋贴",
+                  ("waist", "inner", "side"))
+
+    def _check_front_patch(self) -> None:
+        """前贴袋：定位 / 尺寸 / 形态与 custom 归一化（前贴袋绘制.md §四、§五）；
+        裁片缝份（前口袋裁片.md §2.2）。"""
         if self.front_patch_top_drop < 0 or self.front_patch_top_inset < 0:
             raise ValueError("贴袋定位下移量/内移量不能为负数")
         if self.front_patch_width <= 0 or self.front_patch_height <= 0:
@@ -884,25 +724,124 @@ class PatternOptions:
         if abs(self.front_patch_rotate_deg) > 90.0:
             raise ValueError(f"贴袋旋转角建议在 ±90° 内，"
                              f"得到 {self.front_patch_rotate_deg}")
-        # custom 模式：角点 ≥3，边形态个数 = 角点数，逐边校验
-        cpts = tuple((float(x), float(y))
-                     for x, y in self.front_patch_custom_points)
-        cedges = tuple((float(b), float(at))
-                       for b, at in self.front_patch_custom_edges)
-        if self.front_patch_shape == "custom":
-            if len(cpts) < 3:
-                raise ValueError(f"custom 净形角点至少 3 个，得到 {len(cpts)} 个")
-            if len(cedges) != len(cpts):
-                raise ValueError(f"custom 边形态个数须等于角点数 {len(cpts)}，"
-                                 f"得到 {len(cedges)} 个")
-            for b, at in cedges:
-                if abs(b) > 10.0:
-                    raise ValueError(f"custom 边弧高绝对值不超过 10.0，得到 {cedges}")
-                if b != 0.0 and not 0.0 < at < 1.0:
-                    raise ValueError(f"custom 弧边弧顶位置须在 (0, 1) 内，得到 {cedges}")
+        # custom 模式：角点 ≥3，边形态个数 = 角点数，逐边校验（非 custom 仍归一化）
+        cpts, cedges = _normalize_custom_shape(self.front_patch_custom_points,
+                                               self.front_patch_custom_edges,
+                                               self.front_patch_shape == "custom",
+                                               "custom ")
         object.__setattr__(self, "front_patch_custom_points", cpts)
         object.__setattr__(self, "front_patch_custom_edges", cedges)
-        # 后贴袋：定位/尺寸/形态校验（后贴袋绘制.md §一、§二）
+        _check_sa(self.front_patch_seam_allowances,
+                  "front_patch_seam_allowances", FrontPatchSeamAllowances,
+                  "贴袋", ("top", "side"))
+
+    def _check_front_pouch(self) -> None:
+        """袋布：安全量 / 节点 / 边形态归一化（袋布绘制.md §三、§六）；
+        裁片缝份与缩水（口袋布裁片.md §3、§4）。"""
+        if self.front_pouch_waist_safe < 0 or self.front_pouch_side_safe < 0:
+            raise ValueError("袋布安全内延/垂深不能为负数")
+        nodes = tuple((float(x), float(y)) for x, y in self.front_pouch_nodes)
+        if len(nodes) < 2:
+            raise ValueError(f"袋布自定义节点至少 2 个，得到 {len(nodes)} 个")
+        edges = _normalize_edge_specs(self.front_pouch_edges, "袋布",
+                                      0.1, 0.9, False, "[0.1, 0.9]")
+        if len(edges) != len(nodes) + 1:
+            raise ValueError(f"袋布边形态个数须为节点数 + 1（{len(nodes) + 1}），"
+                             f"得到 {len(edges)} 个")
+        object.__setattr__(self, "front_pouch_nodes", nodes)
+        object.__setattr__(self, "front_pouch_edges", edges)
+        _check_sa(self.front_pouch_seam_allowances,
+                  "front_pouch_seam_allowances", PouchSeamAllowances,
+                  "袋布", ("fold", "mouth", "waist", "side", "bottom"))
+        _check_shrinkage(self, ("front_pouch_shrinkage_warp",
+                                "front_pouch_shrinkage_weft"),
+                         False, "口袋布默认 0=不缩水，§3")
+
+    def _check_watch_pocket(self) -> None:
+        """小表袋：模式 / 偏移 / 旋转 / 锚点 / 边形态归一化（小表袋绘制.md
+        §2、§4）；裁片缝份与缩水（小表袋裁片.md §3.1、§4.1；里料缩水
+        默认 0、无 None 回退全局分支）。"""
+        if self.watch_pocket_mode not in ("custom", "facing_intersect"):
+            raise ValueError(f"小表袋模式只支持 custom / facing_intersect，"
+                             f"得到 {self.watch_pocket_mode!r}")
+        if self.watch_pocket_width <= 0:
+            raise ValueError(f"小表袋袋口宽必须为正数，得到 {self.watch_pocket_width}")
+        if self.watch_pocket_offset_from_top < 0 or self.watch_pocket_offset_from_side < 0:
+            raise ValueError("小表袋离口袋顶部/侧边距离不能为负数")
+        if abs(self.watch_pocket_rotate_deg) > 90.0:
+            raise ValueError(f"小表袋旋转角建议在 ±90° 内，得到 {self.watch_pocket_rotate_deg}")
+        wpts = tuple((float(x), float(y)) for x, y in self.watch_pocket_points)
+        if len(wpts) < 3:
+            raise ValueError(f"小表袋锚点至少 3 个，得到 {len(wpts)} 个")
+        wedges = _normalize_edge_specs(self.watch_pocket_edges, "小表袋",
+                                       0.0, 1.0, True, "(0, 1)")
+        if len(wedges) != len(wpts):
+            raise ValueError(f"小表袋边形态个数须等于锚点数 {len(wpts)}（闭合边），"
+                             f"得到 {len(wedges)} 个")
+        object.__setattr__(self, "watch_pocket_points", wpts)
+        object.__setattr__(self, "watch_pocket_edges", wedges)
+        _check_sa(self.watch_pocket_seam_allowances,
+                  "watch_pocket_seam_allowances", WatchPocketSeamAllowances,
+                  "小表袋", ("top", "side", "bottom"))
+        _check_shrinkage(self, ("watch_pocket_shrinkage_warp",
+                                "watch_pocket_shrinkage_weft"),
+                         False, "0.03=3%")
+
+    def _check_fly(self) -> None:
+        """门襟：宽度与开深系数（门襟绘制.md §2.2）；独立门襟延展（§5）与
+        裁片缝份/缩水（门襟裁片.md §1；主面料缩水 None=回退全局）。"""
+        if not 3.0 <= self.fly_width <= 4.5:
+            raise ValueError(f"门襟宽 W 建议在 3.5~4.2 cm 内，得到 {self.fly_width}")
+        if self.fly_length_ratio <= 0 or self.fly_length_base < 0:
+            raise ValueError("门襟开深系数必须为正、基值不能为负")
+        for name in ("fly_turnback", "fly_stitch_inset"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} 不能为负数，得到 {getattr(self, name)}")
+        if self.fly_turnback >= self.fly_width:
+            raise ValueError(f"退层补偿 Δw 须小于门襟宽 W，得到 {self.fly_turnback}")
+        if not 0.0 < self.fly_corner_inset < self.fly_width:
+            raise ValueError(f"门襟底角圆角内收须在 (0, 门襟宽 W) 内"
+                             f"（R = W − 本值），得到 {self.fly_corner_inset}")
+        if not 0.0 < self.fly_corner_turn <= 1.0:
+            raise ValueError(f"门襟拐点弧位须在 (0, 1] 内（1.0 = J 底），"
+                             f"得到 {self.fly_corner_turn}")
+        if self.fly_blend_drop is not None and self.fly_blend_drop < 0:
+            raise ValueError(f"融合弧下移量不能为负，得到 {self.fly_blend_drop}")
+        if self.fly_sep_extra < 0:
+            raise ValueError(f"fly_sep_extra 不能为负数，得到 {self.fly_sep_extra}")
+        _check_sa(self.fly_seam_allowances, "fly_seam_allowances",
+                  FlySeamAllowances, "门襟", ("top", "outer", "bottom", "inner"))
+        _check_shrinkage(self, ("fly_shrinkage_warp", "fly_shrinkage_weft"),
+                         True, "None=用全局，0.03=3%")
+
+    def _check_front_piece(self) -> None:
+        """前片裁片：缝份 / 刀口 / 专用缩水（前片裁片.md §2.1~§3.2）。"""
+        _check_sa(self.front_piece_seam_allowances,
+                  "front_piece_seam_allowances", FrontSeamAllowances,
+                  "前片", ("waist", "rise", "inseam", "side", "hem", "mouth",
+                           "fly_top", "fly_outer", "fly_bottom"))
+        if self.front_piece_notch_type not in ("V", "I"):
+            raise ValueError(f"前片刀口类型只支持 V / I，"
+                             f"得到 {self.front_piece_notch_type!r}")
+        _check_shrinkage(self, ("front_piece_shrinkage_warp",
+                                "front_piece_shrinkage_weft"),
+                         True, "None=用全局，0.03=3%")
+
+    def _check_back_piece(self) -> None:
+        """后片裁片：缝份 / 刀口 / 专用缩水（后片裁片.md §2~§3）。"""
+        _check_sa(self.back_piece_seam_allowances,
+                  "back_piece_seam_allowances", BackSeamAllowances,
+                  "后片", ("top", "waist", "cb", "inseam", "side", "hem"))
+        if self.back_piece_notch_type not in ("V", "I"):
+            raise ValueError(f"后片刀口类型只支持 V / I，"
+                             f"得到 {self.back_piece_notch_type!r}")
+        _check_shrinkage(self, ("back_piece_shrinkage_warp",
+                                "back_piece_shrinkage_weft"),
+                         True, "None=用全局，0.03=3%")
+
+    def _check_back_patch(self) -> None:
+        """后贴袋：定位 / 尺寸 / 形态与 custom 归一化（后贴袋绘制.md §一、§二）；
+        裁片缝份 / 撇势 / 刀口 / 缩水（后贴袋裁片.md §2~§4）。"""
         if self.back_patch_inset_x < 0 or self.back_patch_drop_y < 0:
             raise ValueError("后贴袋距后浪线/距约克底线距离不能为负数")
         if self.back_patch_width <= 0 or self.back_patch_height <= 0:
@@ -923,32 +862,15 @@ class PatternOptions:
         if abs(self.back_patch_rotate_deg) > 90.0:
             raise ValueError(f"后贴袋旋转角建议在 ±90° 内，"
                              f"得到 {self.back_patch_rotate_deg}")
-        bpts = tuple((float(x), float(y))
-                     for x, y in self.back_patch_custom_points)
-        bedges = tuple((float(b), float(at))
-                       for b, at in self.back_patch_custom_edges)
-        if self.back_patch_shape == "custom":
-            if len(bpts) < 3:
-                raise ValueError(f"后贴袋 custom 净形角点至少 3 个，得到 {len(bpts)} 个")
-            if len(bedges) != len(bpts):
-                raise ValueError(f"后贴袋 custom 边形态个数须等于角点数 {len(bpts)}，"
-                                 f"得到 {len(bedges)} 个")
-            for b, at in bedges:
-                if abs(b) > 10.0:
-                    raise ValueError(f"后贴袋 custom 边弧高绝对值不超过 10.0，得到 {bedges}")
-                if b != 0.0 and not 0.0 < at < 1.0:
-                    raise ValueError(f"后贴袋 custom 弧边弧顶位置须在 (0, 1) 内，得到 {bedges}")
+        bpts, bedges = _normalize_custom_shape(self.back_patch_custom_points,
+                                               self.back_patch_custom_edges,
+                                               self.back_patch_shape == "custom",
+                                               "后贴袋 custom ")
         object.__setattr__(self, "back_patch_custom_points", bpts)
         object.__setattr__(self, "back_patch_custom_edges", bedges)
-        # 后贴袋裁片缝份/撇势/刀口/缩水校验（后贴袋裁片.md §2~§4）
-        bpsa = self.back_patch_seam_allowances
-        if not isinstance(bpsa, BackPatchSeamAllowances):
-            raise TypeError("back_patch_seam_allowances 须为 "
-                            "BackPatchSeamAllowances")
-        for name in ("top", "side", "bottom"):
-            if getattr(bpsa, name) < 0:
-                raise ValueError(f"后贴袋缝份 {name} 不能为负数，"
-                                 f"得到 {getattr(bpsa, name)}")
+        _check_sa(self.back_patch_seam_allowances,
+                  "back_patch_seam_allowances", BackPatchSeamAllowances,
+                  "后贴袋", ("top", "side", "bottom"))
         if self.back_patch_top_hem_taper > 0:
             raise ValueError(f"后贴袋撇势须 ≤ 0（负值口径，向内平移 |值|），"
                              f"得到 {self.back_patch_top_hem_taper}")
@@ -958,169 +880,9 @@ class PatternOptions:
         if self.back_patch_notch_depth < 0:
             raise ValueError(f"后贴袋刀口深度不能为负数，"
                              f"得到 {self.back_patch_notch_depth}")
-        # 后贴袋裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
-        for name in ("back_patch_shrinkage_warp", "back_patch_shrinkage_weft"):
-            v = getattr(self, name)
-            if v is not None and not 0.0 <= v < 0.2:
-                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
-                                 f"得到 {v}")
-        # 前片裁片缝份/刀口/缩水校验（前片裁片.md §2.1~§3.2）
-        fpsa = self.front_piece_seam_allowances
-        if not isinstance(fpsa, FrontSeamAllowances):
-            raise TypeError("front_piece_seam_allowances 须为 FrontSeamAllowances")
-        for name in ("waist", "rise", "inseam", "side", "hem", "mouth",
-                     "fly_top", "fly_outer", "fly_bottom"):
-            if getattr(fpsa, name) < 0:
-                raise ValueError(f"前片缝份 {name} 不能为负数，"
-                                 f"得到 {getattr(fpsa, name)}")
-        if self.front_piece_notch_type not in ("V", "I"):
-            raise ValueError(f"前片刀口类型只支持 V / I，"
-                             f"得到 {self.front_piece_notch_type!r}")
-        # 前片裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
-        for name in ("front_piece_shrinkage_warp", "front_piece_shrinkage_weft"):
-            v = getattr(self, name)
-            if v is not None and not 0.0 <= v < 0.2:
-                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
-                                 f"得到 {v}")
-        # 后片裁片缝份/刀口/缩水校验（后片裁片.md §2~§3）
-        bpsa = self.back_piece_seam_allowances
-        if not isinstance(bpsa, BackSeamAllowances):
-            raise TypeError("back_piece_seam_allowances 须为 BackSeamAllowances")
-        for name in ("top", "waist", "cb", "inseam", "side", "hem"):
-            if getattr(bpsa, name) < 0:
-                raise ValueError(f"后片缝份 {name} 不能为负数，"
-                                 f"得到 {getattr(bpsa, name)}")
-        if self.back_piece_notch_type not in ("V", "I"):
-            raise ValueError(f"后片刀口类型只支持 V / I，"
-                             f"得到 {self.back_piece_notch_type!r}")
-        # 后片裁片专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
-        for name in ("back_piece_shrinkage_warp", "back_piece_shrinkage_weft"):
-            v = getattr(self, name)
-            if v is not None and not 0.0 <= v < 0.2:
-                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
-                                 f"得到 {v}")
-        # 袋布：节点/边形态归一化与校验（袋布绘制.md §三、§六）
-        if self.front_pouch_waist_safe < 0 or self.front_pouch_side_safe < 0:
-            raise ValueError("袋布安全内延/垂深不能为负数")
-        nodes = tuple((float(x), float(y)) for x, y in self.front_pouch_nodes)
-        if len(nodes) < 2:
-            raise ValueError(f"袋布自定义节点至少 2 个，得到 {len(nodes)} 个")
-        edges = []
-        for e in self.front_pouch_edges:
-            spec = (e[0],) + tuple(float(x) for x in e[1:])
-            if spec[0] == "line":
-                if len(spec) != 1:
-                    raise ValueError(f"line 边不带参数，得到 {e}")
-            elif spec[0] == "arc":
-                if len(spec) != 3:
-                    raise ValueError(f"arc 边须为 (弧高, 弧顶分位)，得到 {e}")
-                if abs(spec[1]) > 10.0:
-                    raise ValueError(f"arc 弧高绝对值不超过 10.0，得到 {e}")
-                if not 0.1 <= spec[2] <= 0.9:
-                    raise ValueError(f"arc 弧顶分位须在 [0.1, 0.9] 内，得到 {e}")
-            elif spec[0] == "bezier":
-                if len(spec) != 5:
-                    raise ValueError(f"bezier 边须为 (α°, κ1, β°, κ2)，得到 {e}")
-                if abs(spec[1]) > 90.0 or abs(spec[3]) > 90.0:
-                    raise ValueError(f"bezier 夹角建议在 ±90° 内，得到 {e}")
-                if not 0.0 < spec[2] <= 1.0 or not 0.0 < spec[4] <= 1.0:
-                    raise ValueError(f"bezier 手柄弦长比须在 (0, 1] 内，得到 {e}")
-            else:
-                raise ValueError(f"袋布边形态只支持 line / arc / bezier，得到 {e}")
-            edges.append(spec)
-        if len(edges) != len(nodes) + 1:
-            raise ValueError(f"袋布边形态个数须为节点数 + 1（{len(nodes) + 1}），"
-                             f"得到 {len(edges)} 个")
-        object.__setattr__(self, "front_pouch_nodes", nodes)
-        object.__setattr__(self, "front_pouch_edges", tuple(edges))
-        # 小表袋：偏移/旋转/锚点/边形态校验（小表袋绘制.md §2、§4）
-        if self.watch_pocket_mode not in ("custom", "facing_intersect"):
-            raise ValueError(f"小表袋模式只支持 custom / facing_intersect，"
-                             f"得到 {self.watch_pocket_mode!r}")
-        if self.watch_pocket_width <= 0:
-            raise ValueError(f"小表袋袋口宽必须为正数，得到 {self.watch_pocket_width}")
-        if self.watch_pocket_offset_from_top < 0 or self.watch_pocket_offset_from_side < 0:
-            raise ValueError("小表袋离口袋顶部/侧边距离不能为负数")
-        if abs(self.watch_pocket_rotate_deg) > 90.0:
-            raise ValueError(f"小表袋旋转角建议在 ±90° 内，得到 {self.watch_pocket_rotate_deg}")
-        wpts = tuple((float(x), float(y)) for x, y in self.watch_pocket_points)
-        if len(wpts) < 3:
-            raise ValueError(f"小表袋锚点至少 3 个，得到 {len(wpts)} 个")
-        wedges = []
-        for e in self.watch_pocket_edges:
-            spec = (e[0],) + tuple(float(x) for x in e[1:])
-            if spec[0] == "line":
-                if len(spec) != 1:
-                    raise ValueError(f"line 边不带参数，得到 {e}")
-            elif spec[0] == "arc":
-                if len(spec) != 3:
-                    raise ValueError(f"arc 边须为 (弧高, 弧顶分位)，得到 {e}")
-                if abs(spec[1]) > 10.0:
-                    raise ValueError(f"arc 弧高绝对值不超过 10.0，得到 {e}")
-                if not 0.0 < spec[2] < 1.0:
-                    raise ValueError(f"arc 弧顶分位须在 (0, 1) 内，得到 {e}")
-            elif spec[0] == "bezier":
-                if len(spec) != 5:
-                    raise ValueError(f"bezier 边须为 (α°, κ1, β°, κ2)，得到 {e}")
-                if abs(spec[1]) > 90.0 or abs(spec[3]) > 90.0:
-                    raise ValueError(f"bezier 夹角建议在 ±90° 内，得到 {e}")
-                if not 0.0 < spec[2] <= 1.0 or not 0.0 < spec[4] <= 1.0:
-                    raise ValueError(f"bezier 手柄弦长比须在 (0, 1] 内，得到 {e}")
-            else:
-                raise ValueError(f"小表袋边形态只支持 line / arc / bezier，得到 {e}")
-            wedges.append(spec)
-        if len(wedges) != len(wpts):
-            raise ValueError(f"小表袋边形态个数须等于锚点数 {len(wpts)}（闭合边），"
-                             f"得到 {len(wedges)} 个")
-        object.__setattr__(self, "watch_pocket_points", wpts)
-        object.__setattr__(self, "watch_pocket_edges", tuple(wedges))
-        # 小表袋裁片缝份/缩水校验（小表袋裁片.md §3.1、§4.1；
-        # 里料缩水默认 0、无 None 回退全局分支）
-        wsa = self.watch_pocket_seam_allowances
-        if not isinstance(wsa, WatchPocketSeamAllowances):
-            raise TypeError("watch_pocket_seam_allowances 须为 "
-                            "WatchPocketSeamAllowances")
-        for name in ("top", "side", "bottom"):
-            if getattr(wsa, name) < 0:
-                raise ValueError(f"小表袋缝份 {name} 不能为负数，"
-                                 f"得到 {getattr(wsa, name)}")
-        for name in ("watch_pocket_shrinkage_warp", "watch_pocket_shrinkage_weft"):
-            if not 0.0 <= getattr(self, name) < 0.2:
-                raise ValueError(f"{name} 须在 [0, 0.2) 内（0.03=3%），"
-                                 f"得到 {getattr(self, name)}")
-        # 门襟：宽度与开深系数校验（门襟绘制.md §2.2）
-        if not 3.0 <= self.fly_width <= 4.5:
-            raise ValueError(f"门襟宽 W 建议在 3.5~4.2 cm 内，得到 {self.fly_width}")
-        if self.fly_length_ratio <= 0 or self.fly_length_base < 0:
-            raise ValueError("门襟开深系数必须为正、基值不能为负")
-        for name in ("fly_turnback", "fly_stitch_inset"):
-            if getattr(self, name) < 0:
-                raise ValueError(f"{name} 不能为负数，得到 {getattr(self, name)}")
-        if self.fly_turnback >= self.fly_width:
-            raise ValueError(f"退层补偿 Δw 须小于门襟宽 W，得到 {self.fly_turnback}")
-        if not 0.0 < self.fly_corner_inset < self.fly_width:
-            raise ValueError(f"门襟底角圆角内收须在 (0, 门襟宽 W) 内"
-                             f"（R = W − 本值），得到 {self.fly_corner_inset}")
-        if not 0.0 < self.fly_corner_turn <= 1.0:
-            raise ValueError(f"门襟拐点弧位须在 (0, 1] 内（1.0 = J 底），"
-                             f"得到 {self.fly_corner_turn}")
-        if self.fly_blend_drop is not None and self.fly_blend_drop < 0:
-            raise ValueError(f"融合弧下移量不能为负，得到 {self.fly_blend_drop}")
-        # 独立门襟：缝份/延展校验（门襟绘制.md §5）
-        if self.fly_sep_extra < 0:
-            raise ValueError(f"fly_sep_extra 不能为负数，得到 {self.fly_sep_extra}")
-        # 独立门襟裁片缝份/缩水校验（门襟裁片.md §1；主面料缩水 None=回退全局）
-        fsa = self.fly_seam_allowances
-        if not isinstance(fsa, FlySeamAllowances):
-            raise TypeError("fly_seam_allowances 须为 FlySeamAllowances")
-        for name in ("top", "outer", "bottom", "inner"):
-            if getattr(fsa, name) < 0:
-                raise ValueError(f"门襟缝份 {name} 不能为负数，得到 {getattr(fsa, name)}")
-        for name in ("fly_shrinkage_warp", "fly_shrinkage_weft"):
-            v = getattr(self, name)
-            if v is not None and not 0.0 <= v < 0.2:
-                raise ValueError(f"{name} 须在 [0, 0.2) 内（None=用全局，0.03=3%），"
-                                 f"得到 {v}")
+        _check_shrinkage(self, ("back_patch_shrinkage_warp",
+                                "back_patch_shrinkage_weft"),
+                         True, "None=用全局，0.03=3%")
 
     def rise_on_pattern(self, rise: float) -> float:
         """版上浪长：前浪/后浪均为含腰头的成衣量（自腰头顶量起），
