@@ -276,6 +276,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         thigh_max_iter: int = 6, thigh_tol: float = 0.3,
         piece_gap: float = 10.0,
         seam_allowance: float = 1.0,
+        show_seam_allowance: bool = True,
         size_label: str = "-",
         svg: str = "out/sheet.svg",
         waistband_svg: str | None = None,
@@ -564,6 +565,12 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         thigh_max_iter / thigh_tol  闭环最大迭代轮数（默认 6）/ 收敛容差（默认 0.3）
         piece_gap        前后片排版间距（后片整体置于前片右侧，分开不重叠）
         size_label       尺码标签（订单元数据；进裁片 DXF 片中央 SIZE 信息行，"-" = 未录入）
+        show_seam_allowance
+                         缝边显示总开关（默认 True 显示；False 时裁片 SVG 毛样层与
+                         裁片 DXF 层 1 CUT 闭合折线不绘制、画布/平铺收缩回净样，
+                         SVG 刀口整层不绘制（缝边刀口随缝边同步隐藏），DXF 刀口
+                         回退净线口径；净样/缩水净样/内部线/丝缕/定位孔照常，
+                         几何计算与报表不受影响——纯出口层显示控制）
         svg              SVG 输出路径
         waistband_svg    腰头裁片独立 SVG 输出路径（None=不输出；需完整整版，
                          中断调版 until 时不生成；腰头裁片.md §五 独立裁片）
@@ -804,6 +811,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        thigh_max_iter=thigh_max_iter, thigh_tol=thigh_tol,
                        piece_gap=piece_gap,
                        seam_allowance=seam_allowance,
+                       show_seam_allowance=show_seam_allowance,
                        size_label=size_label)
 
     ctx, trace_text = run_with_thigh_closure(m, o, until=until,
@@ -833,12 +841,14 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
             for piece in pieces:
                 out = svg_map.get(piece.name)
                 if out:
-                    piece_exp.write_piece_svg(piece, out)
+                    piece_exp.write_piece_svg(piece, out,
+                                              show_seam=o.show_seam_allowance)
                     print(f"{piece.label} SVG 已输出:{out}")
             if pieces_dxf:
                 from .exporters import piece_dxf
                 piece_dxf.write_pieces_dxf(pieces, pieces_dxf,
-                                           size=o.size_label)
+                                           size=o.size_label,
+                                           show_seam=o.show_seam_allowance)
                 print(f"裁片合集 DXF 已输出:{pieces_dxf}")
 
     svg_exp.write_sheet_svg(ctx.sheet, svg)
@@ -911,7 +921,8 @@ def run_size_run(size_file: str, *, pieces_dxf: str,
         rows.append((label, _last_residual(trace_s), len(pieces)))
     piece_dxf_exp.write_size_run_dxf(groups, pieces_dxf,
                                      sample_size=run.base,
-                                     style_name=run.style_name)
+                                     style_name=run.style_name,
+                                     show_seam=o.show_seam_allowance)
     print(f"多码裁片 DXF 已输出:{pieces_dxf}"
           f"（{len(run.labels)} 码，基码 {run.base}）")
     residuals = [r for r in rows if r[1] is not None]

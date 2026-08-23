@@ -86,9 +86,11 @@ _BLOCK_NAME_RE = re.compile(r"[^A-Za-z0-9_-]")   # 连字符合法：{片名}-{�
 BLOCK_NAME_MAX = 31          # R12 符号表名长度上限
 
 
-def _piece_bounds(piece: PatternPiece) -> tuple[float, float, float, float]:
+def _piece_bounds(piece: PatternPiece, include_gross: bool = True
+                  ) -> tuple[float, float, float, float]:
     """裁片全内容 bbox（含 marks/drills，DXF 输出应完整；比 piece_svg 的
-    _bounds 口径更宽，供平铺布局用）。"""
+    _bounds 口径更宽，供平铺布局用）。include_gross=False 隐藏缝边时剔除
+    毛样点（平铺紧凑贴净样，块内信息文本同步以净样 bbox 居中）。"""
     xs: list[float] = []
     ys: list[float] = []
 
@@ -96,8 +98,9 @@ def _piece_bounds(piece: PatternPiece) -> tuple[float, float, float, float]:
         xs.append(p.x)
         ys.append(p.y)
 
-    for p in piece.gross_polygon:
-        add(p)
+    if include_gross:
+        for p in piece.gross_polygon:
+            add(p)
     for edges in (piece.net_edges, piece.shrunk_edges):
         for e in edges:
             for p in base.flatten_geom(e.geom):
@@ -117,7 +120,8 @@ def _piece_bounds(piece: PatternPiece) -> tuple[float, float, float, float]:
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _layout(pieces: Sequence[PatternPiece], gap_cm: float
+def _layout(pieces: Sequence[PatternPiece], gap_cm: float,
+            include_gross: bool = True
             ) -> list[tuple[PatternPiece, float, float]]:
     """shelf 行装箱：按传入顺序左->右摆放，行内底边对齐（bbox 下沿同高），
     累计行宽超 ROW_LIMIT_CM 换行，行高取该行最高片。返回 (piece, offx, offy)。"""
@@ -126,7 +130,7 @@ def _layout(pieces: Sequence[PatternPiece], gap_cm: float
     y = 0.0
     row_h = 0.0
     for piece in pieces:
-        x0, _y0, x1, y1 = _piece_bounds(piece)
+        x0, _y0, x1, y1 = _piece_bounds(piece, include_gross)
         w = x1 - x0
         h = y1 - _y0
         if placements and x + w > ROW_LIMIT_CM:
@@ -209,12 +213,19 @@ def _with_notch_vertices(poly: tuple[Point, ...], notches: Sequence[Point]
 
 
 def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
-                       tolerance_cm: float) -> None:
+                       tolerance_cm: float, show_seam: bool = True) -> None:
     """单片写入 BLOCK（图层顺序同 piece_svg：CUT/NET/SHRUNK/MARK/GRAIN/
-    DRILL/NOTCH，层名经 _LAYER_MAP 映射为 AAMA 数字层）。"""
-    notch_pts = piece.gross_notches or piece.shrunk_notches or piece.notches
+    DRILL/NOTCH，层名经 _LAYER_MAP 映射为 AAMA 数字层）。
+
+    show_seam=False 隐藏缝边（options.show_seam_allowance 总开关）：
+    层 1 不发 CUT 闭合折线（层 1 文本照常），刀口回退净线口径
+    （shrunk_notches or notches，与 piece_svg 同口径）；净样环/内部线/
+    丝缕/定位孔照常——出净样交换文件而非裁床切割文件。"""
+    notch_pts = ((piece.gross_notches or piece.shrunk_notches or piece.notches)
+                 if show_seam
+                 else (piece.shrunk_notches or piece.notches))
     # 毛样（最终裁切线，闭合；刀口点共线插入为顶点——ET 按顶点吸附挂符号）
-    if piece.gross_polygon:
+    if show_seam and piece.gross_polygon:
         base.add_polyline(block, _with_notch_vertices(piece.gross_polygon,
                                                       notch_pts),
                           to_mm, layer=_LAYER_MAP["CUT"], closed=True)
@@ -331,7 +342,8 @@ def render_size_run_dxf(
         gap_cm: float = PIECE_GAP_CM,
         band_gap_cm: float = BAND_GAP_CM,
         qty: int = 1,
-        style_name: str = "noname"):
+        style_name: str = "noname",
+        show_seam: bool = True):
     """多码单文件推码 DXF（ezdxf Drawing）：groups = [(码标签, 该码裁片
     列表), ...]（码序），逐码参数化重打版后各码裁片合一张。
 
@@ -357,8 +369,9 @@ def render_size_run_dxf(
     band_y = 0.0                      # 当前摆放带底边（cm，全局 Y 向上）
     for size, pieces in groups:
         band_h = 0.0
-        for index, (piece, offx, offy) in enumerate(_layout(pieces, gap_cm)):
-            x0, y0, x1, y1 = _piece_bounds(piece)
+        for index, (piece, offx, offy) in enumerate(_layout(
+                pieces, gap_cm, include_gross=show_seam)):
+            x0, y0, x1, y1 = _piece_bounds(piece, include_gross=show_seam)
 
             def to_mm(p: Point, x0=x0, y1=y1) -> tuple[float, float]:
                 return ((p.x - x0) * base.MM_PER_CM,
@@ -368,7 +381,7 @@ def render_size_run_dxf(
                                    base_point=(0.0, 0.0, 0.0))
             # 块与块引用必须显式落层 1：默认层 0 会被 ET 08 直接过滤丢弃
             block.block.dxf.layer = _LAYER_MAP["CUT"]
-            _render_piece_into(block, piece, to_mm, tolerance_cm)
+            _render_piece_into(block, piece, to_mm, tolerance_cm, show_seam)
             _add_piece_info(block, piece, x0, y0, x1, y1, to_mm,
                             size, qty, index)
             msp.add_blockref(block.name,
@@ -407,11 +420,12 @@ def write_size_run_dxf(
         gap_cm: float = PIECE_GAP_CM,
         band_gap_cm: float = BAND_GAP_CM,
         qty: int = 1,
-        style_name: str = "noname") -> None:
+        style_name: str = "noname",
+        show_seam: bool = True) -> None:
     doc = render_size_run_dxf(groups, sample_size=sample_size,
                               tolerance_cm=tolerance_cm, gap_cm=gap_cm,
                               band_gap_cm=band_gap_cm, qty=qty,
-                              style_name=style_name)
+                              style_name=style_name, show_seam=show_seam)
     base.save_doc(doc, path, comment=AAMA_NOTE)   # 前置 999 注释组
 
 
@@ -419,18 +433,21 @@ def render_pieces_dxf(pieces: Sequence[PatternPiece], *,
                       tolerance_cm: float = base.FLATTEN_TOL_CM,
                       gap_cm: float = PIECE_GAP_CM,
                       size: str = "-", qty: int = 1,
-                      style_name: str = "noname"):
+                      style_name: str = "noname",
+                      show_seam: bool = True):
     """单码裁片合集 = 多码渲染的单组退化（Sample Size = 本码）。"""
     return render_size_run_dxf([(size, pieces)], sample_size=size,
                                tolerance_cm=tolerance_cm, gap_cm=gap_cm,
-                               qty=qty, style_name=style_name)
+                               qty=qty, style_name=style_name,
+                               show_seam=show_seam)
 
 
 def write_pieces_dxf(pieces: Sequence[PatternPiece], path: str, *,
                      tolerance_cm: float = base.FLATTEN_TOL_CM,
                      gap_cm: float = PIECE_GAP_CM,
                      size: str = "-", qty: int = 1,
-                     style_name: str = "noname") -> None:
+                     style_name: str = "noname",
+                     show_seam: bool = True) -> None:
     write_size_run_dxf([(size, pieces)], path, sample_size=size,
                        tolerance_cm=tolerance_cm, gap_cm=gap_cm,
-                       qty=qty, style_name=style_name)
+                       qty=qty, style_name=style_name, show_seam=show_seam)

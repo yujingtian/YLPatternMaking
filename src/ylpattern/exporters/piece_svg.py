@@ -1,10 +1,11 @@
 """裁片 SVG 输出：独立裁片视图（腰头裁片.md §五.4，独立 SVG）。
 
 与整版 svg.py 的区别：裁片局部坐标系 **Y 向下**（与 SVG 同向），渲染时
-仅缩放平移、不翻转。图层：gross 毛样（实线，最终裁切线）/ shrunk_net
-含缩水净样（虚线；缩水时唯一内轮廓基准）/ net 净样（淡虚线；**仅在未缩水时
-绘制**，已缩水则省略——两条内轮廓虚线并存易误读）/ notches 刀口（红）/
-grain 丝缕线（蓝）/ drills 定位孔（红空心圈，后片裁片.md §6 定位图层）。
+仅缩放平移、不翻转。图层：net/shrunk_net 净样轮廓（深色**实线**主轮廓，
+2026-08 用户口径；两者互斥——net 仅在未缩水时绘制、已缩水省略，缩水时
+唯一内轮廓基准是 shrunk_net）/ gross 毛样缝边线（**橙色**实线，与净样
+区分色，最终裁切线）/ notches 刀口（红）/ grain 丝缕线（蓝）/ drills
+定位孔（红空心圈，后片裁片.md §6 定位图层）。
 """
 
 from __future__ import annotations
@@ -16,9 +17,9 @@ SCALE = 10.0    # px / cm
 MARGIN = 40.0   # 画布边距 px
 
 _STYLE = """<style>
-  .netline   { stroke: #bbb; stroke-width: 0.8; fill: none; stroke-dasharray: 3 3; }
-  .shrunkline{ stroke: #888; stroke-width: 1.0; fill: none; stroke-dasharray: 6 3; }
-  .grossline { stroke: #2c3e50; stroke-width: 1.6; fill: none; }
+  .netline   { stroke: #2c3e50; stroke-width: 1.6; fill: none; }
+  .shrunkline{ stroke: #2c3e50; stroke-width: 1.6; fill: none; }
+  .grossline { stroke: #e67e22; stroke-width: 1.6; fill: none; }
   .markline  { stroke: #16a085; stroke-width: 0.9; fill: none; stroke-dasharray: 2 2; }
   .notch     { stroke: #c0392b; stroke-width: 1.2; fill: none; }
   .notchpt   { fill: #c0392b; }
@@ -43,11 +44,13 @@ def _geom_points(g: LineSegment | CubicBezier) -> list[Point]:
     return g.sample(48)
 
 
-def _bounds(piece: PatternPiece) -> tuple[float, float, float, float]:
+def _bounds(piece: PatternPiece, include_gross: bool = True
+            ) -> tuple[float, float, float, float]:
     xs: list[float] = []
     ys: list[float] = []
-    for p in piece.gross_polygon:
-        xs.append(p.x); ys.append(p.y)
+    if include_gross:                     # 隐藏缝边时画布收缩回净样（不留毛样空边）
+        for p in piece.gross_polygon:
+            xs.append(p.x); ys.append(p.y)
     for e in piece.net_edges:
         for p in _edge_points(e):
             xs.append(p.x); ys.append(p.y)
@@ -63,9 +66,15 @@ def _bounds(piece: PatternPiece) -> tuple[float, float, float, float]:
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def render_piece_svg(piece: PatternPiece) -> str:
-    """把裁片渲染为独立 SVG 文本。"""
-    x0, y0, x1, y1 = _bounds(piece)
+def render_piece_svg(piece: PatternPiece, show_seam: bool = True) -> str:
+    """把裁片渲染为独立 SVG 文本。
+
+    show_seam=False 隐藏缝边（options.show_seam_allowance 总开关）：
+    不画毛样层、画布 bbox 收缩回净样、刀口整层不绘制（缝边刀口随缝边
+    同步隐藏，净线位刀口一并隐藏——净样交换视图只留轮廓/内部线/丝缕/
+    定位孔；DXF 侧净样交换仍回退净线刀口）；净样/缩水净样/内部线/丝缕/
+    定位孔照常。"""
+    x0, y0, x1, y1 = _bounds(piece, include_gross=show_seam)
     width = (x1 - x0) * SCALE + 2 * MARGIN
     height = (y1 - y0) * SCALE + 2 * MARGIN
     ox = MARGIN - x0 * SCALE
@@ -85,8 +94,8 @@ def render_piece_svg(piece: PatternPiece) -> str:
         '<rect width="100%" height="100%" fill="white"/>',
     ]
 
-    # 净样（淡虚线；已缩水时省略——未缩水净样对裁切/缝纫无意义，
-    # 只留 shrunk_net 一条内轮廓基准线，避免两条虚线并存误读）
+    # 净样（深色实线主轮廓；已缩水时省略——未缩水净样对裁切/缝纫无意义，
+    # 只留 shrunk_net 一条内轮廓基准线，避免两条实线并存误读）
     if not piece.shrunk_edges:
         parts.append('<g id="net">')
         for e in piece.net_edges:
@@ -94,7 +103,7 @@ def render_piece_svg(piece: PatternPiece) -> str:
             parts.append(f'<polyline class="netline" points="{pts}"/>')
         parts.append('</g>')
 
-    # 含缩水净样（虚线）
+    # 含缩水净样（深色实线主轮廓，缩水时唯一净样基准）
     if piece.shrunk_edges:
         parts.append('<g id="shrunk">')
         for e in piece.shrunk_edges:
@@ -102,8 +111,8 @@ def render_piece_svg(piece: PatternPiece) -> str:
             parts.append(f'<polyline class="shrunkline" points="{pts}"/>')
         parts.append('</g>')
 
-    # 毛样（实线，最终裁切线）
-    if piece.gross_polygon:
+    # 毛样缝边线（橙色实线，与净样区分色；最终裁切线；show_seam=False 不绘制）
+    if show_seam and piece.gross_polygon:
         pts = " ".join(f"{sx(p.x):.1f},{sy(p.y):.1f}" for p in piece.gross_polygon)
         parts.append('<g id="gross">')
         parts.append(f'<polygon class="grossline" points="{pts}"/>')
@@ -151,22 +160,27 @@ def render_piece_svg(piece: PatternPiece) -> str:
 
     # 刀口（红色短线 + 点；方向优先 piece.gross_notch_dirs——双排门襟对折线
     # 两端刀口沿对折轴、与中心对称线共线，2026-08 口径；其余保持向下 4px）
-    notch_pts = piece.gross_notches or piece.shrunk_notches or piece.notches
+    # 隐藏缝边时整层不绘制（2026-08 用户口径：缝边刀口随缝边同步隐藏，
+    # 净线位刀口 shrunk/notches 一并隐藏；DXF 净样交换文件仍回退净线刀口）
+    notch_pts = ((piece.gross_notches or piece.shrunk_notches or piece.notches)
+                 if show_seam else ())
     use_dirs = (notch_pts is piece.gross_notches
                 and piece.gross_notch_dirs)
-    parts.append('<g id="notches">')
-    for i, p in enumerate(notch_pts):
-        d = (use_dirs[i] if use_dirs and i < len(use_dirs)
-             and use_dirs[i] is not None else None)
-        if d is not None:
-            ex, ey = p.x + d.dx * 0.4, p.y + d.dy * 0.4
-        else:
-            ex, ey = p.x, p.y + 0.4
-        parts.append(f'<line class="notch" x1="{sx(p.x):.1f}" y1="{sy(p.y):.1f}" '
-                     f'x2="{sx(ex):.1f}" y2="{sy(ey):.1f}"/>')
-        parts.append(f'<circle class="notchpt" cx="{sx(p.x):.1f}" '
-                     f'cy="{sy(p.y):.1f}" r="2"/>')
-    parts.append('</g>')
+    if notch_pts:
+        parts.append('<g id="notches">')
+        for i, p in enumerate(notch_pts):
+            d = (use_dirs[i] if use_dirs and i < len(use_dirs)
+                 and use_dirs[i] is not None else None)
+            if d is not None:
+                ex, ey = p.x + d.dx * 0.4, p.y + d.dy * 0.4
+            else:
+                ex, ey = p.x, p.y + 0.4
+            parts.append(f'<line class="notch" x1="{sx(p.x):.1f}" '
+                         f'y1="{sy(p.y):.1f}" '
+                         f'x2="{sx(ex):.1f}" y2="{sy(ey):.1f}"/>')
+            parts.append(f'<circle class="notchpt" cx="{sx(p.x):.1f}" '
+                         f'cy="{sy(p.y):.1f}" r="2"/>')
+        parts.append('</g>')
 
     # 标注
     parts.append(f'<text class="label" x="{MARGIN:.0f}" y="{MARGIN - 10:.0f}">'
@@ -184,6 +198,7 @@ def render_piece_svg(piece: PatternPiece) -> str:
     return "\n".join(parts)
 
 
-def write_piece_svg(piece: PatternPiece, path: str) -> None:
+def write_piece_svg(piece: PatternPiece, path: str,
+                    show_seam: bool = True) -> None:
     with open(path, "w", encoding="utf-8") as fp:
-        fp.write(render_piece_svg(piece))
+        fp.write(render_piece_svg(piece, show_seam=show_seam))

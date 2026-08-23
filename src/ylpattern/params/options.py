@@ -650,6 +650,15 @@ class PatternOptions:
                                            # 袋布裁片纬向缩水率（默认 0=不缩水，§3）
     fit: Fit = Fit.REGULAR
     seam_allowance: float = 1.0            # 默认缝份
+    show_seam_allowance: bool = True       # 缝边显示总开关（出口层显示控制，不改几何：
+                                           #   False 时裁片 SVG 毛样层与裁片 DXF 层 1
+                                           #   CUT 闭合折线不绘制，画布/平铺 bbox 收缩回
+                                           #   净样；SVG 刀口整层不绘制（缝边刀口随缝边
+                                           #   同步隐藏，净线位刀口一并隐藏），DXF 刀口
+                                           #   回退净线口径（gross_notches 落在毛样外沿，
+                                           #   改用 shrunk/notches）；净样/缩水净样/内部
+                                           #   线/丝缕/定位孔照常。几何仍完整计算，
+                                           #   报表/notes 不受影响）
     size_label: str = "-"                  # 尺码标签（订单元数据，不参与几何；
                                            #   进裁片 DXF 片中央 SIZE 信息行，"-" = 未录入）
 

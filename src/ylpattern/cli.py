@@ -107,12 +107,14 @@ def _cmd_draft(args: argparse.Namespace) -> int:
         for piece in pieces:
             out = svg_map.get(piece.name)
             if out:
-                piece_exp.write_piece_svg(piece, out)
+                piece_exp.write_piece_svg(piece, out,
+                                          show_seam=o.show_seam_allowance)
                 print(f"{piece.label} SVG 已输出：{out}")
         if args.pieces_dxf:
             from .exporters import piece_dxf
             piece_dxf.write_pieces_dxf(pieces, args.pieces_dxf,
-                                       size=ctx.options.size_label)
+                                       size=ctx.options.size_label,
+                                       show_seam=o.show_seam_allowance)
             print(f"裁片合集 DXF 已输出：{args.pieces_dxf}")
     if want_trace:
         with open(args.trace, "w", encoding="utf-8") as fp:

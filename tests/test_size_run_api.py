@@ -75,11 +75,23 @@ def test_run_size_run_requires_section():
                      pieces_dxf="unused.dxf")
 
 
-def test_examples_run_file_loads():
-    """examples 多码尺寸单（直筒单文末 [size_run]，8 码分段档差）加载正确。"""
-    run = load_size_run("examples/size_female_zhitong.toml")
+def test_examples_run_file_loads(tmp_path):
+    """examples 多码尺寸单（直筒单文末 [size_run]，6 码 27-32 单段档差）加载正确。
+
+    示例文件的 enabled 会被使用者随手开关（false = 走单码模式），细节断言
+    在强制 enabled = true 的副本上做，测内容不测开关状态。"""
+    import re
+    from pathlib import Path
+    load_size_run("examples/size_female_zhitong.toml")   # 原文件只测不抛错
+    text = Path("examples/size_female_zhitong.toml").read_text(encoding="utf-8")
+    f = tmp_path / "run.toml"
+    f.write_text(re.sub(r"(?m)^enabled\s*=\s*false", "enabled = true", text),
+                 encoding="utf-8")
+    run = load_size_run(str(f))
     assert run is not None
-    assert run.labels == ("29", "30", "31", "32", "33", "34", "36", "38")
+    assert run.labels == ("27", "28", "29", "30", "31", "32")
     assert run.base == "30"
     assert run.style_name == "YL-A2708-F"
-    assert run.measurements("33").waist == pytest.approx(82.0 + 3.0)  # 跨段取大码段
+    # 基码 30 腰围 77、档差 2.5：27 码低三档 77-3*2.5、32 码高两档 77+2*2.5
+    assert run.measurements("27").waist == pytest.approx(77.0 - 3 * 2.5)
+    assert run.measurements("32").waist == pytest.approx(77.0 + 2 * 2.5)
