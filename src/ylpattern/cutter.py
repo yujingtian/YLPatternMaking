@@ -13,8 +13,10 @@ add_seam_allowance  各边按独立缝份沿**外法向**偏移（曲线逐点�
   本值时回退阶梯角（miter 长 = sa/sin(θ/2) 随角变锐无界增长，不限则长尖刺）。
   可选 corner_treatments 指定特定角点改用镜像折角（_mirror_point：缝份翻折后
   与裁片重合，机头内缝顶点 bottom×side 与后中底角 bottom×cb 斜角用之；直角退化即 miter）、
-  或不限长自然尖角（"miter"：工艺指定的尖角跟随净样曲线按参数方程多项式自然外推相交，
-  绕过 miter_limit 限长——限长是防偶发尖刺的兜底，指定角的尖角是目标形态本身，如前片裆尖）。
+  不限长自然尖角（"miter"：工艺指定的尖角跟随净样曲线按参数方程多项式自然外推相交，
+  绕过 miter_limit 限长——限长是防偶发尖刺的兜底，指定角的尖角是目标形态本身），
+  或切线直线延伸 miter（"miter_line"：两侧缝边沿端切线直线延长相交于单一顶点，
+  不限长，经典打版作角，前片裆尖 False 态用户口径 2026-08-24）。
 可选 hem 指定一条边走袋口折边构造（HemTreatment，后贴袋裁片.md §3/§4）：
   折边自毛样外侧缝边线起翻——锚点 P_notch = 袋口净线延长线 ∩ 侧缝缝边线，
   折边线 = 侧缝缝边线关于袋口线的镜像（翻折后与侧缝折边区重合），顶端撇势
@@ -455,7 +457,10 @@ def _natural_join_sharp(g_a: LineSegment | CubicBezier,
                         g_b: LineSegment | CubicBezier,
                         sa_a: float, sa_b: float
                         ) -> tuple[Point, ...] | None:
-    """两边通过贝塞尔多项式自然外延求交，返回完整的圆顺连线轨迹防折角。"""
+    """两边通过贝塞尔多项式自然外延求交，返回完整的圆顺连线轨迹防折角。
+
+    （前片裆尖 False 态 2026-08-24 起改走 "miter_line" 切线直线延伸，本函数
+    保留作既有 "miter" 治理路径——后片浪尖 False 态在用。）"""
     # 放宽外延搜索距离，确保能在远端相交（留足安全余量）
     max_len = 4.0 * max(sa_a, sa_b) + 20.0
     
@@ -482,7 +487,7 @@ def _natural_join_sharp(g_a: LineSegment | CubicBezier,
     res = []
     res.extend(A[1:i+1])
     res.append(x)
-    res.extend(B[1:j+1][::-1]) 
+    res.extend(B[1:j+1][::-1])
     return tuple(res)
 
 
@@ -600,13 +605,15 @@ def add_seam_allowance(piece: PatternPiece,
     （字段名即边名）；详见 _sa_amount。
 
     corner_treatments：可选 {(折线边, 被镜像边): 算法名}，指定特定异名边角点
-    改用非 miter 折角。**键首元素 = 缝份翻折的折线边**（如底边 bottom），次元素 =
-    被镜像边（如侧缝 side / 后中 cb）。mirror 非对称：角点在 cutter 序可能以任一顺序
-    出现，故两种顺序的键都查；逆序命中时折线边 = 下边，_mirror_point 形参须交换
-    （t_a/sa_a 传折线边、t_b/sa_b 传被镜像边）。目前支持 ``"mirror"``（_mirror_point，
-    缝份翻折重合）与 ``"miter"``（不限长自然尖角——工艺指定的尖角跟随净样曲线
-    按参数方程多项式自然外推相交，绕过 miter_limit，如前片裆尖）；
-    "miter" 对键序对称。未列出或列其它值仍走限长 miter。
+    改用非 miter 折角。**键首元素 = 特殊角色边**（mirror = 缝份翻折的折线边），
+    次元素 = 对侧边。非对称治理（mirror）：角点在 cutter 序可能以任一顺序出现，
+    故两种顺序的键都查；逆序命中时折线边 = 下边，_mirror_point 形参须交换
+    （t_a/sa_a 传折线边、t_b/sa_b 传被镜像边）。目前支持 ``"mirror"``
+    （_mirror_point，缝份翻折重合）、``"miter"``（不限长自然尖角——工艺指定
+    的尖角跟随净样曲线按参数方程多项式自然外推相交，绕过 miter_limit）与
+    ``"miter_line"``（不限长切线 miter——两侧缝边沿端切线**直线延长**相交于
+    单一顶点，经典打版作角，如前片裆尖 False 态）；后两者对键序对称。
+    未列出或列其它值仍走限长 miter。
     机头内缝顶点（bottom, side）与后中底角（bottom, cb）用 mirror 使相邻缝份翻折后
     与裁片重合；直角角点 mirror 退化即 miter，故仅斜角相异。
 
@@ -687,32 +694,34 @@ def add_seam_allowance(piece: PatternPiece,
                 poly.append(miter)
             continue
         # mirror 非对称：键 (折线边, 被镜像边)，首元素为翻折折线边。角点在 cutter
-        # 序可能以 (本边,下边) 或其逆序出现，两种键都查；逆序命中则折线边=下边，
+        # 序可能以 (本边,下边) 或其逆序出现，两种键都查；first_is_edge 标记首键
+        # 元素命中本边（True）或下边（False）——mirror 逆序命中则折线边=下边，
         # _mirror_point 形参交换（t_a/sa_a 传下边=折线、t_b/sa_b 传本边=被镜像）。
+        # "miter"/"miter_line" 对键序对称，首键命中与否不影响。
         ct = corner_treatments or {}
         treatment = ct.get((edge.name, nxt.name))
-        fold_is_edge = True
+        first_is_edge = True
         if treatment is None:
             treatment = ct.get((nxt.name, edge.name))
-            fold_is_edge = False
+            first_is_edge = False
         cross = None
         if treatment == "mirror":
-            if fold_is_edge:
+            if first_is_edge:
                 miter = _mirror_point(corner, t_a, t_b, sa_a, sa_b)
             else:
                 miter = _mirror_point(corner, t_b, t_a, sa_b, sa_a)
             if miter is None:               # 镜像退化（平行）回退 miter
                 miter = _miter_point(corner, t_a, t_b, sa_a, sa_b)
-            elif fold_is_edge and sa_b > 0.0:
+            elif first_is_edge and sa_b > 0.0:
                 # 真反折角补全：被镜像边 = 下边，其缝份边界自偏移起点沿本边
                 # 方向延伸至翻折轴（折线边净缝切线过角点）穿越点 X
                 off_b0 = corner + t_b.perpendicular().scale(sa_b)
                 cross = _axis_cross(off_b0, t_b, corner, t_a)
-            elif not fold_is_edge and sa_a > 0.0:
+            elif not first_is_edge and sa_a > 0.0:
                 # 被镜像边 = 本边：其缝份边界自偏移链头沿走向延伸至翻折轴
                 cross = _axis_cross(poly[-1], t_a, corner, t_b)
         elif treatment == "miter":
-            # 不限长自然尖角（前片裆尖等）：尖角是该角的工艺目标形态（缝边跟随净样
+            # 不限长自然尖角：尖角是该角的工艺目标形态（缝边跟随净样
             # 曲线自然延伸交接），非偶发尖刺，绕过 miter_limit。
             # 接收多项式外推返回的整段平滑轨迹防折角
             join_path = _natural_join_sharp(edge.geom, nxt.geom, sa_a, sa_b)
@@ -723,6 +732,12 @@ def add_seam_allowance(piece: PatternPiece,
                 continue  # 轨迹已完整覆盖该角点，直接 continue 处理下一条边
             else:
                 miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, float("inf"))
+        elif treatment == "miter_line":
+            # 切线直线延伸 miter（前片裆尖 False 态，用户口径 2026-08-24）：
+            # 两侧缝边各沿端切线**直线延长**相交于单一顶点（经典打版作角），
+            # 不限长——限长回退阶梯角会留台阶断点；交点距角点 = sa/sin(θ/2)
+            # （θ=内角，直筒尖裆 ~75° 时 ~1.64·缝宽）。平行退化走下方阶梯回退
+            miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, float("inf"))
         else:
             miter = _miter_point(corner, t_a, t_b, sa_a, sa_b, miter_limit)
         if miter is not None:
@@ -740,7 +755,7 @@ def add_seam_allowance(piece: PatternPiece,
             # 被镜像边 = 下边的 mirror 角：头部裁剪/环回裁剪基准改 X（X 沿
             # t_b 在 M 后方，按 M 裁会漏裁 X 与 M 之间的采样点、与补插的 X
             # 成折返乱序）；其余角点无 X，基准仍为 M，行为不变
-            head_ref = cross if (cross is not None and fold_is_edge) else miter
+            head_ref = cross if (cross is not None and first_is_edge) else miter
             if sa_b > 0.0:
                 if i + 1 < n:
                     pending_head_trim = (head_ref, t_b)
@@ -751,12 +766,12 @@ def add_seam_allowance(piece: PatternPiece,
                         k += 1
                     if k:
                         del poly[:k]
-            if (cross is not None and not fold_is_edge
+            if (cross is not None and not first_is_edge
                     and cross != poly[-1] and cross != miter):
                 poly.append(cross)      # 被镜像边 = 本边：X 插在 M 之前
             if miter != poly[-1]:
                 poly.append(miter)
-            if cross is not None and fold_is_edge and cross != poly[-1]:
+            if cross is not None and first_is_edge and cross != poly[-1]:
                 poly.append(cross)      # 被镜像边 = 下边：X 插在 M 之后
         else:
             # 切线平行回退：阶梯角（外角点 + 下边偏移起点）

@@ -9,9 +9,10 @@
     连裁门襟：fly 四元素并入链首、毛样右界外扩（门襟延伸包含，§1.3）；
     独立门襟与无门襟同形（fly_sep_* 为叠画元素不进边界）。
   §2.1 边长独立复算（从 ctx 元素 t_at_length/bezier_subrange 同式重算，不硬编）。
-  §2.2 裆尖角部：True = mirror（== _mirror_point 复算角点）、False = 纯
-    尖角跟随净样（== _natural_join_sharp 复算外延链 ∈ 毛样：两侧缝边按
-    贝塞尔多项式自然外延求交成尖，裆尖尖角保留、无阶梯断点、不抹圆）。
+  §2.2 裆尖角部：True = mirror（== _mirror_point 复算角点）、False = 切线
+    直线延伸 miter（== _miter_point 不限长复算顶点 ∈ 毛样：前浪缝边与下裆
+    缝缝边各沿端切线直线延长相交于单一顶点，顶点在两偏移端点之间、距两
+    净缝切线 == 各侧缝宽、无阶梯断点，用户口径 2026-08-24）。
   §2.3 刀口法向投影：全部 ∈ 毛样外沿（1e-6）；膝围双刀口距净点 == sa_side
     且 ⟂ 切线（绝对精准）；拉链止口 == 外缘链 point_along_chain(L)；
     刀口数按矩阵（膝2+臀1+脚口2+毗围1 基底，口袋 +2、连裁 +1、d>0 毗围内端 +1）。
@@ -352,22 +353,20 @@ def test_crotch_corner_treatment(wb):
         assert nearest_vertex(p_mirror, exp_m) < 1e-9
 
 
-# ---------- §2.2 裆尖纯尖角跟随净样（False 态，"miter" 自然相交） ----------
+# ---------- §2.2 裆尖切线直线延伸 miter（False 态，"miter_line"） ----------
 
 @pytest.mark.parametrize("wb", WBS, ids=[w.name for w in WBS])
-def test_crotch_miter_corner(wb):
-    """False：裆尖走 "miter" 不限长纯尖角自然相交（不抹圆）——两侧缝边
-    按贝塞尔多项式自然外延（延续曲线自身张力与曲率）求首个交点成尖
-    （== _natural_join_sharp 同式复算链逐点 ∈ 毛样）——角部形态
-    与净样轮廓一致，无圆弧过渡点（毛样无距裆尖 == 缝宽的等距弧顶点）、
-    无阶梯角断点（尖裆转角大时切线 miter 长 >1.5·缝宽会触发
-    默认限长回退阶梯角，本态显式声明尖角为工艺目标形态、绕过限长）。"""
-    from ylpattern.cutter import _natural_join_sharp
-    ctx, p_mit, _ = _build(waistband_type=wb, front_piece_crotch_corner=False)
+def test_crotch_miter_line_corner(wb):
+    """False：裆尖走切线直线延伸 miter（用户口径 2026-08-24）——前浪缝边与
+    下裆缝缝边各沿端切线**直线延长**相交于单一顶点（== _miter_point 不限长
+    同式复算 ∈ 毛样）。角部单顶点（顶点在两偏移链端点之间、无钝角平顶的
+    双顶点弦、无阶梯角台阶点；旧 "miter" 多项式自然外延求交在尖裆锐角下
+    交点远飞、顶点高出裆尖过多，故废）。"""
+    ctx, p_ml, _ = _build(waistband_type=wb, front_piece_crotch_corner=False)
     _, p_mir, _ = _build(waistband_type=wb, front_piece_crotch_corner=True)
     b = _b(ctx)
     c = _loc(ctx.point("front.crotch_vertex"), b)
-    ne = list(p_mit.net_edges)
+    ne = list(p_ml.net_edges)
     iu = next(i for i, e in enumerate(ne)
               if e.name == "inseam" and _end(e.geom).distance_to(c) < 1e-9)
     ri = (iu + 1) % len(ne)
@@ -377,37 +376,44 @@ def test_crotch_miter_corner(wb):
     def nearest(piece, q):
         return min(p.distance_to(q) for p in piece.gross_polygon)
 
-    # 同式复算：自然相交延续链逐点在毛样上，交点成尖（尖角为工艺指定形态）
-    exp = _natural_join_sharp(ne[iu].geom, ne[ri].geom,
-                              SA.inseam, SA.rise)
-    assert exp is not None, "裆尖多项式外延必相交"
-    for q in exp:
-        assert nearest(p_mit, q) < 1e-9
-    apex = exp[len(exp) // 2] if len(exp) % 2 else max(
-        exp, key=lambda q: q.distance_to(c))
-    # 尖角保留：交尖距裆尖 > 缝宽；且小于切线 miter 长（自然弧相交更近）
-    assert apex.distance_to(c) > max(SA.inseam, SA.rise) + 0.05
+    # 同式复算：切线 miter 顶点在毛样上，且在两侧偏移端点之间（链序
+    # inseam 偏移终点 -> 顶点 -> rise 偏移起点，单一角点无中间弦）
+    v = _miter_point(c, t_a, t_b, SA.inseam, SA.rise, float("inf"))
+    assert v is not None, "裆尖两切线必相交"
+    assert nearest(p_ml, v) < 1e-9
+    off_a = c + t_a.perpendicular().scale(SA.inseam)
+    off_b = c + t_b.perpendicular().scale(SA.rise)
+    assert nearest(p_ml, off_a) < 1e-9
+    assert nearest(p_ml, off_b) < 1e-9
+    iv = min(range(len(p_ml.gross_polygon)),
+             key=lambda i: p_ml.gross_polygon[i].distance_to(v))
+    ia = min(range(len(p_ml.gross_polygon)),
+             key=lambda i: p_ml.gross_polygon[i].distance_to(off_a))
+    ib = min(range(len(p_ml.gross_polygon)),
+             key=lambda i: p_ml.gross_polygon[i].distance_to(off_b))
+    assert ia < iv < ib or ib < iv < ia, "顶点须在两偏移端点之间的链段上"
+    # 顶点同时在两条偏移延长线上（各距对侧净缝切线 == 该侧缝宽；线段取
+    # 双向 ±10，miter 顶点可在切线起点的反向延长侧——前浪切线向左、顶点
+    # 在裆尖右侧）
+    assert abs(_seg_dist(v, c + t_a.scale(-10), c + t_a.scale(10))
+               - SA.inseam) < 1e-9
+    assert abs(_seg_dist(v, c + t_b.scale(-10), c + t_b.scale(10))
+               - SA.rise) < 1e-9
     # 无阶梯角断点：阶梯角会多出 outer = c+n_a·sa_a+n_b·sa_b 台阶点
     step = c + t_a.perpendicular().scale(SA.inseam) \
         + t_b.perpendicular().scale(SA.rise)
-    assert nearest(p_mit, step) > 1e-9
-    # 无圆弧过渡：毛样除偏移端点外无距裆尖 == 缝宽的等距弧顶点
-    sa_eq = [p for p in p_mit.gross_polygon
-             if abs(p.distance_to(c) - SA.rise) < 1e-6]
-    assert all(p.distance_to(c + t_a.perpendicular().scale(SA.inseam)) < 1e-9
-               or p.distance_to(c + t_b.perpendicular().scale(SA.rise)) < 1e-9
-               for p in sa_eq)
-    # 与 mirror 态互异（斜角 mirror ≠ miter）、净样一致；不变量保持
+    assert nearest(p_ml, step) > 1e-9
+    # 与 mirror 态互异、净样一致；不变量保持
     m_pt = _mirror_point(c, t_b, t_a, SA.rise, SA.inseam)
     if m_pt is not None:
-        assert nearest(p_mit, m_pt) > 0.1
-    assert [(e.name, e.geom) for e in p_mit.net_edges] == \
+        assert nearest(p_ml, m_pt) > 0.1
+    assert [(e.name, e.geom) for e in p_ml.net_edges] == \
            [(e.name, e.geom) for e in p_mir.net_edges]
-    assert p_mit.gross_polygon != p_mir.gross_polygon
-    _assert_closed(p_mit)
-    assert _signed_area(p_mit) < 0
-    _assert_outward(p_mit)
-    render_piece_svg(p_mit)                           # 渲染冒烟
+    assert p_ml.gross_polygon != p_mir.gross_polygon
+    _assert_closed(p_ml)
+    assert _signed_area(p_ml) < 0
+    _assert_outward(p_ml)
+    render_piece_svg(p_ml)                            # 渲染冒烟
 
 
 # ---------- §2.3 刀口法向投影 ----------

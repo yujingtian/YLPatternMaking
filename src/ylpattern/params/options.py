@@ -338,9 +338,10 @@ class PatternOptions:
     front_piece_crotch_corner: bool = True # 前浪浪尖（裆尖 = 前浪弧末端 ∩ 下裆缝起点）
                                            #   缝份角形态开关（§2.2 两态）：True=向外
                                            #   凸出的镜像折角/反转角（补偿缝份翻折
-                                           #   长度差、防内部缺肉）；False=纯尖角跟随
-                                           #   净样轮廓（贝塞尔多项式自然外延求交成尖，
-                                           #   不抹圆）
+                                           #   长度差、防内部缺肉）；False=前浪缝边
+                                           #   与下裆缝缝边各沿端切线直线延长相交
+                                           #   于单一顶点（切线 miter，用户口径
+                                           #   2026-08-24）
     front_piece_notch_type: str = "I"      # 对位刀口类型："V" / "I"（§2.3；刀口位置几何
                                            #   固定（法向投影至缝边外沿），类型仅工艺标注）
     front_piece_shrinkage_warp: float | None = None
