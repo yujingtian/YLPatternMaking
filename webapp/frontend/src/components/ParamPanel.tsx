@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { GroupSpec, IssueDetail, ParamSpec, Values } from '../types'
+import type { Gate, GroupSpec, IssueDetail, ParamSpec, Values } from '../types'
 import { Input, InputNumber, Select, Switch, Collapse, Badge } from 'antd'
 
 interface Props {
@@ -16,6 +16,20 @@ function pocketTypeOf(options: Values): string {
   if (options.front_patch) return '前贴袋'
   if (options.front_pocket) return '挖削前口袋'
   return '无'
+}
+
+// 虚拟参数 fly_type：连裁 / 独立门襟互斥（fly_separate 优先口径，同引擎）
+function flyTypeOf(options: Values): string {
+  if (options.fly_separate) return '独立门襟'
+  if (options.fly) return '连裁门襟'
+  return '无'
+}
+
+// 参数级 gate 判定：字符串 = 布尔开关键；对象 = 枚举参数值匹配（形态联动）
+function gateOn(gate: Gate, options: Values): boolean {
+  if (typeof gate === 'string') return Boolean(options[gate])
+  const v = options[gate.param]
+  return v != null && gate.values.includes(String(v))
 }
 
 function errorMap(errors: IssueDetail[]): Map<string, string> {
@@ -53,6 +67,20 @@ function ParamInput({ spec, value, onChange, err, options, setOption }: {
               setOption('front_pouch', false)
               setOption('watch_pocket', false)
             }
+          }}
+        />
+      )
+      break
+    case 'fly_type':
+      control = (
+        <Select
+          size="small"
+          style={{ width: '100%' }}
+          value={flyTypeOf(options)}
+          options={(spec.choices ?? []).map((c) => ({ value: c, label: c }))}
+          onChange={(v) => {
+            setOption('fly', v === '连裁门襟')
+            setOption('fly_separate', v === '独立门襟')
           }}
         />
       )
@@ -180,13 +208,15 @@ export default function ParamPanel({
               (p.key.toLowerCase().includes(qs) ||
                 p.label.toLowerCase().includes(qs)))
         : g.params.filter(
-            // 参数级联动：visible_if（单键或多键，全真才显示）关闭时隐藏
+            // 参数级联动：visible_if 为单键=该开关开才显示；
+            // 为数组=任一开关开即显示（如口袋缩水率 gate 挖削/贴袋双形态）
             (p) => {
               if (p.hidden) return false
               if (!p.visible_if) return true
               const gates = Array.isArray(p.visible_if)
                 ? p.visible_if : [p.visible_if]
-              return gates.every((k) => Boolean(options[k]))
+              // gate：字符串=布尔开关，对象=枚举值匹配（形态联动）
+              return gates.some((g) => gateOn(g, options))
             }))
       if (params.length === 0) return null
 
@@ -213,9 +243,11 @@ export default function ParamPanel({
               const isMeasure = g.key === 'measurements'
               const value = p.type === 'pocket_type'
                 ? pocketTypeOf(options)
-                : isMeasure
-                  ? measurements[p.key] ?? p.default
-                  : options[p.key] ?? p.default
+                : p.type === 'fly_type'
+                  ? flyTypeOf(options)
+                  : isMeasure
+                    ? measurements[p.key] ?? p.default
+                    : options[p.key] ?? p.default
               return (
                 <ParamInput
                   key={p.key}

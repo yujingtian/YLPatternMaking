@@ -50,7 +50,7 @@ GROUPS: list[dict] = [
         "outseam", "thigh"]},
     {"key": "switches", "label": "款式开关", "params": [
         "front_pouch", "watch_pocket", "back_dart", "back_yoke", "back_patch",
-        "belt_loop", "fly", "fly_separate"]},
+        "belt_loop"]},
     {"key": "waistband", "label": "腰头", "params": [
         "waistband_type", "waistband_width", "waistband_front_drop",
         "waistband_fly_extension", "waistband_full_piece", "waistband_grain",
@@ -105,23 +105,49 @@ GROUPS: list[dict] = [
         "watch_pocket_shrinkage_warp", "watch_pocket_shrinkage_weft"],
      "visible_if": ["watch_pocket", "front_pocket"]},
     {"key": "fly", "label": "门襟", "params": [
-        "fly_width", "fly_length_ratio", "fly_length_base", "fly_turnback",
-        "fly_corner_inset", "fly_corner_turn", "fly_blend_drop",
-        "fly_stitch_inset", "fly_sep_extra", "fly_sep_double",
-        "fly_seam_allowances", "fly_shrinkage_warp", "fly_shrinkage_weft"],
-     "visible_if": None},   # fly / fly_separate 任一即相关，常显
-    {"key": "dart_yoke", "label": "后省与后机头", "params": [
-        "back_dart_count", "back_dart_width", "back_dart_length",
+        # 虚拟下拉 fly_type 驱动 fly / fly_separate 互斥开关（前端映射）
+        "fly_type", "fly", "fly_separate",
+        # 两形态共用（宽/开深/底角，门襟绘制.md §2.2/§3.2 连裁+独立共用）
+        ("fly_width", ["fly", "fly_separate"]),
+        ("fly_length_ratio", ["fly", "fly_separate"]),
+        ("fly_length_base", ["fly", "fly_separate"]),
+        ("fly_corner_inset", ["fly", "fly_separate"]),
+        ("fly_corner_turn", ["fly", "fly_separate"]),
+        ("fly_blend_drop", ["fly", "fly_separate"]),
+        # 连裁门襟专属（§3.1 折转退层 / §4.2 J 字明线，上版于前片）
+        ("fly_turnback", "fly"),
+        ("fly_stitch_inset", "fly"),
+        # 独立门襟专属（§5 分裁延展 / 门襟裁片.md 缝份与缩水）
+        ("fly_sep_extra", "fly_separate"),
+        ("fly_sep_double", "fly_separate"),
+        ("fly_seam_allowances", "fly_separate"),
+        ("fly_shrinkage_warp", "fly_separate"),
+        ("fly_shrinkage_weft", "fly_separate")]},
+    {"key": "back_dart", "label": "后省", "params": [
+        "back_dart_count", "back_dart_width", "back_dart_length"],
+     "visible_if": "back_dart"},
+    {"key": "back_yoke", "label": "后机头", "params": [
         "back_yoke_cb_dist", "back_yoke_side_dist", "back_yoke_mid_anchors",
         "back_yoke_edges", "back_yoke_join_fillet",
         "back_yoke_side_corner_mirror", "back_yoke_cb_corner_mirror",
         "back_yoke_seam_allowances", "back_yoke_shrinkage_warp",
-        "back_yoke_shrinkage_weft"], "visible_if": None},
+        "back_yoke_shrinkage_weft"], "visible_if": "back_yoke"},
     {"key": "back_patch", "label": "后贴袋", "params": [
         "back_patch_inset_x", "back_patch_drop_y", "back_patch_width",
-        "back_patch_height", "back_patch_shape", "back_patch_bottom_width",
-        "back_patch_rotate_deg", "back_patch_tip_depth", "back_patch_chamfer",
-        "back_patch_custom_points", "back_patch_custom_edges",
+        "back_patch_height", "back_patch_shape",
+        # 形态专属参数按 back_patch_shape 联动（baker_shield=底宽+底尖 /
+        # angular=底宽+斜切 / custom=角点+边形态，后贴袋绘制.md §二.1）
+        ("back_patch_bottom_width", {"param": "back_patch_shape",
+                                     "values": ["baker_shield", "angular"]}),
+        "back_patch_rotate_deg",
+        ("back_patch_tip_depth", {"param": "back_patch_shape",
+                                  "values": ["baker_shield"]}),
+        ("back_patch_chamfer", {"param": "back_patch_shape",
+                                "values": ["angular"]}),
+        ("back_patch_custom_points", {"param": "back_patch_shape",
+                                      "values": ["custom"]}),
+        ("back_patch_custom_edges", {"param": "back_patch_shape",
+                                     "values": ["custom"]}),
         "back_patch_seam_allowances", "back_patch_top_hem_taper",
         "back_patch_notch_type", "back_patch_notch_depth",
         "back_patch_shrinkage_warp", "back_patch_shrinkage_weft"],
@@ -154,12 +180,13 @@ GROUPS: list[dict] = [
     {"key": "shrink", "label": "缩水与缝边", "params": [
         "shrinkage_enabled", "shrinkage_warp", "shrinkage_weft",
         "front_piece_shrinkage_warp", "front_piece_shrinkage_weft",
-        "back_piece_shrinkage_warp", "back_piece_shrinkage_weft"]},
+        "back_piece_shrinkage_warp", "back_piece_shrinkage_weft",
+        # 全局缝边参数归此组（默认缝份 + 缝边显示总开关；前后片专属缝份在裁片工艺）
+        "seam_allowance", "show_seam_allowance"]},
     {"key": "piece_craft", "label": "裁片工艺", "params": [
         "front_piece_seam_allowances", "front_piece_crotch_corner",
         "front_piece_notch_type", "back_piece_seam_allowances",
-        "back_piece_crotch_corner", "back_piece_notch_type",
-        "seam_allowance", "show_seam_allowance"]},
+        "back_piece_crotch_corner", "back_piece_notch_type"]},
     {"key": "misc", "label": "版面杂项", "params": ["piece_gap", "fit",
                                                     "size_label"],
      "collapsed": True},
@@ -189,8 +216,8 @@ def _sa_fields(sa) -> dict | None:
             for name in type(sa).__dataclass_fields__}
 
 
-# 前端隐藏的原始开关（由 pocket_type 虚拟下拉驱动，避免互斥开关双见）
-_HIDDEN = {"front_pocket", "front_patch"}
+# 前端隐藏的原始开关（由 pocket_type / fly_type 虚拟下拉驱动，避免互斥开关双见）
+_HIDDEN = {"front_pocket", "front_patch", "fly", "fly_separate"}
 
 
 def _param_spec(name: str, value, labels: dict[str, str]) -> dict:
@@ -235,7 +262,9 @@ def build_schema() -> dict:
     for g in GROUPS:
         specs = []
         for entry in g["params"]:
-            # 条目为 (name, visible_if) 元组时显式指定参数级联动（可多键）
+            # 条目为 (name, gate) 元组时显式指定参数级联动：gate 为字符串=
+            # 布尔开关键（可多键，任一真即显示）；为 {"param","values"} 字典=
+            # 枚举参数值匹配（如贴袋形态专属参数随 back_patch_shape 切换）
             name, param_gate = (entry if isinstance(entry, tuple)
                                  else (entry, None))
             if name == "pocket_type":
@@ -244,6 +273,13 @@ def build_schema() -> dict:
                 specs.append({"key": "pocket_type", "label": "口袋类型",
                               "type": "pocket_type", "default": None,
                               "choices": ["无", "挖削前口袋", "前贴袋"]})
+                continue
+            if name == "fly_type":
+                # 虚拟参数：门襟形态下拉（连裁/独立互斥），前端读写
+                # fly / fly_separate 两开关（见 ParamPanel）
+                specs.append({"key": "fly_type", "label": "门襟形态",
+                              "type": "fly_type", "default": None,
+                              "choices": ["无", "连裁门襟", "独立门襟"]})
                 continue
             if name not in values:
                 raise KeyError(f"schema 白名单引用了不存在的参数:{name}")

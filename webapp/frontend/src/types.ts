@@ -1,14 +1,23 @@
 // 与后端 /api/schema、/api/draft 对齐的类型（一期手写，二期可 openapi 生成）
 
+// 参数级联动 gate：字符串 = 布尔开关键；对象 = 枚举参数值匹配
+// （值在 values 内才显示，如贴袋形态专属参数随 back_patch_shape 切换）
+export interface EnumGate {
+  param: string
+  values: string[]
+}
+
+export type Gate = string | EnumGate
+
 export interface ParamSpec {
   key: string
   label: string
-  type: 'number' | 'int' | 'bool' | 'enum' | 'string' | 'json' | 'sa' | 'pocket_type'
+  type: 'number' | 'int' | 'bool' | 'enum' | 'string' | 'json' | 'sa' | 'pocket_type' | 'fly_type'
   default: unknown
   choices?: string[]
   nullable?: boolean
   hidden?: boolean
-  visible_if?: string | string[] | null
+  visible_if?: Gate | Gate[] | null
 }
 
 export interface GroupSpec {
