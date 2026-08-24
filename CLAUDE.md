@@ -28,6 +28,10 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
     --back-piece-svg out/back_piece.svg
 # DXF（裁床/服装 CAD，R12/mm 折线，需 pip install 'ylpattern[dxf]'）：
 #   --dxf out/sheet.dxf 整版一张；--pieces-dxf out/pieces.dxf 全部裁片平铺合一张
+# Web 端（一期：参数录入 -> SVG 预览 -> DXF 下载；需 pip install -e ".[web]"）：
+#   uvicorn webapp.backend.app:app 后访问 http://127.0.0.1:8000
+#   （前端已构建于 webapp/frontend/dist；改前端：cd webapp/frontend && npm run dev，
+#    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
 # 多码推码（尺寸单含 [size_run] 段且 enabled = true 时自动进入：逐码重打版 ->
 #   多码单文件 DXF；整版 SVG/追踪/报表只出基码，enabled = false 或删段即退化单码模式）：
 python -m ylpattern.cli draft --size examples/size_female_zhitong.toml \

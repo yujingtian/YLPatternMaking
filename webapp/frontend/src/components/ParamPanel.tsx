@@ -1,0 +1,256 @@
+import { useMemo, useState } from 'react'
+import type { GroupSpec, IssueDetail, ParamSpec, Values } from '../types'
+import { Input, InputNumber, Select, Switch, Collapse, Badge } from 'antd'
+
+interface Props {
+  groups: GroupSpec[]
+  measurements: Values
+  options: Values
+  errors: IssueDetail[]
+  onMeasurement: (key: string, value: unknown) => void
+  onOption: (key: string, value: unknown) => void
+}
+
+// 虚拟参数 pocket_type：挖削前口袋 / 前贴袋互斥，读写两个隐藏开关
+function pocketTypeOf(options: Values): string {
+  if (options.front_patch) return '前贴袋'
+  if (options.front_pocket) return '挖削前口袋'
+  return '无'
+}
+
+function errorMap(errors: IssueDetail[]): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const e of errors) if (e.param) m.set(e.param, e.message)
+  return m
+}
+
+function ParamInput({ spec, value, onChange, err, options, setOption }: {
+  spec: ParamSpec
+  value: unknown
+  onChange: (v: unknown) => void
+  err?: string
+  options: Values
+  setOption: (key: string, value: unknown) => void
+}) {
+  const [jsonText, setJsonText] = useState<string | null>(null)
+
+  let control: JSX.Element
+  switch (spec.type) {
+    case 'pocket_type':
+      control = (
+        <Select
+          size="small"
+          style={{ width: '100%' }}
+          value={pocketTypeOf(options)}
+          options={(spec.choices ?? []).map((c) => ({ value: c, label: c }))}
+          onChange={(v) => {
+            const inset = v === '挖削前口袋'
+            setOption('front_pocket', inset)
+            setOption('front_patch', v === '前贴袋')
+            if (!inset) {
+              // 挖削附属特征随主形态一并关闭，避免残留开启触发依赖校验错误
+              setOption('front_pocket_facing', false)
+              setOption('front_pouch', false)
+              setOption('watch_pocket', false)
+            }
+          }}
+        />
+      )
+      break
+    case 'bool':
+      control = (
+        <Switch
+          size="small"
+          checked={Boolean(value ?? spec.default)}
+          onChange={(v) => onChange(v)}
+        />
+      )
+      break
+    case 'enum':
+      control = (
+        <Select
+          size="small"
+          style={{ width: '100%' }}
+          value={String(value ?? spec.default)}
+          options={spec.choices!.map((c) => ({ value: c, label: c }))}
+          onChange={(v) => onChange(v)}
+        />
+      )
+      break
+    case 'sa': {
+      const sa = (value ?? spec.default) as Record<string, number>
+      control = (
+        <div className="sa-grid">
+          {Object.entries(sa).map(([k, v]) => (
+            <span key={k} className="sa-item">
+              <em>{k}</em>
+              <InputNumber
+                size="small"
+                style={{ width: 72 }}
+                step={0.1}
+                value={v}
+                status={err ? 'error' : undefined}
+                onChange={(nv) => onChange({ ...sa, [k]: nv ?? 0 })}
+              />
+            </span>
+          ))}
+        </div>
+      )
+      break
+    }
+    case 'json': {
+      // tuple/list 复杂结构：JSON 文本编辑，失焦解析
+      const text = jsonText ?? JSON.stringify(value ?? spec.default ?? [])
+      control = (
+        <Input
+          size="small"
+          className="json-input"
+          status={err ? 'error' : undefined}
+          value={text}
+          onChange={(e) => setJsonText(e.target.value)}
+          onBlur={() => {
+            try {
+              onChange(JSON.parse(text || '[]'))
+              setJsonText(null)
+            } catch {
+              // 语法错误：保持文本，交由后端校验兜底
+            }
+          }}
+        />
+      )
+      break
+    }
+    case 'string':
+      control = (
+        <Input
+          size="small"
+          status={err ? 'error' : undefined}
+          value={String(value ?? spec.default ?? '')}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )
+      break
+    default: { // number / int / nullable
+      control = (
+        <InputNumber
+          size="small"
+          style={{ width: '100%' }}
+          step={spec.type === 'int' ? 1 : 'any'}
+          precision={spec.type === 'int' ? 0 : undefined}
+          placeholder={spec.nullable ? '自动' : undefined}
+          status={err ? 'error' : undefined}
+          value={value === null || value === undefined
+            ? (spec.nullable ? null : (spec.default as number))
+            : (value as number)}
+          onChange={(v) => onChange(v)}
+        />
+      )
+    }
+  }
+  return (
+    <div className={`param${err ? ' param-error' : ''}`}>
+      <div className="param-head">
+        <span className="param-label" title={spec.key}>{spec.label}</span>
+        {control}
+      </div>
+      {err && <div className="param-msg">{err}</div>}
+    </div>
+  )
+}
+
+export default function ParamPanel({
+  groups, measurements, options, errors,
+  onMeasurement, onOption,
+}: Props) {
+  const [search, setSearch] = useState('')
+  const errs = useMemo(() => errorMap(errors), [errors])
+  const qs = search.trim().toLowerCase()
+
+  const items = groups
+    .map((g) => {
+      // 联动显隐：visible_if（单键或多键，全真才显示）指向的开关关闭时
+      // 整组隐藏（搜索时仍显示）
+      const gates = g.visible_if == null ? []
+        : Array.isArray(g.visible_if) ? g.visible_if : [g.visible_if]
+      const gate = gates.every((k) => Boolean(options[k]))
+      if (!gate && qs.length === 0) return null
+      const params = (qs
+        ? g.params.filter(
+            (p) => !p.hidden &&
+              (p.key.toLowerCase().includes(qs) ||
+                p.label.toLowerCase().includes(qs)))
+        : g.params.filter(
+            // 参数级联动：visible_if（单键或多键，全真才显示）关闭时隐藏
+            (p) => {
+              if (p.hidden) return false
+              if (!p.visible_if) return true
+              const gates = Array.isArray(p.visible_if)
+                ? p.visible_if : [p.visible_if]
+              return gates.every((k) => Boolean(options[k]))
+            }))
+      if (params.length === 0) return null
+
+      const errCount = params.filter((p) => errs.has(p.key)).length
+      const label = (
+        <span className="group-title">
+          {g.label}
+          <span className="count">{params.length}</span>
+          {gate ? null : (
+            <span className="gate-hint">
+              （依赖 {gates.join(' + ')}）
+            </span>
+          )}
+        </span>
+      )
+      return {
+        key: g.key,
+        label: errCount
+          ? <Badge count={errCount} offset={[10, 0]}>{label}</Badge>
+          : label,
+        children: (
+          <div className="group-body">
+            {params.map((p) => {
+              const isMeasure = g.key === 'measurements'
+              const value = p.type === 'pocket_type'
+                ? pocketTypeOf(options)
+                : isMeasure
+                  ? measurements[p.key] ?? p.default
+                  : options[p.key] ?? p.default
+              return (
+                <ParamInput
+                  key={p.key}
+                  spec={p}
+                  value={value}
+                  err={errs.get(p.key)}
+                  options={options}
+                  setOption={onOption}
+                  onChange={(v) =>
+                    (isMeasure ? onMeasurement : onOption)(p.key, v)}
+                />
+              )
+            })}
+          </div>
+        ),
+      }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+
+  // 默认仅展开基础测量，其余全收起（用户口径 2026-08）
+  const defaultActive = ['measurements']
+
+  return (
+    <div className="param-panel">
+      <Input.Search
+        allowClear
+        placeholder="搜索参数名（如 p1_dist / 缩水）…"
+        onChange={(e) => setSearch(e.target.value)}
+        style={{ marginBottom: 8 }}
+      />
+      <Collapse
+        size="small"
+        defaultActiveKey={defaultActive}
+        items={items}
+      />
+    </div>
+  )
+}

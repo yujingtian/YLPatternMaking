@@ -1,0 +1,422 @@
+[options]
+# 前后片臀围单侧调节量 Δ，0~2.0，见 前后片臀围推导.md §四：
+#   标准女装 1.0 / 翘臀 1.2~1.5 / 男装 0.5~0.75 / 高弹 0.3~0.5 / 宽松 0~0.5
+delta               = 1.0
+front_crotch_adjust = 0.0        # 前小裆修正量（紧身牛仔裤取 -0.5 ~ -1.0）
+back_crotch_adjust  = 0.0         # 后大裆修正量（坐姿伸展加深取正，常规 0）
+front_intake_ratio  = 0.3        # 前中内收系数（内收量 = (H−W)/4 × 系数；低腰款可取 0.15）
+front_intake_adjust = 0.0         # 前中内收修正量（在系数算式结果上再加减；高腰取正、低腰取负）
+back_intake         = 2.5         # 后中内收比例模数 X（实际内收 = 实际臀腰高 × X/15；
+                                  #   宽松 1.5~2.0 / 标准 2.5~3.0 / 紧身提臀 3.5~4.5，后中内收点推导.md §二）
+back_rise_alpha     = 0.40        # 后浪大裆弯上控制柄系数（0.38~0.42，后浪绘制.md §3.1）
+back_rise_beta      = 0.50        # 后浪大裆弯下控制柄系数（0.48~0.55；紧身提臀取 0.55，§3.1）
+front_rise_handle_ratio = 0.25  # 前浪裆弯控制柄比例（k1=k2=|BC|×本值；默认 1/3，越大弧线越饱满，前浪绘制.md §4）
+
+# 前片腰围长 L = W/4 − waist_balance + front_waist_dart（真实腰围线的长度约束）
+waist_balance       = 1.0         # 前后片腰围调节量（前片减、后片加；平分取 0，常取 1.0~1.5）
+front_waist_dart    = 0.2         # 前片省量/褶量 V前省（标准牛仔裤 0；西裤/褶裥款 1.5~3.0）
+back_waist_dart     = 0.2         # 后片省量/约克转移量 V后省（后腰长 = W/4 + balance + 本值；
+                                  #   约克步骤前取 0；Yoke 转移 2.5~4.0，腰围推导.md §五；
+                                  #   后腰长容位，与绘制的腰省相互独立）
+
+# 后片腰省（可选步骤，打版流程.md 后片步骤 9；只画省，不动腰头）
+back_dart           = false        # 腰省绘制开关
+back_dart_count     = 1         # 省数（1 = 腰头两等分取中点；2 = 三等分取两个中点）
+back_dart_width     = [2.0]       # 每个省的省量列表（个数 = 省数，顺序同省中点：后中 -> 侧缝；
+                                  #   写单个值则各省共用；省量为 0 的省不绘制）
+back_dart_length    = 10.0        # 省中线长（默认 11cm）
+
+# ---- 后机头/育克（可选步骤，打版流程.md「后机头/育克绘制」）----
+#   弯腰头自下腰头顶点、直腰头自腰头线顶点沿后浪线/外缝线向下量取两端点；
+#   机头吸收后省（back_waist_dart 已含约克转移量），可视需要关 back_dart 看净机头。
+back_yoke              = true     # 机头绘制开关（只上版分割下口线，先画后裁）
+back_yoke_cb_dist      = 6.0      # P0 后浪端点：自腰头内缝顶点沿后浪线向下弧长 D_cb（cm）
+back_yoke_side_dist    = 3.5      # PN 侧缝端点：自腰头外缝顶点沿外缝线向下弧长 D_side（cm；
+                                  #   D_cb − D_side = 倾斜落差，后中更深）
+back_yoke_mid_anchors  = []       # 下口中间锚点 (u, depth)：u=弦上比例 0~1（递增）、
+                                  #   depth=下凸深度（cm，正值向下凸、0=压弦、负值上凸）；
+                                  #   空 [] = 直线下口（打版流程.md：无控制点即直线）
+                                  #   例：[[0.5, 1.5]] 中间下凸成微笑线
+back_yoke_edges        = []       # 下口逐段形态（个数 = 锚点数+1）：
+                                  #   ["line"] / ["arc", 弧高, 弧顶分位] / ["bezier", α°, κ1, β°, κ2]
+                                  #   空 [] = 全段直线（自动；加锚点时可不填 edges 即全直线）
+# 机头裁片（独立裁片：净样 -> 缩水 -> 缝边，机头裁片.md；ylpattern draft --yoke-svg）
+back_yoke_join_fillet  = 0.4      # 有省拼合处折角 G1 倒圆退弧量 δ（cm，§2.2.3；0=不倒圆）
+back_yoke_side_corner_mirror = true  # 内缝顶点（bottom×side）缝份镜像折角：侧缝缝份翻折后与
+                                  #   裁片重合（§4.2.1；直角退化即 miter；false=纯 miter）
+back_yoke_cb_corner_mirror = true    # 后中底角（bottom×cb）缝份镜像折角：同侧缝口径，后中缝份
+                                  #   翻折后与裁片重合（§4.2.1；false=纯 miter）。两角独立控制
+# 四边独立缝份见文末 [options.back_yoke_seam_allowances] 子表
+
+# 直裆深 = 臀围 × rise_ratio + rise_adjust（默认 H/4）
+rise_ratio          = 0.25
+rise_adjust         = 4.0
+crotch_drop_adjust  = 0.0         # 后片落裆调节量 Δc（落裆量 = H/100 + Δc；
+                                  #   高弹 -0.4~-0.3 / 标准直筒 0 / 宽松重磅 +0.2~+0.3，落裆推导.md §2.2）
+
+# 膝围/脚口前后片调整量 δ（前减后加：前片宽 = 总/2 − δ，后片宽 = 总/2 + δ）
+# 标准无弹 1.0（前后差 2cm）；高弹款 0.5~0.75，见 脚口膝围外缝点推导.md §五.1
+knee_adjust         = 1.0
+hem_adjust          = 1.0
+
+# 裤中线自定义调节量 e（前后片分别独立录入，前后片裤中线推导.md §五）
+# 常规 0；修身显瘦 -0.5~-0.8；粗腿体型 +0.5~+1.0；后片常规与前片一致，特体独立设定
+front_crease_e      = 0.0         # 前片裤中线调节量
+back_crease_e       = 0.0         # 后片裤中线调节量
+
+# 弧线参数（前片弧线推导.md；均可不传，取默认值）
+calf_arc_alpha      = 0.0        # 小腿段弧弓高系数（0.08~0.12；0 = 直筒直线）
+inseam_arc_k1       = 0.50        # 内缝大腿段小裆弯度（0.15~0.25，越大越早往膝口收）
+inseam_arc_ky       = 0.18        # 内缝大腿段弯曲纵向位置（越大弯曲点越靠下）
+inseam_arc_k2       = 0.35        # 内缝大腿段膝口切线柄长系数（越大衔接越顺直）
+outseam_arc_dx      = 0.4         # 外缝大腿段大转子外凸量（0.1~0.2；顺直 0）
+outseam_arc_m2      = 0.35        # 外缝大腿段膝口切线柄长系数
+
+# 后片弧线参数（后片弧线推导.md §二~§四；均可不传，取默认值）
+back_calf_arc_alpha   = 0.10      # 后小腿段弧弓高系数（0.08~0.12；0 = 直筒直线）
+back_inseam_arc_k1    = 0.30      # 后内缝大腿段大裆弯度（0.25~0.35，大于前片留运动空间）
+back_inseam_arc_ky    = 0.10      # 后内缝大腿段弯曲纵向位置
+back_inseam_arc_k2    = 0.35      # 后内缝大腿段膝口切线柄长系数
+back_outseam_arc_dx   = 0.15      # 后外缝大腿段臀侧饱满度（0.1~0.25；顺直 0）
+back_outseam_arc_m2   = 0.40      # 后外缝大腿段膝口切线柄长系数
+# 髋腰段（臀围外缝点 -> 腰头外缝点）四个参数，两两一对：
+#   靠臀围这头用 dx1 + k1 调；靠腰头这头用 dx2 + k2 调。
+#   dx 管"横向凸出多少"（都是 0 = 不凸，越大越往外鼓）；
+#   k 管"纵向走势"：k1 越大凸感延续得越高、越晚拐弯；k2 越大越早往腰头收。
+back_hipwaist_arc_dx1 = 0.2      # 臀侧凸出多少：0 = 顺直不凸，越大越往外鼓（0~0.3）
+back_hipwaist_arc_k1  = 0.3      # 臀侧凸感延续多高：越大凸得越高、越晚往腰头弯（推荐 0.35~0.45）
+back_hipwaist_arc_dx2 = 0.5      # 腰头角点凸出多少：0 = 竖直顺直进角，越大角点越往外鼓（0~0.3）
+back_hipwaist_arc_k2  = 0.05      # 多早往腰头收：越大上段越早内缩、末端笔直进角（推荐 0.2~0.3；0 = 自由弯进角点）
+front_hem_arc_sag   = 0.0         # 前片脚口弧高（0 = 直线；正值向下凸，常取 0.3~0.8）
+back_hem_arc_sag    = 0.0         # 后片脚口弧高（口径同前片，前后片独立录入）
+
+# ---- 前口袋：挖削嵌入式（INSET）主切口（可选步骤，前口袋绘制.md §二、§三）----
+# 先画后裁：只把挖除区边界（腰弧子段 + 袋口母线 + 侧缝直线）上版为结构线，
+# 布尔裁减待裁切层实现；P1/P2 沿弧相对定位，随尺码联动
+front_pocket            = true    # 主切口绘制开关
+front_pocket_p1_dist    = 10.0    # P1 锚点：腰弧上自腰外缝顶点朝前浪顶点的弧长距离（cm）
+front_pocket_p2_drop    = 8.0     # P2 锚点：外缝弧上自腰外缝顶点向下的弧长深度（cm）
+front_pocket_dart_width = 0     # 腰头吃省总宽 ΔW（cm，§三.1，常规 1.5~2.5；共线渐变撇削：
+                                  #   P1′ = P1 沿腰弧朝前浪顶点量取 ΔW（省顶点在腰头线上），
+                                  #   切削线 = 设计净线 + (P1′−P1)·(1−t)ⁿ，侧缝端衰减至 0；
+                                  #   0 = 不吃省）
+front_pocket_paring_n   = 1.5     # 撇削衰减幂指数 n（常规 1.5~2.0；越大吃量越集中在腰头端）
+front_pocket_mouth_bulge = 0.0    # 袋口母线弧高（bulge 模式；正值向裤片内侧凹入加深勺口；0 = 直口）
+front_pocket_mouth_bulge_at = 0.5 # 袋口弧顶位置（bulge 模式；弦长比例 0~1，默认中点；最低点偏侧缝端取 0.6~0.7）
+front_pocket_mouth_mode = "tangent" # 袋口净线模式："bulge" 弧高式 / "tangent" 两端垂直式
+                                  #   / "polyline" 折角式（带倒角折线：P1 -> 折角 K -> P2）
+front_pocket_mouth_h1   = 8.0     # 腰头端切线柄长（tangent 模式，cm；P1 端切线 ⟂ 腰弧切线）
+front_pocket_mouth_h2   = 3.0     # 侧缝端切线柄长（tangent 模式，cm；P2 端切线 ⟂ 外缝弧切线）
+front_pocket_mouth_corners = [[0.3, 2], [0.6, 3]]
+                                  # 折角列表（polyline 模式；每角 = [弦上位置 0~1, 内推深度 cm]，
+                                  #   按位置严格递增，可多个；空列表 = 直袋口）
+
+# ---- 前口袋袋贴（facing，可选步骤，前口袋绘制.md §三.3.(1)）----
+#   依赖 front_pocket 主切口；袋贴宽 = 腰头端量取距离 = 侧缝端下落距离 = 内边偏置间距
+#   （三者等距）；先画后裁，只上版袋贴边界，不做布尔裁除
+front_pocket_facing         = true    # 袋贴绘制开关
+front_pocket_facing_mode    = "tangent" # 模式："tangent" 两端正交切线(推荐) / "offset" 传统等距 / "bulge" 弧高式
+front_pocket_facing_width   = 3.5       # 腰头端袋贴宽 w_waist（cm，常规 3.0~3.5）
+front_pocket_facing_side_w  = 3.5       # 侧缝端袋贴深度 w_side（cm，常规 5.0~7.0；0 则取 width）
+front_pocket_facing_h1      = 14.0       # 腰头端切线柄长（tangent 模式，cm；越大下垂越深）
+front_pocket_facing_h2      = 1.0       # 侧缝端切线柄长（tangent 模式，cm；越大向内进深越长）
+
+# ---- 袋布（嵌入式口袋储物袋布大片/小片，可选步骤，袋布绘制.md §二、§三、§五）----
+# 依赖 front_pocket 主切口；闭合路径 P_w0 -> K1..Kn -> P_s0 -> 侧缝 -> O -> 腰缝
+front_pouch           = true      # 袋布绘制开关
+front_pouch_waist_safe = 4.5      # 腰缝锚点安全内延（沿腰弧自 P1 朝门襟，cm，推荐 3.5~5.0）
+front_pouch_side_safe = 10.0      # 侧缝锚点安全垂深（自 P2 沿侧缝下探，cm，推荐 6.0~10.0）
+front_pouch_nodes     = [[13.0, 24.0], [6.0, 24.0]]
+                                  # 自定义内部节点（≥2；相对腰外缝顶点，x 朝门襟、y 向下为正）
+front_pouch_edges     = [["line"], ["line"], ["arc", 0.5, 0.6]]
+                                  # 边形态（个数 = 节点数+1）：["line"] /
+                                  #   ["arc", 弧高, 弧顶分位 0.1~0.9] /
+                                  #   ["bezier", α°, κ1, β°, κ2]
+
+# ---- 小表袋（嵌于挖削嵌入式前口袋内的小贴袋，可选步骤，小表袋绘制.md §2~§4）----
+#   依赖 front_pocket 挖削嵌入式；以前口袋侧缝腰点为基准定位，净样锚点 + 逐边形态
+watch_pocket                  = true     # 小表袋开关（依赖 front_pocket 挖削嵌入式；
+                                         #   打版流程.md：当前口袋是挖削嵌入式时才绘制）
+watch_pocket_mode             = "facing_intersect"
+                                         #   - "facing_intersect" ：袋贴相交延伸模式（推荐，经典工装/牛仔工艺：袋口定宽，左右侧边向下延伸扎入袋贴弧线并贴合顺接）
+                                         #   - "custom"           ：独立全自定义模式（自由定义多锚点 + 逐边形态，经典悬浮独立贴袋）
+watch_pocket_width            = 7      # 袋口设计净宽 W（cm，常规 7.0~8.5）
+watch_pocket_taper            = 0.0      # 两侧向内收倾斜量（cm；0 = 垂直矩形下落，0.2~0.4 = 倒梯形微收）
+watch_pocket_offset_from_top  = 3.0      # 离口袋顶部距离：自前口袋侧缝腰点垂直向下（cm，§2.3）
+watch_pocket_offset_from_side = 2      # 离口袋侧边距离：自侧缝水平向内（cm，§2.3）
+watch_pocket_rotate_deg       = 8.0      # 整体绕参考点旋转角（度，顺时针为正，§2.3/§3.2）
+watch_pocket_points           = [[0.0, 0.0], [5.0, 0.0], [5.0, 7.0], [0.0, 7.0]]
+                                         # 净形锚点（相对参考点 dx/dy，≥3，顺时针；
+                                         #   默认梯形：袋口宽 8、底宽 7.2、高 7.5）
+watch_pocket_edges            = [["line"], ["line"], ["line"], ["line"]]
+                                         # 边形态（个数 = 锚点数，闭合边）：["line"] /
+                                         #   ["arc", 弧高, 弧顶分位] / ["bezier", α°, κ1, β°, κ2]
+
+# ---- 裤耳/袢仔（净尺寸长方形裁片，可选步骤，裤耳裁片.md）----
+#   整根连裁一条（车缝时再剪断）；净裁毛边不折边，无缝份不走缝边，丝缕直向
+belt_loop              = true   # 裤耳裁片开关（独立裁片，不依赖其他开关）
+belt_loop_width        = 1.2    # 成品净宽（cm，净裁无任何缝份）
+belt_loop_unit_length  = 6.0    # 单根成品长（cm）
+belt_loop_count        = 5      # 总根数（通常 5 根）
+belt_loop_waste        = 3.0    # 裁剪/车缝损耗（cm，加在总长末尾；
+                               #   总长 = 单根长 × 根数 + 损耗 = 33.0）
+
+# ---- 前贴袋：表面外贴式（PATCH）独立样板（可选步骤，前口袋绘制.md §四）----
+# 前片不裁切；袋口外上角 = 自腰外缝顶点垂直向下 top_drop、水平向内 top_inset
+front_patch           = false     # 贴袋绘制开关（净样上版即表面定位标记）
+front_patch_top_drop  = 1.0       # 袋口外上角自腰外缝顶点垂直向下（cm）
+front_patch_top_inset = 1.0       # 袋口外上角自侧缝水平向内（cm）
+front_patch_width     = 10.0      # 袋口宽（cm）
+front_patch_height    = 12.0      # 袋身高（cm）
+front_patch_shape     = "custom"  # 净形：rectangle 方底 / baker_shield 盾形尖底
+                                  #   / angular 底角斜切 / custom 全自定义
+front_patch_bottom_width = 0.0    # 袋底宽（baker_shield/angular，cm；0 = 与袋口同宽）
+front_patch_rotate_deg = 8.0      # 贴袋整体绕袋口外上角旋转角（度，顺时针为正）
+front_patch_tip_depth = 2.0       # 盾形底尖额外深度（baker_shield，cm）
+front_patch_chamfer   = 1.0       # 底角斜切量（angular，cm）
+front_patch_custom_points = [[0, 0], [10, 0], [10, -10], [0, -10]]
+                                  # custom 净形角点（相对袋口外上角的 dx/dy，≥3，顺时针）
+front_patch_custom_edges = [[0, 0.5], [0, 0.5], [0, 0.5], [0, 0.5]]
+                                  # custom 每边形态：[弧高, 弧顶位置]；弧高 0 = 直线
+# 注：缝边（§四.2 反折/包缝量）与缩水不在绘制阶段处理，
+#     裁片分离后由裁切层统一添加（先画后裁）
+
+# ---- 后贴袋：表面外贴式（PATCH）独立样板（可选步骤，后贴袋绘制.md §一~§三）----
+#   依赖后机头育克底线定位（须先开 back_yoke）；净样上版即表面定位标记，先画后裁。
+back_patch                  = true      # 后贴袋绘制开关（独立样板，后大片不裁切）
+back_patch_inset_x          = 4.0       # 距后浪线的距离：沿约克底线朝侧缝（cm，§一.2；常规 4~5.5）
+back_patch_drop_y           = 2.5       # 距约克底线的距离：向下（cm，§一.2；常规 3~4.5）
+back_patch_width            = 14.0      # 袋口宽（cm）
+back_patch_height           = 12.0      # 袋身高（cm）
+back_patch_shape            = "custom"  # 净形：rectangle 方底 / baker_shield 盾形尖底
+                                        #   / angular 底角斜切 / custom 全自定义
+back_patch_bottom_width     = 12.0      # 袋底宽（baker_shield/angular；0 = 与袋口同宽）
+back_patch_rotate_deg       = 3.5       # 整体绕袋口近后浪侧顶点旋转角（度，顺时针为正；
+                                        #   默认 0 = 平行约克底线≈后腰线）
+back_patch_tip_depth        = 2.5       # 盾形底尖额外深度（baker_shield，cm）
+back_patch_chamfer          = 2.0       # 底角斜切量（angular，cm）
+back_patch_custom_points    = [[0, 0], [14, 0], [13.5, 15], [7, 17], [0.5, 15]]
+                                        # custom 净形角点（局部 u-v：u 朝侧缝 +、v 向下 +，
+                                        #   相对袋口近后浪侧顶点，顺时针）；默认盾形：
+                                        #   袋口宽 14、底宽 12、高 15、底尖加深 2
+back_patch_custom_edges     = [[0, 0.5], [0, 0.5], [-0.2, 0.5], [-0.2, 0.5], [0, 0.5]]
+                                        # custom 每边形态：(弧高, 弧顶位置)；弧高 0 = 直线，
+                                        #   个数 = 角点数；示例底两段微弧
+# ---- 后贴袋裁片（后贴袋裁片.md §2~§4，默认值即可省略）----
+back_patch_seam_allowances  = { top = 2.5, side = 1.0, bottom = 1.0 }
+                                        # 分区缝份：top 袋口折边 25mm 双折 / side、bottom 10mm
+back_patch_top_hem_taper    = 0    # 袋口折边撇势（cm，≤0 向内；示例 −1.5mm 倒梯形）
+back_patch_notch_type       = "V"      # 袋口对位刀口类型："V" / "I"（仅工艺标注）
+back_patch_notch_depth      = 0.3      # 对位刀口深度（cm，示例 3mm）
+back_patch_shrinkage_warp   = 0.1      # 经向缩水率（大身面料；不设 = 回退全局值）
+back_patch_shrinkage_weft   = 0.06      # 纬向缩水率（不设 = 回退全局值）
+
+# ---- 门襟（可选步骤，门襟绘制.md §2.2~§5）----
+#   两种互斥形态：连裁门襟（fly=true，凸向前片外侧、与前片相连）/
+#   独立门襟（fly_separate=true，叠在前片上、之后分离成单独裁片；优先于 fly）
+# -- 公用参数（连裁 + 独立都生效）--
+fly_width            = 4.0       # [公用] 门襟宽 W（连裁外线宽 / 独立裁片净宽；YKK 5# 3.5~4.2）
+fly_length_ratio     = 0.35      # [公用] 开深系数（开深 L = 系数 × 前浪 + 基值，§2.2）
+fly_length_base      = 2.0       # [公用] 开深基值（cm，§2.2）
+# -- 连裁门襟专用（仅 fly=true 时生效；独立门襟不读这些）--
+fly                  = true      # [连裁开关] 弯腰头原点取下前中腰点 A'，直腰头取前浪顶点 A
+fly_turnback         = 0.0       # [连裁] 牛仔布折转退层补偿 Δw（腰口顶端内收，§3.1）
+fly_corner_inset     = 0.5       # [公用] 底角圆角内收（连裁+独立共用；R = W−本值 = 4−0.5 = 3.5，须 0<本值<W，§3.2/§5）
+fly_corner_turn      = 0.5       # [连裁] 拐点弧位（90° 角弧比例；1.0=J 底（默认）；越小拐点越靠上、角弧越短，§3.2）
+fly_blend_drop       = 5.0       # [连裁] 融合点 P2 较 L 下移量（cm；None=自动取 W−R 且不小于防波浪最小值；
+                                #   手动录入须≥拐点所需最小值，否则抛错，§3.2.3）
+fly_stitch_inset     = 0.6       # [连裁] J 字明线内收（明线 = 顺外边向内等距偏置本值的虚线，§4.2）
+                                #   （拉链止口刀口、打枣点等工艺细节暂不绘制，留待工艺/裁切模块）
+# -- 独立门襟专用（仅 fly_separate=true 时生效；连裁门襟不读这些）--
+fly_separate         = true      # [独立开关] 叠在前片上、之后分离成单独裁片；裁片取净宽 W
+                                #   独立裁片另走裁切链（净样 -> 缩水 -> 缝边，门襟裁片.md；
+                                #   ylpattern draft --front-fly-single-svg / --front-fly-double-svg）
+fly_sep_extra        = 0.0       # [独立] 底部延展量（裁片高 = L + 本值，§5）
+fly_sep_double       = true      # [独立] 双排（对折）门襟裁片开关（默认开；去底角 J 弧、外缘
+                                #   平行化后沿内边轴镜像展开；false = 只出单排片，门襟裁片.md §4）
+
+# 腰头裁片专用缩水（可选；None/省略=用全局 shrinkage_warp/weft；换布/不同批次时单独录入；
+#   到腰头 X/Y 轴的映射由 waistband_grain 决定）
+waistband_shrinkage_warp = 0.1    # 经向缩水率（None=用全局 shrinkage_warp）
+waistband_shrinkage_weft = 0.06   # 纬向缩水率（None=用全局 shrinkage_weft）
+
+# 前口袋裁片专用缩水（可选，前口袋裁片.md §2.1；None/省略=用全局 shrinkage_warp/weft）
+#   袋贴/贴袋换布、不同批次时单独录入；须位于 [options.*] 子表之前（TOML 主表键）
+front_pocket_shrinkage_warp = 0.1    # 经向缩水率（0.1=10%；None=用全局 shrinkage_warp）
+front_pocket_shrinkage_weft = 0.06   # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
+
+# 机头裁片专用缩水（可选，机头裁片.md §3/§5；None/省略=用全局 shrinkage_warp/weft）
+#   换布/不同批次时单独录入；须位于 [options.*] 子表之前（TOML 主表键，启用=删行首 #）
+back_yoke_shrinkage_warp = 0.1   # 经向缩水率（0.1=10%；None=用全局 shrinkage_warp）
+back_yoke_shrinkage_weft = 0.06   # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
+
+# 袋布裁片专用缩水（可选，口袋布裁片.md §3；默认 0 = 不缩水，无回退全局语义——
+#   口袋布材质独立、绝对隔离大身面料；须位于 [options.*] 子表之前（TOML 主表键））
+front_pouch_shrinkage_warp = 0.0    # 经向缩水率（0.03=3%；0 = 不缩水）
+front_pouch_shrinkage_weft = 0.0    # 纬向缩水率（0 = 不缩水）
+
+# 门襟裁片专用缩水（可选，门襟裁片.md §1 主面料；None/省略=用全局 shrinkage_warp/weft）
+#   换布/不同批次时单独录入；须位于 [options.*] 子表之前（TOML 主表键，启用=删行首 #）
+fly_shrinkage_warp = 0.1   # 经向缩水率（None=用全局 shrinkage_warp）
+fly_shrinkage_weft = 0.06   # 纬向缩水率（None=用全局 shrinkage_weft）
+
+# 小表袋裁片专用缩水（可选，小表袋裁片.md §3.1；默认 0 = 不缩水，无回退全局语义——
+#   口袋布里料材质独立、绝对隔离大身面料；须位于 [options.*] 子表之前（TOML 主表键））
+watch_pocket_shrinkage_warp = 0.1  # 经向缩水率（0.03=3%；0 = 不缩水）
+watch_pocket_shrinkage_weft = 0.06    # 纬向缩水率（0 = 不缩水）
+# 三边独立缝份见文末 [options.watch_pocket_seam_allowances] 子表
+
+# 前片裁片（前片裁片.md；ylpattern draft --front-piece-svg。弯腰头剥离/口袋挖削/
+#   连裁门襟三形态按整版元素自动装配净边；主面料，缩水 None/省略 = 用全局
+#   shrinkage_warp/weft；须位于 [options.*] 子表之前（TOML 主表键））
+front_piece_shrinkage_warp = 0.0   # 经向缩水率（0.1=10%；None=用全局 shrinkage_warp）
+front_piece_shrinkage_weft = 0.0  # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
+front_piece_crotch_corner  = false  # 裆尖（前浪弧末端与下裆缝起点交点）角形态开关（§2.2 两态）：
+                                   #   true = 镜像折角（前浪缝份翻折补缺肉，折轴 = 前浪缝本身）；
+                                   #   false = 纯尖角跟随净样轮廓（贝塞尔多项式自然外延求交成尖，不抹圆）
+front_piece_notch_type     = "I"   # 对位刀口类型："I" 剪口 / "V" 缺口（§2.3，仅工艺标注）
+# 九边独立缝份见文末 [options.front_piece_seam_allowances] 子表
+
+# 后片裁片（后片裁片.md；ylpattern draft --back-piece-svg。剥离腰头与机头：
+#   有 yoke 沿机头下口线截断 / 无 yoke 取腰口弧三形态按整版元素自动装配净边；
+#   主面料，缩水 None/省略 = 用全局 shrinkage_warp/weft；须位于 [options.*]
+#   子表之前（TOML 主表键））
+back_piece_shrinkage_warp = 0.0   # 经向缩水率（0.1=10%；None=用全局 shrinkage_warp）
+back_piece_shrinkage_weft = 0.0  # 纬向缩水率（0.06=6%；None=用全局 shrinkage_weft）
+back_piece_crotch_corner  = true # 后浪浪尖（后浪弧末端 ∩ 内侧缝起点）角形态开关（§2 两态）：
+                                   #   true = 镜像折角/反折角（防缝合翻折后缺角缺肉，折轴 = 后浪缝本身）；
+                                   #   false = 纯尖角跟随净样轮廓（贝塞尔多项式自然外延求交成尖，不抹圆）
+back_piece_notch_type     = "I"   # 对位刀口类型："I" 剪口 / "V" 缺口（§4，仅工艺标注）
+# 六边独立缝份见文末 [options.back_piece_seam_allowances] 子表
+
+fit                 = "regular"   # 版型：skinny 紧身 / slim 修身 / regular 标准 / loose 宽松
+size_label          = "30"        # 尺码标签（订单元数据；进裁片 DXF 片中央 SIZE 信息行，"-" = 未录入）
+seam_allowance      = 1.0         # 默认缝份宽度（遗留字段，当前无实际作用）
+show_seam_allowance = false        # 缝边显示总开关：false = 裁片 SVG 毛样层与裁片 DXF 层 1 裁切折线
+                                  #   不绘制（净样交换文件，不能上裁床）、画布收缩回净样、SVG 刀口
+                                  #   随缝边同步隐藏（DXF 刀口回退净线口径）；几何计算/报表不受影响。
+                                  #   true = 默认带缝边输出
+piece_gap           = 10.0        # 前后片排版间距（后片整体置于前片右侧，分开不重叠）
+# ---- 全局缩水（面料级，所有主面料裁片共享；各裁片专用缩水见下方逐片块）----
+shrinkage_enabled    = true      # 缩水总开关：false = 全部裁片不缩水（全局率与各裁片
+                                #   专用率一并失效，净样直接加缝边）；true 不放大任何率，仅放行
+shrinkage_warp        = 0.1       # 全局经向缩水率（面料经/warp；0.03=3%；缝份不叠加缩水）
+shrinkage_weft        = 0.06       # 全局纬向缩水率（面料纬/weft）
+
+# ---- 毗围限制（可选步骤，打版流程.md 后片步骤 8；前后片毗围推导.md §三） ----
+# 大腿围（measurements.thigh）未录入或填 0 时整步自动跳过，以下参数全部无效
+thigh_limit           = true   # 毗围闭环修正开关：true = 测量后按双轨分流整版重跑至收敛；
+                                #   false = 只画毗围测量线（basis 记录实测/目标/ΔW），不修正
+thigh_measure_offset  = 0.0     # 实测下移量 d（0 = 立裆深线直量；常规实测 2.54）
+# -- 闭环控制参数（默认值即推导.md §三 规范值，可按需覆盖）--
+thigh_piece_split_max = 0.2     # 片间分配分界：|ΔW| ≤ 本值平分，否则大差量比（§三.1）
+thigh_front_share     = 0.2    # 大差量前片分配比（后片 = 1 − 本值；红线：严禁 50:50）
+thigh_dual_track_min  = 0.3     # 双轨分流阈值：|ΔW| ≤ 本值单动侧缝，否则内外联动（§三.2）
+thigh_front_crotch_coef = 0.09  # 前小裆尖调拨系数（ΔX前 = 本值×ΔW）
+thigh_back_crotch_coef  = 0.21  # 后大裆尖调拨系数（ΔX后 = 本值×ΔW）
+thigh_front_crotch_max  = 0.4   # 前小裆累计调整上限（防卡耻骨，极值红线）
+thigh_back_crotch_max   = 1.0   # 后大裆累计调整上限（防下蹲崩破，极值红线）
+thigh_max_iter        = 10       # 闭环最大迭代轮数（侧缝被钳后仅靠裆宽收敛慢，可加大）
+thigh_tol             = 0.2    # 闭环收敛容差（|ΔW| ≤ 本值即判定达标）
+
+# 机头裁片四边独立缝份（cm，机头裁片.md §4.1；后中为拼合线仍外扩，非折线）
+[options.back_yoke_seam_allowances]
+top = 1.0          # 腰口缝边（上腰头/拷边）
+bottom = 1.5      # 底边缝边（拼后大身、埋夹，阴阳缝份加深）
+cb = 1.0           # 后中缝边（拼对称片）
+side = 1.0         # 侧缝缝边（拼前片侧缝）
+
+
+# 前口袋袋贴裁片三边独立缝份（cm，前口袋裁片.md §2.1；ylpattern draft --front-pocket-svg）
+#   袋贴外边界 1:1 复制前大片（腰弧段 + 外缝弧段），三边均与大片拼合
+[options.front_pocket_facing_seam_allowances]
+waist = 1.0        # 腰弧段缝边（车入腰头）
+inner = 0.0       # 袋贴内边缝边（接袋布）
+side = 1.0         # 外缝弧段缝边（车入侧缝）
+
+# 袋布裁片五边独立缝份（cm，口袋布裁片.md §4；ylpattern draft --front-pouch-svg）
+#   一片式对折：底层大片原样 + 面层小片沿内边 P_w0-K1 轴对称拼合，fold 对折线不外扩
+[options.front_pouch_seam_allowances]
+fold = 0.0          # 对折线（内边对称轴，内部折叠线，放量为 0）
+mouth = 1.0         # 挖削袋口弧线缝边（接袋贴）
+waist = 1.0         # 腰头边缝边（与前片腰头缝份一致）
+side = 1        # 侧缝边缝边（与前片侧缝缝份一致）
+bottom = 1       # 袋底与外围缝边（1.0~1.5）
+
+# 门襟裁片四边独立缝份（cm，门襟裁片.md §1；先缩水后缝边，缝份不叠加缩水；
+#   ylpattern draft --front-fly-single-svg / --front-fly-double-svg）
+#   单排（单层）：top 腰口 / outer 外缘（含底角 J 型弧与底边的 G1 连续链）/
+#     inner 内边（与前浪缝合线重合）；双排（对折）：top/outer 沿用 +
+#     bottom 底端直线闭合边，镜像边（*_m）取对应基名值
+[options.fly_seam_allowances]
+top = 1.0          # 腰口缝边（车入腰头）
+outer = 1.0        # 外缘缝边（单排含底角 J 型弧与底边）
+bottom = 1.0       # 底边缝边（仅双排消费）
+inner = 1.0        # 内边缝边（与前浪缝合线重合，仅单排消费）
+
+# 小表袋裁片三边独立缝份（cm，小表袋裁片.md §4.1；先缩水后缝边，缝份不叠加缩水；
+#   ylpattern draft --watch-pocket-svg）
+#   top 袋口折边（双折边明线车缝 2.0~2.5）/ side 两侧缝边 / bottom 底边
+#   （与袋贴拼接侧一致；仅 facing_intersect 模式与 custom 四边闭合消费）
+[options.watch_pocket_seam_allowances]
+top = 2.5          # 袋口折边（向反面折转，双折边明线车缝）
+side = 1.0         # 两侧缝边
+bottom = 1.0       # 底边缝边（与袋贴 inner 一致）
+
+# 前片裁片九边独立缝份（cm，前片裁片.md §2.1；先缩水后缝边，缝份不叠加缩水；
+#   ylpattern draft --front-piece-svg）
+#   常规五边 + 袋口挖削边 mouth（有口袋时消费）+ 连裁门襟三边 fly_*
+#   （仅 fly=true 且非 fly_separate 连裁时消费，独立门襟走门襟裁片缝份）
+[options.front_piece_seam_allowances]
+waist = 1.0        # 装腰缝边
+rise = 1.0         # 前浪缝边（浪尖镜像折角见 front_piece_crotch_corner）
+inseam = 1.0       # 下裆缝缝边
+side = 1.0         # 侧缝缝边（埋夹工艺加宽）
+hem = 2.5          # 裤口卷边（双折边）
+mouth = 1.0        # 袋口挖削边缝边（接袋贴）
+fly_top = 1.0      # 连裁门襟腰口端缝边
+fly_outer = 1.0    # 连裁门襟外缘缝边（含底角 J 型弧）
+fly_bottom = 1.0   # 连裁门襟底边缝边
+
+
+
+# 后片裁片六边独立缝份（cm，后片裁片.md §2；先缩水后缝边，缝份不叠加缩水；
+#   ylpattern draft --back-piece-svg）
+#   top/waist 二选一被消费：有 yoke 拼机头缝 top、无 yoke 装腰缝 waist
+[options.back_piece_seam_allowances]
+top = 1.0          # 拼机头缝缝边（机头开启时上边）
+waist = 1.0        # 装腰缝缝边（无机头时上边）
+cb = 1.0           # 后浪缝边（浪尖镜像折角见 back_piece_crotch_corner）
+inseam = 1.0       # 内侧缝缝边
+side = 1.0         # 外侧缝缝边
+hem = 2.5          # 脚口卷边（双折边）
+
+# ============================================================
+# 推码尺码表（[size_run] 段）：--size 指向本文件即进入多码推码模式
+#（ylpattern draft --size 本文件 --pieces-dxf out/pieces_run.dxf；
+#  整版 SVG/追踪/报表只出基码；enabled = false 或删本段即退化单码模式）
+# 依据：推码方案（.claude/plans/lucky-dreaming-wilkinson.md）
+# ============================================================
+
+[size_run]
+enabled = false  # 推码总开关：false = 本段整体失效、--size 走单码模式（免删段）
+base  = "30"    # 基码（Sample Size；缺省回退上方 [options] size_label）
+style = "YL-A2708-F"    # 订单号（ASCII，进 DXF 头两行）
+order = ["27", "28", "29", "30", "31", "32"]   # 可省略
+
+# 分段档差：29-32 小码段（对应工厂"29-32 小"）
+[[size_run.band]]
+sizes = ["27", "28", "29", "30", "31", "32"]
+waist      = 2.5   # 每档腰围步进（cm）
+hip        = 2.5
+knee       = 1.3
+hem        = 1.0
+front_rise = 0.3
+back_rise  = 0.5
+outseam    = 1.2
+thigh      = 1.3   # 基码 thigh=0（未录入）时本行无效
+
+# 逐码显式覆盖（可选；优先级高于档差展开，单码特调）
+# [size_run.sizes.31]
+# waist      = 80.2
+# front_rise = 29.4

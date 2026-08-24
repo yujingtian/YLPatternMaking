@@ -40,9 +40,13 @@ class Measurements:
             raise ValueError(f"裤长({self.outseam})应大于前浪({self.front_rise})")
 
     @classmethod
+    def from_dict(cls, data: dict) -> "Measurements":
+        """dict -> Measurements（web/JSON 入口；口径同 from_file：
+        下划线开头键为备注，忽略）。"""
+        fields = {k: v for k, v in data.items() if not k.startswith("_")}
+        return cls(**fields)
+
+    @classmethod
     def from_file(cls, path: str) -> "Measurements":
         data = load_size_file(path)
-        # 下划线开头的键为备注，加载时忽略（JSON 无法写注释时的兼容手段）
-        fields = {k: v for k, v in data["measurements"].items()
-                  if not k.startswith("_")}
-        return cls(**fields)
+        return cls.from_dict(data["measurements"])

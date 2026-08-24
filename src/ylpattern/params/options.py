@@ -916,47 +916,34 @@ class PatternOptions:
         return rise
 
     @classmethod
+    def from_dict(cls, data: dict) -> "PatternOptions":
+        """dict -> PatternOptions（web/JSON 入口；口径同 from_file：
+        下划线开头键为备注，忽略；枚举/缝份 dict 自动 coerce）。
+        未知键抛 TypeError，非法值抛 ValueError/TypeError。"""
+        raw = {k: v for k, v in data.items() if not k.startswith("_")}
+        if "waistband_type" in raw:
+            raw["waistband_type"] = WaistbandType(raw["waistband_type"])
+        if "waistband_grain" in raw:
+            raw["waistband_grain"] = WaistbandGrain(raw["waistband_grain"])
+        if "fit" in raw:
+            raw["fit"] = Fit(raw["fit"].lower())
+        _sa_map = {
+            "waistband_seam_allowances": WaistbandSeamAllowances,
+            "back_yoke_seam_allowances": YokeSeamAllowances,
+            "front_pocket_facing_seam_allowances": FrontFacingSeamAllowances,
+            "front_patch_seam_allowances": FrontPatchSeamAllowances,
+            "front_pouch_seam_allowances": PouchSeamAllowances,
+            "fly_seam_allowances": FlySeamAllowances,
+            "watch_pocket_seam_allowances": WatchPocketSeamAllowances,
+            "back_patch_seam_allowances": BackPatchSeamAllowances,
+            "front_piece_seam_allowances": FrontSeamAllowances,
+            "back_piece_seam_allowances": BackSeamAllowances,
+        }
+        for key, typ in _sa_map.items():
+            if key in raw:
+                raw[key] = typ.from_dict(raw[key])
+        return cls(**raw)
+
+    @classmethod
     def from_file(cls, path: str) -> "PatternOptions":
-        raw = load_size_file(path).get("options", {})
-        # 下划线开头的键为备注，加载时忽略（JSON 无法写注释时的兼容手段）
-        data = {k: v for k, v in raw.items() if not k.startswith("_")}
-        if "waistband_type" in data:
-            data["waistband_type"] = WaistbandType(data["waistband_type"])
-        if "waistband_grain" in data:
-            data["waistband_grain"] = WaistbandGrain(data["waistband_grain"])
-        if "fit" in data:
-            data["fit"] = Fit(data["fit"].lower())
-        if "waistband_seam_allowances" in data:
-            data["waistband_seam_allowances"] = WaistbandSeamAllowances.from_dict(
-                data["waistband_seam_allowances"])
-        if "back_yoke_seam_allowances" in data:
-            data["back_yoke_seam_allowances"] = YokeSeamAllowances.from_dict(
-                data["back_yoke_seam_allowances"])
-        if "front_pocket_facing_seam_allowances" in data:
-            data["front_pocket_facing_seam_allowances"] = \
-                FrontFacingSeamAllowances.from_dict(
-                    data["front_pocket_facing_seam_allowances"])
-        if "front_patch_seam_allowances" in data:
-            data["front_patch_seam_allowances"] = FrontPatchSeamAllowances.from_dict(
-                data["front_patch_seam_allowances"])
-        if "front_pouch_seam_allowances" in data:
-            data["front_pouch_seam_allowances"] = PouchSeamAllowances.from_dict(
-                data["front_pouch_seam_allowances"])
-        if "fly_seam_allowances" in data:
-            data["fly_seam_allowances"] = FlySeamAllowances.from_dict(
-                data["fly_seam_allowances"])
-        if "watch_pocket_seam_allowances" in data:
-            data["watch_pocket_seam_allowances"] = \
-                WatchPocketSeamAllowances.from_dict(
-                    data["watch_pocket_seam_allowances"])
-        if "back_patch_seam_allowances" in data:
-            data["back_patch_seam_allowances"] = \
-                BackPatchSeamAllowances.from_dict(
-                    data["back_patch_seam_allowances"])
-        if "front_piece_seam_allowances" in data:
-            data["front_piece_seam_allowances"] = FrontSeamAllowances.from_dict(
-                data["front_piece_seam_allowances"])
-        if "back_piece_seam_allowances" in data:
-            data["back_piece_seam_allowances"] = BackSeamAllowances.from_dict(
-                data["back_piece_seam_allowances"])
-        return cls(**data)
+        return cls.from_dict(load_size_file(path).get("options", {}))

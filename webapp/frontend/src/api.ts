@@ -1,0 +1,59 @@
+import type {
+  DraftPayload, DraftResult, IssueDetail, Schema, Values,
+} from './types'
+
+async function handle<T>(res: Response): Promise<T> {
+  if (res.status === 422) {
+    const body = await res.json()
+    const err = new Error('参数校验失败') as Error & { detail: IssueDetail[] }
+    err.detail = body.detail
+    throw err
+  }
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  return res.json() as Promise<T>
+}
+
+export async function fetchSchema(): Promise<Schema> {
+  return handle(await fetch('/api/schema'))
+}
+
+export async function postDraft(payload: DraftPayload): Promise<DraftResult> {
+  return handle(await fetch('/api/draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))
+}
+
+// DXF/toml 走 blob 下载（同 payload 重新打版，服务端无状态）
+export async function download(
+  endpoint: string, payload: DraftPayload, filename: string,
+): Promise<void> {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export interface Template {
+  name: string
+  file: string
+}
+
+export async function fetchTemplates(): Promise<Template[]> {
+  return handle(await fetch('/api/templates'))
+}
+
+export async function fetchTemplateDetail(
+  file: string,
+): Promise<{ measurements: Values; options: Values }> {
+  return handle(await fetch(`/api/templates/${file}`))
+}

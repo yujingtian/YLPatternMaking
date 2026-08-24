@@ -14,6 +14,7 @@ dependencies = [
 [project.optional-dependencies]
 dxf = ["ezdxf>=1.1"]
 dev = ["pytest>=7.4", "ezdxf>=1.1"]   # ezdxf：DXF 导出测试（exporters 懒加载，核心零依赖不变）
+web = ["fastapi>=0.110", "uvicorn>=0.29", "pydantic>=2.5"]  # webapp 后端（webapp/ 独立目录，核心零依赖不变；API 测试另需 httpx：dev 环境自带）
 
 [project.scripts]
 ylpattern = "ylpattern.cli:main"

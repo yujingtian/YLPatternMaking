@@ -1,0 +1,72 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+
+.app { display: flex; flex-direction: column; height: 100%; }
+.app-header {
+  display: flex; align-items: center; gap: 24px;
+  padding: 8px 16px; border-bottom: 1px solid #e8e8e8;
+  background: #fff;
+}
+.app-header h1 { font-size: 18px; margin: 0; color: #2c6e49; }
+.template-picker { display: inline-flex; align-items: center; gap: 8px; }
+
+.toolbar {
+  padding: 8px 16px; border-bottom: 1px solid #e8e8e8;
+  background: #fff; display: flex; flex-direction: column; gap: 8px;
+}
+.issue-banner { margin: 0; }
+.issue-list { margin: 0; padding-left: 18px; }
+.issue-list code { color: #c0392b; }
+
+.app-main { display: flex; flex: 1; min-height: 0; }
+
+/* ---- 参数面板（左） ---- */
+.param-panel {
+  width: 400px; min-width: 340px; overflow-y: auto;
+  border-right: 1px solid #e8e8e8; padding: 8px; background: #fff;
+}
+.group-title { display: inline-flex; align-items: center; gap: 6px; }
+.group-title .count {
+  font-weight: 400; font-size: 12px; color: #999;
+}
+.gate-hint { font-weight: 400; font-size: 12px; color: #999; }
+.group-body { display: flex; flex-direction: column; gap: 4px; }
+.param { padding: 1px 0; }
+.param-head {
+  display: flex; align-items: center; gap: 8px;
+}
+.param-label {
+  flex: 0 0 46%; font-size: 12.5px; color: #444;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.param-head .ant-select,
+.param-head .ant-input-number,
+.param-head .ant-input { flex: 1; }
+.param-msg { font-size: 12px; color: #ff4d4f; margin: 1px 0 2px 46%; }
+.sa-grid { flex: 1; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.sa-item { display: inline-flex; align-items: center; gap: 3px; }
+.sa-item em { font-style: normal; font-size: 11px; color: #888; }
+.json-input { font-family: monospace; font-size: 12px; }
+
+/* ---- 预览区（右） ---- */
+.preview-pane {
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  background: #fafafa;
+}
+.preview-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+}
+.preview-tabs { padding: 4px 8px 0; background: #fff; }
+.preview-tabs .ant-tabs-content-holder {
+  overflow: auto; flex: 1; min-height: 0;
+}
+.svg-view { padding: 8px; }
+.svg-view svg { max-width: 100%; height: auto; }
+.skips, .report {
+  border-top: 1px solid #e8e8e8; padding: 4px 12px;
+  font-size: 12px; background: #fff;
+}
+.report pre {
+  max-height: 220px; overflow: auto; background: #f6f6f6;
+  padding: 8px; font-size: 11px;
+}

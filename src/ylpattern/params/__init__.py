@@ -8,6 +8,7 @@ from .seam_allowances import (BackPatchSeamAllowances, BackSeamAllowances,
                               PouchSeamAllowances, WatchPocketSeamAllowances,
                               WaistbandSeamAllowances, YokeSeamAllowances)
 from .sizerun import MEASURE_KEYS, SizeBand, SizeEntry, SizeRun, load_size_run
+from .validate import Issue, build_issues, cross_issues
 
 __all__ = ["Measurements", "PatternOptions", "WaistbandType", "WaistbandGrain",
            "Fit", "DELTA_PRESETS", "WaistbandSeamAllowances",
@@ -16,4 +17,4 @@ __all__ = ["Measurements", "PatternOptions", "WaistbandType", "WaistbandGrain",
            "FlySeamAllowances", "WatchPocketSeamAllowances",
            "BackPatchSeamAllowances", "FrontSeamAllowances",
            "BackSeamAllowances", "MEASURE_KEYS", "SizeBand", "SizeEntry",
-           "SizeRun", "load_size_run"]
+           "SizeRun", "load_size_run", "Issue", "build_issues", "cross_issues"]
