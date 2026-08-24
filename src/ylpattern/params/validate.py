@@ -75,27 +75,38 @@ def build_issues(measurements: dict, options: dict) -> list[Issue]:
     if m is None:                       # 尺寸单缺字段/自相矛盾：先修尺寸
         return issues
 
-    # -- PatternOptions：同口径逐键累加 --
-    o_data: dict = {}
-    for key, val in options.items():
-        if key.startswith("_"):
-            continue
-        o_data[key] = val
+    # -- PatternOptions：整体先试，失败再逐键累加归因 --
+    # 关系型参数对（如 front/back_patch_shape=custom + custom_points/edges）
+    # 只在合在一起时才可判定，逐键累加会因键序误报（shape 在前时前缀里
+    # 角点仍是默认空元组 -> "得到 0 个"，2026-08 修复）；整体构造成功即
+    # 无键级问题，与键序无关。
+    o_data = {k: v for k, v in options.items() if not k.startswith("_")}
+    try:
+        o = PatternOptions.from_dict(o_data)
+    except (TypeError, ValueError):
+        o = None
+    if o is not None:
+        issues.extend(cross_issues(m, o))
+        return issues
+
+    acc: dict = {}
+    for key, val in o_data.items():
+        acc[key] = val
         try:
-            PatternOptions.from_dict(o_data)
+            PatternOptions.from_dict(acc)
         except TypeError as e:
             msg = str(e)
             if "unexpected keyword" in msg:
                 issues.append(Issue(key, f"未知选项：{key}"))
             else:
                 issues.append(Issue(key, f"类型错误：{msg}"))
-            del o_data[key]
+            del acc[key]
         except ValueError as e:
             issues.append(Issue(key, str(e)))
-            del o_data[key]             # 回退该键默认值，继续归因后续键
+            del acc[key]                # 回退该键默认值，继续归因后续键
 
     try:
-        o = PatternOptions.from_dict(o_data)
+        o = PatternOptions.from_dict(acc)
     except (ValueError, TypeError):
         return issues                   # 键级回退后仍失败：错误已逐键记录
 
@@ -129,7 +140,7 @@ def cross_issues(m: Measurements, o: PatternOptions) -> list[Issue]:
         need("back_patch", "后贴袋依赖后机头下口线定位，请先开启 back_yoke")
     if o.thigh_limit and m.thigh <= 0:
         need("thigh_limit", "毗围闭环依赖大腿围录入，请在基础测量填 thigh > 0")
-    if o.fly and o.fly_separate:
-        need("fly_separate", "连裁/独立门襟互斥形态，fly_separate 优先生效（fly 忽略）",
-             level="warning")
+    # fly/fly_separate 双真不再报 warning：引擎口径 fly_separate 优先生效，
+    # web 端 fly_type 虚拟下拉已强制互斥（双真仅模板 toml 载入出现，下拉
+    # 按 fly_separate 优先如实显示，2026-08 移除冗余提示）
     return issues

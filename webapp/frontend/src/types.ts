@@ -1,10 +1,13 @@
 // 与后端 /api/schema、/api/draft 对齐的类型（一期手写，二期可 openapi 生成）
 
 // 参数级联动 gate：字符串 = 布尔开关键；对象 = 枚举参数值匹配
-// （值在 values 内才显示，如贴袋形态专属参数随 back_patch_shape 切换）
+// （值在 values 内才显示，如贴袋形态专属参数随 shape 切换）；
+// requires = 需同时为真的布尔开关键（前贴袋参数在 front_patch 开关
+// 之下，形态 gate 须复合开关：开关开 AND 形态匹配才显示）
 export interface EnumGate {
   param: string
   values: string[]
+  requires?: string[]
 }
 
 export type Gate = string | EnumGate

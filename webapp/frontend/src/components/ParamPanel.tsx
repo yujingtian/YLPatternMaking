@@ -25,9 +25,11 @@ function flyTypeOf(options: Values): string {
   return '无'
 }
 
-// 参数级 gate 判定：字符串 = 布尔开关键；对象 = 枚举参数值匹配（形态联动）
+// 参数级 gate 判定：字符串 = 布尔开关键；对象 = 枚举参数值匹配
+// （形态联动；requires 布尔开关须同时全真，如前贴袋形态参数复合开关）
 function gateOn(gate: Gate, options: Values): boolean {
   if (typeof gate === 'string') return Boolean(options[gate])
+  if (!(gate.requires ?? []).every((k) => Boolean(options[k]))) return false
   const v = options[gate.param]
   return v != null && gate.values.includes(String(v))
 }
@@ -47,6 +49,7 @@ function ParamInput({ spec, value, onChange, err, options, setOption }: {
   setOption: (key: string, value: unknown) => void
 }) {
   const [jsonText, setJsonText] = useState<string | null>(null)
+  const [jsonBad, setJsonBad] = useState(false)
 
   let control: JSX.Element
   switch (spec.type) {
@@ -127,21 +130,27 @@ function ParamInput({ spec, value, onChange, err, options, setOption }: {
       break
     }
     case 'json': {
-      // tuple/list 复杂结构：JSON 文本编辑，失焦解析
+      // tuple/list 复杂结构：JSON 文本编辑，失焦解析；语法错误红框提示
+      // （静默保留文本会让用户误以为已生效——state 仍是旧值）
       const text = jsonText ?? JSON.stringify(value ?? spec.default ?? [])
       control = (
         <Input
           size="small"
           className="json-input"
-          status={err ? 'error' : undefined}
+          status={err || jsonBad ? 'error' : undefined}
           value={text}
-          onChange={(e) => setJsonText(e.target.value)}
+          onChange={(e) => {
+            setJsonText(e.target.value)
+            setJsonBad(false)
+          }}
           onBlur={() => {
             try {
               onChange(JSON.parse(text || '[]'))
               setJsonText(null)
+              setJsonBad(false)
             } catch {
-              // 语法错误：保持文本，交由后端校验兜底
+              // 语法错误：保持文本并标红，值未生效
+              setJsonBad(true)
             }
           }}
         />

@@ -323,7 +323,7 @@ back_piece_notch_type     = "I"   # 对位刀口类型："I" 剪口 / "V" 缺口
 fit                 = "regular"   # 版型：skinny 紧身 / slim 修身 / regular 标准 / loose 宽松
 size_label          = "30"        # 尺码标签（订单元数据；进裁片 DXF 片中央 SIZE 信息行，"-" = 未录入）
 seam_allowance      = 1.0         # 默认缝份宽度（遗留字段，当前无实际作用）
-show_seam_allowance = false        # 缝边显示总开关：false = 裁片 SVG 毛样层与裁片 DXF 层 1 裁切折线
+show_seam_allowance = true        # 缝边显示总开关：false = 裁片 SVG 毛样层与裁片 DXF 层 1 裁切折线
                                   #   不绘制（净样交换文件，不能上裁床）、画布收缩回净样、SVG 刀口
                                   #   随缝边同步隐藏（DXF 刀口回退净线口径）；几何计算/报表不受影响。
                                   #   true = 默认带缝边输出

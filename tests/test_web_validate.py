@@ -45,11 +45,11 @@ def test_thigh_limit_requires_thigh_measurement():
     assert [i.param for i in issues] == ["thigh_limit"]
 
 
-def test_fly_mutex_warning_only():
+def test_fly_both_true_no_warning():
+    # fly/fly_separate 双真：引擎 fly_separate 优先生效，web 下拉已强制
+    # 互斥（双真仅模板载入出现），不再报冗余 warning（2026-08 移除）
     issues = build_issues(BASE_M, {"fly": True, "fly_separate": True})
-    assert len(issues) == 1
-    assert issues[0].level == "warning"
-    assert issues[0].param == "fly_separate"
+    assert issues == []
 
 
 def test_field_error_attributed_to_key():

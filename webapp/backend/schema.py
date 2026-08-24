@@ -64,18 +64,29 @@ GROUPS: list[dict] = [
         "front_pocket_mouth_mode", "front_pocket_mouth_bulge",
         "front_pocket_mouth_bulge_at", "front_pocket_mouth_h1",
         "front_pocket_mouth_h2", "front_pocket_mouth_corners",
-        # 贴袋参数同组互斥显示（参数级 gate=front_patch；元组见 build_schema）
+        # 贴袋参数同组互斥显示（参数级 gate=front_patch）；形态专属参数
+        # 复合 gate（requires 开关 + front_patch_shape 值匹配，前口袋绘制.md §五）
         ("front_patch_top_drop", "front_patch"),
         ("front_patch_top_inset", "front_patch"),
         ("front_patch_width", "front_patch"),
         ("front_patch_height", "front_patch"),
         ("front_patch_shape", "front_patch"),
-        ("front_patch_bottom_width", "front_patch"),
+        ("front_patch_bottom_width", {"param": "front_patch_shape",
+                                      "values": ["baker_shield", "angular"],
+                                      "requires": ["front_patch"]}),
         ("front_patch_rotate_deg", "front_patch"),
-        ("front_patch_tip_depth", "front_patch"),
-        ("front_patch_chamfer", "front_patch"),
-        ("front_patch_custom_points", "front_patch"),
-        ("front_patch_custom_edges", "front_patch"),
+        ("front_patch_tip_depth", {"param": "front_patch_shape",
+                                   "values": ["baker_shield"],
+                                   "requires": ["front_patch"]}),
+        ("front_patch_chamfer", {"param": "front_patch_shape",
+                                 "values": ["angular"],
+                                 "requires": ["front_patch"]}),
+        ("front_patch_custom_points", {"param": "front_patch_shape",
+                                       "values": ["custom"],
+                                       "requires": ["front_patch"]}),
+        ("front_patch_custom_edges", {"param": "front_patch_shape",
+                                      "values": ["custom"],
+                                      "requires": ["front_patch"]}),
         ("front_patch_seam_allowances", "front_patch"),
         # 口袋裁片缩水率：袋贴/贴袋两形态共用（多键任一真）
         ("front_pocket_shrinkage_warp", ["front_pocket", "front_patch"]),
@@ -136,9 +147,10 @@ GROUPS: list[dict] = [
         "back_patch_inset_x", "back_patch_drop_y", "back_patch_width",
         "back_patch_height", "back_patch_shape",
         # 形态专属参数按 back_patch_shape 联动（baker_shield=底宽+底尖 /
-        # angular=底宽+斜切 / custom=角点+边形态，后贴袋绘制.md §二.1）
+        # angular=斜切 / custom=角点+边形态；后贴袋 angular 不消费底宽，
+        # 与前贴袋不同——back_patch_steps 六边形顶点全用 w/c，§二.1）
         ("back_patch_bottom_width", {"param": "back_patch_shape",
-                                     "values": ["baker_shield", "angular"]}),
+                                     "values": ["baker_shield"]}),
         "back_patch_rotate_deg",
         ("back_patch_tip_depth", {"param": "back_patch_shape",
                                   "values": ["baker_shield"]}),
