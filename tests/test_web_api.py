@@ -77,6 +77,14 @@ def test_draft_sheet_ok():
     assert "pieces" not in body and "skips" not in body
 
 
+def test_draft_sheet_show_labels_switch():
+    # show_labels=False：整版 SVG 文字标注全隐藏（端到端，options 透传出口层）
+    r = client.post("/api/draft/sheet", json={"measurements": BASE_M,
+                                              "options": {"show_labels": False}})
+    assert r.status_code == 200
+    assert r.json()["sheet_svg"].count("<text") == 0
+
+
 def test_draft_pieces_dynamic():
     r = client.post("/api/draft/pieces", json={"measurements": BASE_M,
                                                "options": FULL_OPTS})

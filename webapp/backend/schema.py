@@ -188,7 +188,7 @@ SECTIONS: list[dict] = [
          "visible_if": "thigh_limit"},
         # 兜底组：白名单外的引擎参数追加至此（见 build_schema）
         {"key": "misc", "label": "版面杂项", "collapsed": True,
-         "params": ["piece_gap", "fit", "size_label"]},
+         "params": ["piece_gap", "fit", "size_label", "show_labels"]},
     ]},
     {"key": "pieces", "label": "裁片", "collapsed": True, "groups": [
         {"key": "craft_global", "label": "全局工艺", "collapsed": True,

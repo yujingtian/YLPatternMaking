@@ -526,6 +526,11 @@ class PatternOptions:
                                            #   改用 shrunk/notches）；净样/缩水净样/内部
                                            #   线/丝缕/定位孔照常。几何仍完整计算，
                                            #   报表/notes 不受影响）
+    show_labels: bool = True               # 整版标注显示总开关（出口层显示控制，不改几何：
+                                           #   False 时整版 SVG 参考线/结构线/关键点的
+                                           #   文字标注均不绘制，仅保留线与点本身；
+                                           #   报表不受影响；整版 DXF 的 TEXT 层发的是
+                                           #   ASCII 元素名（CAD 校对用），不受本开关控制）
     size_label: str = "-"                  # 尺码标签（订单元数据，不参与几何；
                                            #   进裁片 DXF 片中央 SIZE 信息行，"-" = 未录入）
 

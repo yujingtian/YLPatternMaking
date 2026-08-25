@@ -280,6 +280,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         piece_gap: float = 10.0,
         seam_allowance: float = 1.0,
         show_seam_allowance: bool = True,
+        show_labels: bool = True,
         size_label: str = "-",
         svg: str = "out/sheet.svg",
         waistband_svg: str | None = None,
@@ -578,6 +579,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          SVG 刀口整层不绘制（缝边刀口随缝边同步隐藏），DXF 刀口
                          回退净线口径；净样/缩水净样/内部线/丝缕/定位孔照常，
                          几何计算与报表不受影响——纯出口层显示控制）
+        show_labels      整版标注显示总开关（默认 True 显示；False 时整版 SVG
+                         参考线/结构线/关键点的文字标注均不绘制，仅保留线与点，
+                         画布尺寸不变；报表不受影响——纯出口层显示控制；
+                         整版 DXF TEXT 层为 ASCII 元素名，不受本开关控制）
         svg              SVG 输出路径
         waistband_svg    腰头裁片独立 SVG 输出路径（None=不输出；需完整整版，
                          中断调版 until 时不生成；腰头裁片.md §五 独立裁片）
@@ -822,6 +827,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        piece_gap=piece_gap,
                        seam_allowance=seam_allowance,
                        show_seam_allowance=show_seam_allowance,
+                       show_labels=show_labels,
                        size_label=size_label)
 
     ctx, trace_text = run_with_thigh_closure(m, o, until=until,
@@ -861,7 +867,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                                            show_seam=o.show_seam_allowance)
                 print(f"裁片合集 DXF 已输出:{pieces_dxf}")
 
-    svg_exp.write_sheet_svg(ctx.sheet, svg)
+    svg_exp.write_sheet_svg(ctx.sheet, svg, show_labels=o.show_labels)
     print(f"SVG 已输出:{svg}")
     if dxf:
         from .exporters import dxf as dxf_exp
@@ -943,7 +949,8 @@ def run_size_run(size_file: str, *, pieces_dxf: str,
                      else "未收敛（红线钳制，尽可能靠近目标）")
             print(f"  码 {label}：残余 ΔW = {dw:+.2f}，裁片 {n} 片（{state}）")
     if svg:
-        svg_exp.write_sheet_svg(contexts[run.base].sheet, svg)
+        svg_exp.write_sheet_svg(contexts[run.base].sheet, svg,
+                                show_labels=o.show_labels)
         print(f"SVG 已输出:{svg}（基码 {run.base}）")
     if trace:
         with open(trace, "w", encoding="utf-8") as fp:

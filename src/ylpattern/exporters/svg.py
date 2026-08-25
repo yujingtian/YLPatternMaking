@@ -29,8 +29,12 @@ def _sy(y: float, top: float) -> float:
     return top - y * SCALE
 
 
-def render_sheet(sheet: DraftSheet) -> str:
-    """把整张版渲染为 SVG 文本。"""
+def render_sheet(sheet: DraftSheet, show_labels: bool = True) -> str:
+    """把整张版渲染为 SVG 文本。
+
+    show_labels=False 隐藏全部文字标注（options.show_labels 总开关）：
+    参考线名/结构线名/关键点名不绘制，线与点照常，画布尺寸不变。
+    """
     xs: list[float] = []
     ys: list[float] = []
     for line in sheet.lines:
@@ -73,19 +77,20 @@ def render_sheet(sheet: DraftSheet) -> str:
         parts.append(
             f'<line class="refline" x1="{sx(a.x):.1f}" y1="{_sy(a.y, top):.1f}" '
             f'x2="{sx(b.x):.1f}" y2="{_sy(b.y, top):.1f}"/>')
-        text = line.label or line.name
-        if abs(a.x - b.x) < 1e-9:
-            # 竖线：标注沿线中点竖排，避免与水平线标注在角点重叠
-            mx, my = sx(a.x), _sy((a.y + b.y) / 2, top)
-            parts.append(
-                f'<text class="reflabel" x="{mx + 4:.1f}" y="{my:.1f}" '
-                f'transform="rotate(-90 {mx + 4:.1f} {my:.1f})" '
-                f'text-anchor="middle">{text}</text>')
-        else:
-            # 水平线：标注放在左端上方
-            parts.append(
-                f'<text class="reflabel" x="{sx(a.x) + 4:.1f}" '
-                f'y="{_sy(a.y, top) - 3:.1f}">{text}</text>')
+        if show_labels:
+            text = line.label or line.name
+            if abs(a.x - b.x) < 1e-9:
+                # 竖线：标注沿线中点竖排，避免与水平线标注在角点重叠
+                mx, my = sx(a.x), _sy((a.y + b.y) / 2, top)
+                parts.append(
+                    f'<text class="reflabel" x="{mx + 4:.1f}" y="{my:.1f}" '
+                    f'transform="rotate(-90 {mx + 4:.1f} {my:.1f})" '
+                    f'text-anchor="middle">{text}</text>')
+            else:
+                # 水平线：标注放在左端上方
+                parts.append(
+                    f'<text class="reflabel" x="{sx(a.x) + 4:.1f}" '
+                    f'y="{_sy(a.y, top) - 3:.1f}">{text}</text>')
     parts.append('</g>')
 
     # 图层：结构线（实线，压在参考线之上）
@@ -97,10 +102,11 @@ def render_sheet(sheet: DraftSheet) -> str:
             parts.append(
                 f'<line class="structline" x1="{sx(a.x):.1f}" y1="{_sy(a.y, top):.1f}" '
                 f'x2="{sx(b.x):.1f}" y2="{_sy(b.y, top):.1f}"/>')
-            text = line.label or line.name
-            mx, my = sx((a.x + b.x) / 2), _sy((a.y + b.y) / 2, top)
-            parts.append(
-                f'<text class="structlabel" x="{mx + 4:.1f}" y="{my - 4:.1f}">{text}</text>')
+            if show_labels:
+                text = line.label or line.name
+                mx, my = sx((a.x + b.x) / 2), _sy((a.y + b.y) / 2, top)
+                parts.append(
+                    f'<text class="structlabel" x="{mx + 4:.1f}" y="{my - 4:.1f}">{text}</text>')
         parts.append('</g>')
 
     # 图层：曲线（struct 实线 / ref 虚线，与直线同口径）
@@ -118,14 +124,16 @@ def render_sheet(sheet: DraftSheet) -> str:
     for pt in sheet.points:
         x, y = sx(pt.geom.x), _sy(pt.geom.y, top)
         parts.append(f'<circle class="pt" cx="{x:.1f}" cy="{y:.1f}" r="2.5"/>')
-        parts.append(f'<text class="ptlabel" x="{x + 5:.1f}" y="{y - 5:.1f}">'
-                     f'{pt.label or pt.name}</text>')
+        if show_labels:
+            parts.append(f'<text class="ptlabel" x="{x + 5:.1f}" y="{y - 5:.1f}">'
+                         f'{pt.label or pt.name}</text>')
     parts.append('</g>')
 
     parts.append('</svg>')
     return "\n".join(parts)
 
 
-def write_sheet_svg(sheet: DraftSheet, path: str) -> None:
+def write_sheet_svg(sheet: DraftSheet, path: str,
+                    show_labels: bool = True) -> None:
     with open(path, "w", encoding="utf-8") as fp:
-        fp.write(render_sheet(sheet))
+        fp.write(render_sheet(sheet, show_labels=show_labels))

@@ -67,7 +67,7 @@ def _cmd_draft(args: argparse.Namespace) -> int:
               file=sys.stderr)
 
     if args.svg:
-        svg_exp.write_sheet_svg(ctx.sheet, args.svg)
+        svg_exp.write_sheet_svg(ctx.sheet, args.svg, show_labels=o.show_labels)
         print(f"SVG 已输出：{args.svg}")
     if args.dxf:
         from .exporters import dxf as dxf_exp

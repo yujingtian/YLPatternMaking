@@ -79,7 +79,8 @@ def draft_sheet(req: DraftRequest) -> dict:
     m, o, ctx, warnings = _draft_ctx(req)
     return {
         "ok": True,
-        "sheet_svg": svg_exp.render_sheet(ctx.sheet),
+        "sheet_svg": svg_exp.render_sheet(ctx.sheet,
+                                          show_labels=o.show_labels),
         "report": report_exp.render_report(ctx.sheet, m, o),
         "warnings": warnings,
     }
