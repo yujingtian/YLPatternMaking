@@ -184,7 +184,6 @@ class PatternOptions:
                                            #   shrinkage_warp；换布/不同批次时可单独控制，§3/§5）
     back_yoke_shrinkage_weft: float | None = None
                                            # 机头裁片纬向缩水率（None=用全局 shrinkage_weft）
-    side_intake_k_waist: float = 1.0       # 侧缝内收推导的 k_waist（前减后加，常取 1.0~1.5）
     side_rise: float = 0.0                 # 侧缝腰头抬高量 h（0 = 外缝顶点压腰围基础线，0~1.5）
     outseam_bulge: float = 0.3             # 外侧缝弧外凸量（微微凸，0.2~0.5）
     front_waist_curve_sag: float = 0.3     # 前片腰围线弧额外下凹量（腰头绘制推导.md §3，0.3~0.5）

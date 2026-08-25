@@ -84,6 +84,7 @@ calf_arc_alpha      = 0.0        # 小腿段弧弓高系数（0.08~0.12；0 = �
 inseam_arc_k1       = 0.50        # 内缝大腿段小裆弯度（0.15~0.25，越大越早往膝口收）
 inseam_arc_ky       = 0.18        # 内缝大腿段弯曲纵向位置（越大弯曲点越靠下）
 inseam_arc_k2       = 0.35        # 内缝大腿段膝口切线柄长系数（越大衔接越顺直）
+outseam_bulge       = 0.3         # 外缝髋腰段弧外凸量（臀围外缝点->腰侧点微凸，0.2~0.5）
 outseam_arc_dx      = 0.4         # 外缝大腿段大转子外凸量（0.1~0.2；顺直 0）
 outseam_arc_m2      = 0.35        # 外缝大腿段膝口切线柄长系数
 
@@ -135,6 +136,9 @@ front_pocket_facing_width   = 3.5       # 腰头端袋贴宽 w_waist（cm，常�
 front_pocket_facing_side_w  = 3.5       # 侧缝端袋贴深度 w_side（cm，常规 5.0~7.0；0 则取 width）
 front_pocket_facing_h1      = 14.0       # 腰头端切线柄长（tangent 模式，cm；越大下垂越深）
 front_pocket_facing_h2      = 1.0       # 侧缝端切线柄长（tangent 模式，cm；越大向内进深越长）
+front_pocket_facing_bulge    = 0.0       # 袋贴内边弧高（bulge 模式，cm；正值向裤身内侧凹入，0 = 直边）
+front_pocket_facing_bulge_at = 0.5       # 袋贴内边弧顶位置（bulge 模式；弦长比例 0~1：0=腰头端、
+                                  #   1=侧缝端，默认中点 0.5）
 
 # ---- 袋布（嵌入式口袋储物袋布大片/小片，可选步骤，袋布绘制.md §二、§三、§五）----
 # 依赖 front_pocket 主切口；闭合路径 P_w0 -> K1..Kn -> P_s0 -> 侧缝 -> O -> 腰缝
@@ -264,6 +268,7 @@ side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝�
 front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
 back_waist_curve_sag  = 0.4     # 后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，后腰头绘制推导.md §二）
                                 #   （0 = 无额外下凹，但 90° 正交平顺段的弯曲仍在，非直线）
+waist_rect_len        = 1.2     # 腰弧侧缝端直角修正段长 l_rect（腰头绘制推导.md §3，1.0~1.5）
 # 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
 
 # 腰头裁片专用缩水（可选；None/省略=用全局 shrinkage_warp/weft；换布/不同批次时单独录入；

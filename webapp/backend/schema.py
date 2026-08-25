@@ -177,7 +177,7 @@ GROUPS: list[dict] = [
         "delta", "front_crotch_adjust", "back_crotch_adjust",
         "front_intake_ratio", "front_intake_adjust", "back_intake",
         "waist_balance", "front_waist_dart", "back_waist_dart",
-        "side_intake_k_waist", "outseam_bulge",
+        "outseam_bulge",
         "waist_rect_len",
         "rise_ratio", "rise_adjust", "crotch_drop_adjust", "back_rise_alpha",
         "back_rise_beta", "front_rise_handle_ratio"]},
