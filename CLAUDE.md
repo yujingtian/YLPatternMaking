@@ -30,6 +30,8 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   --dxf out/sheet.dxf 整版一张；--pieces-dxf out/pieces.dxf 全部裁片平铺合一张
 # Web 端（一期：参数录入 -> 整版/裁片两步生成 -> SVG 预览 -> 门控 DXF 下载；需 pip install -e ".[web]"）：
 #   uvicorn webapp.backend.app:app 后访问 http://127.0.0.1:8000
+#   二期拖拽调版：整版把手拖动 -> /api/adjust 反解参数回写（flows/adjust.solve_param
+#   数值求根，绑定登记处 schema.ADJUSTABLES；把手/缩放平移见 SheetView，口径 .doc/python工程设计.md §10.7）
 #   （前端已构建于 webapp/frontend/dist；改前端：cd webapp/frontend && npm run dev，
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
 # 多码推码（尺寸单含 [size_run] 段且 enabled = true 时自动进入：逐码重打版 ->

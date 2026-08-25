@@ -1,5 +1,6 @@
 import type {
-  DraftPayload, IssueDetail, PiecesResult, Schema, SheetResult, Values,
+  AdjustResult, DraftPayload, IssueDetail, PiecesResult, Schema, SheetResult,
+  Values,
 } from './types'
 
 async function handle<T>(res: Response): Promise<T> {
@@ -27,6 +28,23 @@ export async function postSheet(payload: DraftPayload): Promise<SheetResult> {
 
 export async function postPieces(payload: DraftPayload): Promise<PiecesResult> {
   return handle(await fetch('/api/draft/pieces', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))
+}
+
+// 拖拽反解（二期双向绑定）：目标坐标 cm -> 参数值；stateless，
+// 引擎护栏内不抛错（钳制/no_effect 也 200，前端按 reason 显示钳制态）
+export async function postAdjust(
+  payload: DraftPayload & {
+    element: string
+    param: string
+    axis: string
+    target: number
+  },
+): Promise<AdjustResult> {
+  return handle(await fetch('/api/adjust', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

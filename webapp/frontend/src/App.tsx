@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { App as AntApp, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import TemplatePicker from './components/TemplatePicker'
@@ -9,6 +10,8 @@ import './styles.css'
 
 function DraftApp() {
   const d = useDraft()
+  // 拖拽进行中：暂隐"已过期"横幅（每次回写都重生成，松手后必然同步）
+  const [dragging, setDragging] = useState(false)
 
   return (
     <div className="app">
@@ -29,6 +32,8 @@ function DraftApp() {
         onGenerateSheet={() => void d.generateSheet()}
         onGeneratePieces={() => void d.generatePieces()}
         onDownload={(k) => void d.download(k)}
+        canUndo={d.lastDrag !== null}
+        onUndo={d.undoLastDrag}
       />
       <main className="app-main">
         {d.schema ? (
@@ -39,6 +44,7 @@ function DraftApp() {
             errors={d.errors}
             onMeasurement={d.setMeasurement}
             onOption={d.setOption}
+            highlight={d.adjustInfo}
           />
         ) : (
           <div className="preview-empty">schema 加载中…</div>
@@ -48,6 +54,12 @@ function DraftApp() {
           pieces={d.pieces}
           sheetStale={d.sheetStale}
           piecesStale={d.piecesStale}
+          dragging={dragging}
+          schema={d.schema}
+          base={{ measurements: d.measurements, options: d.options }}
+          onApplyAdjust={(p, v, b) => void d.applyAdjust(p, v, b)}
+          onBeginDrag={d.beginDrag}
+          onDragChange={setDragging}
         />
       </main>
     </div>

@@ -1,5 +1,11 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+/* AntApp 包裹层 .ant-app 只设 color/font 不设高（antd 源码可证）——
+   height:100% 链在此断裂，.app 退化为内容高、整页被参数面板撑出
+   window 滚动条（拖拽高亮 scrollIntoView 会连滚整页把整版滚出视口）。
+   补上后 .app 占满视口：左栏 param-panel（overflow-y:auto）与预览
+   tabs content-holder 各自内部滚动，页面级滚动条消失 */
+.ant-app { height: 100%; }
 
 .app { display: flex; flex-direction: column; height: 100%; }
 .app-header {
@@ -80,4 +86,37 @@ html, body, #root { height: 100%; margin: 0; }
 .report pre {
   max-height: 220px; overflow: auto; background: #f6f6f6;
   padding: 8px; font-size: 11px;
+}
+
+/* ---- 二期拖拽调版：把手 / 气泡 / 面板高亮 ---- */
+/* 整版交互视图：空白区可拖曳平移（滚轮缩放以指针为中心） */
+.sheet-view svg { cursor: grab; touch-action: none; }
+.sheet-view.panning svg { cursor: grabbing; }
+#yl-handles .handle { cursor: grab; }
+#yl-handles .handle.dragging { cursor: grabbing; }
+#yl-handles .handle-dot {
+  fill: rgba(44, 110, 73, 0.92); stroke: #fff; stroke-width: 1.2;
+  pointer-events: none;
+}
+#yl-handles .handle-hit { fill: transparent; }
+#yl-handles .axis-hint {
+  stroke: #2c6e49; stroke-width: 1.2; stroke-dasharray: 2.5 2;
+  opacity: 0.65; pointer-events: none;
+}
+/* 钳制态：目标超出绑定 range/生成能力，把手停在钳制位 */
+#yl-handles .handle.clamped .handle-dot { fill: #d46b08; }
+#yl-handles .handle.clamped .axis-hint { stroke: #d46b08; }
+
+/* 拖拽实时气泡：把手旁显示参数标签 + 实时解出的值 */
+.drag-bubble rect { fill: rgba(44, 110, 73, 0.92); }
+.drag-bubble text {
+  fill: #fff; font: 11px monospace; dominant-baseline: hanging;
+}
+.drag-bubble.fade { opacity: 0; transition: opacity 0.25s; }
+
+/* 参数面板高亮：拖拽回写的目标参数闪烁定位 */
+.param-flash { animation: param-flash 1.2s ease-out; }
+@keyframes param-flash {
+  0% { background: #f6ffc9; box-shadow: 0 0 0 2px #d3e8c0 inset; }
+  100% { background: transparent; box-shadow: none; }
 }

@@ -14,6 +14,7 @@ sections=整版绘制（画在整版 DraftSheet 上的参数）/裁片（各独�
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from ylpattern.params import Measurements, PatternOptions
@@ -279,6 +280,92 @@ _ENUMS: dict[str, list[str]] = {
 }
 
 
+# ---- 可调把手绑定表（二期拖拽调版；.doc/python工程设计.md §10.7） ----
+# 每条绑定 = 定位元素（点 / 曲线 t 处）沿单轴拖动 -> 反解单参数。
+# 选参原则（后续加绑定沿用）：同一几何量有"系数/规律参数"与"_adjust 修正量"
+# 两入口时一律绑修正量——cm 1:1 拖感、跨尺寸/推码稳健、语义=调版旋钮；
+# 仅比例单入口时兜底绑比例（back_intake）。range 端点必须落在
+# PatternOptions 硬校验内（tests/test_web_adjust.py 金标防漂移）；
+# 被浪长闭合锁死的点（前浪顶点类）不纳入——几何事实而非实现限制。
+
+
+@dataclass(frozen=True)
+class Adjustable:
+    """一条拖拽绑定：把手 element（kind=curve 时定位在参数 t 处）沿
+    axis 拖动，经 /api/adjust 反解 param 至 [lo, hi] 内。"""
+
+    element: str
+    label: str
+    kind: str                          # point / curve
+    param: str
+    axis: str                          # "x" / "y"
+    lo: float
+    hi: float
+    t: float | None = None             # curve 定位参数（point 恒 None）
+    visible_if: object | None = None   # gate：str=布尔开关 / dict=枚举匹配
+
+
+ADJUSTABLES: list[Adjustable] = [
+    Adjustable("front.pocket_p1", "袋口腰头端 P1", "point",
+               "front_pocket_p1_dist", "x", 4.0, 15.0,
+               visible_if="front_pocket"),
+    Adjustable("front.pocket_p2", "袋口侧缝端 P2", "point",
+               "front_pocket_p2_drop", "y", 2.0, 15.0,
+               visible_if="front_pocket"),
+    Adjustable("front.pocket_mouth", "袋口弧线", "curve",
+               "front_pocket_mouth_bulge", "x", 0.0, 3.0, t=0.5,
+               visible_if={"param": "front_pocket_mouth_mode",
+                           "values": ["bulge"],
+                           "requires": ["front_pocket"]}),
+    Adjustable("front.crotch_vertex", "前小裆顶点", "point",
+               "front_crotch_adjust", "x", -1.5, 1.0),
+    Adjustable("back.crotch_vertex", "后大裆顶点", "point",
+               "back_crotch_adjust", "x", -1.0, 2.0),
+    Adjustable("front.knee_outseam_point", "膝围外缝点", "point",
+               "knee_adjust", "x", 0.0, 2.0),
+    Adjustable("front.hem_outseam_point", "脚口外缝点", "point",
+               "hem_adjust", "x", 0.0, 2.0),
+    Adjustable("front.hem", "前脚口弧", "curve",
+               "front_hem_arc_sag", "y", 0.0, 1.5, t=0.5),
+    Adjustable("back.hem", "后脚口弧", "curve",
+               "back_hem_arc_sag", "y", 0.0, 1.5, t=0.5),
+    Adjustable("front.outseam_upper", "前外缝上段", "curve",
+               "outseam_arc_dx", "x", 0.0, 0.6, t=0.5),
+    Adjustable("back.outseam_upper", "后外缝上段", "curve",
+               "back_outseam_arc_dx", "x", 0.0, 0.6, t=0.5),
+    Adjustable("back.outseam_hip_waist", "后臀腰弧", "curve",
+               "back_hipwaist_arc_dx1", "x", 0.0, 0.5, t=0.5),
+    Adjustable("front.waistline_arc", "前腰弧", "curve",
+               "front_waist_curve_sag", "y", 0.0, 1.0, t=0.5),
+    Adjustable("back.waistline_arc", "后腰弧", "curve",
+               "back_waist_curve_sag", "y", 0.0, 1.0, t=0.5),
+    Adjustable("front.center_intake_point", "前中内收点", "point",
+               "front_intake_adjust", "x", -2.0, 3.0),
+    Adjustable("back.center_intake_point", "后中内收点", "point",
+               "back_intake", "x", 1.5, 4.5),
+]
+
+
+def gate_on(gate, o: PatternOptions) -> bool:
+    """参数级 gate 判定（与前端 ParamPanel.gateOn 同语义）：
+    字符串 = 布尔开关键；dict = {param, values, requires} 枚举值匹配
+    （requires 布尔开关须同时全真）。"""
+    if isinstance(gate, str):
+        return bool(getattr(o, gate, False))
+    if not all(bool(getattr(o, k, False)) for k in gate.get("requires", ())):
+        return False
+    v = getattr(o, gate["param"], None)
+    return v is not None and str(v) in gate["values"]
+
+
+def binding_for(element: str, param: str, axis: str) -> Adjustable | None:
+    """按 (element, param, axis) 查绑定表；未注册返回 None（/api/adjust 422）。"""
+    for adj in ADJUSTABLES:
+        if (adj.element, adj.param, adj.axis) == (element, param, axis):
+            return adj
+    return None
+
+
 def _sa_fields(sa) -> dict | None:
     """缝份对象 -> {边名: 默认值}（非缝份字段返回 None）。"""
     if sa is None or not hasattr(sa, "__dataclass_fields__"):
@@ -381,14 +468,13 @@ def build_schema() -> dict:
         if name not in grouped:
             fallback["params"].append(_param_spec(name, value, labels))
 
-    # 可调点配置表占位（一期只定格式不做交互；二期拖拽微调复用）
-    adjustable_points: list[dict] = [
-        {"element": "front.pocket_p2", "label": "袋口侧缝端点 P2",
-         "bindings": [{"param": "front_pocket_p2_drop", "axis": "y",
-                       "range": [2.0, 15.0]}]},
-        {"element": "front.pocket_p1", "label": "袋口腰头端点 P1",
-         "bindings": [{"param": "front_pocket_p1_dist", "axis": "x",
-                       "range": [4.0, 15.0]}]},
-    ]
+    # 可调把手从 ADJUSTABLES 派生（一期 adjustable_points 字段名保留，
+    # 前端兼容；新增 kind/t/visible_if 供二期拖拽消费）
+    adjustable_points = [
+        {"element": adj.element, "label": adj.label,
+         "kind": adj.kind, "t": adj.t, "visible_if": adj.visible_if,
+         "bindings": [{"param": adj.param, "axis": adj.axis,
+                       "range": [adj.lo, adj.hi]}]}
+        for adj in ADJUSTABLES]
     return {"sections": sections_out,
             "adjustable_points": adjustable_points}

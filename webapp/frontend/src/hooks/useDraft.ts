@@ -29,6 +29,12 @@ export interface DraftState {
   generateSheet: () => Promise<void>
   generatePieces: () => Promise<void>
   download: (kind: DownloadKind) => Promise<void>
+  // 二期拖拽调版：反解回写（显式载荷重生成整版）/ 撤销 / 面板高亮
+  applyAdjust: (param: string, value: number, base: DraftPayload) => Promise<void>
+  beginDrag: (param: string, prevValue: number) => void
+  undoLastDrag: () => void
+  lastDrag: { param: string; prevValue: number } | null
+  adjustInfo: { param: string; ts: number } | null
   sheet: Snapshot<SheetResult> | null
   pieces: Snapshot<PiecesResult> | null
   sheetReady: boolean
@@ -55,15 +61,31 @@ export function useDraft(): DraftState {
   )
   const [options, setOptions] = useState<Values>(saved.current?.options ?? {})
   // 参数版本号：任意修改 +1；产物快照记录生成时版本，不等即"已过期"
-  // （刷新后快照为 null 天然不 stale；localStorage 只存参数，生成状态不持久）
+  // （刷新后快照为 null 天然不 stale；localStorage 只存参数，生成状态不持久）。
+  // versionRef 镜像：applyAdjust 需要在 setState 闭包外读到"下一版本号"
+  // 做快照竞态判定（拖拽高频回写，不能等 state 落地）
+  const versionRef = useRef(0)
   const [version, setVersion] = useState(0)
+  const bump = useCallback(() => {
+    versionRef.current += 1
+    setVersion(versionRef.current)
+  }, [])
+  // 拖拽回写的参数基线（undo/下次生成用，规避闭包旧值）
+  const measRef = useRef(measurements)
+  measRef.current = measurements
+  const optsRef = useRef(options)
+  optsRef.current = options
   const [sheet, setSheet] = useState<Snapshot<SheetResult> | null>(null)
   const [pieces, setPieces] = useState<Snapshot<PiecesResult> | null>(null)
   const [errors, setErrors] = useState<IssueDetail[]>([])
   const [warnings, setWarnings] = useState<DraftWarning[]>([])
   const [sheetBusy, setSheetBusy] = useState(false)
   const [piecesBusy, setPiecesBusy] = useState(false)
+  const piecesBusyRef = useRef(false)
+  piecesBusyRef.current = piecesBusy
   const [dlBusy, setDlBusy] = useState<DownloadKind | null>(null)
+  const [lastDrag, setLastDrag] = useState<{ param: string; prevValue: number } | null>(null)
+  const [adjustInfo, setAdjustInfo] = useState<{ param: string; ts: number } | null>(null)
 
   useEffect(() => {
     fetchSchema().then(setSchema).catch((e) => {
@@ -82,20 +104,69 @@ export function useDraft(): DraftState {
   // 参数修改即过版本：已有预览保留但标"已过期"，DXF 下载随之禁用
   const setMeasurement = useCallback((key: string, value: unknown) => {
     setMeasurements((prev) => ({ ...prev, [key]: value }))
-    setVersion((v) => v + 1)
-  }, [])
+    bump()
+  }, [bump])
   const setOption = useCallback((key: string, value: unknown) => {
     setOptions((prev) => ({ ...prev, [key]: value }))
-    setVersion((v) => v + 1)
-  }, [])
+    bump()
+  }, [bump])
   const loadValues = useCallback((m: Values, o: Values) => {
     setMeasurements(m)
     setOptions(o)
-    setVersion((v) => v + 1)
-  }, [])
+    bump()
+  }, [bump])
 
   const sheetStale = sheet !== null && sheet.version !== version
   const piecesStale = pieces !== null && pieces.version !== version
+
+  // 拖拽回写：显式载荷（base + 新参数值）直接重生成整版——闭包里捕获的
+  // measurements/options 必然滞后于高频拖拽，参数面板与整版以 base 为准。
+  // 值圆整 2 位（打版精度与面板显示一致）；ver 判定丢弃晚到的旧响应
+  // （拖拽中旧快照不覆盖新参数状态）
+  const applyAdjust = useCallback(async (param: string, value: number,
+                                         base: DraftPayload) => {
+    if (piecesBusyRef.current) return     // 两步互斥：裁片生成中丢弃回写
+    const v = Math.round(value * 100) / 100
+    if (Number(base.options[param]) === v) return
+    const opts = { ...base.options, [param]: v }
+    versionRef.current += 1
+    const ver = versionRef.current
+    setOptions(opts)
+    setVersion(ver)
+    setAdjustInfo({ param, ts: Date.now() })
+    setSheetBusy(true)
+    try {
+      const res = await postSheet({ measurements: base.measurements, options: opts })
+      if (ver !== versionRef.current) return    // 已有更新的回写/修改，丢弃旧响应
+      setSheet({ data: res, version: ver })
+      setWarnings(res.warnings.map((w) => ({ param: w.param, message: w.message })))
+      setErrors([])
+    } catch (e) {
+      const err = e as Error & { detail?: IssueDetail[] }
+      if (err.detail) {
+        setErrors(err.detail)
+      } else {
+        setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
+      }
+    } finally {
+      setSheetBusy(false)
+    }
+  }, [])
+
+  // 每次拖拽开始记录 {参数, 拖前值}（双击复位同口径：复位也可撤销）
+  const beginDrag = useCallback((param: string, prevValue: number) => {
+    setLastDrag({ param, prevValue })
+  }, [])
+
+  const undoLastDrag = useCallback(() => {
+    setLastDrag((d) => {
+      if (!d) return null
+      void applyAdjust(d.param, d.prevValue, {
+        measurements: measRef.current, options: optsRef.current,
+      })
+      return null
+    })
+  }, [applyAdjust])
 
   const generateSheet = useCallback(async () => {
     if (piecesBusy) return            // 两步互斥（引擎 CPU 密集，毗围闭环可多轮重跑）
@@ -161,6 +232,7 @@ export function useDraft(): DraftState {
   return {
     schema, measurements, options, setMeasurement, setOption, loadValues,
     generateSheet, generatePieces, download,
+    applyAdjust, beginDrag, undoLastDrag, lastDrag, adjustInfo,
     sheet, pieces,
     sheetReady: sheet !== null, sheetStale,
     piecesReady: pieces !== null, piecesStale,

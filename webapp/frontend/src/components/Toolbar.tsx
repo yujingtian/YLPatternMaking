@@ -1,5 +1,5 @@
 import { Button, Space, Alert } from 'antd'
-import { DownloadOutlined, PlayCircleOutlined } from '@ant-design/icons'
+import { DownloadOutlined, PlayCircleOutlined, UndoOutlined } from '@ant-design/icons'
 import type { DownloadKind, IssueDetail } from '../types'
 
 // 两步生成门控（先画后裁）：
@@ -7,10 +7,12 @@ import type { DownloadKind, IssueDetail } from '../types'
 //   裁片生成 —— 须整版已生成且未过期（参数一改即过期，先重跑整版）
 //   整版/裁片 DXF —— 对应步骤已生成且未过期、无未决错误；下载期间全局串行
 //   toml —— 纯参数导出不跑引擎，维持仅 busy 禁用
+//   撤销上次拖拽 —— 有拖拽记录且不在 busy 中才可用（单步，回写拖前值并重生成）
 export default function Toolbar({
   sheetBusy, piecesBusy, dlBusy,
   sheetReady, sheetStale, piecesReady, piecesStale,
   errors, warnings, onGenerateSheet, onGeneratePieces, onDownload,
+  canUndo, onUndo,
 }: {
   sheetBusy: boolean
   piecesBusy: boolean
@@ -24,6 +26,8 @@ export default function Toolbar({
   onGenerateSheet: () => void
   onGeneratePieces: () => void
   onDownload: (kind: DownloadKind) => void
+  canUndo: boolean
+  onUndo: () => void
 }) {
   const blocked = errors.length > 0
   const busy = sheetBusy || piecesBusy || dlBusy !== null
@@ -47,6 +51,13 @@ export default function Toolbar({
           onClick={onGeneratePieces}
         >
           裁片生成
+        </Button>
+        <Button
+          icon={<UndoOutlined />}
+          disabled={busy || !canUndo}
+          onClick={onUndo}
+        >
+          撤销上次拖拽
         </Button>
         <Button
           icon={<DownloadOutlined />}

@@ -43,7 +43,48 @@ export interface SectionSpec {
 export interface AdjustablePoint {
   element: string
   label: string
+  kind: 'point' | 'curve'
+  t: number | null
+  visible_if: Gate | null
   bindings: { param: string; axis: string; range: [number, number] }[]
+}
+
+// ---- 二期拖拽调版 ----
+
+// px↔cm 仿射常量（后端 compute_view 与 SVG 根 data-* 同源下发）：
+// sx = x*scale + ox、sy = top − y*scale；逆变换同乘逆序
+export interface Transform {
+  scale: number
+  ox: number
+  top: number
+}
+
+export interface HandleBinding {
+  param: string
+  axis: string
+  range: [number, number]
+}
+
+// 当前版面上的可调把手（后端已做 gate + 元素存在性自门控）
+export interface HandleInfo {
+  element: string
+  label: string
+  kind: 'point' | 'curve'
+  t: number | null
+  x: number
+  y: number
+  bindings: HandleBinding[]
+}
+
+export interface AdjustResult {
+  ok: boolean
+  converged: boolean
+  value: number
+  params: Record<string, number>
+  achieved: number
+  residual: number
+  reason: string   // tol / range_clamped / no_effect / engine_error / max_iter
+  evaluations: number
 }
 
 export interface Schema {
@@ -70,6 +111,8 @@ export interface SheetResult {
   ok: boolean
   sheet_svg: string
   report: string
+  transform: Transform
+  handles: HandleInfo[]
   warnings: DraftWarning[]
 }
 

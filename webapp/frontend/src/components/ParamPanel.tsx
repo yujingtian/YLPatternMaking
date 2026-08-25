@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Gate, GroupSpec, IssueDetail, ParamSpec, SectionSpec, Values } from '../types'
 import { Input, InputNumber, Select, Switch, Collapse, Badge } from 'antd'
 
@@ -9,6 +9,7 @@ interface Props {
   errors: IssueDetail[]
   onMeasurement: (key: string, value: unknown) => void
   onOption: (key: string, value: unknown) => void
+  highlight: { param: string; ts: number } | null
 }
 
 // 虚拟参数 pocket_type：挖削前口袋 / 前贴袋互斥，读写两个隐藏开关
@@ -185,7 +186,7 @@ function ParamInput({ spec, value, onChange, err, options, setOption }: {
     }
   }
   return (
-    <div className={`param${err ? ' param-error' : ''}`}>
+    <div className={`param${err ? ' param-error' : ''}`} data-param={spec.key}>
       <div className="param-head">
         <span className="param-label" title={spec.key}>{spec.label}</span>
         {control}
@@ -197,11 +198,48 @@ function ParamInput({ spec, value, onChange, err, options, setOption }: {
 
 export default function ParamPanel({
   sections, measurements, options, errors,
-  onMeasurement, onOption,
+  onMeasurement, onOption, highlight,
 }: Props) {
   const [search, setSearch] = useState('')
   const errs = useMemo(() => errorMap(errors), [errors])
   const qs = search.trim().toLowerCase()
+  const rootRef = useRef<HTMLDivElement>(null)
+  // 受控折叠（原 defaultActiveKey 语义不变；二期拖拽高亮需程序化展开目标组）
+  const [secOpen, setSecOpen] = useState<string[]>(() =>
+    sections.filter((s) => !s.collapsed).map((s) => s.key))
+  const [grpOpen, setGrpOpen] = useState<string[]>(() =>
+    sections.flatMap((s) => s.groups.filter((g) => !g.collapsed)
+      .map((g) => g.key)))
+
+  // 拖拽回写高亮：展开参数所在段/组 -> 滚动居中 -> 闪烁动画。
+  // 参数被 gate 隐藏（如口袋参数在开关关闭时）则静默无操作
+  useEffect(() => {
+    if (!highlight) return
+    for (const s of sections) {
+      const g = s.groups.find((gr) => gr.params.some((p) => p.key === highlight.param))
+      if (!g) continue
+      setSecOpen((ks) => (ks.includes(s.key) ? ks : [...ks, s.key]))
+      setGrpOpen((ks) => (ks.includes(g.key) ? ks : [...ks, g.key]))
+      break
+    }
+    const t = window.setTimeout(() => {
+      const root = rootRef.current
+      const el = root?.querySelector(`[data-param="${highlight.param}"]`)
+      if (!root || !el) return
+      // 只滚面板自身：scrollIntoView 会沿祖先链连滚 window/外层容器，
+      // 把整版预览滚出视口；rect 差算 scrollTop 居中（等价 block:'center'）
+      const rr = root.getBoundingClientRect()
+      const er = el.getBoundingClientRect()
+      root.scrollTo({
+        top: root.scrollTop + er.top - rr.top - (root.clientHeight - er.height) / 2,
+        behavior: 'smooth',
+      })
+      el.classList.remove('param-flash')
+      void (el as HTMLElement).offsetWidth   // reflow 重启动画
+      el.classList.add('param-flash')
+    }, 150)          // 等 Collapse 展开渲染
+    return () => window.clearTimeout(t)
+  }, [highlight, sections])
 
   // 组 -> Collapse item（组级 gate / 参数级 gate / 搜索过滤 / 错误徽标 /
   // 值来源路由；两段式重构时整段逐行保留，勿顺手改动语义）
@@ -292,8 +330,8 @@ export default function ParamPanel({
           <Collapse
             size="small"
             className="section-groups"
-            defaultActiveKey={s.groups
-              .filter((g) => !g.collapsed).map((g) => g.key)}
+            activeKey={grpOpen}
+            onChange={(k) => setGrpOpen(Array.isArray(k) ? k : [k])}
             items={items}
           />
         ),
@@ -302,7 +340,7 @@ export default function ParamPanel({
     .filter((x): x is NonNullable<typeof x> => x !== null)
 
   return (
-    <div className="param-panel">
+    <div className="param-panel" ref={rootRef}>
       <Input.Search
         allowClear
         placeholder="搜索参数名（如 p1_dist / 缩水）…"
@@ -311,8 +349,8 @@ export default function ParamPanel({
       />
       <Collapse
         size="small"
-        defaultActiveKey={sections
-          .filter((s) => !s.collapsed).map((s) => s.key)}
+        activeKey={secOpen}
+        onChange={(k) => setSecOpen(Array.isArray(k) ? k : [k])}
         items={sectionItems}
       />
     </div>

@@ -21,11 +21,12 @@ from ylpattern.exporters import piece_dxf as piece_dxf_exp
 from ylpattern.exporters import piece_svg as piece_exp
 from ylpattern.exporters import report as report_exp
 from ylpattern.exporters import svg as svg_exp
+from ylpattern.flows.adjust import element_coordinate, solve_param
 from ylpattern.flows.collect import collect_pieces
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.params import (Measurements, PatternOptions, build_issues)
 
-from .schema import build_schema
+from .schema import ADJUSTABLES, binding_for, build_schema, gate_on
 
 app = FastAPI(title="YLPattern Web", version="0.1.0")
 app.add_middleware(
@@ -68,6 +69,25 @@ def _draft_ctx(req: DraftRequest):
     return m, o, ctx, warnings
 
 
+def _handles(ctx, o) -> list[dict]:
+    """可调把手清单（二期拖拽）：ADJUSTABLES 逐条元素级自门控——
+    gate 满足且元素在版上才下发坐标，前端零重复判断开关/形态。"""
+    out: list[dict] = []
+    for adj in ADJUSTABLES:
+        if adj.visible_if is not None and not gate_on(adj.visible_if, o):
+            continue
+        try:
+            x = element_coordinate(ctx, adj.element, "x", t=adj.t)
+            y = element_coordinate(ctx, adj.element, "y", t=adj.t)
+        except (KeyError, TypeError, ValueError):
+            continue        # 元素不在版上（开关/形态未开）：跳过
+        out.append({"element": adj.element, "label": adj.label,
+                    "kind": adj.kind, "t": adj.t, "x": x, "y": y,
+                    "bindings": [{"param": adj.param, "axis": adj.axis,
+                                  "range": [adj.lo, adj.hi]}]})
+    return out
+
+
 @app.get("/api/schema")
 def get_schema() -> dict:
     return build_schema()
@@ -75,15 +95,62 @@ def get_schema() -> dict:
 
 @app.post("/api/draft/sheet")
 def draft_sheet(req: DraftRequest) -> dict:
-    """整版 SVG + 报表文本（两步生成第一步；不收集裁片）。"""
+    """整版 SVG + 报表文本（两步生成第一步；不收集裁片）。
+
+    二期拖拽扩展：transform（px↔cm 仿射常量，与 SVG 根 data-* 同源）与
+    handles（当前版面上的可调把手坐标 cm）。
+    """
     m, o, ctx, warnings = _draft_ctx(req)
+    _w, _h, top, ox = svg_exp.compute_view(ctx.sheet)
     return {
         "ok": True,
         "sheet_svg": svg_exp.render_sheet(ctx.sheet,
                                           show_labels=o.show_labels),
         "report": report_exp.render_report(ctx.sheet, m, o),
+        "transform": {"scale": svg_exp.SCALE, "ox": ox, "top": top},
+        "handles": _handles(ctx, o),
         "warnings": warnings,
     }
+
+
+class AdjustRequest(BaseModel):
+    """拖拽反解请求：把手沿绑定轴拖到 target（版坐标 cm，Y 向上）。"""
+
+    measurements: dict
+    options: dict = {}
+    element: str
+    param: str
+    axis: str
+    target: float
+
+
+@app.post("/api/adjust")
+def adjust(req: AdjustRequest) -> dict:
+    """拖拽反解（二期双向绑定）：目标坐标 -> 参数值，stateless。
+
+    流程：当前参数过 _build（422 = 参数本身有错）→ 查 ADJUSTABLES
+    （未注册绑定 422）→ solve_param 在 [lo, hi] 数值求根（定位参数 t
+    由绑定表下发，不取请求值）。求解器护栏内不抛出——钳制/no_effect
+    也 200（拖拽中不弹错，前端按 reason 显示钳制态）；仅基线不可生成
+    （配置/测量矛盾）转 422。同步 def 走线程池，引擎纯函数线程安全。
+    """
+    m, o, _warnings = _build(DraftRequest(measurements=req.measurements,
+                                          options=req.options))
+    adj = binding_for(req.element, req.param, req.axis)
+    if adj is None:
+        raise HTTPException(
+            422, f"未注册的可调绑定：{req.element} {req.param} "
+                 f"{req.axis}（见 /api/schema adjustable_points）")
+    try:
+        r = solve_param(m, o, element=adj.element, param=adj.param,
+                        axis=adj.axis, target=req.target,
+                        lo=adj.lo, hi=adj.hi, t=adj.t)
+    except ValueError as e:        # 基线不可生成：配置/测量矛盾
+        raise HTTPException(422, str(e))
+    return {"ok": True, "converged": r.converged, "value": r.value,
+            "params": {adj.param: r.value},
+            "achieved": r.achieved, "residual": r.residual,
+            "reason": r.reason, "evaluations": r.evaluations}
 
 
 @app.post("/api/draft/pieces")
