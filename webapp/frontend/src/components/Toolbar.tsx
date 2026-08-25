@@ -1,27 +1,32 @@
-import { Button, Space, Alert, App as AntApp } from 'antd'
+import { Button, Space, Alert } from 'antd'
 import { DownloadOutlined, PlayCircleOutlined } from '@ant-design/icons'
-import type { DraftPayload, IssueDetail } from '../types'
-import { download } from '../api'
+import type { DownloadKind, IssueDetail } from '../types'
 
+// 两步生成门控（先画后裁）：
+//   整版生成 —— 仅互斥裁片生成
+//   裁片生成 —— 须整版已生成且未过期（参数一改即过期，先重跑整版）
+//   整版/裁片 DXF —— 对应步骤已生成且未过期、无未决错误；下载期间全局串行
+//   toml —— 纯参数导出不跑引擎，维持仅 busy 禁用
 export default function Toolbar({
-  payload, busy, errors, warnings, onGenerate,
+  sheetBusy, piecesBusy, dlBusy,
+  sheetReady, sheetStale, piecesReady, piecesStale,
+  errors, warnings, onGenerateSheet, onGeneratePieces, onDownload,
 }: {
-  payload: DraftPayload
-  busy: boolean
+  sheetBusy: boolean
+  piecesBusy: boolean
+  dlBusy: DownloadKind | null
+  sheetReady: boolean
+  sheetStale: boolean
+  piecesReady: boolean
+  piecesStale: boolean
   errors: IssueDetail[]
   warnings: { param: string | null; message: string }[]
-  onGenerate: () => void
+  onGenerateSheet: () => void
+  onGeneratePieces: () => void
+  onDownload: (kind: DownloadKind) => void
 }) {
-  const { message } = AntApp.useApp()
   const blocked = errors.length > 0
-
-  async function dl(endpoint: string, filename: string) {
-    try {
-      await download(endpoint, payload, filename)
-    } catch (e) {
-      void message.error(`下载失败：${e}`)
-    }
-  }
+  const busy = sheetBusy || piecesBusy || dlBusy !== null
 
   return (
     <div className="toolbar">
@@ -29,29 +34,40 @@ export default function Toolbar({
         <Button
           type="primary"
           icon={<PlayCircleOutlined />}
-          loading={busy}
-          onClick={onGenerate}
+          loading={sheetBusy}
+          disabled={piecesBusy}
+          onClick={onGenerateSheet}
         >
-          生成
+          整版生成
+        </Button>
+        <Button
+          icon={<PlayCircleOutlined />}
+          loading={piecesBusy}
+          disabled={!sheetReady || sheetStale || sheetBusy}
+          onClick={onGeneratePieces}
+        >
+          裁片生成
         </Button>
         <Button
           icon={<DownloadOutlined />}
-          disabled={busy || blocked}
-          onClick={() => void dl('/api/dxf?kind=pieces', 'pieces.dxf')}
-        >
-          裁片 DXF
-        </Button>
-        <Button
-          icon={<DownloadOutlined />}
-          disabled={busy || blocked}
-          onClick={() => void dl('/api/dxf?kind=sheet', 'sheet.dxf')}
+          loading={dlBusy === 'sheetDxf'}
+          disabled={busy || !sheetReady || sheetStale || blocked}
+          onClick={() => onDownload('sheetDxf')}
         >
           整版 DXF
         </Button>
         <Button
           icon={<DownloadOutlined />}
+          loading={dlBusy === 'piecesDxf'}
+          disabled={busy || !piecesReady || piecesStale || blocked}
+          onClick={() => onDownload('piecesDxf')}
+        >
+          裁片 DXF
+        </Button>
+        <Button
+          icon={<DownloadOutlined />}
           disabled={busy}
-          onClick={() => void dl('/api/toml', 'size_draft.toml')}
+          onClick={() => onDownload('toml')}
         >
           尺寸单 toml
         </Button>

@@ -24,7 +24,8 @@ client = TestClient(app)
 
 def test_schema_groups_cover_all_options():
     schema = build_schema()
-    keys = {p["key"] for g in schema["groups"] for p in g["params"]}
+    keys = {p["key"] for s in schema["sections"]
+            for g in s["groups"] for p in g["params"]}
     from ylpattern.params import PatternOptions, Measurements
     engine = set(PatternOptions().__dict__) | set(
         Measurements(waist=68, hip=91, knee=44, hem=34, front_rise=25,
@@ -32,21 +33,67 @@ def test_schema_groups_cover_all_options():
     assert engine <= keys          # 引擎参数全部被 schema 覆盖（含 misc 兜底）
 
 
-def test_draft_ok_dynamic_pieces():
-    r = client.post("/api/draft", json={"measurements": BASE_M,
-                                        "options": FULL_OPTS})
+def test_schema_sections_structure():
+    """两段式结构金标：整版绘制/裁片分家（.claude/plans/webapp-phase2）。
+
+    段序固定；组 key 全局唯一；工艺参数迁裁片段、绘制参数留整版段；
+    前后片自有工艺参数（缝份/刀口/缩水率）同组不拆分（用户口径 2026-08-25）。
+    """
+    schema = build_schema()
+    sections = schema["sections"]
+    assert [s["key"] for s in sections] == ["draft", "pieces"]
+    group_keys = [g["key"] for s in sections for g in s["groups"]]
+    assert len(group_keys) == len(set(group_keys))    # 组 key 全局唯一
+
+    where: dict[str, tuple[str, str]] = {}           # param -> (段, 组)
+    for s in sections:
+        for g in s["groups"]:
+            for p in g["params"]:
+                where.setdefault(p["key"], (s["key"], g["key"]))
+    assert where["waist"][1] == "measurements"       # 值来源路由组（前端契约）
+    assert "misc" in group_keys                      # 白名单外参数兜底组在位
+    for k in ("waistband_seam_allowances", "fly_sep_extra",
+              "belt_loop_width", "front_piece_notch_type",
+              "back_patch_notch_type"):
+        assert where[k][0] == "pieces", k            # 工艺参数迁裁片段
+    for k in ("waistband_width", "fly_width", "back_patch_shape",
+              "side_rise"):
+        assert where[k][0] == "draft", k             # 绘制参数留整版段
+    for piece in ("front_piece", "back_piece"):
+        groups_of = {where[f"{piece}_shrinkage_warp"][1],
+                     where[f"{piece}_seam_allowances"][1],
+                     where[f"{piece}_notch_type"][1]}
+        assert len(groups_of) == 1, piece            # 裁片自有参数同组不拆分
+
+
+def test_draft_sheet_ok():
+    r = client.post("/api/draft/sheet", json={"measurements": BASE_M,
+                                              "options": FULL_OPTS})
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] and "<svg" in body["sheet_svg"]
+    assert body["report"]                # 报表非空
+    # 金标：整版端点不带回裁片负载（两步生成拆分口径）
+    assert "pieces" not in body and "skips" not in body
+
+
+def test_draft_pieces_dynamic():
+    r = client.post("/api/draft/pieces", json={"measurements": BASE_M,
+                                               "options": FULL_OPTS})
+    assert r.status_code == 200
+    body = r.json()
     names = {p["key"] for p in body["pieces"]}
     # 腰头永有；其余随开关
     assert "waistband" in names and "back_yoke" in names
     assert "front_pouch" in names and "belt_loop" in names
     assert all("<svg" in p["svg"] for p in body["pieces"])
+    # 金标：裁片端点不带回整版负载
+    assert "sheet_svg" not in body and "report" not in body
 
 
 def test_draft_minimal_only_waistband_pieces():
-    r = client.post("/api/draft", json={"measurements": BASE_M, "options": {}})
+    r = client.post("/api/draft/pieces", json={"measurements": BASE_M,
+                                               "options": {}})
     body = r.json()
     # 全开关关闭：腰头 + 前后片必有，口袋类裁片不在清单
     names = {p["key"] for p in body["pieces"]}
@@ -55,13 +102,14 @@ def test_draft_minimal_only_waistband_pieces():
 
 
 def test_draft_validation_422():
-    r = client.post("/api/draft",
-                    json={"measurements": BASE_M,
-                          "options": {"front_pouch": True}})
-    assert r.status_code == 422
-    detail = r.json()["detail"]
-    assert detail[0]["param"] == "front_pouch"
-    assert "front_pocket" in detail[0]["message"]
+    # 两端点共用 _build：同 payload 各自 422 且结构一致
+    for ep in ("/api/draft/sheet", "/api/draft/pieces"):
+        r = client.post(ep, json={"measurements": BASE_M,
+                                  "options": {"front_pouch": True}})
+        assert r.status_code == 422
+        detail = r.json()["detail"]
+        assert detail[0]["param"] == "front_pouch"
+        assert "front_pocket" in detail[0]["message"]
 
 
 def test_dxf_download_nonempty():

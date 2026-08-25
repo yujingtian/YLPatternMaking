@@ -28,7 +28,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
     --back-piece-svg out/back_piece.svg
 # DXF（裁床/服装 CAD，R12/mm 折线，需 pip install 'ylpattern[dxf]'）：
 #   --dxf out/sheet.dxf 整版一张；--pieces-dxf out/pieces.dxf 全部裁片平铺合一张
-# Web 端（一期：参数录入 -> SVG 预览 -> DXF 下载；需 pip install -e ".[web]"）：
+# Web 端（一期：参数录入 -> 整版/裁片两步生成 -> SVG 预览 -> 门控 DXF 下载；需 pip install -e ".[web]"）：
 #   uvicorn webapp.backend.app:app 后访问 http://127.0.0.1:8000
 #   （前端已构建于 webapp/frontend/dist；改前端：cd webapp/frontend && npm run dev，
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）

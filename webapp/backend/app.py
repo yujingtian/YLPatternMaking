@@ -1,4 +1,4 @@
-"""FastAPI 入口：参数 schema 下发 / 打版生成 / DXF 下载 / 模板。
+"""FastAPI 入口：参数 schema 下发 / 两步生成（整版/裁片）/ DXF 下载 / 模板。
 
 薄壳层：全部计算走 ylpattern 引擎（flows + exporters 内存渲染），
 不落盘、不复制任何公式。启动：
@@ -73,15 +73,29 @@ def get_schema() -> dict:
     return build_schema()
 
 
-@app.post("/api/draft")
-def draft(req: DraftRequest) -> dict:
-    """整版 SVG + 动态裁片清单（各裁片 SVG）+ 报表文本。"""
+@app.post("/api/draft/sheet")
+def draft_sheet(req: DraftRequest) -> dict:
+    """整版 SVG + 报表文本（两步生成第一步；不收集裁片）。"""
     m, o, ctx, warnings = _draft_ctx(req)
-    pieces, skips = collect_pieces(ctx)
     return {
         "ok": True,
         "sheet_svg": svg_exp.render_sheet(ctx.sheet),
         "report": report_exp.render_report(ctx.sheet, m, o),
+        "warnings": warnings,
+    }
+
+
+@app.post("/api/draft/pieces")
+def draft_pieces(req: DraftRequest) -> dict:
+    """动态裁片清单（各裁片 SVG）+ 跳过说明（两步生成第二步）。
+
+    先整版后裁片仅为前端 UI 门控口径（先画后裁）；后端无状态，
+    本端点自跑整版引擎再提取裁片。
+    """
+    _, o, ctx, warnings = _draft_ctx(req)
+    pieces, skips = collect_pieces(ctx)
+    return {
+        "ok": True,
         "pieces": [{"key": p.name, "name": p.label, "count": 1,
                     "svg": piece_exp.render_piece_svg(
                         p, show_seam=o.show_seam_allowance)}
@@ -136,7 +150,7 @@ def template_detail(name: str) -> dict:
     if not path.is_file():
         raise HTTPException(404, f"模板不存在:{name}")
     data = tomllib.loads(path.read_text(encoding="utf-8"))
-    # 展平缝份子表到 options（与 POST /api/draft 的 options 口径一致）
+    # 展平缝份子表到 options（与生成端点的 options 口径一致）
     options = {k: v for k, v in data.get("options", {}).items()}
     for key, val in list(options.items()):
         if isinstance(val, dict):

@@ -1,5 +1,5 @@
 import type {
-  DraftPayload, DraftResult, IssueDetail, Schema, Values,
+  DraftPayload, IssueDetail, PiecesResult, Schema, SheetResult, Values,
 } from './types'
 
 async function handle<T>(res: Response): Promise<T> {
@@ -17,8 +17,16 @@ export async function fetchSchema(): Promise<Schema> {
   return handle(await fetch('/api/schema'))
 }
 
-export async function postDraft(payload: DraftPayload): Promise<DraftResult> {
-  return handle(await fetch('/api/draft', {
+export async function postSheet(payload: DraftPayload): Promise<SheetResult> {
+  return handle(await fetch('/api/draft/sheet', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))
+}
+
+export async function postPieces(payload: DraftPayload): Promise<PiecesResult> {
+  return handle(await fetch('/api/draft/pieces', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

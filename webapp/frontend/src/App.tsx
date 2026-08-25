@@ -9,7 +9,6 @@ import './styles.css'
 
 function DraftApp() {
   const d = useDraft()
-  const payload = { measurements: d.measurements, options: d.options }
 
   return (
     <div className="app">
@@ -18,16 +17,23 @@ function DraftApp() {
         <TemplatePicker onLoad={d.loadValues} />
       </header>
       <Toolbar
-        payload={payload}
-        busy={d.busy}
+        sheetBusy={d.sheetBusy}
+        piecesBusy={d.piecesBusy}
+        dlBusy={d.dlBusy}
+        sheetReady={d.sheetReady}
+        sheetStale={d.sheetStale}
+        piecesReady={d.piecesReady}
+        piecesStale={d.piecesStale}
         errors={d.errors}
         warnings={d.warnings}
-        onGenerate={() => void d.generate()}
+        onGenerateSheet={() => void d.generateSheet()}
+        onGeneratePieces={() => void d.generatePieces()}
+        onDownload={(k) => void d.download(k)}
       />
       <main className="app-main">
         {d.schema ? (
           <ParamPanel
-            groups={d.schema.groups}
+            sections={d.schema.sections}
             measurements={d.measurements}
             options={d.options}
             errors={d.errors}
@@ -37,7 +43,12 @@ function DraftApp() {
         ) : (
           <div className="preview-empty">schema 加载中…</div>
         )}
-        <PreviewPane result={d.result} />
+        <PreviewPane
+          sheet={d.sheet}
+          pieces={d.pieces}
+          sheetStale={d.sheetStale}
+          piecesStale={d.piecesStale}
+        />
       </main>
     </div>
   )

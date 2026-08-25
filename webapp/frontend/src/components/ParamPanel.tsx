@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
-import type { Gate, GroupSpec, IssueDetail, ParamSpec, Values } from '../types'
+import type { Gate, GroupSpec, IssueDetail, ParamSpec, SectionSpec, Values } from '../types'
 import { Input, InputNumber, Select, Switch, Collapse, Badge } from 'antd'
 
 interface Props {
-  groups: GroupSpec[]
+  sections: SectionSpec[]
   measurements: Values
   options: Values
   errors: IssueDetail[]
@@ -196,88 +196,110 @@ function ParamInput({ spec, value, onChange, err, options, setOption }: {
 }
 
 export default function ParamPanel({
-  groups, measurements, options, errors,
+  sections, measurements, options, errors,
   onMeasurement, onOption,
 }: Props) {
   const [search, setSearch] = useState('')
   const errs = useMemo(() => errorMap(errors), [errors])
   const qs = search.trim().toLowerCase()
 
-  const items = groups
-    .map((g) => {
-      // 联动显隐：visible_if（单键或多键，全真才显示）指向的开关关闭时
-      // 整组隐藏（搜索时仍显示）
-      const gates = g.visible_if == null ? []
-        : Array.isArray(g.visible_if) ? g.visible_if : [g.visible_if]
-      const gate = gates.every((k) => Boolean(options[k]))
-      if (!gate && qs.length === 0) return null
-      const params = (qs
-        ? g.params.filter(
-            (p) => !p.hidden &&
-              (p.key.toLowerCase().includes(qs) ||
-                p.label.toLowerCase().includes(qs)))
-        : g.params.filter(
-            // 参数级联动：visible_if 为单键=该开关开才显示；
-            // 为数组=任一开关开即显示（如口袋缩水率 gate 挖削/贴袋双形态）
-            (p) => {
-              if (p.hidden) return false
-              if (!p.visible_if) return true
-              const gates = Array.isArray(p.visible_if)
-                ? p.visible_if : [p.visible_if]
-              // gate：字符串=布尔开关，对象=枚举值匹配（形态联动）
-              return gates.some((g) => gateOn(g, options))
-            }))
-      if (params.length === 0) return null
+  // 组 -> Collapse item（组级 gate / 参数级 gate / 搜索过滤 / 错误徽标 /
+  // 值来源路由；两段式重构时整段逐行保留，勿顺手改动语义）
+  const renderGroup = (g: GroupSpec) => {
+    // 联动显隐：visible_if（单键或多键，全真才显示）指向的开关关闭时
+    // 整组隐藏（搜索时仍显示）
+    const gates = g.visible_if == null ? []
+      : Array.isArray(g.visible_if) ? g.visible_if : [g.visible_if]
+    const gate = gates.every((k) => Boolean(options[k]))
+    if (!gate && qs.length === 0) return null
+    const params = (qs
+      ? g.params.filter(
+          (p) => !p.hidden &&
+            (p.key.toLowerCase().includes(qs) ||
+              p.label.toLowerCase().includes(qs)))
+      : g.params.filter(
+          // 参数级联动：visible_if 为单键=该开关开才显示；
+          // 为数组=任一开关开即显示（如口袋缩水率 gate 挖削/贴袋双形态）
+          (p) => {
+            if (p.hidden) return false
+            if (!p.visible_if) return true
+            const gates = Array.isArray(p.visible_if)
+              ? p.visible_if : [p.visible_if]
+            // gate：字符串=布尔开关，对象=枚举值匹配（形态联动）
+            return gates.some((g) => gateOn(g, options))
+          }))
+    if (params.length === 0) return null
 
-      const errCount = params.filter((p) => errs.has(p.key)).length
-      const label = (
-        <span className="group-title">
-          {g.label}
-          <span className="count">{params.length}</span>
-          {gate ? null : (
-            <span className="gate-hint">
-              （依赖 {gates.join(' + ')}）
-            </span>
-          )}
-        </span>
-      )
+    const errCount = params.filter((p) => errs.has(p.key)).length
+    const label = (
+      <span className="group-title">
+        {g.label}
+        <span className="count">{params.length}</span>
+        {gate ? null : (
+          <span className="gate-hint">
+            （依赖 {gates.join(' + ')}）
+          </span>
+        )}
+      </span>
+    )
+    return {
+      key: g.key,
+      label: errCount
+        ? <Badge count={errCount} offset={[10, 0]}>{label}</Badge>
+        : label,
+      children: (
+        <div className="group-body">
+          {params.map((p) => {
+            const isMeasure = g.key === 'measurements'
+            const value = p.type === 'pocket_type'
+              ? pocketTypeOf(options)
+              : p.type === 'fly_type'
+                ? flyTypeOf(options)
+                : isMeasure
+                  ? measurements[p.key] ?? p.default
+                  : options[p.key] ?? p.default
+            return (
+              <ParamInput
+                key={p.key}
+                spec={p}
+                value={value}
+                err={errs.get(p.key)}
+                options={options}
+                setOption={onOption}
+                onChange={(v) =>
+                  (isMeasure ? onMeasurement : onOption)(p.key, v)}
+              />
+            )
+          })}
+        </div>
+      ),
+    }
+  }
+
+  // 两段式：外层 section 折叠、内层组折叠（嵌套 Collapse），默认态全由
+  // schema 的 collapsed 字段驱动（用户口径 2026-08：默认仅展开基础测量，
+  // 裁片段整段收起）。非搜索态下 section 内组全被 gate/过滤隐藏时整个
+  // section 不渲染；搜索/错误徽标/gate-hint 均不向 section 标题上卷
+  const sectionItems = sections
+    .map((s) => {
+      const items = s.groups.map(renderGroup)
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+      if (items.length === 0 && qs.length === 0) return null
       return {
-        key: g.key,
-        label: errCount
-          ? <Badge count={errCount} offset={[10, 0]}>{label}</Badge>
-          : label,
+        key: s.key,
+        label: <span className="section-title">{s.label}</span>,
         children: (
-          <div className="group-body">
-            {params.map((p) => {
-              const isMeasure = g.key === 'measurements'
-              const value = p.type === 'pocket_type'
-                ? pocketTypeOf(options)
-                : p.type === 'fly_type'
-                  ? flyTypeOf(options)
-                  : isMeasure
-                    ? measurements[p.key] ?? p.default
-                    : options[p.key] ?? p.default
-              return (
-                <ParamInput
-                  key={p.key}
-                  spec={p}
-                  value={value}
-                  err={errs.get(p.key)}
-                  options={options}
-                  setOption={onOption}
-                  onChange={(v) =>
-                    (isMeasure ? onMeasurement : onOption)(p.key, v)}
-                />
-              )
-            })}
-          </div>
+          <Collapse
+            size="small"
+            className="section-groups"
+            defaultActiveKey={s.groups
+              .filter((g) => !g.collapsed).map((g) => g.key)}
+            items={items}
+          />
         ),
       }
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
-
-  // 默认仅展开基础测量，其余全收起（用户口径 2026-08）
-  const defaultActive = ['measurements']
 
   return (
     <div className="param-panel">
@@ -289,8 +311,9 @@ export default function ParamPanel({
       />
       <Collapse
         size="small"
-        defaultActiveKey={defaultActive}
-        items={items}
+        defaultActiveKey={sections
+          .filter((s) => !s.collapsed).map((s) => s.key)}
+        items={sectionItems}
       />
     </div>
   )

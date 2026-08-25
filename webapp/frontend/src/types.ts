@@ -1,4 +1,5 @@
-// 与后端 /api/schema、/api/draft 对齐的类型（一期手写，二期可 openapi 生成）
+// 与后端 /api/schema、/api/draft/sheet、/api/draft/pieces 对齐的类型
+// （两步生成拆分，2026-08；一期手写，后续可 openapi 生成）
 
 // 参数级联动 gate：字符串 = 布尔开关键；对象 = 枚举参数值匹配
 // （值在 values 内才显示，如贴袋形态专属参数随 shape 切换）；
@@ -31,6 +32,14 @@ export interface GroupSpec {
   collapsed: boolean
 }
 
+// 两段式分组：整版绘制（画在 DraftSheet 上的参数）/ 裁片（缩水·缝边·刀口）
+export interface SectionSpec {
+  key: string
+  label: string
+  collapsed: boolean
+  groups: GroupSpec[]
+}
+
 export interface AdjustablePoint {
   element: string
   label: string
@@ -38,7 +47,7 @@ export interface AdjustablePoint {
 }
 
 export interface Schema {
-  groups: GroupSpec[]
+  sections: SectionSpec[]
   adjustable_points: AdjustablePoint[]
 }
 
@@ -56,14 +65,30 @@ export interface DraftWarning {
   level: string
 }
 
-export interface DraftResult {
+// 两步生成产物：整版（sheet 端点）与裁片（pieces 端点）各自独立
+export interface SheetResult {
   ok: boolean
   sheet_svg: string
   report: string
+  warnings: DraftWarning[]
+}
+
+export interface PiecesResult {
+  ok: boolean
   pieces: PieceResult[]
   skips: string[]
   warnings: DraftWarning[]
 }
+
+// 产物快照：data + 生成时的参数版本号（version 不匹配 = 已过期，
+// 预览保留但 DXF 下载禁用，重新生成后恢复）
+export interface Snapshot<T> {
+  data: T
+  version: number
+}
+
+// 下载种类（单一 dlBusy 串行：DXF 下载重跑引擎，防重复点击）
+export type DownloadKind = 'sheetDxf' | 'piecesDxf' | 'toml'
 
 export interface IssueDetail {
   param: string | null
