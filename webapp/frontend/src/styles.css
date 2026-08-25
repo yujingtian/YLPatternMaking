@@ -73,7 +73,12 @@ html, body, #root { height: 100%; margin: 0; }
 }
 /* 过期横幅：参数修改后预览保留但标"已过期"（下载门控的视觉对应） */
 .stale-banner { margin: 0; border-bottom: 1px solid #e8e8e8; }
-.preview-tabs { padding: 4px 8px 0; background: #fff; }
+/* tabs 根吃满预览区剩余高度（原 auto 高度：整版靠 svg 固有高度撑，
+   放大内容在元素边缘被裁、右侧容器空白用不上）；逐级打通 height 链
+   到 sheet-view 宿主 div（裁片 tab 内容超高仍由 content-holder 滚动） */
+.preview-tabs { padding: 4px 8px 0; background: #fff; flex: 1; min-height: 0; }
+.preview-tabs .ant-tabs-content,
+.preview-tabs .ant-tabs-tabpane { height: 100%; }
 .preview-tabs .ant-tabs-content-holder {
   overflow: auto; flex: 1; min-height: 0;
 }
@@ -89,8 +94,15 @@ html, body, #root { height: 100%; margin: 0; }
 }
 
 /* ---- 二期拖拽调版：把手 / 气泡 / 面板高亮 ---- */
-/* 整版交互视图：空白区可拖曳平移（滚轮缩放以指针为中心） */
-.sheet-view svg { cursor: grab; touch-action: none; }
+/* 整版交互视图：空白区可拖曳平移（滚轮缩放以指针为中心）。
+   svg 元素铺满面板 100%×100%：viewBox+preserveAspectRatio 等比自适应留边，
+   缩放平移可用面板全域——覆盖 .svg-view svg 的 max-width:100%（只缩不放，
+   容器宽于 svg 固有宽度时元素停在固有宽、放大内容在右缘被裁，2026-08-25） */
+.sheet-view { height: 100%; }
+.sheet-view svg {
+  cursor: grab; touch-action: none;
+  width: 100%; height: 100%; max-width: none;
+}
 .sheet-view.panning svg { cursor: grabbing; }
 #yl-handles .handle { cursor: grab; }
 #yl-handles .handle.dragging { cursor: grabbing; }

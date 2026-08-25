@@ -355,7 +355,9 @@ export default function SheetView({
     if (!svgEl || !ctm) return
     panRef.current = {
       cx: e.clientX, cy: e.clientY,
-      s: Math.hypot(ctm.a, ctm.b) || 1,   // user 单位/屏幕 px
+      // getScreenCTM 是 user->屏幕 px 方向：hypot(a,b)=每 user 单位多少 px，
+      // 鼠标位移换算（px->user）须取倒数——写反则跟踪速率 = (ctm.a)² 随缩放级漂移
+      s: 1 / (Math.hypot(ctm.a, ctm.b) || 1),   // 屏幕 px -> user 单位
       vb: vbRef.current ?? readVb(svgEl),
     }
     hostRef.current?.setPointerCapture(e.pointerId)
