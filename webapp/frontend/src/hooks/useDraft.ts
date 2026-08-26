@@ -4,6 +4,11 @@ import type {
   Snapshot, Values,
 } from '../types'
 import { download as downloadFile, fetchSchema, postPieces, postSheet } from '../api'
+import { getEngine } from '../engine/client'
+
+// UI 侧引擎状态：client 的 unavailable（引擎不可用）在界面上统一呈现为
+// "服务端计算"（http）——对用户而言只是计算位置不同，功能不受影响
+type UiEngineState = 'loading' | 'ready' | 'http'
 
 const STORAGE_KEY = 'ylpattern.draft.v1'
 
@@ -46,6 +51,9 @@ export interface DraftState {
   sheetBusy: boolean
   piecesBusy: boolean
   dlBusy: DownloadKind | null
+  // 本地引擎状态（Pyodide worker）：loading 加载中 / ready 本地计算 /
+  // http 走服务端（?engine=off、加载失败降级或 worker 反复崩溃）
+  engineState: UiEngineState
 }
 
 interface DraftWarning {
@@ -86,6 +94,21 @@ export function useDraft(): DraftState {
   const [dlBusy, setDlBusy] = useState<DownloadKind | null>(null)
   const [lastDrag, setLastDrag] = useState<{ param: string; prevValue: number } | null>(null)
   const [adjustInfo, setAdjustInfo] = useState<{ param: string; ts: number } | null>(null)
+  const [engineState, setEngineState] = useState<UiEngineState>('loading')
+
+  // 本地引擎生命周期（模块级单例，StrictMode 双挂载只建一个 worker）；
+  // ?engine=off / 会话已降级 -> getEngine() 为 null，直标 http 态
+  useEffect(() => {
+    const eng = getEngine()
+    if (eng === null) {
+      setEngineState('http')
+      return
+    }
+    const sync = () => setEngineState(
+      eng.state === 'ready' ? 'ready' : eng.state === 'unavailable' ? 'http' : 'loading')
+    sync()
+    return eng.onProgress(sync)
+  }, [])
 
   useEffect(() => {
     fetchSchema().then(setSchema).catch((e) => {
@@ -238,5 +261,6 @@ export function useDraft(): DraftState {
     piecesReady: pieces !== null, piecesStale,
     errors, warnings,
     sheetBusy, piecesBusy, dlBusy,
+    engineState,
   }
 }

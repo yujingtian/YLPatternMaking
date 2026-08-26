@@ -78,7 +78,8 @@ def solve_param(m: Measurements, o: PatternOptions, *,
                 element: str, param: str, axis: str, target: float,
                 lo: float, hi: float, t: float | None = None,
                 tol_coord: float = 0.01, tol_param: float = 1e-3,
-                max_iter: int = 16) -> SolveResult:
+                max_iter: int = 16,
+                guess: float | None = None) -> SolveResult:
     """对单个参数反解：求 v 使定位器坐标在整版重跑后达到 target。
 
     f(v) = element_coordinate(run_with_thigh_closure(
@@ -87,6 +88,12 @@ def solve_param(m: Measurements, o: PatternOptions, *,
     tol_coord 坐标容差 cm（缺省 0.01 = 0.1px @10px/cm，低于目测分辨）；
     tol_param 参数区间收敛宽；max_iter 弦截/二分轮数上限（总求值 =
     2 端点 + 失败端能力边界二分 ≤6×2 + max_iter + 内点回退 ≤2）。
+
+    guess（热启动，2026-08 拖拽调版本地引擎）：上次解的初始猜测。在
+    (lo, hi) 开区间内时先求值一次，恰达容差直接返回（拖拽延续小步移动
+    1 次求值即收敛）；否则与根异号侧端点替换收紧初始括号、后续迭代
+    更快。guess 为 None / 越界 / 该点不可生成时**静默走既有流程**，
+    结果正确性不受影响（None 路径与无 guess 时代逐位等价）。
     """
     if not hasattr(o, param):
         raise KeyError(f"PatternOptions 无字段 {param}")
@@ -125,6 +132,15 @@ def solve_param(m: Measurements, o: PatternOptions, *,
             else:
                 b_v = c
         return g_v, g_f
+
+    # 热启动：先试 guess（越界/不可生成静默弃用，见 docstring）
+    guess_pt: tuple[float, float] | None = None
+    if guess is not None and lo < guess < hi:
+        g_f = f(guess)
+        if g_f[1]:
+            if abs(g_f[0]) <= tol_coord:
+                return result(guess, g_f[0], True, "tol")
+            guess_pt = (guess, g_f[0])
 
     lo_f = f(lo)
     hi_f = f(hi)
@@ -166,6 +182,13 @@ def solve_param(m: Measurements, o: PatternOptions, *,
     if fa * fb > 0:                                # 无变号：目标超参数能力
         v, fv = (a, fa) if abs(fa) <= abs(fb) else (b, fb)
         return result(v, fv, False, "range_clamped")
+
+    if guess_pt is not None:                       # 热启动收紧初始括号
+        gv, gf_ = guess_pt                         # fa*fb<0 已保证 gf_ 必与
+        if fa * gf_ > 0:                           # fa/fb 之一同号：替换同号侧
+            a, fa = gv, gf_
+        else:
+            b, fb = gv, gf_
 
     best_v, best_f = (a, fa) if abs(fa) <= abs(fb) else (b, fb)
     last = ""

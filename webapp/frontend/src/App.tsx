@@ -34,6 +34,7 @@ function DraftApp() {
         onDownload={(k) => void d.download(k)}
         canUndo={d.lastDrag !== null}
         onUndo={d.undoLastDrag}
+        engineState={d.engineState}
       />
       <main className="app-main">
         {d.schema ? (

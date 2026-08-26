@@ -1,85 +1,55 @@
+// API 路由层（2026-08 本地引擎）：计算类调用优先走浏览器内 Pyodide
+// worker（零网络往返，拖拽/预览不卡），失败透明回落 HTTP；下载/模板/
+// schema 永远走 HTTP（DXF 依赖 ezdxf 留服务端；schema 首屏零等待）。
+// 上层（useDraft/SheetView）对通道零感知——两条通道返回结构完全同构
+// （tests/test_engine_glue.py 金标钉死）。
+import { getEngine, isEngineFailure } from './engine/client'
+import type { AdjustPayload, EngineCmd } from './engine/protocol'
+import * as http from './apiHttp'
 import type {
-  AdjustResult, DraftPayload, IssueDetail, PiecesResult, Schema, SheetResult,
-  Values,
+  AdjustResult, DraftPayload, PiecesResult, SheetResult,
 } from './types'
 
-async function handle<T>(res: Response): Promise<T> {
-  if (res.status === 422) {
-    const body = await res.json()
-    const err = new Error('参数校验失败') as Error & { detail: IssueDetail[] }
-    err.detail = body.detail
-    throw err
+export type { Template } from './apiHttp'
+
+// 下载（DXF/toml）与模板/参数 schema：永远 HTTP（引擎不落盘、
+// ezdxf 不进浏览器；schema 首屏不等 worker 就绪）
+export const download = http.download
+export const fetchSchema = http.fetchSchema
+export const fetchTemplates = http.fetchTemplates
+export const fetchTemplateDetail = http.fetchTemplateDetail
+
+// 本地引擎单命令超时（ms）：超时本次回落 HTTP 并计数，连续 3 次会话降级
+const TIMEOUTS: Record<EngineCmd, number> = {
+  sheet: 30_000,
+  pieces: 30_000,
+  adjust: 60_000,
+}
+
+async function route<P extends DraftPayload, T>(
+  cmd: EngineCmd, payload: P, httpFn: (p: P) => Promise<T>,
+): Promise<T> {
+  const eng = getEngine()
+  if (eng !== null) {
+    try {
+      return await eng.call<T>(cmd, payload, TIMEOUTS[cmd])
+    } catch (e) {
+      // validation（参数错，与 HTTP 422 同构）直接抛给上层显示；
+      // 引擎侧失败/超时才回落 HTTP 再试
+      if (!isEngineFailure(e)) throw e
+    }
   }
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
-  return res.json() as Promise<T>
+  return httpFn(payload)
 }
 
-export async function fetchSchema(): Promise<Schema> {
-  return handle(await fetch('/api/schema'))
+export function postSheet(payload: DraftPayload): Promise<SheetResult> {
+  return route('sheet', payload, http.postSheet)
 }
 
-export async function postSheet(payload: DraftPayload): Promise<SheetResult> {
-  return handle(await fetch('/api/draft/sheet', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }))
+export function postPieces(payload: DraftPayload): Promise<PiecesResult> {
+  return route('pieces', payload, http.postPieces)
 }
 
-export async function postPieces(payload: DraftPayload): Promise<PiecesResult> {
-  return handle(await fetch('/api/draft/pieces', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }))
-}
-
-// 拖拽反解（二期双向绑定）：目标坐标 cm -> 参数值；stateless，
-// 引擎护栏内不抛错（钳制/no_effect 也 200，前端按 reason 显示钳制态）
-export async function postAdjust(
-  payload: DraftPayload & {
-    element: string
-    param: string
-    axis: string
-    target: number
-  },
-): Promise<AdjustResult> {
-  return handle(await fetch('/api/adjust', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }))
-}
-
-// DXF/toml 走 blob 下载（同 payload 重新打版，服务端无状态）
-export async function download(
-  endpoint: string, payload: DraftPayload, filename: string,
-): Promise<void> {
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
-  const url = URL.createObjectURL(await res.blob())
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-export interface Template {
-  name: string
-  file: string
-}
-
-export async function fetchTemplates(): Promise<Template[]> {
-  return handle(await fetch('/api/templates'))
-}
-
-export async function fetchTemplateDetail(
-  file: string,
-): Promise<{ measurements: Values; options: Values }> {
-  return handle(await fetch(`/api/templates/${file}`))
+export function postAdjust(payload: AdjustPayload): Promise<AdjustResult> {
+  return route('adjust', payload, http.postAdjust)
 }

@@ -8,7 +8,8 @@ import { postAdjust } from '../api'
 // 整版交互视图（二期拖拽调版）：
 //   把手 overlay 注入 SVG 内部（styles.css 使 svg max-width:100% 响应式
 //   缩放，SVG 内坐标自动跟随；指针→cm 必走 getScreenCTM().inverse()）；
-//   拖拽把手 -> /api/adjust 反解参数 -> applyAdjust 回写+重生成（~100ms）；
+//   拖拽把手 -> postAdjust 反解参数 -> applyAdjust 回写+重生成（本地引擎
+//   在 worker 内跑，api.ts 自动路由：引擎 ready 零网络往返，回退态走 HTTP）；
 //   滚轮以指针为中心缩放 + 空白拖曳平移（viewBox 方案，CTM 链自动正确）；
 //   双击把手复位默认值；拖拽中气泡显示参数实时值。
 //
@@ -21,7 +22,9 @@ import { postAdjust } from '../api'
 //   seq 计数丢弃松手后的过期响应。
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
-const THROTTLE_MS = 100
+// 本地引擎（Pyodide worker）下反解 + 重生成亚秒级且零网络，50ms 跟手；
+// HTTP 回退态由单飞 + pending 兜底，最多多存一个目标、不会堆积请求
+const THROTTLE_MS = 50
 const ZOOM_MIN = 1 / 8   // 放大 8x
 const ZOOM_MAX = 1 / 0.3 // 缩小 0.3x
 

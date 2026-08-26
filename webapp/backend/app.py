@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ylpattern.exporters import dxf as dxf_exp
@@ -21,24 +22,52 @@ from ylpattern.exporters import piece_dxf as piece_dxf_exp
 from ylpattern.exporters import piece_svg as piece_exp
 from ylpattern.exporters import report as report_exp
 from ylpattern.exporters import svg as svg_exp
-from ylpattern.flows.adjust import element_coordinate, solve_param
+from ylpattern.flows.adjust import solve_param
 from ylpattern.flows.collect import collect_pieces
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.params import (Measurements, PatternOptions, build_issues)
 
-from .schema import ADJUSTABLES, binding_for, build_schema, gate_on
+from .schema import binding_for, build_schema, handles
 
 app = FastAPI(title="YLPattern Web", version="0.1.0")
 app.add_middleware(
     CORSMiddleware, allow_origins=["http://localhost:5173"],  # Vite dev
     allow_methods=["*"], allow_headers=["*"])
 
-# 生产：前端构建产物由本进程托管（单进程部署）
+# 生产：前端构建产物由本进程托管（单进程部署）。本地引擎资产同源下发：
+#   /engine/<zip 内容 hash 文件名>、/pyodide/<版本>/ —— 均 immutable 长缓存；
+#   /engine/manifest.json 是唯一每次冷启动都要拿最新的（zip 名变了即换新包），
+#   专用 no-store 路由先注册、目录挂载后注册（Starlette 按注册顺序匹配）
 _DIST = Path(__file__).resolve().parents[2] / "webapp" / "frontend" / "dist"
+
+
+class _ImmutableStatic(StaticFiles):
+    """内容寻址静态资产（hash/版本文件名）：immutable 一年缓存。"""
+
+    def file_response(self, *args, **kwargs) -> Response:
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
+
 if (_DIST / "assets").is_dir():
-    from fastapi.staticfiles import StaticFiles
     app.mount("/assets", StaticFiles(directory=_DIST / "assets"),
               name="assets")
+if (_DIST / "engine").is_dir():
+
+    @app.get("/engine/manifest.json")
+    def engine_manifest() -> FileResponse:
+        path = _DIST / "engine" / "manifest.json"
+        if not path.is_file():
+            raise HTTPException(
+                404, "engine manifest 未生成：npm run build:engine")
+        return FileResponse(path, headers={"Cache-Control": "no-store"})
+
+    app.mount("/engine", _ImmutableStatic(directory=_DIST / "engine"),
+              name="engine")
+if (_DIST / "pyodide").is_dir():
+    app.mount("/pyodide", _ImmutableStatic(directory=_DIST / "pyodide"),
+              name="pyodide")
 
 _EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 
@@ -69,25 +98,6 @@ def _draft_ctx(req: DraftRequest):
     return m, o, ctx, warnings
 
 
-def _handles(ctx, o) -> list[dict]:
-    """可调把手清单（二期拖拽）：ADJUSTABLES 逐条元素级自门控——
-    gate 满足且元素在版上才下发坐标，前端零重复判断开关/形态。"""
-    out: list[dict] = []
-    for adj in ADJUSTABLES:
-        if adj.visible_if is not None and not gate_on(adj.visible_if, o):
-            continue
-        try:
-            x = element_coordinate(ctx, adj.element, "x", t=adj.t)
-            y = element_coordinate(ctx, adj.element, "y", t=adj.t)
-        except (KeyError, TypeError, ValueError):
-            continue        # 元素不在版上（开关/形态未开）：跳过
-        out.append({"element": adj.element, "label": adj.label,
-                    "kind": adj.kind, "t": adj.t, "x": x, "y": y,
-                    "bindings": [{"param": adj.param, "axis": adj.axis,
-                                  "range": [adj.lo, adj.hi]}]})
-    return out
-
-
 @app.get("/api/schema")
 def get_schema() -> dict:
     return build_schema()
@@ -108,7 +118,7 @@ def draft_sheet(req: DraftRequest) -> dict:
                                           show_labels=o.show_labels),
         "report": report_exp.render_report(ctx.sheet, m, o),
         "transform": {"scale": svg_exp.SCALE, "ox": ox, "top": top},
-        "handles": _handles(ctx, o),
+        "handles": handles(ctx, o),
         "warnings": warnings,
     }
 

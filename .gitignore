@@ -10,3 +10,7 @@ __pycache__/
 # 前端
 node_modules/
 dist/
+
+# 本地引擎生成物（build:engine 产出，随 dist 构建链带上）
+webapp/frontend/public/engine/
+webapp/frontend/public/pyodide/
