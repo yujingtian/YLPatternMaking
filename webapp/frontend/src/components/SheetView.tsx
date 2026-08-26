@@ -46,6 +46,8 @@ interface DragState {
   value: number        // 气泡最新参数值（调整响应回填）
   clamped: boolean
   aborted: boolean     // 新拖拽会话开启：旧会话在途响应作废
+  minCm: number | null // 轴向可达下界（cm）：钳制响应学到的 range/能力边界
+  maxCm: number | null // 轴向可达上界（cm）；到界把手即停，拖回界内自动恢复
   dot: SVGCircleElement | null   // 当前 DOM 节点（每次刷新重建后重挂）
   hint: SVGLineElement | null
   bubble: SVGGElement | null
@@ -88,6 +90,7 @@ export default function SheetView({
   const inFlight = useRef(false)
   const pendingTarget = useRef<number | null>(null)
   const lastSent = useRef(0)
+  const sentTarget = useRef<number | null>(null)   // 已发出的最近目标（同值免重跑）
   const trailTimer = useRef<number | null>(null)
   const seq = useRef(0)
 
@@ -164,8 +167,14 @@ export default function SheetView({
   const send = useCallback((target: number) => {
     const d = dragRef.current
     if (!d) return
+    // 同值免重跑：目标与已发出的一致（含在途）即无新信息，丢弃并清同值 pending
+    if (target === sentTarget.current) {
+      if (pendingTarget.current === target) pendingTarget.current = null
+      return
+    }
     if (inFlight.current) { pendingTarget.current = target; return }
     inFlight.current = true
+    sentTarget.current = target
     lastSent.current = performance.now()
     const mySeq = ++seq.current
     postAdjust({
@@ -175,8 +184,19 @@ export default function SheetView({
       inFlight.current = false
       // 会话作废（新拖拽开启）或过期响应：丢弃；松手后的最终 flush 不作废
       if (d.aborted || mySeq !== seq.current) return
-      d.value = res.value
+      // 值按 0.1 步进取整（拖到整数/0 才可行；打版精度即 0.1cm），
+      // 气泡显示与写回参数同源；applyAdjust 再圆整 2 位是幂等的
+      d.value = Math.round(res.value * 10) / 10
       d.clamped = !res.converged
+      // 学边界：range_clamped 响应的 achieved 即该方向可达极限坐标
+      //（指针要的比它低 -> 它是下界；比它高 -> 上界；方向无关，y 轴反向绑定同样成立）
+      if (res.reason === 'range_clamped') {
+        if (res.achieved >= target) {
+          d.minCm = Math.max(d.minCm ?? -Infinity, res.achieved)
+        } else {
+          d.maxCm = Math.min(d.maxCm ?? Infinity, res.achieved)
+        }
+      }
       const item = svgRef.current?.querySelector(
         `#yl-handles .handle[data-element="${d.element}"]`)
       item?.classList.toggle('clamped', d.clamped)
@@ -187,7 +207,10 @@ export default function SheetView({
         pendingTarget.current = null
         send(t)
       }
-    }).catch(() => { inFlight.current = false })
+    }).catch(() => {
+      inFlight.current = false
+      sentTarget.current = null   // 失败允许重试同值
+    })
   }, [updateBubble])
 
   const pinHandle = useCallback((d: DragState, cm: { x: number; y: number }) => {
@@ -201,10 +224,17 @@ export default function SheetView({
     if (!d) return
     const cm = pointerCm(e)
     if (!cm) return
-    lastPointerCm.current = cm
-    pinHandle(d, cm)
+    // 边界钳制：把指针的绑定轴坐标夹进已学到的可达界内——把手到界即停
+    // 不再跟着指针滑出（另一轴仍跟随）；拖回界内自动恢复
+    const axis = d.binding.axis
+    let a = axis === 'x' ? cm.x : cm.y
+    if (d.minCm !== null && a < d.minCm) a = d.minCm
+    if (d.maxCm !== null && a > d.maxCm) a = d.maxCm
+    const pin = axis === 'x' ? { x: a, y: cm.y } : { x: cm.x, y: a }
+    lastPointerCm.current = pin
+    pinHandle(d, pin)
     updateBubble(d)
-    const target = d.binding.axis === 'x' ? cm.x : cm.y
+    const target = a
     const now = performance.now()
     if (now - lastSent.current >= THROTTLE_MS) {
       if (trailTimer.current !== null) {
@@ -243,9 +273,11 @@ export default function SheetView({
     onBeginRef.current(b.param, cur)     // 记录拖前值（撤销用）
     lastPointerCm.current = null
     pendingTarget.current = null
+    sentTarget.current = null
     dragRef.current = {
       element: h.element, binding: b, label: h.label, base: baseNow,
       value: cur, clamped: false, aborted: false,
+      minCm: null, maxCm: null,
       dot: null, hint: null, bubble: null, bubbleText: null, bubbleRect: null,
     }
     const svgEl = svgRef.current
