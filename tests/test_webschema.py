@@ -76,6 +76,13 @@ def test_custom_shape_virtual_specs():
     assert front["kind"] == "front_patch"
     assert front["v_positive"] == "up"
     assert back["choices"] == ["rectangle", "baker_shield", "angular"]
+    # gate 必须挂到虚拟 spec（build_schema 特判 continue 早于通用挂接点，
+    # 曾静默丢失致编辑器在非 custom 形态下也常显）
+    assert back["visible_if"] == {"param": "back_patch_shape",
+                                  "values": ["custom"]}
+    assert front["visible_if"] == {"param": "front_patch_shape",
+                                   "values": ["custom"],
+                                   "requires": ["front_patch"]}
     for k in ("back_patch_custom_points", "back_patch_custom_edges",
               "front_patch_custom_points", "front_patch_custom_edges"):
         assert specs[k]["hidden"] is True

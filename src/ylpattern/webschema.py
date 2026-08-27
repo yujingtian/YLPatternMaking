@@ -515,6 +515,8 @@ def build_schema() -> dict:
                     specs.append({"key": "pocket_type", "label": "口袋类型",
                                   "type": "pocket_type", "default": None,
                                   "choices": ["无", "挖削前口袋", "前贴袋"]})
+                    if param_gate is not None:
+                        specs[-1]["visible_if"] = param_gate
                     continue
                 if name == "fly_type":
                     # 虚拟参数：门襟形态下拉（连裁/独立互斥），前端读写
@@ -522,6 +524,8 @@ def build_schema() -> dict:
                     specs.append({"key": "fly_type", "label": "门襟形态",
                                   "type": "fly_type", "default": None,
                                   "choices": ["无", "连裁门襟", "独立门襟"]})
+                    if param_gate is not None:
+                        specs[-1]["visible_if"] = param_gate
                     continue
                 if name in ("back_patch_custom", "front_patch_custom"):
                     # 虚拟参数：custom 形态结构化编辑器（点/边表格 + 轮廓
@@ -540,6 +544,10 @@ def build_schema() -> dict:
                                   "edges_key": f"{k}_custom_edges",
                                   "v_positive":
                                       "down" if k == "back_patch" else "up"})
+                    # 虚拟参数同样吃参数级 gate（custom 编辑器仅 shape=custom
+                    # 时显示——continue 早于通用挂接点，须在此单独挂）
+                    if param_gate is not None:
+                        specs[-1]["visible_if"] = param_gate
                     continue
                 if name not in values:
                     raise KeyError(f"schema 白名单引用了不存在的参数:{name}")
