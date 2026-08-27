@@ -63,7 +63,7 @@ html, body, #root { height: 100%; margin: 0; }
 .sa-item em { font-style: normal; font-size: 11px; color: #888; }
 .json-input { font-family: monospace; font-size: 12px; }
 
-/* ---- 贴袋 custom 形态结构化编辑器（custom_shape 虚拟参数） ---- */
+/* ---- custom 净形/自由链结构化编辑器（custom_shape 虚拟参数通用渲染体：贴袋/袋布/小表袋） ---- */
 .shape-param { flex-direction: column; }
 .shape-label { font-size: 12.5px; color: #444; }
 .shape-editor {
@@ -82,6 +82,11 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .shape-row.active { background: #f6ffc9; border-radius: 3px; }
 .shape-row .ant-input-number { width: 100%; }
+/* spec 边表：模式 Select + 4 参数位（line/arc/bezier 三模式列复用） */
+.shape-thead.spec, .shape-row.spec {
+  grid-template-columns: 14px 56px repeat(4, 1fr) 26px;
+}
+.shape-row.spec .ant-select { width: 100%; font-size: 11px; }
 .shape-idx { text-align: right; }
 .shape-ops { display: inline-flex; align-items: center; }
 .shape-ops .ant-btn { padding: 0 2px; height: 18px; min-width: 15px; font-size: 11px; }
@@ -91,8 +96,19 @@ html, body, #root { height: 100%; margin: 0; }
   width: 100%; height: 190px; background: #fafafa; border-radius: 3px;
   user-select: none; touch-action: none;
 }
+/* 预览缩放工具条：右上角悬浮（滚轮缩放同支持） */
+.shape-preview-wrap { position: relative; }
+.shape-zoom {
+  position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; z-index: 1;
+}
+.shape-zoom .ant-btn {
+  padding: 0 6px; height: 20px; min-width: 20px; font-size: 12px;
+  background: rgba(255, 255, 255, 0.85);
+}
 .shape-preview g { cursor: grab; }
 .shape-preview g.pt-dragging { cursor: grabbing; }
+/* open 链两端近似锚点：方块标记、不可拖 */
+.shape-preview g.pt-anchor { cursor: default; }
 
 /* ---- 预览区（右） ---- */
 .preview-pane {

@@ -63,6 +63,20 @@ def test_seed_glue_equals_http():
             assert http["ok"] is True and len(http["points"]) >= 4
 
 
+def test_seed_pouch_glue_equals_http():
+    """seed 袋布链全等：三袋型（边为完整 spec 格式，含 arc 模式）；
+    options 缺安全量时走 4/8 缺省（中间态可用）。"""
+    for shape in ("standard", "round_bottom", "deep_rect"):
+        for opts in ({"front_pouch_waist_safe": 5,
+                      "front_pouch_side_safe": 10}, {}):
+            req = {"kind": "front_pouch", "shape": shape, "options": opts}
+            http = client.post("/api/seed", json=req).json()
+            assert _glue("seed", req) == http
+            assert http["ok"] is True
+            assert len(http["edges"]) == len(http["points"]) + 1
+            assert all(isinstance(e[0], str) for e in http["edges"])
+
+
 def test_seed_invalid_matches_http():
     req = {"kind": "back_patch", "shape": "custom", "options": {}}
     r = client.post("/api/seed", json=req)

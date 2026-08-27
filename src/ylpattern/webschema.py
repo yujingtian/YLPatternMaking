@@ -25,6 +25,7 @@ from pathlib import Path
 
 from ylpattern.flows.adjust import element_coordinate
 from ylpattern.formulas import patch as patch_f
+from ylpattern.formulas import pouch as pouch_f
 from ylpattern.params import Measurements, PatternOptions
 from ylpattern.params import measurements as _m_mod
 from ylpattern.params import options as _o_mod
@@ -132,14 +133,21 @@ SECTIONS: list[dict] = [
          "visible_if": "front_pocket"},
         {"key": "pouch", "label": "袋布绘制", "collapsed": True, "params": [
             "front_pouch_waist_safe", "front_pouch_side_safe",
+            # 自由边界结构化编辑器（虚拟参数：open 链 + spec 边格式，
+            # 读写下方两隐藏真实键；锚点近似定位读上方两安全量）
+            ("front_pouch_chain", None),
             "front_pouch_nodes", "front_pouch_edges"],
          "visible_if": ["front_pouch", "front_pocket"]},
         {"key": "watch", "label": "小表袋绘制", "collapsed": True,
          "params": [
             "watch_pocket_mode", "watch_pocket_width", "watch_pocket_taper",
             "watch_pocket_offset_from_top", "watch_pocket_offset_from_side",
-            "watch_pocket_rotate_deg", "watch_pocket_points",
-            "watch_pocket_edges"],
+            "watch_pocket_rotate_deg",
+            # custom 净形结构化编辑器（虚拟参数：closed 链 + spec 边格式，
+            # 仅 custom 模式显示；读写下方两隐藏真实键）
+            ("watch_pocket_custom", {"param": "watch_pocket_mode",
+                                     "values": ["custom"]}),
+            "watch_pocket_points", "watch_pocket_edges"],
          "visible_if": ["watch_pocket", "front_pocket"]},
         {"key": "fly", "label": "门襟绘制", "collapsed": True, "params": [
             # 虚拟下拉 fly_type 驱动 fly / fly_separate 互斥开关（前端映射）
@@ -408,21 +416,24 @@ def handles(ctx, o: PatternOptions) -> list[dict]:
     return out
 
 
-def seed_patch_shape(kind: str, shape: str, options: dict) -> dict:
-    """预设形态 -> custom 初始角点/边（web「从形态导入」seed，§10.8）。
+def seed_shape(kind: str, shape: str, options: dict) -> dict:
+    """预设形态 -> custom 初始点/边（web「从形态导入」seed，§10.8）。
 
-    kind 取 front_patch / back_patch：自 options 提取该侧 5 个尺寸参数
-    （{kind}_width / _height / _bottom_width / _tip_depth / _chamfer）
-    代入 formulas.patch.patch_net_vertices，返回 **v 向下正**规范系角点
-    （前后侧统一；前侧编辑器写回时 dy 自行取负）与全直线边（预设形态
-    引擎本就逐边画直线，steps 走 (0.0, 0.5) 分支）。非法 kind/shape 抛
-    ValueError（HTTP 422 / 引擎胶水 _ValidationError，两通道同构）。
+    kind 取 front_patch / back_patch / front_pouch：
+      贴袋两侧自 options 提取该侧 5 个尺寸参数（{kind}_width / _height /
+      _bottom_width / _tip_depth / _chamfer）代入
+      formulas.patch.patch_net_vertices，返回 **v 向下正**规范系角点
+      （前后侧统一；前侧编辑器写回时 dy 自行取负）与全直线边（预设形态
+      引擎本就逐边画直线，steps 走 (0.0, 0.5) 分支）；
+      front_pouch 提取 waist_safe/side_safe 两安全量（缺省回退 4/8）代入
+      formulas.pouch.pouch_chain_preset，返回 K 节点（v 向下正）与边形态
+      完整 spec 格式（[\"line\"] / [\"arc\",b,at] / [\"bezier\",...]）。
+    非法 kind/shape 抛 ValueError（HTTP 422 / 引擎胶水 _ValidationError，
+    两通道同构）。
 
-    不走 PatternOptions 构造：seed 只依赖这 5 个参数，且其余参数处于
+    不走 PatternOptions 构造：seed 只依赖这几个参数，且其余参数处于
     中间态（可能暂时非法）时也要可用，避免无谓 422 耦合。
     """
-    if kind not in ("front_patch", "back_patch"):
-        raise ValueError(f"未知贴袋侧 kind={kind!r}（取 front_patch/back_patch）")
 
     def _num(key: str, default: float | None = None) -> float:
         v = options.get(key, default)
@@ -430,16 +441,27 @@ def seed_patch_shape(kind: str, shape: str, options: dict) -> dict:
             raise ValueError(f"seed 依赖参数 {key} 缺失或非数值：{v!r}")
         return float(v)
 
-    pts = patch_f.patch_net_vertices(
-        shape,
-        _num(f"{kind}_width"), _num(f"{kind}_height"),
-        bottom_width=_num(f"{kind}_bottom_width", 0.0),
-        tip_depth=_num(f"{kind}_tip_depth", 0.0),
-        chamfer=_num(f"{kind}_chamfer", 0.0),
-        chamfer_bottom_taper=(kind == "front_patch"))
-    return {"ok": True,
-            "points": [[float(u), float(v)] for u, v in pts],
-            "edges": [[0.0, 0.5] for _ in range(len(pts))]}
+    if kind in ("front_patch", "back_patch"):
+        pts = patch_f.patch_net_vertices(
+            shape,
+            _num(f"{kind}_width"), _num(f"{kind}_height"),
+            bottom_width=_num(f"{kind}_bottom_width", 0.0),
+            tip_depth=_num(f"{kind}_tip_depth", 0.0),
+            chamfer=_num(f"{kind}_chamfer", 0.0),
+            chamfer_bottom_taper=(kind == "front_patch"))
+        return {"ok": True,
+                "points": [[float(u), float(v)] for u, v in pts],
+                "edges": [[0.0, 0.5] for _ in range(len(pts))]}
+    if kind == "front_pouch":
+        nodes, edges = pouch_f.pouch_chain_preset(
+            shape,
+            _num("front_pouch_waist_safe", 4.0),
+            _num("front_pouch_side_safe", 8.0))
+        return {"ok": True,
+                "points": [[float(dx), float(dy)] for dx, dy in nodes],
+                "edges": [list(e) for e in edges]}
+    raise ValueError(
+        f"未知 seed kind={kind!r}（取 front_patch/back_patch/front_pouch）")
 
 
 def _sa_fields(sa) -> dict | None:
@@ -451,12 +473,51 @@ def _sa_fields(sa) -> dict | None:
 
 
 # 前端隐藏的原始开关与原始 json 键（前者由 pocket_type / fly_type 虚拟下拉
-# 驱动，避免互斥开关双见；后者由 *_custom 虚拟参数的 custom_shape 结构化
-# 编辑器读写——两套 UI 并存编辑同一数据必然漂移。参数仍进 schema 全集：
-# 422 校验错误归因到这些键、由编辑器合并承接，toml 导出亦不受影响）
+# 驱动，避免互斥开关双见；后者由 *_custom / *_chain 虚拟参数的 custom_shape
+# 结构化编辑器读写——两套 UI 并存编辑同一数据必然漂移。参数仍进 schema
+# 全集：422 校验错误归因到这些键、由编辑器合并承接，toml 导出亦不受影响）
 _HIDDEN = {"front_pocket", "front_patch", "fly", "fly_separate",
            "front_patch_custom_points", "front_patch_custom_edges",
-           "back_patch_custom_points", "back_patch_custom_edges"}
+           "back_patch_custom_points", "back_patch_custom_edges",
+           "front_pouch_nodes", "front_pouch_edges",
+           "watch_pocket_points", "watch_pocket_edges"}
+
+# custom_shape 虚拟参数 spec 表（mode × edge_format 两维，§10.7）：
+#   closed+bulge  前/后贴袋（闭合多边形、边=(弧高,位置) 二元组）；
+#   closed+spec   小表袋 custom（闭合、边三模式 line/arc/bezier）；
+#   open+spec     袋布自由边界（开放链 P_w0→K1..Kn→P_s0，两端锚点由
+#                 anchor_keys 四参数前端近似定位、不可拖——真实锚点由
+#                 整版腰弧/外缝几何决定）。choices 为 seed 可导入的预设
+#   （空 = 无导入）；v_positive 标存储值第二轴方向（前贴袋 dy 向上正是
+#   唯一异类，编辑器内部归一为 v 向下正显示）。
+_SHAPE_EDITOR_SPECS = {
+    "back_patch_custom": {
+        "label": "自定义形态编辑", "kind": "back_patch",
+        "points_key": "back_patch_custom_points",
+        "edges_key": "back_patch_custom_edges",
+        "v_positive": "down", "mode": "closed", "edge_format": "bulge",
+        "choices": ["rectangle", "baker_shield", "angular"]},
+    "front_patch_custom": {
+        "label": "自定义形态编辑", "kind": "front_patch",
+        "points_key": "front_patch_custom_points",
+        "edges_key": "front_patch_custom_edges",
+        "v_positive": "up", "mode": "closed", "edge_format": "bulge",
+        "choices": ["rectangle", "baker_shield", "angular"]},
+    "front_pouch_chain": {
+        "label": "自由边界编辑", "kind": "front_pouch",
+        "points_key": "front_pouch_nodes",
+        "edges_key": "front_pouch_edges",
+        "v_positive": "down", "mode": "open", "edge_format": "spec",
+        "anchor_keys": ["front_pocket_p1_dist", "front_pouch_waist_safe",
+                        "front_pocket_p2_drop", "front_pouch_side_safe"],
+        "choices": ["standard", "round_bottom", "deep_rect"]},
+    "watch_pocket_custom": {
+        "label": "自定义形态编辑", "kind": "watch_pocket",
+        "points_key": "watch_pocket_points",
+        "edges_key": "watch_pocket_edges",
+        "v_positive": "down", "mode": "closed", "edge_format": "spec",
+        "choices": []},
+}
 
 
 def _param_spec(name: str, value, labels: dict[str, str]) -> dict:
@@ -527,23 +588,14 @@ def build_schema() -> dict:
                     if param_gate is not None:
                         specs[-1]["visible_if"] = param_gate
                     continue
-                if name in ("back_patch_custom", "front_patch_custom"):
-                    # 虚拟参数：custom 形态结构化编辑器（点/边表格 + 轮廓
-                    # 预览 + 从形态导入），前端读写 points_key / edges_key
-                    # 两隐藏真实键（ParamPanel custom_shape 分支）。choices
-                    # 为 seed 可导入的预设形态；v_positive 标存储值第二轴
-                    # 方向（back=v 向下正 / front=dy 向上正，编辑器内部
-                    # 归一为 v 向下正显示）
-                    k = name.removesuffix("_custom")
-                    specs.append({"key": name, "label": "自定义形态编辑",
-                                  "type": "custom_shape", "default": None,
-                                  "choices": ["rectangle", "baker_shield",
-                                              "angular"],
-                                  "kind": k,
-                                  "points_key": f"{k}_custom_points",
-                                  "edges_key": f"{k}_custom_edges",
-                                  "v_positive":
-                                      "down" if k == "back_patch" else "up"})
+                if name in _SHAPE_EDITOR_SPECS:
+                    # 虚拟参数：custom 形态/链结构化编辑器（spec 元数据含义
+                    # 见 _SHAPE_EDITOR_SPECS 注释），前端读写 points_key /
+                    # edges_key 两隐藏真实键（ParamPanel custom_shape 分支）
+                    spec = {"key": name, "type": "custom_shape",
+                            "default": None}
+                    spec.update(_SHAPE_EDITOR_SPECS[name])
+                    specs.append(spec)
                     # 虚拟参数同样吃参数级 gate（custom 编辑器仅 shape=custom
                     # 时显示——continue 早于通用挂接点，须在此单独挂）
                     if param_gate is not None:

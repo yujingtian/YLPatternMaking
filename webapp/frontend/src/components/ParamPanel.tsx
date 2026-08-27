@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
-  Gate, GroupSpec, IssueDetail, ParamSpec, SectionSpec, SeedResult, Values,
+  EdgeSpec, Gate, GroupSpec, IssueDetail, ParamSpec, SectionSpec, SeedResult,
+  SeedPayload, Values,
 } from '../types'
 import { Input, InputNumber, Select, Switch, Collapse, Badge } from 'antd'
 import CustomShapeEditor from './CustomShapeEditor'
@@ -13,7 +14,7 @@ interface Props {
   onMeasurement: (key: string, value: unknown) => void
   onOption: (key: string, value: unknown) => void
   // 从形态导入（custom_shape 编辑器 seed；失败内联显示在编辑器里）
-  onSeed: (kind: 'front_patch' | 'back_patch', shape: string) =>
+  onSeed: (kind: SeedPayload['kind'], shape: string) =>
     Promise<SeedResult | { ok: false; message: string }>
   highlight: { param: string; ts: number } | null
 }
@@ -47,12 +48,15 @@ function errorMap(errors: IssueDetail[]): Map<string, string> {
   return m
 }
 
-function ParamInput({ spec, value, onChange, err, options, setOption, onSeed }: {
+function ParamInput({ spec, value, onChange, err, options, defaults, setOption, onSeed }: {
   spec: ParamSpec
   value: unknown
   onChange: (v: unknown) => void
   err?: string
   options: Values
+  // 全 schema 参数默认值表（open 链近似锚点兜底用：options state 初始为 {}，
+  // 只有 touched 键有值，未手输的锚点参数须回落 schema 默认而非 0）
+  defaults?: Record<string, unknown>
   setOption: (key: string, value: unknown) => void
   onSeed: Props['onSeed']
 }) {
@@ -69,9 +73,13 @@ function ParamInput({ spec, value, onChange, err, options, setOption, onSeed }: 
         <CustomShapeEditor
           kind={spec.kind!}
           vPositive={spec.v_positive ?? 'down'}
+          mode={spec.mode ?? 'closed'}
+          edgeFormat={spec.edge_format ?? 'bulge'}
           seedChoices={spec.choices ?? []}
+          anchorVals={spec.anchor_keys?.map(
+            (k) => Number(options[k] ?? defaults?.[k] ?? 0))}
           points={(options[spec.points_key!] as [number, number][] | undefined) ?? []}
-          edges={(options[spec.edges_key!] as [number, number][] | undefined) ?? []}
+          edges={(options[spec.edges_key!] as EdgeSpec[] | undefined) ?? []}
           onPoints={(pts) => setOption(spec.points_key!, pts)}
           onEdges={(eds) => setOption(spec.edges_key!, eds)}
           onSeed={onSeed}
@@ -231,6 +239,13 @@ export default function ParamPanel({
 }: Props) {
   const [search, setSearch] = useState('')
   const errs = useMemo(() => errorMap(errors), [errors])
+  // 参数默认值表：编辑器侧直读 options 的功能（open 链近似锚点）兜底用
+  const defaults = useMemo(() => {
+    const m: Record<string, unknown> = {}
+    for (const s of sections) for (const g of s.groups) for (const p of g.params)
+      m[p.key] = p.default
+    return m
+  }, [sections])
   const qs = search.trim().toLowerCase()
   const rootRef = useRef<HTMLDivElement>(null)
   // 受控折叠（原 defaultActiveKey 语义不变；二期拖拽高亮需程序化展开目标组）
@@ -337,6 +352,7 @@ export default function ParamPanel({
                 value={value}
                 err={err}
                 options={options}
+                defaults={defaults}
                 setOption={onOption}
                 onSeed={onSeed}
                 onChange={(v) =>

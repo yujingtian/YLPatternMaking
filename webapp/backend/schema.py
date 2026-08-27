@@ -8,5 +8,5 @@ webapp 侧 import 路径稳定（tests/test_web_api.py、test_web_adjust.py
 
 from ylpattern.webschema import (  # noqa: F401
     ADJUSTABLES, Adjustable, binding_for, build_schema, gate_on, handles,
-    seed_patch_shape,
+    seed_shape,
 )

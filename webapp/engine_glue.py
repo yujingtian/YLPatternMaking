@@ -26,7 +26,7 @@ from ylpattern.flows.adjust import solve_param
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.flows.collect import collect_pieces
 from ylpattern.params import Measurements, PatternOptions, build_issues
-from ylpattern.webschema import binding_for, handles, seed_patch_shape
+from ylpattern.webschema import binding_for, handles, seed_shape
 
 
 class _ValidationError(Exception):
@@ -143,11 +143,11 @@ def _pieces(payload: dict) -> dict:
 
 
 def _seed(payload: dict) -> dict:
-    """预设形态 -> custom 初始角点/边（复刻 /api/seed；不走 _build：
-    只依赖贴袋 5 参数，其余参数中间态非法时也要可用，§10.8）。"""
+    """预设形态 -> custom 初始点/边（复刻 /api/seed；不走 _build：
+    只依赖贴袋 5 参数或袋布 2 安全量，其余参数中间态非法时也要可用，§10.8）。"""
     try:
-        return seed_patch_shape(payload["kind"], payload["shape"],
-                                payload.get("options", {}))
+        return seed_shape(payload["kind"], payload["shape"],
+                          payload.get("options", {}))
     except ValueError as e:        # 非法 kind/shape/尺寸：HTTP 422 同构
         raise _ValidationError(str(e)) from e
 

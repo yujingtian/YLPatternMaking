@@ -33,7 +33,7 @@ export interface DraftState {
   setMeasurement: (key: string, value: unknown) => void
   setOption: (key: string, value: unknown) => void
   loadValues: (m: Values, o: Values) => void
-  // 从形态导入（贴袋 custom 编辑器）：预设形态 -> custom 初始点/边。
+  // 从形态导入（custom_shape 编辑器：贴袋/袋布）：预设形态 -> custom 初始点/边。
   // 返回判别结果、不进全局 errors——非生成动作，失败内联显示在编辑器里
   seedShape: (kind: SeedPayload['kind'], shape: string) =>
     Promise<SeedResult | { ok: false; message: string }>

@@ -24,10 +24,13 @@ export interface ParamSpec {
   hidden?: boolean
   visible_if?: Gate | Gate[] | null
   // custom_shape 虚拟参数专属：编辑器读写的两真实参数键与元数据
-  kind?: 'front_patch' | 'back_patch'
+  kind?: 'front_patch' | 'back_patch' | 'front_pouch' | 'watch_pocket'
   points_key?: string
   edges_key?: string
   v_positive?: 'down' | 'up'  // 存储值第二轴方向（back=v 向下正 / front=dy 向上正）
+  mode?: 'closed' | 'open'    // 闭合净形（贴袋/小表袋）/ 开放链（袋布 K 节点）
+  edge_format?: 'bulge' | 'spec'  // (弧高,位置) 二元组 / line·arc·bezier 三模式
+  anchor_keys?: string[]      // open 链两端近似锚点读的 options 键（仅预览用）
 }
 
 export interface GroupSpec {
@@ -154,9 +157,13 @@ export interface DraftPayload {
 }
 
 // ---- 从形态导入（seed）：预设形态 -> custom 初始角点/边 ----
-// points 为 v 向下正规范系（前后侧统一；前侧编辑器写回时 dy 自行取负）
+// points 为 v 向下正规范系（前后侧统一；前侧编辑器写回时 dy 自行取负）；
+// edges 贴袋为 (bulge, at) 二元组、袋布为完整 spec（首元素为模式串）。
+// 小表袋无预设（choices 恒空、seed 不可达），仅保持联合类型完备
+export type EdgeSpec = (string | number)[]
+
 export interface SeedPayload {
-  kind: 'front_patch' | 'back_patch'
+  kind: 'front_patch' | 'back_patch' | 'front_pouch' | 'watch_pocket'
   shape: string
   options: Values
 }
@@ -164,5 +171,5 @@ export interface SeedPayload {
 export interface SeedResult {
   ok: boolean
   points: [number, number][]
-  edges: [number, number][]
+  edges: EdgeSpec[]
 }

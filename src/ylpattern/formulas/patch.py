@@ -1,7 +1,7 @@
 """贴袋净形公式：纯 float 计算（后贴袋绘制.md §二.1、前口袋绘制.md §五）。
 
 步骤层（back_patch_steps / front_pocket_steps）与 web 端「从形态导入」
-（webschema.seed_patch_shape）共用本模块——预设形态角点是同一份打版
+（webschema.seed_shape）共用本模块——预设形态角点是同一份打版
 事实，单一来源，禁止在前端 TS 复写。
 """
 

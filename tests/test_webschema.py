@@ -18,7 +18,7 @@ import pytest
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.params import Measurements, PatternOptions
 from ylpattern.webschema import (ADJUSTABLES, build_schema, handles,
-                                 seed_patch_shape)
+                                 seed_shape)
 
 ADJ_M = dict(waist=70, hip=96, knee=46, hem=36,
              front_rise=25, back_rise=33, outseam=102, thigh=58)
@@ -76,6 +76,8 @@ def test_custom_shape_virtual_specs():
     assert front["kind"] == "front_patch"
     assert front["v_positive"] == "up"
     assert back["choices"] == ["rectangle", "baker_shield", "angular"]
+    assert back["mode"] == front["mode"] == "closed"
+    assert back["edge_format"] == front["edge_format"] == "bulge"
     # gate 必须挂到虚拟 spec（build_schema 特判 continue 早于通用挂接点，
     # 曾静默丢失致编辑器在非 custom 形态下也常显）
     assert back["visible_if"] == {"param": "back_patch_shape",
@@ -83,32 +85,69 @@ def test_custom_shape_virtual_specs():
     assert front["visible_if"] == {"param": "front_patch_shape",
                                    "values": ["custom"],
                                    "requires": ["front_patch"]}
+    # 袋布自由边界：open 链 + spec 边格式 + 近似锚点四参数；链恒自定义无 gate
+    pouch = specs["front_pouch_chain"]
+    assert pouch["type"] == "custom_shape"
+    assert pouch["kind"] == "front_pouch"
+    assert pouch["points_key"] == "front_pouch_nodes"
+    assert pouch["edges_key"] == "front_pouch_edges"
+    assert pouch["v_positive"] == "down"
+    assert pouch["mode"] == "open"
+    assert pouch["edge_format"] == "spec"
+    assert pouch["anchor_keys"] == [
+        "front_pocket_p1_dist", "front_pouch_waist_safe",
+        "front_pocket_p2_drop", "front_pouch_side_safe"]
+    assert pouch["choices"] == ["standard", "round_bottom", "deep_rect"]
+    assert "visible_if" not in pouch
+    # 小表袋 custom：closed + spec，gate=watch_pocket_mode 值 custom
+    watch = specs["watch_pocket_custom"]
+    assert watch["kind"] == "watch_pocket"
+    assert watch["points_key"] == "watch_pocket_points"
+    assert watch["edges_key"] == "watch_pocket_edges"
+    assert watch["v_positive"] == "down"
+    assert watch["mode"] == "closed"
+    assert watch["edge_format"] == "spec"
+    assert watch["choices"] == []
+    assert watch["visible_if"] == {"param": "watch_pocket_mode",
+                                   "values": ["custom"]}
     for k in ("back_patch_custom_points", "back_patch_custom_edges",
-              "front_patch_custom_points", "front_patch_custom_edges"):
+              "front_patch_custom_points", "front_patch_custom_edges",
+              "front_pouch_nodes", "front_pouch_edges",
+              "watch_pocket_points", "watch_pocket_edges"):
         assert specs[k]["hidden"] is True
 
 
-def test_seed_patch_shape():
+def test_seed_shape():
     """seed 金标（数值同 tests/test_patch.py）：baker 后侧 bi=1 五边形、
     angular 前侧消费底宽（后侧不消费形成对照）；边恒直线；
-    非法 kind / 预设外 shape 抛 ValueError。"""
-    r = seed_patch_shape(
+    front_pouch 袋型预设（数值同 tests/test_pouch_formula.py，边为完整
+    spec 格式）；非法 kind / 预设外 shape 抛 ValueError。"""
+    r = seed_shape(
         "back_patch", "baker_shield",
         {"back_patch_width": 14, "back_patch_height": 16,
          "back_patch_bottom_width": 12, "back_patch_tip_depth": 2.5})
     assert r["points"] == [[0.0, 0.0], [14.0, 0.0], [13.0, 16.0],
                            [7.0, 18.5], [1.0, 16.0]]
     assert r["edges"] == [[0.0, 0.5]] * 5
-    f = seed_patch_shape(
+    f = seed_shape(
         "front_patch", "angular",
         {"front_patch_width": 14, "front_patch_height": 16,
          "front_patch_bottom_width": 12, "front_patch_chamfer": 2})
     assert f["points"] == [[0.0, 0.0], [14.0, 0.0], [13.0, 14.0],
                            [11.0, 16.0], [3.0, 16.0], [1.0, 14.0]]
+    p = seed_shape("front_pouch", "standard",
+                   {"front_pouch_waist_safe": 4, "front_pouch_side_safe": 8})
+    assert p["points"] == [[5.0, 16.0], [1.5, 13.5]]
+    assert p["edges"] == [["line"], ["arc", 2.5, 0.6], ["line"]]
+    # 安全量缺省回退 4/8（中间态可用）
+    p2 = seed_shape("front_pouch", "deep_rect", {})
+    assert p2["points"] == [[5.5, 20.8], [1.0, 18.4]]
     with pytest.raises(ValueError):
-        seed_patch_shape("side_patch", "rectangle", {})
+        seed_shape("side_patch", "rectangle", {})
     with pytest.raises(ValueError):
-        seed_patch_shape("back_patch", "custom", {})
+        seed_shape("back_patch", "custom", {})
+    with pytest.raises(ValueError):
+        seed_shape("front_pouch", "custom", {})
 
 
 def test_adjustable_points_kind_t_pairing():
