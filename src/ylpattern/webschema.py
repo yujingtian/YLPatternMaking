@@ -77,11 +77,12 @@ SECTIONS: list[dict] = [
             "waist_rect_len",
             "rise_ratio", "rise_adjust", "crotch_drop_adjust",
             "back_rise_alpha", "back_rise_beta", "front_rise_handle_ratio"]},
-        # 只留影响整版几何的绘制参数；fly_extension/full_piece/grain/
-        # 缝份/缩水在裁片段 craft_waistband
+        # 只留影响整版几何的绘制参数（腰弧 sag 控制上腰口/下腰头线）；
+        # front_drop/fly_extension/full_piece/grain/缝份/缩水只在
+        # build_waistband 裁切链消费，归裁片段 craft_waistband
         {"key": "waistband", "label": "腰头绘制", "collapsed": True,
          "params": [
-            "waistband_type", "waistband_width", "waistband_front_drop",
+            "waistband_type", "waistband_width",
             "side_rise", "front_waist_curve_sag", "back_waist_curve_sag"]},
         {"key": "front_pocket", "label": "前口袋绘制", "collapsed": True,
          "params": [
@@ -225,9 +226,10 @@ SECTIONS: list[dict] = [
             "seam_allowance", "show_seam_allowance"]},
         {"key": "craft_waistband", "label": "腰头裁片", "collapsed": True,
          "params": [
-            "waistband_fly_extension", "waistband_full_piece",
-            "waistband_grain", "waistband_seam_allowances",
-            "waistband_shrinkage_warp", "waistband_shrinkage_weft"]},
+            "waistband_front_drop", "waistband_fly_extension",
+            "waistband_full_piece", "waistband_grain",
+            "waistband_seam_allowances", "waistband_shrinkage_warp",
+            "waistband_shrinkage_weft"]},
         # 组级 gate 无法表达"挖削 OR 贴袋 OR 袋贴"（前端组级是 AND 语义），
         # 故组常显、全参数带参数级 gate：相关开关全关时参数过滤为空，
         # 前端按 params 为空自动隐藏整组
