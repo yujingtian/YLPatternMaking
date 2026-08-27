@@ -17,7 +17,8 @@ import pytest
 
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.params import Measurements, PatternOptions
-from ylpattern.webschema import ADJUSTABLES, build_schema, handles
+from ylpattern.webschema import (ADJUSTABLES, build_schema, handles,
+                                 seed_patch_shape)
 
 ADJ_M = dict(waist=70, hip=96, knee=46, hem=36,
              front_rise=25, back_rise=33, outseam=102, thigh=58)
@@ -43,8 +44,10 @@ def test_schema_sections_and_full_coverage():
     for s in schema["sections"]:
         for g in s["groups"]:
             for p in g["params"]:
-                # pocket_type / fly_type 是前端虚拟下拉，不对应引擎字段
-                if p["type"] not in ("pocket_type", "fly_type"):
+                # pocket_type / fly_type / *_custom 是前端虚拟参数，不对应
+                # 引擎字段（custom_shape 编辑器读写隐藏真实键）
+                if p["type"] not in ("pocket_type", "fly_type",
+                                     "custom_shape"):
                     seen.append(p["key"])
     assert len(seen) == len(set(seen)), "面板参数出现重复"
     m_keys = vars(Measurements(waist=68, hip=91, knee=44, hem=34,
@@ -53,6 +56,52 @@ def test_schema_sections_and_full_coverage():
     o_keys = vars(PatternOptions())
     assert set(seen) == set(m_keys) | set(o_keys), \
         "引擎参数未全覆盖（misc 兜底失效？）"
+
+
+def test_custom_shape_virtual_specs():
+    """custom 形态编辑器虚拟参数：kind / 两真实键 / v_positive 元数据齐备
+    （后贴袋存储 v 向下正、前贴袋 dy 向上正，编辑器内部归一显示）；
+    原始 *_custom_points/edges 仍进 schema 全集但标记 hidden
+    （422 校验错误归因到这些键、由编辑器合并承接）。"""
+    schema = build_schema()
+    specs = {p["key"]: p for s in schema["sections"]
+             for g in s["groups"] for p in g["params"]}
+    back = specs["back_patch_custom"]
+    front = specs["front_patch_custom"]
+    assert back["type"] == front["type"] == "custom_shape"
+    assert back["kind"] == "back_patch"
+    assert back["points_key"] == "back_patch_custom_points"
+    assert back["edges_key"] == "back_patch_custom_edges"
+    assert back["v_positive"] == "down"
+    assert front["kind"] == "front_patch"
+    assert front["v_positive"] == "up"
+    assert back["choices"] == ["rectangle", "baker_shield", "angular"]
+    for k in ("back_patch_custom_points", "back_patch_custom_edges",
+              "front_patch_custom_points", "front_patch_custom_edges"):
+        assert specs[k]["hidden"] is True
+
+
+def test_seed_patch_shape():
+    """seed 金标（数值同 tests/test_patch.py）：baker 后侧 bi=1 五边形、
+    angular 前侧消费底宽（后侧不消费形成对照）；边恒直线；
+    非法 kind / 预设外 shape 抛 ValueError。"""
+    r = seed_patch_shape(
+        "back_patch", "baker_shield",
+        {"back_patch_width": 14, "back_patch_height": 16,
+         "back_patch_bottom_width": 12, "back_patch_tip_depth": 2.5})
+    assert r["points"] == [[0.0, 0.0], [14.0, 0.0], [13.0, 16.0],
+                           [7.0, 18.5], [1.0, 16.0]]
+    assert r["edges"] == [[0.0, 0.5]] * 5
+    f = seed_patch_shape(
+        "front_patch", "angular",
+        {"front_patch_width": 14, "front_patch_height": 16,
+         "front_patch_bottom_width": 12, "front_patch_chamfer": 2})
+    assert f["points"] == [[0.0, 0.0], [14.0, 0.0], [13.0, 14.0],
+                           [11.0, 16.0], [3.0, 16.0], [1.0, 14.0]]
+    with pytest.raises(ValueError):
+        seed_patch_shape("side_patch", "rectangle", {})
+    with pytest.raises(ValueError):
+        seed_patch_shape("back_patch", "custom", {})
 
 
 def test_adjustable_points_kind_t_pairing():

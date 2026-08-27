@@ -16,12 +16,18 @@ export type Gate = string | EnumGate
 export interface ParamSpec {
   key: string
   label: string
-  type: 'number' | 'int' | 'bool' | 'enum' | 'string' | 'json' | 'sa' | 'pocket_type' | 'fly_type'
+  type: 'number' | 'int' | 'bool' | 'enum' | 'string' | 'json' | 'sa'
+       | 'pocket_type' | 'fly_type' | 'custom_shape'
   default: unknown
   choices?: string[]
   nullable?: boolean
   hidden?: boolean
   visible_if?: Gate | Gate[] | null
+  // custom_shape 虚拟参数专属：编辑器读写的两真实参数键与元数据
+  kind?: 'front_patch' | 'back_patch'
+  points_key?: string
+  edges_key?: string
+  v_positive?: 'down' | 'up'  // 存储值第二轴方向（back=v 向下正 / front=dy 向上正）
 }
 
 export interface GroupSpec {
@@ -145,4 +151,18 @@ export type Values = Record<string, unknown>
 export interface DraftPayload {
   measurements: Values
   options: Values
+}
+
+// ---- 从形态导入（seed）：预设形态 -> custom 初始角点/边 ----
+// points 为 v 向下正规范系（前后侧统一；前侧编辑器写回时 dy 自行取负）
+export interface SeedPayload {
+  kind: 'front_patch' | 'back_patch'
+  shape: string
+  options: Values
+}
+
+export interface SeedResult {
+  ok: boolean
+  points: [number, number][]
+  edges: [number, number][]
 }

@@ -1,7 +1,7 @@
 """浏览器 Pyodide worker 的 Python 侧胶水（随引擎 zip 打包，顶层模块）。
 
 职责：把 webapp/backend/app.py 的 /api/draft/sheet、/api/adjust、
-/api/draft/pieces 三端点**逐字段复刻**到浏览器本地执行——两边语义一致
+/api/draft/pieces、/api/seed 四端点**逐字段复刻**到浏览器本地执行——两边语义一致
 由 tests/test_engine_glue.py 金标钉死（同输入下输出全等，含 SVG 字符串），
 改任何一端跑一次测试即知漂移。
 
@@ -26,7 +26,7 @@ from ylpattern.flows.adjust import solve_param
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.flows.collect import collect_pieces
 from ylpattern.params import Measurements, PatternOptions, build_issues
-from ylpattern.webschema import binding_for, handles
+from ylpattern.webschema import binding_for, handles, seed_patch_shape
 
 
 class _ValidationError(Exception):
@@ -142,7 +142,18 @@ def _pieces(payload: dict) -> dict:
     }
 
 
-_COMMANDS = {"sheet": _sheet, "adjust": _adjust, "pieces": _pieces}
+def _seed(payload: dict) -> dict:
+    """预设形态 -> custom 初始角点/边（复刻 /api/seed；不走 _build：
+    只依赖贴袋 5 参数，其余参数中间态非法时也要可用，§10.8）。"""
+    try:
+        return seed_patch_shape(payload["kind"], payload["shape"],
+                                payload.get("options", {}))
+    except ValueError as e:        # 非法 kind/shape/尺寸：HTTP 422 同构
+        raise _ValidationError(str(e)) from e
+
+
+_COMMANDS = {"sheet": _sheet, "adjust": _adjust, "pieces": _pieces,
+             "seed": _seed}
 
 
 def handle(cmd: str, payload_json: str) -> str:

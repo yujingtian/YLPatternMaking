@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Gate, GroupSpec, IssueDetail, ParamSpec, SectionSpec, Values } from '../types'
+import type {
+  Gate, GroupSpec, IssueDetail, ParamSpec, SectionSpec, SeedResult, Values,
+} from '../types'
 import { Input, InputNumber, Select, Switch, Collapse, Badge } from 'antd'
+import CustomShapeEditor from './CustomShapeEditor'
 
 interface Props {
   sections: SectionSpec[]
@@ -9,6 +12,9 @@ interface Props {
   errors: IssueDetail[]
   onMeasurement: (key: string, value: unknown) => void
   onOption: (key: string, value: unknown) => void
+  // 从形态导入（custom_shape 编辑器 seed；失败内联显示在编辑器里）
+  onSeed: (kind: 'front_patch' | 'back_patch', shape: string) =>
+    Promise<SeedResult | { ok: false; message: string }>
   highlight: { param: string; ts: number } | null
 }
 
@@ -41,16 +47,39 @@ function errorMap(errors: IssueDetail[]): Map<string, string> {
   return m
 }
 
-function ParamInput({ spec, value, onChange, err, options, setOption }: {
+function ParamInput({ spec, value, onChange, err, options, setOption, onSeed }: {
   spec: ParamSpec
   value: unknown
   onChange: (v: unknown) => void
   err?: string
   options: Values
   setOption: (key: string, value: unknown) => void
+  onSeed: Props['onSeed']
 }) {
   const [jsonText, setJsonText] = useState<string | null>(null)
   const [jsonBad, setJsonBad] = useState(false)
+
+  // custom_shape 虚拟参数：整行块布局（编辑器自带双表 + 预览），
+  // 直写 points/edges 两真实键（同 pocket_type 写多开关的先例）
+  if (spec.type === 'custom_shape') {
+    return (
+      <div className={`param shape-param${err ? ' param-error' : ''}`}
+           data-param={spec.key}>
+        <div className="shape-label">{spec.label}</div>
+        <CustomShapeEditor
+          kind={spec.kind!}
+          vPositive={spec.v_positive ?? 'down'}
+          seedChoices={spec.choices ?? []}
+          points={(options[spec.points_key!] as [number, number][] | undefined) ?? []}
+          edges={(options[spec.edges_key!] as [number, number][] | undefined) ?? []}
+          onPoints={(pts) => setOption(spec.points_key!, pts)}
+          onEdges={(eds) => setOption(spec.edges_key!, eds)}
+          onSeed={onSeed}
+          err={err}
+        />
+      </div>
+    )
+  }
 
   let control: JSX.Element
   switch (spec.type) {
@@ -198,7 +227,7 @@ function ParamInput({ spec, value, onChange, err, options, setOption }: {
 
 export default function ParamPanel({
   sections, measurements, options, errors,
-  onMeasurement, onOption, highlight,
+  onMeasurement, onOption, onSeed, highlight,
 }: Props) {
   const [search, setSearch] = useState('')
   const errs = useMemo(() => errorMap(errors), [errors])
@@ -296,14 +325,20 @@ export default function ParamPanel({
                 : isMeasure
                   ? measurements[p.key] ?? p.default
                   : options[p.key] ?? p.default
+            // custom_shape 错误合并：原始 json 键已隐藏（_HIDDEN），
+            // 422 归因到 points/edges 的消息由编辑器整体承接（一条足矣）
+            const err = p.type === 'custom_shape'
+              ? errs.get(p.points_key ?? '') ?? errs.get(p.edges_key ?? '')
+              : errs.get(p.key)
             return (
               <ParamInput
                 key={p.key}
                 spec={p}
                 value={value}
-                err={errs.get(p.key)}
+                err={err}
                 options={options}
                 setOption={onOption}
+                onSeed={onSeed}
                 onChange={(v) =>
                   (isMeasure ? onMeasurement : onOption)(p.key, v)}
               />

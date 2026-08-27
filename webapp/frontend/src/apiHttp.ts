@@ -1,6 +1,6 @@
 import type {
-  AdjustResult, DraftPayload, IssueDetail, PiecesResult, Schema, SheetResult,
-  Values,
+  AdjustResult, DraftPayload, IssueDetail, PiecesResult, Schema, SeedPayload,
+  SeedResult, SheetResult, Values,
 } from './types'
 
 async function handle<T>(res: Response): Promise<T> {
@@ -45,6 +45,16 @@ export async function postAdjust(
   },
 ): Promise<AdjustResult> {
   return handle(await fetch('/api/adjust', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))
+}
+
+// 从形态导入（贴袋 custom 编辑器）：预设形态 -> custom 初始角点/边；
+// 纯函数毫秒级；422 detail 为字符串消息（非法 kind/shape/尺寸）
+export async function postSeed(payload: SeedPayload): Promise<SeedResult> {
+  return handle(await fetch('/api/seed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

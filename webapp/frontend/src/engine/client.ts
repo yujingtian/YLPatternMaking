@@ -10,7 +10,7 @@
 import type {
   AdjustPayload, EngineCmd, EngineMessage, EngineProgress, EngineRequest,
 } from './protocol'
-import type { DraftPayload, IssueDetail } from '../types'
+import type { DraftPayload, IssueDetail, SeedPayload } from '../types'
 
 export type EngineState = 'loading' | 'ready' | 'unavailable'
 
@@ -155,7 +155,7 @@ class EngineClient {
     return () => this.progressCbs.delete(cb)
   }
 
-  call<T>(cmd: EngineCmd, payload: DraftPayload | AdjustPayload,
+  call<T>(cmd: EngineCmd, payload: DraftPayload | AdjustPayload | SeedPayload,
           timeoutMs: number): Promise<T> {
     if (this.state === 'unavailable') {
       return Promise.reject(new EngineFailure('本地引擎不可用'))

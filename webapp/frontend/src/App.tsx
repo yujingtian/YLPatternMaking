@@ -45,6 +45,7 @@ function DraftApp() {
             errors={d.errors}
             onMeasurement={d.setMeasurement}
             onOption={d.setOption}
+            onSeed={d.seedShape}
             highlight={d.adjustInfo}
           />
         ) : (

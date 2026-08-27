@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from ..draft import DraftContext, NamedCurve, NamedLine
 from ..draft import curves
+from ..formulas import patch as patch_f
 from ..geometry import CubicBezier, LineSegment, Point, Vector
 from ..params import WaistbandType
 from .front_steps import effective_waist
@@ -492,29 +493,22 @@ def draw_front_patch_pocket(ctx: DraftContext) -> NamedLine | None:
     shape = o.front_patch_shape
 
     # 净形（顺时针：外上角 → 内上角 → 向下绕行，Y 向上坐标系）；
-    # 袋底宽可独立于袋口宽（底边两侧对称内收 bi，负值 = 外扩）
-    bw = o.front_patch_bottom_width or w
-    bi = (w - bw) / 2
-    if shape == "baker_shield":
-        net = [a, Point(a.x + w, a.y),
-               Point(a.x + w - bi, a.y - h),
-               Point(a.x + w / 2, a.y - h - o.front_patch_tip_depth),
-               Point(a.x + bi, a.y - h)]
-    elif shape == "angular":
-        c = o.front_patch_chamfer
-        net = [a, Point(a.x + w, a.y),
-               Point(a.x + w - bi, a.y - h + c),
-               Point(a.x + w - bi - c, a.y - h),
-               Point(a.x + bi + c, a.y - h),
-               Point(a.x + bi, a.y - h + c)]
-    elif shape == "custom":
+    # 预设形态角点收敛到公式层（web「从形态导入」与步骤共用同一来源，
+    # formulas.patch.patch_net_vertices 返回 v 向下正规范系，此处映射
+    # Point(a.x+u, a.y−v)；前贴袋 angular 消费底宽 bi（chamfer_bottom_
+    # taper=True，与后贴袋的唯一行为差异））
+    if shape == "custom":
         # 全自定义：角点相对锚点给定，逐边可选直线或带弧高弧线
         net = [Point(a.x + dx, a.y + dy)
                for dx, dy in o.front_patch_custom_points]
-    else:                                           # rectangle
-        net = [a, Point(a.x + w, a.y),
-               Point(a.x + w, a.y - h),
-               Point(a.x, a.y - h)]
+    else:
+        net = [Point(a.x + u, a.y - v)
+               for u, v in patch_f.patch_net_vertices(
+                   shape, w, h,
+                   bottom_width=o.front_patch_bottom_width,
+                   tip_depth=o.front_patch_tip_depth,
+                   chamfer=o.front_patch_chamfer,
+                   chamfer_bottom_taper=True)]
 
     # 整体旋转：绕袋口外上角 a（调整贴袋摆放角度，顺时针为正，
     # Y 向上坐标系取负角）

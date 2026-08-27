@@ -49,6 +49,30 @@ def test_pieces_glue_equals_http():
     assert _glue("pieces", REQ) == http
 
 
+def test_seed_glue_equals_http():
+    """seed 全等：三预设形态 × 前后侧（纯函数，输出确定）。
+    入参只带贴袋尺寸子集——seed 不走 _build，其余参数缺失/非法不影响。"""
+    for kind in ("back_patch", "front_patch"):
+        opts = {f"{kind}_width": 14, f"{kind}_height": 16,
+                f"{kind}_bottom_width": 12, f"{kind}_tip_depth": 2.5,
+                f"{kind}_chamfer": 2}
+        for shape in ("rectangle", "baker_shield", "angular"):
+            req = {"kind": kind, "shape": shape, "options": opts}
+            http = client.post("/api/seed", json=req).json()
+            assert _glue("seed", req) == http
+            assert http["ok"] is True and len(http["points"]) >= 4
+
+
+def test_seed_invalid_matches_http():
+    req = {"kind": "back_patch", "shape": "custom", "options": {}}
+    r = client.post("/api/seed", json=req)
+    assert r.status_code == 422
+    out = _glue("seed", req)
+    assert out["ok"] is False
+    assert out["error"]["kind"] == "validation"
+    assert out["error"]["message"] == r.json()["detail"]
+
+
 def test_adjust_glue_equals_http_cold():
     """冷缓存（guess=None）路径与 HTTP 全等，含 evaluations 逐位一致。"""
     sheet = client.post("/api/draft/sheet", json=REQ).json()
@@ -109,3 +133,4 @@ def test_handle_never_raises():
     assert json.loads(engine_glue.handle("sheet", "not-json"))["ok"] is False
     assert json.loads(engine_glue.handle("bogus", "{}"))["ok"] is False
     assert json.loads(engine_glue.handle("adjust", "{}"))["ok"] is False
+    assert json.loads(engine_glue.handle("seed", "{}"))["ok"] is False

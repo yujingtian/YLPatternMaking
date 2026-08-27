@@ -3,8 +3,8 @@
 本模块是 schema 的**唯一实现**（2026-08 从 webapp/backend/schema.py 下沉到
 引擎包）：后端 FastAPI 与浏览器 Pyodide worker 胶水（webapp/engine_glue.py）
 共用一份，防两处漂移；webapp/backend/schema.py 只做薄再导出保持 import
-路径稳定。依赖方向：webschema -> params / flows.adjust（与 api 同层，
-红线内）；仅 stdlib（re/dataclasses/pathlib），Pyodide 可直接加载。
+路径稳定。依赖方向：webschema -> params / flows.adjust / formulas.patch
+（与 api 同层，红线内）；仅 stdlib（re/dataclasses/pathlib），Pyodide 可直接加载。
 
 默认值从 PatternOptions/Measurements 实例**反射**（不在两处维护）；
 中文标签从 params 源码行内注释解析（打版师口径注释即现成文案）；
@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ylpattern.flows.adjust import element_coordinate
+from ylpattern.formulas import patch as patch_f
 from ylpattern.params import Measurements, PatternOptions
 from ylpattern.params import measurements as _m_mod
 from ylpattern.params import options as _o_mod
@@ -97,15 +98,21 @@ SECTIONS: list[dict] = [
             ("front_patch_height", "front_patch"),
             ("front_patch_shape", "front_patch"),
             ("front_patch_bottom_width", {"param": "front_patch_shape",
-                                          "values": ["baker_shield", "angular"],
+                                          "values": ["baker_shield", "angular",
+                                                     "custom"],
                                           "requires": ["front_patch"]}),
             ("front_patch_rotate_deg", "front_patch"),
             ("front_patch_tip_depth", {"param": "front_patch_shape",
-                                       "values": ["baker_shield"],
+                                       "values": ["baker_shield", "custom"],
                                        "requires": ["front_patch"]}),
             ("front_patch_chamfer", {"param": "front_patch_shape",
-                                     "values": ["angular"],
+                                     "values": ["angular", "custom"],
                                      "requires": ["front_patch"]}),
+            # custom 结构化编辑器（虚拟参数：读写下方两隐藏真实键，
+            # 见 build_schema 特判与 ParamPanel custom_shape 分支）
+            ("front_patch_custom", {"param": "front_patch_shape",
+                                    "values": ["custom"],
+                                    "requires": ["front_patch"]}),
             ("front_patch_custom_points", {"param": "front_patch_shape",
                                            "values": ["custom"],
                                            "requires": ["front_patch"]}),
@@ -162,15 +169,20 @@ SECTIONS: list[dict] = [
             "back_patch_inset_x", "back_patch_drop_y", "back_patch_width",
             "back_patch_height", "back_patch_shape",
             # 形态专属参数按 back_patch_shape 联动（baker_shield=底宽+底尖 /
-            # angular=斜切 / custom=角点+边形态；后贴袋 angular 不消费底宽，
-            # 与前贴袋不同——back_patch_steps 六边形顶点全用 w/c，§二.1）
+            # angular=斜切 / custom=角点+边形态；values 含 custom = 该参数
+            # 在 custom 态作为「从形态导入」的基准尺寸可见可调，引擎 custom
+            # 分支不消费；后贴袋 angular 不消费底宽，与前贴袋不同——
+            # back_patch_steps 六边形顶点全用 w/c，§二.1）
             ("back_patch_bottom_width", {"param": "back_patch_shape",
-                                         "values": ["baker_shield"]}),
+                                         "values": ["baker_shield", "custom"]}),
             "back_patch_rotate_deg",
             ("back_patch_tip_depth", {"param": "back_patch_shape",
-                                      "values": ["baker_shield"]}),
+                                      "values": ["baker_shield", "custom"]}),
             ("back_patch_chamfer", {"param": "back_patch_shape",
-                                    "values": ["angular"]}),
+                                    "values": ["angular", "custom"]}),
+            # custom 结构化编辑器（虚拟参数：读写下方两隐藏真实键）
+            ("back_patch_custom", {"param": "back_patch_shape",
+                                   "values": ["custom"]}),
             ("back_patch_custom_points", {"param": "back_patch_shape",
                                           "values": ["custom"]}),
             ("back_patch_custom_edges", {"param": "back_patch_shape",
@@ -396,6 +408,40 @@ def handles(ctx, o: PatternOptions) -> list[dict]:
     return out
 
 
+def seed_patch_shape(kind: str, shape: str, options: dict) -> dict:
+    """预设形态 -> custom 初始角点/边（web「从形态导入」seed，§10.8）。
+
+    kind 取 front_patch / back_patch：自 options 提取该侧 5 个尺寸参数
+    （{kind}_width / _height / _bottom_width / _tip_depth / _chamfer）
+    代入 formulas.patch.patch_net_vertices，返回 **v 向下正**规范系角点
+    （前后侧统一；前侧编辑器写回时 dy 自行取负）与全直线边（预设形态
+    引擎本就逐边画直线，steps 走 (0.0, 0.5) 分支）。非法 kind/shape 抛
+    ValueError（HTTP 422 / 引擎胶水 _ValidationError，两通道同构）。
+
+    不走 PatternOptions 构造：seed 只依赖这 5 个参数，且其余参数处于
+    中间态（可能暂时非法）时也要可用，避免无谓 422 耦合。
+    """
+    if kind not in ("front_patch", "back_patch"):
+        raise ValueError(f"未知贴袋侧 kind={kind!r}（取 front_patch/back_patch）")
+
+    def _num(key: str, default: float | None = None) -> float:
+        v = options.get(key, default)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError(f"seed 依赖参数 {key} 缺失或非数值：{v!r}")
+        return float(v)
+
+    pts = patch_f.patch_net_vertices(
+        shape,
+        _num(f"{kind}_width"), _num(f"{kind}_height"),
+        bottom_width=_num(f"{kind}_bottom_width", 0.0),
+        tip_depth=_num(f"{kind}_tip_depth", 0.0),
+        chamfer=_num(f"{kind}_chamfer", 0.0),
+        chamfer_bottom_taper=(kind == "front_patch"))
+    return {"ok": True,
+            "points": [[float(u), float(v)] for u, v in pts],
+            "edges": [[0.0, 0.5] for _ in range(len(pts))]}
+
+
 def _sa_fields(sa) -> dict | None:
     """缝份对象 -> {边名: 默认值}（非缝份字段返回 None）。"""
     if sa is None or not hasattr(sa, "__dataclass_fields__"):
@@ -404,8 +450,13 @@ def _sa_fields(sa) -> dict | None:
             for name in type(sa).__dataclass_fields__}
 
 
-# 前端隐藏的原始开关（由 pocket_type / fly_type 虚拟下拉驱动，避免互斥开关双见）
-_HIDDEN = {"front_pocket", "front_patch", "fly", "fly_separate"}
+# 前端隐藏的原始开关与原始 json 键（前者由 pocket_type / fly_type 虚拟下拉
+# 驱动，避免互斥开关双见；后者由 *_custom 虚拟参数的 custom_shape 结构化
+# 编辑器读写——两套 UI 并存编辑同一数据必然漂移。参数仍进 schema 全集：
+# 422 校验错误归因到这些键、由编辑器合并承接，toml 导出亦不受影响）
+_HIDDEN = {"front_pocket", "front_patch", "fly", "fly_separate",
+           "front_patch_custom_points", "front_patch_custom_edges",
+           "back_patch_custom_points", "back_patch_custom_edges"}
 
 
 def _param_spec(name: str, value, labels: dict[str, str]) -> dict:
@@ -471,6 +522,24 @@ def build_schema() -> dict:
                     specs.append({"key": "fly_type", "label": "门襟形态",
                                   "type": "fly_type", "default": None,
                                   "choices": ["无", "连裁门襟", "独立门襟"]})
+                    continue
+                if name in ("back_patch_custom", "front_patch_custom"):
+                    # 虚拟参数：custom 形态结构化编辑器（点/边表格 + 轮廓
+                    # 预览 + 从形态导入），前端读写 points_key / edges_key
+                    # 两隐藏真实键（ParamPanel custom_shape 分支）。choices
+                    # 为 seed 可导入的预设形态；v_positive 标存储值第二轴
+                    # 方向（back=v 向下正 / front=dy 向上正，编辑器内部
+                    # 归一为 v 向下正显示）
+                    k = name.removesuffix("_custom")
+                    specs.append({"key": name, "label": "自定义形态编辑",
+                                  "type": "custom_shape", "default": None,
+                                  "choices": ["rectangle", "baker_shield",
+                                              "angular"],
+                                  "kind": k,
+                                  "points_key": f"{k}_custom_points",
+                                  "edges_key": f"{k}_custom_edges",
+                                  "v_positive":
+                                      "down" if k == "back_patch" else "up"})
                     continue
                 if name not in values:
                     raise KeyError(f"schema 白名单引用了不存在的参数:{name}")

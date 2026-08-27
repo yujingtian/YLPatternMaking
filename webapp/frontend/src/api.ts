@@ -7,7 +7,8 @@ import { getEngine, isEngineFailure } from './engine/client'
 import type { AdjustPayload, EngineCmd } from './engine/protocol'
 import * as http from './apiHttp'
 import type {
-  AdjustResult, DraftPayload, PiecesResult, SheetResult,
+  AdjustResult, DraftPayload, PiecesResult, SeedPayload, SeedResult,
+  SheetResult,
 } from './types'
 
 export type { Template } from './apiHttp'
@@ -24,15 +25,20 @@ const TIMEOUTS: Record<EngineCmd, number> = {
   sheet: 30_000,
   pieces: 30_000,
   adjust: 60_000,
+  seed: 5_000,           // 纯函数毫秒级
 }
 
-async function route<P extends DraftPayload, T>(
+// P 不约束为 DraftPayload：seed 入参为 {kind, shape, options}（不带
+// measurements，后端不走 _build——其余参数中间态非法时 seed 也要可用）
+async function route<P, T>(
   cmd: EngineCmd, payload: P, httpFn: (p: P) => Promise<T>,
 ): Promise<T> {
   const eng = getEngine()
   if (eng !== null) {
     try {
-      return await eng.call<T>(cmd, payload, TIMEOUTS[cmd])
+      return await eng.call<T>(
+        cmd, payload as DraftPayload | AdjustPayload | SeedPayload,
+        TIMEOUTS[cmd])
     } catch (e) {
       // validation（参数错，与 HTTP 422 同构）直接抛给上层显示；
       // 引擎侧失败/超时才回落 HTTP 再试
@@ -52,4 +58,8 @@ export function postPieces(payload: DraftPayload): Promise<PiecesResult> {
 
 export function postAdjust(payload: AdjustPayload): Promise<AdjustResult> {
   return route('adjust', payload, http.postAdjust)
+}
+
+export function postSeed(payload: SeedPayload): Promise<SeedResult> {
+  return route('seed', payload, http.postSeed)
 }

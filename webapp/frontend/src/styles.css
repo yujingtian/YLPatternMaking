@@ -63,6 +63,37 @@ html, body, #root { height: 100%; margin: 0; }
 .sa-item em { font-style: normal; font-size: 11px; color: #888; }
 .json-input { font-family: monospace; font-size: 12px; }
 
+/* ---- 贴袋 custom 形态结构化编辑器（custom_shape 虚拟参数） ---- */
+.shape-param { flex-direction: column; }
+.shape-label { font-size: 12.5px; color: #444; }
+.shape-editor {
+  border: 1px solid #e8e8e8; border-radius: 4px; padding: 6px;
+  background: #fff; display: flex; flex-direction: column; gap: 6px;
+}
+.shape-toolbar { display: flex; gap: 6px; align-items: center; }
+.shape-msg { font-size: 12px; color: #ff4d4f; }
+.shape-empty { font-size: 12px; color: #999; padding: 4px 2px; }
+/* 点/边两表上下堆叠（并排时输入框被 400px 面板挤到 ~50px 太短） */
+.shape-tables { display: flex; flex-direction: column; gap: 8px; }
+.shape-table { display: flex; flex-direction: column; gap: 2px; }
+.shape-thead, .shape-row {
+  display: grid; grid-template-columns: 14px 1fr 1fr 30px;
+  gap: 3px; align-items: center; font-size: 11px; color: #888;
+}
+.shape-row.active { background: #f6ffc9; border-radius: 3px; }
+.shape-row .ant-input-number { width: 100%; }
+.shape-idx { text-align: right; }
+.shape-ops { display: inline-flex; align-items: center; }
+.shape-ops .ant-btn { padding: 0 2px; height: 18px; min-width: 15px; font-size: 11px; }
+.shape-add { margin-top: 2px; }
+.shape-hint { font-size: 11px; color: #999; }
+.shape-preview {
+  width: 100%; height: 190px; background: #fafafa; border-radius: 3px;
+  user-select: none; touch-action: none;
+}
+.shape-preview g { cursor: grab; }
+.shape-preview g.pt-dragging { cursor: grabbing; }
+
 /* ---- 预览区（右） ---- */
 .preview-pane {
   flex: 1; display: flex; flex-direction: column; min-width: 0;

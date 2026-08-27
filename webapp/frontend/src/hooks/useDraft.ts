@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
-  DraftPayload, DownloadKind, IssueDetail, PiecesResult, Schema, SheetResult,
-  Snapshot, Values,
+  DraftPayload, DownloadKind, IssueDetail, PiecesResult, Schema, SeedPayload,
+  SeedResult, SheetResult, Snapshot, Values,
 } from '../types'
-import { download as downloadFile, fetchSchema, postPieces, postSheet } from '../api'
+import {
+  download as downloadFile, fetchSchema, postPieces, postSeed, postSheet,
+} from '../api'
 import { getEngine } from '../engine/client'
 
 // UI 侧引擎状态：client 的 unavailable（引擎不可用）在界面上统一呈现为
@@ -31,6 +33,10 @@ export interface DraftState {
   setMeasurement: (key: string, value: unknown) => void
   setOption: (key: string, value: unknown) => void
   loadValues: (m: Values, o: Values) => void
+  // 从形态导入（贴袋 custom 编辑器）：预设形态 -> custom 初始点/边。
+  // 返回判别结果、不进全局 errors——非生成动作，失败内联显示在编辑器里
+  seedShape: (kind: SeedPayload['kind'], shape: string) =>
+    Promise<SeedResult | { ok: false; message: string }>
   generateSheet: () => Promise<void>
   generatePieces: () => Promise<void>
   download: (kind: DownloadKind) => Promise<void>
@@ -232,6 +238,19 @@ export function useDraft(): DraftState {
     }
   }, [measurements, options, version, sheet, sheetBusy])
 
+  // 从形态导入：读 optsRef 规避闭包旧值；失败返回 {ok:false, message}
+  // 内联显示在编辑器（422 detail 为字符串消息，其余取 error 文本）
+  const seedShape = useCallback(async (kind: SeedPayload['kind'],
+                                       shape: string) => {
+    try {
+      return await postSeed({ kind, shape, options: optsRef.current })
+    } catch (e) {
+      const err = e as Error & { detail?: unknown }
+      const msg = typeof err.detail === 'string' ? err.detail : String(e)
+      return { ok: false as const, message: msg }
+    }
+  }, [])
+
   const download = useCallback(async (kind: DownloadKind) => {
     if (dlBusy !== null) return       // 串行：下载重跑引擎，防重复点击
     setDlBusy(kind)
@@ -254,6 +273,7 @@ export function useDraft(): DraftState {
 
   return {
     schema, measurements, options, setMeasurement, setOption, loadValues,
+    seedShape,
     generateSheet, generatePieces, download,
     applyAdjust, beginDrag, undoLastDrag, lastDrag, adjustInfo,
     sheet, pieces,

@@ -25,6 +25,7 @@ import math
 
 from ..draft import DraftContext, NamedCurve, NamedLine
 from ..draft import curves
+from ..formulas import patch as patch_f
 from ..geometry import LineSegment, Point
 
 
@@ -80,20 +81,18 @@ def draw_back_patch_pocket(ctx: DraftContext) -> NamedLine | NamedCurve | None:
     shape = o.back_patch_shape
 
     # 净形局部顶点（§二.1，u 朝侧缝 +、v 向下 +，V0=(0,0) 近后浪侧，顺时针）；
-    # 袋底宽可独立于袋口宽（底边两侧对称内收 bi，负值 = 外扩）
-    bw = o.back_patch_bottom_width or w
-    bi = (w - bw) / 2
-    if shape == "baker_shield":
-        local = [(0.0, 0.0), (w, 0.0),
-                 (w - bi, h), (w / 2, h + o.back_patch_tip_depth), (bi, h)]
-    elif shape == "angular":
-        c = o.back_patch_chamfer
-        local = [(0.0, 0.0), (w, 0.0),
-                 (w, h - c), (w - c, h), (c, h), (0.0, h - c)]
-    elif shape == "custom":
+    # 预设形态角点收敛到公式层（web「从形态导入」与步骤共用同一来源，
+    # formulas.patch.patch_net_vertices）；后贴袋 angular 不消费底宽
+    # bi（chamfer_bottom_taper=False，与前贴袋的唯一行为差异）
+    if shape == "custom":
         local = [(float(u), float(v)) for u, v in o.back_patch_custom_points]
-    else:                                           # rectangle
-        local = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]
+    else:
+        local = list(patch_f.patch_net_vertices(
+            shape, w, h,
+            bottom_width=o.back_patch_bottom_width,
+            tip_depth=o.back_patch_tip_depth,
+            chamfer=o.back_patch_chamfer,
+            chamfer_bottom_taper=False))
 
     # 全局仿射（§二.2）：P_i = P0 + R(θ)·V_i，θ 顺时针为正（v 向下系）
     theta = math.radians(o.back_patch_rotate_deg)

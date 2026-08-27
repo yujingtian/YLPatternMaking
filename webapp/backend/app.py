@@ -27,7 +27,7 @@ from ylpattern.flows.collect import collect_pieces
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.params import (Measurements, PatternOptions, build_issues)
 
-from .schema import binding_for, build_schema, handles
+from .schema import binding_for, build_schema, handles, seed_patch_shape
 
 app = FastAPI(title="YLPattern Web", version="0.1.0")
 app.add_middleware(
@@ -161,6 +161,30 @@ def adjust(req: AdjustRequest) -> dict:
             "params": {adj.param: r.value},
             "achieved": r.achieved, "residual": r.residual,
             "reason": r.reason, "evaluations": r.evaluations}
+
+
+class SeedRequest(BaseModel):
+    """从形态导入请求：kind 侧 + 预设 shape + 当前 options（仅取贴袋
+    5 尺寸参数；不带 measurements、不走 _build——其余参数中间态非法时
+    seed 也要可用，避免无谓 422 耦合）。"""
+
+    kind: str
+    shape: str
+    options: dict = {}
+
+
+@app.post("/api/seed")
+def seed(req: SeedRequest) -> dict:
+    """预设形态 -> custom 初始角点/边（贴袋编辑器「从形态导入」）。
+
+    纯函数（webschema.seed_patch_shape -> formulas.patch），同步 def 走
+    线程池；非法 kind/shape/尺寸 -> 422（与 Pyodide 胶水 validation 同构，
+    前端不触发通道回退）。
+    """
+    try:
+        return seed_patch_shape(req.kind, req.shape, req.options)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 @app.post("/api/draft/pieces")
