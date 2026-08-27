@@ -75,6 +75,55 @@ def test_run_size_run_requires_section():
                      pieces_dxf="unused.dxf")
 
 
+def test_size_run_from_dict_matches_file():
+    """金标（手工演算）：band 腰/臀档差 2.5、基码 30（腰 77 臀 99）——
+    31 码腰 77+2.5=79.5、29 码臀 99-2.5=96.5、30 码=基码原值；与文件
+    路径版（test_run_size_run_end_to_end 同源 spec）逐码全等。"""
+    from ylpattern.api import size_run_from_dict
+    from ylpattern.params import Measurements, PatternOptions
+    m = Measurements(waist=77, hip=99, knee=47.6, hem=37.5,
+                     front_rise=29, back_rise=39, outseam=106)
+    o = PatternOptions(size_label="30")
+    spec = {"base": "30", "style": "TEST-RUN",
+            "band": [{"sizes": ["29", "30", "31"],
+                      "waist": 2.5, "hip": 2.5}]}
+    run = size_run_from_dict(m, o, spec)
+    assert run.labels == ("29", "30", "31")
+    assert run.base == "30"
+    assert run.style_name == "TEST-RUN"
+    assert run.measurements("30").waist == pytest.approx(77)
+    assert run.measurements("31").waist == pytest.approx(79.5)
+    assert run.measurements("29").hip == pytest.approx(96.5)
+
+
+def test_size_run_from_dict_disabled_raises():
+    """enabled=false：内存入口自查报错（from_spec 只校验开关类型不校验值，
+    web 端误传 false 不能展开成功——与 cli 探测口径一致）。"""
+    from ylpattern.api import size_run_from_dict
+    from ylpattern.params import Measurements, PatternOptions
+    m = Measurements(waist=77, hip=99, knee=47.6, hem=37.5,
+                     front_rise=29, back_rise=39, outseam=106)
+    with pytest.raises(ValueError, match="enabled"):
+        size_run_from_dict(m, PatternOptions(size_label="30"),
+                           {"enabled": False})
+
+
+def test_run_size_run_groups_pure(run_file):
+    """内存核心：contexts/groups/rows 均按码序、逐码尺寸递变、默认开关
+    每码 3 片；trace_base 缺省 False（基码追踪为空）；不落盘无 DXF 依赖。"""
+    from ylpattern.api import run_size_run_groups
+    from ylpattern.params import PatternOptions, load_size_run
+    o = PatternOptions.from_file(str(run_file))
+    run = load_size_run(str(run_file), fallback_base=o.size_label)
+    contexts, groups, rows, base_trace = run_size_run_groups(run, o)
+    assert list(contexts) == ["29", "30", "31"]
+    assert [lbl for lbl, _ in groups] == ["29", "30", "31"]
+    assert [lbl for lbl, _, _ in rows] == ["29", "30", "31"]
+    assert contexts["31"].measurements.waist == pytest.approx(79.5)
+    assert all(len(pieces) == 3 for _, pieces in groups)
+    assert base_trace == ""
+
+
 def test_examples_run_file_loads(tmp_path):
     """examples 多码尺寸单（直筒单文末 [size_run]，6 码 27-32 单段档差）加载正确。
 

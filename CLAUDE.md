@@ -32,6 +32,10 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   uvicorn webapp.backend.app:app 后访问 http://127.0.0.1:8000
 #   二期拖拽调版：整版把手拖动 -> 反解参数回写（flows/adjust.solve_param 数值求根，
 #   绑定登记处 ylpattern/webschema.py 的 ADJUSTABLES；把手/缩放平移见 SheetView，口径 .doc/python工程设计.md §10.7）
+#   推板 DXF（多码，v1 2026-08）：Toolbar「推板 DXF」+ 推板设置抽屉（相邻码档差表，
+#   前端 sizeRun.ts 档差<->band 转换、首码并入首段免疫孤儿校验）-> /api/dxf?kind=size_run
+#   （引擎 api.size_run_from_dict/run_size_run_groups 内存核心）与 /api/toml 带 [size_run]
+#   段（直喂 CLI 复现）；转换金标 vitest：cd webapp/frontend && npm test（详见 §10.7）
 #   本地引擎（2026-08）：整版/裁片/反解默认在浏览器内 Pyodide worker 跑同一份引擎源码
 #   （前端 npm run build:engine 打内容 hash zip + manifest 到 public/engine，predev/prebuild
 #    自动执行，改引擎代码后手动重跑；api.ts 引擎优先、失败透明回落 HTTP，DXF/下载仍走后端；

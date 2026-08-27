@@ -179,3 +179,33 @@ html, body, #root { height: 100%; margin: 0; }
   0% { background: #f6ffc9; box-shadow: 0 0 0 2px #d3e8c0 inset; }
   100% { background: transparent; box-shadow: none; }
 }
+
+/* ---- 推板设置抽屉（相邻码档差表） ---- */
+.sr-hint {
+  color: #666; font-size: 12px; line-height: 1.8;
+  margin-bottom: 12px; padding: 8px 12px;
+  background: #fafafa; border-radius: 4px;
+}
+.sr-toolbar { margin-bottom: 8px; }
+.sr-muted { color: #999; font-size: 12px; }
+.sr-table-wrap { overflow-x: auto; }
+.sr-table { border-collapse: collapse; width: 100%; }
+.sr-table th, .sr-table td {
+  border: 1px solid #eee; padding: 4px 8px; text-align: left;
+  font-size: 12px; white-space: nowrap;
+}
+.sr-table th { background: #fafafa; font-weight: 500; }
+.sr-table .sr-label { width: 72px; }
+/* 档差格：输入框 + 下方灰字绝对值换算（首码仅显示换算值） */
+.sr-cell {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+}
+.sr-cell .abs-hint { color: #999; font-size: 11px; line-height: 1.2; }
+.sr-step-empty { color: #ccc; }
+/* 基码行：换算值即面板值，加重区分 */
+.sr-base-row td { background: #f6fbf7; }
+.sr-base-row .abs-hint { color: #2c6e49; font-weight: 600; }
+.sr-footer {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+}
+.sr-footer .sr-error { color: #cf1322; font-size: 12px; }

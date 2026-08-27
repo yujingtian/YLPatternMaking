@@ -25,6 +25,7 @@ from ylpattern.exporters import svg as svg_exp
 from ylpattern.flows.adjust import solve_param
 from ylpattern.flows.collect import collect_pieces
 from ylpattern.flows.closure import run_with_thigh_closure
+from ylpattern.api import run_size_run_groups, size_run_from_dict
 from ylpattern.params import (Measurements, PatternOptions, build_issues)
 
 from .schema import binding_for, build_schema, handles, seed_shape
@@ -75,6 +76,8 @@ _EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 class DraftRequest(BaseModel):
     measurements: dict
     options: dict = {}
+    size_run: dict | None = None   # 推板码表（仅 kind=size_run / toml 消费，
+                                   # sheet/pieces/adjust/seed 忽略）
 
 
 def _build(req: DraftRequest):
@@ -209,18 +212,34 @@ def draft_pieces(req: DraftRequest) -> dict:
 
 @app.post("/api/dxf")
 def dxf(req: DraftRequest, kind: str = "pieces") -> Response:
-    """DXF 下载：pieces = 裁片合集平铺（默认）；sheet = 整版。"""
-    if kind not in ("pieces", "sheet"):
-        raise HTTPException(400, "kind 须为 pieces / sheet")
-    _, o, ctx, _ = _draft_ctx(req)
-    if kind == "sheet":
-        doc = dxf_exp.render_sheet_dxf(ctx.sheet)
-        name = "sheet.dxf"
+    """DXF 下载：pieces = 裁片合集平铺（默认）；sheet = 整版；
+    size_run = 多码推码合集（逐码重打版，码表来自 DraftRequest.size_run）。"""
+    if kind not in ("pieces", "sheet", "size_run"):
+        raise HTTPException(400, "kind 须为 pieces / sheet / size_run")
+    if kind == "size_run":
+        m, o, _ = _build(req)     # 基码构造+校验；逐码重打版在内存核心里
+        if not req.size_run:
+            raise HTTPException(422, "推板导出缺少 [size_run] 配置"
+                                      "（请先在推板设置抽屉完成配置）")
+        try:
+            run = size_run_from_dict(m, o, req.size_run)
+            _ctxs, groups, _rows, _tr = run_size_run_groups(run, o)
+        except ValueError as e:   # 码表/档差/逐码展开非法（消息带码标签）
+            raise HTTPException(422, str(e))
+        doc = piece_dxf_exp.render_size_run_dxf(
+            groups, sample_size=run.base, style_name=run.style_name,
+            show_seam=o.show_seam_allowance)
+        name = "size_run.dxf"     # 固定名：base 可能非 ASCII，不进 header
     else:
-        pieces, _ = collect_pieces(ctx)
-        doc = piece_dxf_exp.render_pieces_dxf(
-            pieces, size=o.size_label, show_seam=o.show_seam_allowance)
-        name = "pieces.dxf"
+        _, o, ctx, _ = _draft_ctx(req)
+        if kind == "sheet":
+            doc = dxf_exp.render_sheet_dxf(ctx.sheet)
+            name = "sheet.dxf"
+        else:
+            pieces, _ = collect_pieces(ctx)
+            doc = piece_dxf_exp.render_pieces_dxf(
+                pieces, size=o.size_label, show_seam=o.show_seam_allowance)
+            name = "pieces.dxf"
     buf = io.StringIO()
     doc.write(buf)
     return Response(buf.getvalue(), media_type="application/dxf",
@@ -230,9 +249,11 @@ def dxf(req: DraftRequest, kind: str = "pieces") -> Response:
 
 @app.post("/api/toml")
 def export_toml(req: DraftRequest) -> Response:
-    """当前参数导出为尺寸单 toml（可作 CLI --size 输入，双向兼容）。"""
+    """当前参数导出为尺寸单 toml（可作 CLI --size 输入，双向兼容；
+    配置过推板时带 [size_run] 段 = CLI 多码推码模式）。"""
     from .tomlout import render_size_toml
-    return Response(render_size_toml(req.measurements, req.options),
+    return Response(render_size_toml(req.measurements, req.options,
+                                     req.size_run),
                     media_type="application/toml",
                     headers={"Content-Disposition":
                              'attachment; filename="size_draft.toml"'})

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   DraftPayload, DownloadKind, IssueDetail, PiecesResult, Schema, SeedPayload,
-  SeedResult, SheetResult, Snapshot, Values,
+  SeedResult, SheetResult, Snapshot, SizeRunSpec, Values,
 } from '../types'
 import {
   download as downloadFile, fetchSchema, postPieces, postSeed, postSheet,
 } from '../api'
+import { normalizeSizeRun } from '../sizeRun'
 import { getEngine } from '../engine/client'
 
 // UI 侧引擎状态：client 的 unavailable（引擎不可用）在界面上统一呈现为
@@ -30,16 +31,23 @@ export interface DraftState {
   schema: Schema | null
   measurements: Values
   options: Values
+  // 推板码表（canonical，sizeRun.ts 转换）：null = 未配置（推板 DXF 点击
+  // 转为打开设置抽屉）。 setSizeRun 不 bump version——码表不影响整版/裁片
+  // 快照的新鲜度，门控仍由 measurements/options 驱动
+  sizeRun: SizeRunSpec | null
   setMeasurement: (key: string, value: unknown) => void
   setOption: (key: string, value: unknown) => void
-  loadValues: (m: Values, o: Values) => void
+  setSizeRun: (s: SizeRunSpec | null) => void
+  loadValues: (m: Values, o: Values, sizeRun?: SizeRunSpec | null) => void
   // 从形态导入（custom_shape 编辑器：贴袋/袋布）：预设形态 -> custom 初始点/边。
   // 返回判别结果、不进全局 errors——非生成动作，失败内联显示在编辑器里
   seedShape: (kind: SeedPayload['kind'], shape: string) =>
     Promise<SeedResult | { ok: false; message: string }>
   generateSheet: () => Promise<void>
   generatePieces: () => Promise<void>
-  download: (kind: DownloadKind) => Promise<void>
+  // opts.sizeRun：抽屉「保存+导出」同 tick 的显式覆盖（规避闭包旧值竞态）
+  download: (kind: DownloadKind, opts?: { sizeRun?: SizeRunSpec | null }) =>
+    Promise<void>
   // 二期拖拽调版：反解回写（显式载荷重生成整版）/ 撤销 / 面板高亮
   applyAdjust: (param: string, value: number, base: DraftPayload) => Promise<void>
   beginDrag: (param: string, prevValue: number) => void
@@ -74,6 +82,9 @@ export function useDraft(): DraftState {
     saved.current?.measurements ?? {},
   )
   const [options, setOptions] = useState<Values>(saved.current?.options ?? {})
+  // 推板码表：normalize 兜底（旧存量无键 / 坏数据 -> null = 未配置）
+  const [sizeRun, setSizeRunState] = useState<SizeRunSpec | null>(
+    () => normalizeSizeRun(saved.current?.size_run).spec)
   // 参数版本号：任意修改 +1；产物快照记录生成时版本，不等即"已过期"
   // （刷新后快照为 null 天然不 stale；localStorage 只存参数，生成状态不持久）。
   // versionRef 镜像：applyAdjust 需要在 setState 闭包外读到"下一版本号"
@@ -125,10 +136,11 @@ export function useDraft(): DraftState {
   // 参数草稿自动暂存（防抖 500ms）：关页面不丢参数
   useEffect(() => {
     const t = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ measurements, options }))
+      localStorage.setItem(STORAGE_KEY,
+        JSON.stringify({ measurements, options, size_run: sizeRun }))
     }, 500)
     return () => clearTimeout(t)
-  }, [measurements, options])
+  }, [measurements, options, sizeRun])
 
   // 参数修改即过版本：已有预览保留但标"已过期"，DXF 下载随之禁用
   const setMeasurement = useCallback((key: string, value: unknown) => {
@@ -139,9 +151,15 @@ export function useDraft(): DraftState {
     setOptions((prev) => ({ ...prev, [key]: value }))
     bump()
   }, [bump])
-  const loadValues = useCallback((m: Values, o: Values) => {
+  // 推板码表不 bump version（见 DraftState.sizeRun 注释）
+  const setSizeRun = useCallback((s: SizeRunSpec | null) => {
+    setSizeRunState(s)
+  }, [])
+  const loadValues = useCallback((m: Values, o: Values,
+                                 sizeRun: SizeRunSpec | null = null) => {
     setMeasurements(m)
     setOptions(o)
+    setSizeRunState(sizeRun)
     bump()
   }, [bump])
 
@@ -251,17 +269,32 @@ export function useDraft(): DraftState {
     }
   }, [])
 
-  const download = useCallback(async (kind: DownloadKind) => {
+  const download = useCallback(async (kind: DownloadKind,
+                                     opts?: { sizeRun?: SizeRunSpec | null }) => {
     if (dlBusy !== null) return       // 串行：下载重跑引擎，防重复点击
+    // 抽屉「保存+导出」同 tick：显式覆盖优先，规避闭包旧值（首次导出必用）
+    const sr = opts && 'sizeRun' in opts ? opts.sizeRun : sizeRun
+    if (kind === 'sizeRunDxf' && !sr) {
+      setErrors([{ param: null, group: null,
+                   message: '推板导出缺少码表配置（请先在推板设置抽屉完成配置）',
+                   level: 'error' }])
+      return
+    }
     setDlBusy(kind)
     try {
-      const payload = { measurements, options }
+      // sheetDxf/piecesDxf 载荷不带 size_run：与两步生成严格同构
+      const base = { measurements, options }
       if (kind === 'sheetDxf') {
-        await downloadFile('/api/dxf?kind=sheet', payload, 'sheet.dxf')
+        await downloadFile('/api/dxf?kind=sheet', base, 'sheet.dxf')
       } else if (kind === 'piecesDxf') {
-        await downloadFile('/api/dxf?kind=pieces', payload, 'pieces.dxf')
+        await downloadFile('/api/dxf?kind=pieces', base, 'pieces.dxf')
+      } else if (kind === 'sizeRunDxf') {
+        await downloadFile('/api/dxf?kind=size_run', { ...base, size_run: sr },
+                           'size_run.dxf')
       } else {
-        await downloadFile('/api/toml', payload, 'size_draft.toml')
+        await downloadFile('/api/toml',
+                           sr ? { ...base, size_run: sr } : base,
+                           'size_draft.toml')
       }
     } catch (e) {
       // 下载失败入 errors（与 schema 加载失败同口径，Toolbar Alert 呈现）
@@ -269,10 +302,11 @@ export function useDraft(): DraftState {
     } finally {
       setDlBusy(null)
     }
-  }, [measurements, options, dlBusy])
+  }, [measurements, options, sizeRun, dlBusy])
 
   return {
-    schema, measurements, options, setMeasurement, setOption, loadValues,
+    schema, measurements, options, sizeRun,
+    setMeasurement, setOption, setSizeRun, loadValues,
     seedShape,
     generateSheet, generatePieces, download,
     applyAdjust, beginDrag, undoLastDrag, lastDrag, adjustInfo,

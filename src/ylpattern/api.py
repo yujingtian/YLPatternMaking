@@ -14,8 +14,8 @@ from __future__ import annotations
 from .draft import DraftContext
 from .exporters import svg as svg_exp
 from .flows.closure import run_with_thigh_closure
-from .params import (Measurements, PatternOptions, WaistbandGrain, WaistbandType,
-                     WaistbandSeamAllowances, YokeSeamAllowances,
+from .params import (Measurements, PatternOptions, SizeRun, WaistbandGrain,
+                     WaistbandType, WaistbandSeamAllowances, YokeSeamAllowances,
                      FrontFacingSeamAllowances, FrontPatchSeamAllowances,
                      PouchSeamAllowances, FlySeamAllowances,
                      WatchPocketSeamAllowances, BackPatchSeamAllowances,
@@ -894,32 +894,40 @@ def _last_residual(trace_text: str) -> float | None:
     return float(matches[-1]) if matches else None
 
 
-def run_size_run(size_file: str, *, pieces_dxf: str,
-                 svg: str | None = None, trace: str | None = None,
-                 report: str | None = None) -> dict[str, DraftContext]:
-    """多码推码：逐码参数化重打版 + 多码单文件裁片 DXF（推码方案步 4）。
+def size_run_from_dict(base_m: Measurements, o: PatternOptions,
+                       size_run: dict) -> SizeRun:
+    """web/JSON 入口：[size_run] 段原始 dict -> SizeRun（webapp 消费）。
 
-    size_file 须含 [size_run] 段且 enabled = true（否则 ValueError 提示
-    走 run）。按码序
-    逐码：m_s = run.measurements(码)；o_s = run.options_for(码, o)
-    -> run_with_thigh_closure（毗围闭环逐码独立收敛，浪长闭合等结构
-    不变量自动保持）-> collect_pieces 收 groups；末尾 write_size_run_dxf(
-    groups, pieces_dxf, sample_size=run.base, style_name=run.style_name)。
-
-    输出口径 v1：svg/trace/report **只出基码**（整版是人工调版工具，
-    版师只调基码；看任一单码细版 = 复制尺寸单关 enabled 或删 [size_run]
-    段退化单码模式，无信息丢失）。毗围不收敛：报告而非失败——逐码汇总打印
-    「码 / 毗围残余 ΔW / 裁片数」。返回 {码: DraftContext}（码序）。
+    与 load_size_run 的差别：不吃文件、不吞 enabled——enabled 显式 false
+    时 ValueError（关开关 = 单码模式，应走单码裁片导出；from_spec 只校验
+    开关类型不校验值）。其余 ValueError 透传 from_spec（未知键/重复码/
+    base 不在码序/style 非 ASCII/逐码 Measurements 交叉校验失败，消息
+    自带码标签），调用方按 422 呈现。
     """
-    from .exporters import piece_dxf as piece_dxf_exp
-    from .flows.collect import collect_pieces
-    from .params import load_size_run
+    if not isinstance(size_run, dict):
+        raise ValueError("[size_run] 须为表（dict）")
+    if size_run.get("enabled", True) is False:
+        raise ValueError("[size_run] enabled = false：推板开关未开启"
+                         "（单码导出请用裁片 DXF）")
+    return SizeRun.from_spec(base_m, {"size_run": size_run},
+                             fallback_base=o.size_label)
 
-    o = PatternOptions.from_file(size_file)
-    run = load_size_run(size_file, fallback_base=o.size_label)
-    if run is None:
-        raise ValueError(f"尺寸单 '{size_file}' 缺 [size_run] 段或推码开关"
-                         " enabled = false（单码模式请直接用 run）")
+
+def run_size_run_groups(run: SizeRun, o: PatternOptions, *,
+                        trace_base: bool = False) -> tuple[
+        dict[str, DraftContext], list[tuple[str, list]],
+        list[tuple[str, float | None, int]], str]:
+    """逐码重打版内存核心（run_size_run 与 web 推板导出共用，不落盘）。
+
+    按码序逐码：run_with_thigh_closure（毗围闭环逐码独立收敛，浪长闭合
+    等结构不变量自动保持）+ collect_pieces。返回四元组：
+      contexts   {码: DraftContext}（码序；CLI svg/trace/report 与二期
+                 逐码预览用）；
+      groups     [(码, pieces)] 码序，喂 render_size_run_dxf；
+      rows       [(码, 毗围残余 ΔW | None, 裁片数)]（仅 CLI 汇总打印用）；
+      base_trace 基码追踪文本（trace_base=True 时非空）。
+    """
+    from .flows.collect import collect_pieces
 
     contexts: dict[str, DraftContext] = {}
     groups: list[tuple[str, list]] = []
@@ -928,13 +936,42 @@ def run_size_run(size_file: str, *, pieces_dxf: str,
     for label in run.labels:
         ctx_s, trace_s = run_with_thigh_closure(
             run.measurements(label), run.options_for(label, o),
-            trace=bool(trace) and label == run.base)
+            trace=trace_base and label == run.base)
         contexts[label] = ctx_s
         if label == run.base:
             base_trace = trace_s
         pieces, _skips = collect_pieces(ctx_s)
         groups.append((label, pieces))
         rows.append((label, _last_residual(trace_s), len(pieces)))
+    return contexts, groups, rows, base_trace
+
+
+def run_size_run(size_file: str, *, pieces_dxf: str,
+                 svg: str | None = None, trace: str | None = None,
+                 report: str | None = None) -> dict[str, DraftContext]:
+    """多码推码：逐码参数化重打版 + 多码单文件裁片 DXF（推码方案步 4）。
+
+    size_file 须含 [size_run] 段且 enabled = true（否则 ValueError 提示
+    走 run）。逐码编排走 run_size_run_groups（内存核心，web 推板导出
+    共用），末尾 write_size_run_dxf(groups, pieces_dxf, sample_size=
+    run.base, style_name=run.style_name)。
+
+    输出口径 v1：svg/trace/report **只出基码**（整版是人工调版工具，
+    版师只调基码；看任一单码细版 = 复制尺寸单关 enabled 或删 [size_run]
+    段退化单码模式，无信息丢失）。毗围不收敛：报告而非失败——逐码汇总打印
+    「码 / 毗围残余 ΔW / 裁片数」。返回 {码: DraftContext}（码序）。
+    """
+    from .exporters import piece_dxf as piece_dxf_exp
+    from .params import load_size_run
+
+    o = PatternOptions.from_file(size_file)
+    run = load_size_run(size_file, fallback_base=o.size_label)
+    if run is None:
+        raise ValueError(f"尺寸单 '{size_file}' 缺 [size_run] 段或推码开关"
+                         " enabled = false（单码模式请直接用 run）")
+
+    contexts, groups, rows, base_trace = run_size_run_groups(
+        run, o, trace_base=bool(trace))
     piece_dxf_exp.write_size_run_dxf(groups, pieces_dxf,
                                      sample_size=run.base,
                                      style_name=run.style_name,

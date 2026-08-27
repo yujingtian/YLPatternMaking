@@ -90,6 +90,6 @@ export async function fetchTemplates(): Promise<Template[]> {
 
 export async function fetchTemplateDetail(
   file: string,
-): Promise<{ measurements: Values; options: Values }> {
+): Promise<{ measurements: Values; options: Values; size_run?: unknown }> {
   return handle(await fetch(`/api/templates/${file}`))
 }

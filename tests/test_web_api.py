@@ -128,6 +128,52 @@ def test_dxf_download_nonempty():
     r2 = client.post("/api/dxf?kind=sheet",
                      json={"measurements": BASE_M, "options": {}})
     assert r2.status_code == 200 and b"SECTION" in r2.content
+    r3 = client.post("/api/dxf?kind=bogus",
+                     json={"measurements": BASE_M, "options": {}})
+    assert r3.status_code == 400
+    assert "size_run" in r3.json()["detail"]
+
+
+SIZE_RUN = {"base": "30", "style": "TEST-RUN",
+            "order": ["29", "30", "31"],
+            "band": [{"sizes": ["29", "30", "31"],
+                      "waist": 2.5, "hip": 2.5}]}
+
+
+def test_dxf_size_run_ok():
+    """金标（手工演算）：3 码档差腰/臀 2.5 -> 多码单文件 DXF；Sample Size=
+    基码 30、订单号进 Style Name / Grading Rule Table 两行头。"""
+    ezdxf = pytest.importorskip("ezdxf")
+    r = client.post("/api/dxf?kind=size_run",
+                    json={"measurements": BASE_M, "options": {},
+                          "size_run": SIZE_RUN})
+    assert r.status_code == 200
+    assert b"SECTION" in r.content
+    assert b"Sample Size: 30" in r.content
+    assert b"Style Name: TEST-RUN" in r.content
+    assert r.headers["content-disposition"].endswith('size_run.dxf"')
+    import io
+    doc = ezdxf.read(io.StringIO(r.content.decode("latin-1")))
+    blocks = [b.name for b in doc.blocks if not b.name.startswith(("*", "_"))]
+    assert "WAISTBAND-31" in blocks and "FRONT_PIECE-29" in blocks
+
+
+def test_dxf_size_run_missing_422():
+    r = client.post("/api/dxf?kind=size_run",
+                    json={"measurements": BASE_M, "options": {}})
+    assert r.status_code == 422
+    assert "size_run" in r.json()["detail"]
+
+
+def test_dxf_size_run_invalid_422():
+    # 码序重复：引擎 from_spec ValueError（消息带码标签）-> 422 字符串
+    bad = dict(SIZE_RUN, order=["29", "29", "30"],
+               band=[{"sizes": ["29", "30"], "waist": 2.5}])
+    r = client.post("/api/dxf?kind=size_run",
+                    json={"measurements": BASE_M, "options": {},
+                          "size_run": bad})
+    assert r.status_code == 422
+    assert "重复" in r.json()["detail"]
 
 
 def test_toml_roundtrip(tmp_path):
@@ -140,6 +186,27 @@ def test_toml_roundtrip(tmp_path):
     from ylpattern.params import PatternOptions
     o = PatternOptions.from_file(str(f))
     assert o.delta == 1.35 and o.front_pocket is True
+    assert "size_run" not in r.text        # 未配置推板不带段（单码口径不变）
+
+
+def test_toml_size_run_roundtrip(tmp_path):
+    """金标：带 [size_run] 段导出 -> load_size_run 全等（Web 配置直喂 CLI 闭环），
+    band 8 键全量显式、enabled 恒 true。"""
+    r = client.post("/api/toml", json={"measurements": BASE_M,
+                                       "options": {"size_label": "30"},
+                                       "size_run": SIZE_RUN})
+    assert r.status_code == 200
+    assert "[size_run]" in r.text and "[[size_run.band]]" in r.text
+    f = tmp_path / "size_run.toml"
+    f.write_text(r.text, encoding="utf-8")
+    from ylpattern.params import load_size_run
+    run = load_size_run(str(f), fallback_base="30")
+    assert run is not None
+    assert run.labels == ("29", "30", "31")
+    assert run.base == "30" and run.style_name == "TEST-RUN"
+    # 基码 30 腰 68、档差 2.5：31 码 70.5、29 码 65.5
+    assert run.measurements("31").waist == pytest.approx(70.5)
+    assert run.measurements("29").waist == pytest.approx(65.5)
 
 
 def test_templates_list_and_detail():

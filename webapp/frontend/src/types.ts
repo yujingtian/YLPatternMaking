@@ -140,7 +140,7 @@ export interface Snapshot<T> {
 }
 
 // 下载种类（单一 dlBusy 串行：DXF 下载重跑引擎，防重复点击）
-export type DownloadKind = 'sheetDxf' | 'piecesDxf' | 'toml'
+export type DownloadKind = 'sheetDxf' | 'piecesDxf' | 'sizeRunDxf' | 'toml'
 
 export interface IssueDetail {
   param: string | null
@@ -154,6 +154,30 @@ export type Values = Record<string, unknown>
 export interface DraftPayload {
   measurements: Values
   options: Values
+  // 推板码表（仅 kind=size_run 的 DXF 下载与 toml 导出携带；
+  // 生成端点与本地引擎均忽略此键）
+  size_run?: SizeRunSpec | null
+}
+
+// ---- 推板（多码推码 [size_run]） ----
+// canonical 形状与引擎 params/sizerun 规范段对齐；enabled 恒 true
+// （配置存在性即开关）；v1 永不带 sizes 逐码覆盖键（模板带覆盖在
+// normalizeSizeRun 丢弃并提示）。转换/校验唯一事实源在 src/sizeRun.ts
+
+// 与引擎 sizerun.MEASURE_KEYS 对齐的 8 参数（腰/臀/膝/脚口/前后浪/外长/大腿围）
+export const MEASURE_KEYS = ['waist', 'hip', 'knee', 'hem', 'front_rise',
+  'back_rise', 'outseam', 'thigh'] as const
+export type MeasureKey = (typeof MEASURE_KEYS)[number]
+export type GradeSteps = Record<MeasureKey, number>
+
+export type SizeRunBandSpec = { sizes: string[] } & GradeSteps
+
+export interface SizeRunSpec {
+  enabled: true
+  base: string
+  style: string
+  order: string[]
+  band: SizeRunBandSpec[]
 }
 
 // ---- 从形态导入（seed）：预设形态 -> custom 初始角点/边 ----

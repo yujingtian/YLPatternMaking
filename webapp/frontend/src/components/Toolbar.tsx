@@ -1,11 +1,15 @@
 import { Button, Space, Alert, Tag } from 'antd'
-import { DownloadOutlined, PlayCircleOutlined, UndoOutlined } from '@ant-design/icons'
+import {
+  DownloadOutlined, PlayCircleOutlined, SettingOutlined, UndoOutlined,
+} from '@ant-design/icons'
 import type { DownloadKind, IssueDetail } from '../types'
 
 // 两步生成门控（先画后裁）：
 //   整版生成 —— 仅互斥裁片生成
 //   裁片生成 —— 须整版已生成且未过期（参数一改即过期，先重跑整版）
-//   整版/裁片 DXF —— 对应步骤已生成且未过期、无未决错误；下载期间全局串行
+//   整版/裁片/推板 DXF —— 对应步骤已生成且未过期、无未决错误；下载期间全局串行
+//   推板 DXF —— 门控同裁片 DXF（先画后裁两步口径）；未配置时点击转为打开
+//   推板设置抽屉（首跑零摩擦）；「推板设置」齿轮常开不受门控
 //   toml —— 纯参数导出不跑引擎，维持仅 busy 禁用
 //   撤销上次拖拽 —— 有拖拽记录且不在 busy 中才可用（单步，回写拖前值并重生成）
 // 本地引擎角标：ready=浏览器内计算（拖拽实时）/ http=服务端计算（回退态）
@@ -14,6 +18,7 @@ export default function Toolbar({
   sheetReady, sheetStale, piecesReady, piecesStale,
   errors, warnings, onGenerateSheet, onGeneratePieces, onDownload,
   canUndo, onUndo, engineState,
+  sizeRunConfigured, onOpenSizeRun,
 }: {
   sheetBusy: boolean
   piecesBusy: boolean
@@ -30,6 +35,8 @@ export default function Toolbar({
   canUndo: boolean
   onUndo: () => void
   engineState: 'loading' | 'ready' | 'http'
+  sizeRunConfigured: boolean
+  onOpenSizeRun: () => void
 }) {
   const blocked = errors.length > 0
   const busy = sheetBusy || piecesBusy || dlBusy !== null
@@ -79,6 +86,19 @@ export default function Toolbar({
           onClick={() => onDownload('piecesDxf')}
         >
           裁片 DXF
+        </Button>
+        <Button
+          icon={<DownloadOutlined />}
+          loading={dlBusy === 'sizeRunDxf'}
+          disabled={busy || !piecesReady || piecesStale || blocked}
+          onClick={sizeRunConfigured
+            ? () => onDownload('sizeRunDxf')
+            : onOpenSizeRun}
+        >
+          推板 DXF{sizeRunConfigured ? '' : '（未配置）'}
+        </Button>
+        <Button icon={<SettingOutlined />} onClick={onOpenSizeRun}>
+          推板设置
         </Button>
         <Button
           icon={<DownloadOutlined />}
