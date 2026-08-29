@@ -195,7 +195,9 @@ class PatternOptions:
     crotch_drop_adjust: float = 0.0        # 后片落裆调节量 Δc（落裆推导.md §2.2，-0.4~+0.3）
     back_rise_alpha: float = 0.40          # 后浪上控制柄系数 α（0.38~0.42，后浪绘制.md §3.1）
     back_rise_beta: float = 0.50           # 后浪下控制柄系数 β（0.48~0.55，紧身提臀 0.55，§3.1）
-    front_rise_handle_ratio: float = 1 / 3  # 前浪裆弯控制柄比例（k1=k2=|BC|×本值；默认 1/3，前浪绘制.md §4；越大弧线越饱满）
+    front_rise_alpha: float = 1 / 3         # 前浪裆弯上控制柄系数 α（k1=α·|BC|；默认 1/3，前浪绘制.md §3.1；越大近臀段越平直、弯度下移，0.25~0.45）
+    front_rise_beta: float = 1 / 3          # 前浪裆弯下控制柄系数 β（k2=β·|BC|；默认 1/3，§3.1；越大裆底越饱满，0.25~0.45）
+    front_rise_exit_angle: float = 0.0      # 前浪裆底出口角 θ（度，终点切线自水平下倾；0=水平留裆尖，10~25 紧身/弹力裆底圆角化，上限 30，§3.3）
     front_crease_e: float = 0.0            # 前片裤中线调节量 e（裤中线推导.md §五，常规 0；修身 -0.5~-0.8）
     back_crease_e: float = 0.0             # 后片裤中线调节量 e（§五；常规与 front_crease_e 一致，特体独立设定）
     knee_adjust: float = 1.0               # 膝围前后片调整量 δ（前减后加，脚口膝围推导.md §三.1；高弹 0.5~0.75）

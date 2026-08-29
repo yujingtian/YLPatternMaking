@@ -57,12 +57,15 @@ def crotch_curve(start: Point, end: Point, *,
 
 def front_rise(a: Point, b: Point, c: Point, *,
                target_length: float,
-               handle_ratio: float = 1 / 3) -> tuple[Point, CubicBezier]:
+               alpha: float = 1 / 3, beta: float = 1 / 3,
+               exit_angle_deg: float = 0.0) -> tuple[Point, CubicBezier]:
     """前浪复合线：斜线 AB + 裆弯凹弧 BC，按总前浪长闭合反推 A 点。
 
     依据 前浪绘制.md：
-      - 弧线 BC 起点切线沿 AB 延伸方向（B 点无折角），终点切线水平（贴立裆线）；
-      - 控制柄长 k1 = k2 = |B−C| × handle_ratio（§4 标准控制柄）；
+      - 弧线 BC 起点切线沿 AB 延伸方向（B 点无折角，不参数化），
+        终点切线自水平向下倾出口角 θ（默认 0 = 水平贴立裆线，§3.3）；
+      - 控制柄长 k1 = α·|B−C|、k2 = β·|B−C|（默认 α = β = 1/3，
+        即旧单比例口径 k1 = k2，§3.1/§4）；
       - 弧长闭合：L_AB = target_length − ArcLength(BC)，
         A 沿 AB 反方向移动至 A_new（§4 方案"延伸点 A"）。
 
@@ -71,13 +74,19 @@ def front_rise(a: Point, b: Point, c: Point, *,
         b              臀围线内缝点（拐点）
         c              前小裆宽顶点（底裆点）
         target_length  目标总前浪长（cm，即量体的前浪尺寸）
-        handle_ratio   控制柄长 / 弦长比例（默认 1/3，前浪绘制.md §4）
+        alpha          上控制柄系数（k1/弦长，默认 1/3，§3.1）
+        beta           下控制柄系数（k2/弦长，默认 1/3，§3.1）
+        exit_angle_deg 裆底出口角 θ（度，0=水平留裆尖；10~25 圆角化，
+                       上限 30，§3.3）
 
     返回：(a_new, 弧线 BC)；斜线段由调用方以 a_new、b 构造。
     """
     d_ab = (b - a).normalized()
-    k = b.distance_to(c) * handle_ratio
-    arc = CubicBezier(b, b + d_ab.scale(k), c + Vector(-k, 0.0), c)
+    chord = b.distance_to(c)
+    rad = math.radians(exit_angle_deg)
+    k2 = chord * beta
+    arc = CubicBezier(b, b + d_ab.scale(chord * alpha),
+                      c + Vector(-k2 * math.cos(rad), k2 * math.sin(rad)), c)
     l_ab = target_length - arc.length()
     if l_ab <= 0:
         raise ValueError(

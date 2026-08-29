@@ -451,7 +451,7 @@ DXF 导出已程序化（`exporters/_dxf_base.py` + `dxf.py` + `piece_dxf.py`，
 
 死参数 `side_intake_k_waist` 已删除（2026-08-25）：定义后从未被任何公式/步骤消费。k_waist（前片侧缝内收推导.md §二.1 的前后腰围分配量，前减后加）唯一正解是 `waist_balance`——`formulas.waist.waist_front_finished` 的 balance 形参即 k_waist（docstring 已注明），`draw_front_waist_outseam_curves` 传 `o.waist_balance`。同步从 `webapp/backend/schema.py`「臀腰裆框架」参数组移除；旧尺寸单仍传该键会被 from_dict 以未知键 TypeError 拒绝（防呆）。
 
-前浪裆弯弧度已可调：`PatternOptions.front_rise_handle_ratio`（默认 1/3，k1=k2=|BC|×本值，前浪绘制.md §4），由 `draw_front_rise` 传入 `curves.front_rise`；与后浪 `back_rise_alpha`/`back_rise_beta` 双参数不同--前浪按文档用单一对称比例，后浪因大裆弯更深需独立 α/β。
+前浪裆弯形态三参数（2026-08-29 取代单参数 `front_rise_handle_ratio`）：`front_rise_alpha`/`front_rise_beta`（k1=α·|BC|、k2=β·|BC|，默认各 1/3，前浪绘制.md §3.1）+ `front_rise_exit_angle`（裆底出口角 θ 度，终点切线自水平向下倾；0=教科书水平收尾留裆尖，10~25 紧身/弹力裆底圆角化、裆底夹角=90°+θ，上限 30，§3.3），由 `draw_front_rise` 传入 `curves.front_rise`；起端切线恒沿前中斜线不参数化。默认 (1/3, 1/3, 0°) 与旧 k1=k2 口径逐字节等价（控制点金标 tests/test_steps.py::test_front_rise_control_points_golden）；θ>0 时 C 仍为弧线端点，浪长闭合与 cutter 裆尖角部处理（读实际端切线）自动跟随。与后浪 `back_rise_alpha`/`back_rise_beta` 口径对齐。
 
 前口袋袋贴（facing）已程序化：`draw_front_pocket_facing`（`front_pocket_steps`，前口袋绘制.md §三.3.(1)）。
 1. 定位两端点（支持非等距独立宽度）：腰头顶点 P_fw（有省自 P1′、无省自 P1 沿腰弧量取 w_waist=front_pocket_facing_width，默认 3.5）；侧缝顶点 P_fs（自 P2 沿外缝弧向下量取 w_side=front_pocket_facing_side_w or w_waist，推荐 6.0 防露白；但须满足 p2_drop + w_side < 外缝弧总长，否则步骤报"侧缝顶点越出外缝弧"——测试金标 M（H=96）外缝弧 ≈12.85、p2_drop 7.5，w_side 上限 <5.35，故测试夹具取 5.0）。

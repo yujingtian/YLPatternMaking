@@ -126,7 +126,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_intake_adjust: float = 0.0,
         back_intake: float = 2.5,
         back_rise_alpha: float = 0.40, back_rise_beta: float = 0.50,
-        front_rise_handle_ratio: float = 1 / 3,
+        front_rise_alpha: float = 1 / 3, front_rise_beta: float = 1 / 3,
+        front_rise_exit_angle: float = 0.0,
         rise_ratio: float = 0.25, rise_adjust: float = 0.0,
         crotch_drop_adjust: float = 0.0,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
@@ -311,7 +312,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_intake      后中内收比例模数 X（实际内收 = 臀腰高×X/15；宽松 1.5~2、标准 2.5~3、紧身 3.5~4.5）
         back_rise_alpha 后浪大裆弯上控制柄系数 α（0.38~0.42，后浪绘制.md §3.1）
         back_rise_beta  后浪大裆弯下控制柄系数 β（0.48~0.55，紧身提臀 0.55，§3.1）
-        front_rise_handle_ratio 前浪裆弯控制柄比例（k1=k2=|BC|×本值；默认 1/3，前浪绘制.md §4）
+        front_rise_alpha 前浪裆弯上控制柄系数 α（k1=α·|BC|；默认 1/3，前浪绘制.md §3.1）
+        front_rise_beta  前浪裆弯下控制柄系数 β（k2=β·|BC|；默认 1/3，§3.1）
+        front_rise_exit_angle 前浪裆底出口角 θ（度，0=水平留裆尖；10~25 裆底圆角化，上限 30，§3.3）
         rise_ratio       直裆深系数（直裆深 = H × ratio + adjust，默认 H/4）
         rise_adjust      直裆深修正量（cm）
         crotch_drop_adjust 后片落裆调节量 Δc（落裆量 = H/100 + Δc；高弹取负、宽松取正）
@@ -637,7 +640,9 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        back_intake=back_intake,
                        back_rise_alpha=back_rise_alpha,
                        back_rise_beta=back_rise_beta,
-                       front_rise_handle_ratio=front_rise_handle_ratio,
+                       front_rise_alpha=front_rise_alpha,
+                       front_rise_beta=front_rise_beta,
+                       front_rise_exit_angle=front_rise_exit_angle,
                        rise_ratio=rise_ratio,
                        rise_adjust=rise_adjust,
                        crotch_drop_adjust=crotch_drop_adjust,

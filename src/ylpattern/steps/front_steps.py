@@ -167,8 +167,8 @@ def draw_front_center_intake(ctx: DraftContext) -> NamedPoint:
 
 def draw_front_rise(ctx: DraftContext) -> NamedCurve:
     """前浪弧线：前中斜线（前浪顶点→臀围线内缝点）+ 裆弯凹弧（→前小裆宽顶点）。
-    拐点切线连续、底裆点切线水平，总长按前浪尺寸闭合反推前浪顶点
-    （前浪绘制.md §1~§4）。
+    拐点切线连续、底裆点切线自水平下倾出口角 θ（默认 0 = 水平），
+    总长按前浪尺寸闭合反推前浪顶点（前浪绘制.md §1~§4）。
     前浪为含腰头的成衣量：闭合目标统一经 rise_on_pattern 换算
     （直腰头扣腰头宽、弯腰头不扣，与版顶扣除口径一致，注意点 1）。
     依据：打版流程.md 前片步骤 3。"""
@@ -183,7 +183,9 @@ def draw_front_rise(ctx: DraftContext) -> NamedCurve:
     else:
         basis_len = f"前浪 {m.front_rise}（弯腰头一体绘制，不扣）"
     a, arc = curves.front_rise(a0, b, c, target_length=target,
-                               handle_ratio=o.front_rise_handle_ratio)
+                               alpha=o.front_rise_alpha,
+                               beta=o.front_rise_beta,
+                               exit_angle_deg=o.front_rise_exit_angle)
     ctx.add_point("front.hip_inner_point", b,
                   step="draw_front_rise",
                   basis="臀围线 ∩ 内侧缝参考线", label="臀围线内缝点")
@@ -197,8 +199,11 @@ def draw_front_rise(ctx: DraftContext) -> NamedCurve:
                  role="struct")
     return ctx.add_curve("front.rise_curve", arc,
                          step="draw_front_rise",
-                         basis=f"裆弯凹弧：k1 = k2 = {o.front_rise_handle_ratio:.4g}·|BC|，"
-                               "起点切线沿前中斜线、终点切线水平（前浪绘制.md §3/§4）",
+                         basis=f"裆弯凹弧：k1 = {o.front_rise_alpha:.4g}·|BC|，"
+                               f"k2 = {o.front_rise_beta:.4g}·|BC|，"
+                               f"出口角 θ = {o.front_rise_exit_angle:.4g}°"
+                               "（起点切线沿前中斜线、终点切线自水平下倾 θ；"
+                               "前浪绘制.md §3/§4）",
                          label="前浪弧线")
 
 

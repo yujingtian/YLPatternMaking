@@ -76,7 +76,8 @@ SECTIONS: list[dict] = [
             "outseam_bulge",
             "waist_rect_len",
             "rise_ratio", "rise_adjust", "crotch_drop_adjust",
-            "back_rise_alpha", "back_rise_beta", "front_rise_handle_ratio"]},
+            "back_rise_alpha", "back_rise_beta", "front_rise_alpha",
+            "front_rise_beta", "front_rise_exit_angle"]},
         # 只留影响整版几何的绘制参数（腰弧 sag 控制上腰口/下腰头线）；
         # front_drop/fly_extension/full_piece/grain/缝份/缩水只在
         # build_waistband 裁切链消费，归裁片段 craft_waistband

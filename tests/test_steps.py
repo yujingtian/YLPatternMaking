@@ -15,10 +15,14 @@
     大腿弧 (27.8,78)→(24.9,42)，P1=(27.8−0.2×2.9, 78−0.28×36)=(27.22, 67.92)。
 """
 
+import math
+
 import pytest
 
+from ylpattern.draft import curves
 from ylpattern.flows.front_flow import FRONT_FLOW
 from ylpattern.flows.runner import FlowRunner
+from ylpattern.geometry import Point
 from ylpattern.params import Measurements, PatternOptions, WaistbandType
 
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
@@ -123,25 +127,63 @@ def test_front_rise_closure_curved_waistband():
     assert total == pytest.approx(M.front_rise)
 
 
-def test_front_rise_handle_ratio():
-    # 前浪裆弯控制柄比例可调：k1=k2=|BC|×ratio（前浪绘制.md §4）。
-    # 闭合约束恒成立（斜线长 = 目标 − 弧长），故以弧长随 ratio 变化验证参数生效。
-    arc_default = FlowRunner(M, O).run(FRONT_FLOW).curve("front.rise_curve").length()
+def test_front_rise_crotch_params():
+    # 前浪裆弯 α/β/θ 三参数（前浪绘制.md §3）：α/β 越大裆弯弧越饱满（长），
+    # θ>0 裆底出口切线自水平向下倾（圆角化）；闭合约束恒成立（斜线长 = 目标 − 弧长）。
+    ctx_default = FlowRunner(M, O).run(FRONT_FLOW)
+    arc_default = ctx_default.curve("front.rise_curve").length()
 
-    o_big = PatternOptions(delta=1.0, front_rise_handle_ratio=0.5)
+    o_big = PatternOptions(delta=1.0, front_rise_alpha=0.5, front_rise_beta=0.5)
     ctx_big = FlowRunner(M, o_big).run(FRONT_FLOW)
     arc_big = ctx_big.curve("front.rise_curve").length()
 
-    o_small = PatternOptions(delta=1.0, front_rise_handle_ratio=0.2)
+    o_small = PatternOptions(delta=1.0, front_rise_alpha=0.2, front_rise_beta=0.2)
     ctx_small = FlowRunner(M, o_small).run(FRONT_FLOW)
     arc_small = ctx_small.curve("front.rise_curve").length()
 
-    # ratio 越大裆弯弧越饱满（长）
+    o_exit = PatternOptions(delta=1.0, front_rise_exit_angle=20.0)
+    ctx_exit = FlowRunner(M, o_exit).run(FRONT_FLOW)
+
+    # α/β 越大裆弯弧越饱满（长）
     assert arc_small < arc_default < arc_big
+    # 默认出口切线水平（切向 y 分量 0）；θ=20° 时切向斜率 = −tan20°
+    d_arc = ctx_default.curve("front.rise_curve")
+    assert (d_arc.p3.y - d_arc.p2.y) == pytest.approx(0.0)
+    arc_exit = ctx_exit.curve("front.rise_curve")
+    assert (arc_exit.p3.y - arc_exit.p2.y) == pytest.approx(
+        (arc_exit.p3.x - arc_exit.p2.x) * -math.tan(math.radians(20.0)))
     # 闭合仍成立（直腰头扣腰头宽 4 -> 目标 21）
-    for ctx in (ctx_big, ctx_small):
+    for ctx in (ctx_big, ctx_small, ctx_exit):
         total = ctx.line("front.rise_slant").length + ctx.curve("front.rise_curve").length()
         assert total == pytest.approx(M.front_rise - O.waistband_width)
+
+
+def test_front_rise_control_points_golden():
+    # 手算金标（前浪绘制.md §3）：a=(0,9) b=(3,5) c=(9,-3)
+    #   d_AB=(3,-4)/5=(0.6,-0.8)；|BC|=|(6,-8)|=10
+    #   α=0.3 -> k1=3：P1 = B+3·d = (3+1.8, 5-2.4) = (4.8, 2.6)
+    #   β=0.4, θ=0：  P2 = C-4·(1,0) = (5.0, -3)
+    #   β=0.4, θ=30°：t=(cos30,-sin30)，P2 = (9-4·cos30, -3+4·sin30)
+    #                 = (9-3.4641016, -1.0) = (5.5358984, -1.0)
+    #   默认 α=β=1/3：P1=(5.0, 5-8/3)、P2=(9-10/3, -3)（= 旧单比例 k1=k2 口径）
+    a, b, c = Point(0, 9), Point(3, 5), Point(9, -3)
+
+    _, arc = curves.front_rise(a, b, c, target_length=20.0,
+                               alpha=0.3, beta=0.4, exit_angle_deg=0.0)
+    assert (arc.p1.x, arc.p1.y) == pytest.approx((4.8, 2.6))
+    assert (arc.p2.x, arc.p2.y) == pytest.approx((5.0, -3.0))
+
+    _, arc30 = curves.front_rise(a, b, c, target_length=20.0,
+                                 alpha=0.3, beta=0.4, exit_angle_deg=30.0)
+    assert (arc30.p1.x, arc30.p1.y) == pytest.approx((4.8, 2.6))
+    assert (arc30.p2.x, arc30.p2.y) == pytest.approx((5.5358984, -1.0))
+
+    # 默认参数与旧 k1=k2=|BC|/3 严格等价；闭合：L_AB + 弧长 = 目标 20
+    _, arc_def = curves.front_rise(a, b, c, target_length=20.0)
+    assert (arc_def.p1.x, arc_def.p1.y) == pytest.approx((5.0, 5.0 - 8 / 3))
+    assert (arc_def.p2.x, arc_def.p2.y) == pytest.approx((9.0 - 10 / 3, -3.0))
+    a_new, arc_chk = curves.front_rise(a, b, c, target_length=20.0)
+    assert b.distance_to(a_new) + arc_chk.length() == pytest.approx(20.0)
 
 
 def test_rise_on_pattern_deduction():
