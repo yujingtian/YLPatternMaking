@@ -474,7 +474,6 @@ class PatternOptions:
     waistband_type: WaistbandType = WaistbandType.STRAIGHT
     waistband_width: float = 4.0           # 腰头宽（直腰头打版时从版顶扣除，注意点 1）
     # -- 腰头裁片（腰头裁片.md §二，独立裁片：净样 -> 缩水 -> 缝边）--
-    waistband_front_drop: float | None = None  # 弯腰头弧深量（cm，正数=下口线向下凹 ∪）；None=按侧缝夹角自动推算（§四.分支B），填值则手动覆盖
     waistband_fly_extension: float = 3.5   # 门襟搭门量/宝剑头长（cm，左片前中端外延，§三.3）
     waistband_full_piece: bool = True      # True=整条（后中折线对称）；False=沿后中分两片（本期实现 True）
     waistband_grain: WaistbandGrain = WaistbandGrain.WIDTH
@@ -566,10 +565,7 @@ class PatternOptions:
             raise ValueError("毗围实测下移量 d 不能为负数")
 
     def _check_waistband(self) -> None:
-        """腰头主干（弯腰头弧深/门襟搭门）与腰头裁片缝份（腰头裁片.md §二）。"""
-        if (self.waistband_front_drop is not None
-                and self.waistband_front_drop < 0):
-            raise ValueError(f"弯腰头弧深量不能为负数（凸向已内置向下凹 ∪，勿传负），得到 {self.waistband_front_drop}")
+        """腰头主干（门襟搭门）与腰头裁片缝份（腰头裁片.md §二）。"""
         if self.waistband_fly_extension < 0:
             raise ValueError(f"门襟搭门量不能为负数，得到 {self.waistband_fly_extension}")
         _check_sa(self.waistband_seam_allowances,
@@ -926,6 +922,17 @@ class PatternOptions:
         下划线开头键为备注，忽略；枚举/缝份 dict 自动 coerce）。
         未知键抛 TypeError，非法值抛 ValueError/TypeError。"""
         raw = {k: v for k, v in data.items() if not k.startswith("_")}
+        # v0.7/v0.8 过渡垫片：waistband_front_drop（v0.7 删）与圆顺窗长
+        # waistband_blend_cb/side（v0.8 删——局部圆顺窗被整根圆顺拟合取代），
+        # 旧尺寸单/负载带这些键时剔除并告警，保平滑过渡
+        import sys
+        for _gone, _ver in (("waistband_front_drop", "v0.7"),
+                            ("waistband_blend_cb", "v0.8"),
+                            ("waistband_blend_side", "v0.8")):
+            if _gone in raw:
+                print(f"警告：{_gone} 已于 {_ver} 移除（弯腰头改前后腰弧真拼合"
+                      f"+整根圆顺拟合，该键已忽略）", file=sys.stderr)
+                raw.pop(_gone)
         if "waistband_type" in raw:
             raw["waistband_type"] = WaistbandType(raw["waistband_type"])
         if "waistband_grain" in raw:

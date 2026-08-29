@@ -97,41 +97,8 @@ def _line_line_intersect(leg: LineSegment, geom: LineSegment
 
 def _line_bezier_intersect(leg: LineSegment, bez: CubicBezier, *, n: int = 256
                            ) -> tuple[Point, float] | None:
-    """线段与三次贝塞尔的交点：采样定位符号变号段 + 二分，再校核交点落在线段内。
-
-    返回 (交点, t_on_bezier)；线段与曲线无交点（或交点不在线段范围内）返回 None。
-    """
-    d = leg.b - leg.a
-    nx, ny = -d.dy, d.dx                           # 线段所在直线的法向量
-
-    def dist(p: Point) -> float:                   # 点到直线的代数距离（法向点积）
-        return (p.x - leg.a.x) * nx + (p.y - leg.a.y) * ny
-
-    pts = bez.sample(n)
-    dists = [dist(p) for p in pts]
-    for i in range(n):
-        if dists[i] * dists[i + 1] > 0:
-            continue                               # 同侧未跨越直线
-        lo, hi = i / n, (i + 1) / n
-        flo = dists[i]
-        for _ in range(60):                        # 二分逼近法向距离零点
-            mid = (lo + hi) / 2
-            fm = dist(bez.point_at(mid))
-            if abs(fm) <= 1e-12:
-                break
-            if flo * fm <= 0:
-                hi = mid
-            else:
-                lo = mid
-                flo = fm
-        t = (lo + hi) / 2
-        p = bez.point_at(t)
-        # 校核交点在 leg 线段内（沿 leg 方向投影参数 ∈ [0,1]）
-        ll = d.dx * d.dx + d.dy * d.dy
-        along = ((p.x - leg.a.x) * d.dx + (p.y - leg.a.y) * d.dy) / ll
-        if -1e-9 <= along <= 1 + 1e-9:
-            return p, t
-    return None
+    """线段与三次贝塞尔求交（已提升至 curves.line_bezier_intersect，此处薄委托）。"""
+    return curves.line_bezier_intersect(leg, bez, n=n)
 
 
 def _seg_geom_intersect(leg: LineSegment, geom: LineSegment | CubicBezier

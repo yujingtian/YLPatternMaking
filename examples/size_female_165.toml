@@ -251,7 +251,6 @@ fly_sep_double       = true      # [独立] 双排（对折）门襟裁片开关
 waistband_type      = "curved"
 waistband_width     = 4.0         # 腰头宽（直腰头打版时从裤长中扣除；弯腰头忽略）
 # ---- 腰头裁片（独立裁片：净样 -> 缩水 -> 缝边，腰头裁片.md；ylpattern draft --waistband-svg）----
-# waistband_front_drop  = 1.5       # 弯腰头弧深量（cm，正数=下口线向下凹 ∪；控制下口线弯曲度；直腰头忽略）
                                   #   填值=手动覆盖；省略或删本行=按真实侧缝线夹角自动推算（§四.分支B）
 waistband_fly_extension = 3.5     # 门襟搭门量（cm，左片前中端外延；0=无搭门）
 waistband_full_piece  = true      # true=整条（后中折线对称）；false=沿后中分两片（本期实现 true）

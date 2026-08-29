@@ -226,7 +226,7 @@ SECTIONS: list[dict] = [
             "seam_allowance", "show_seam_allowance"]},
         {"key": "craft_waistband", "label": "腰头裁片", "collapsed": True,
          "params": [
-            "waistband_front_drop", "waistband_fly_extension",
+            "waistband_fly_extension",
             "waistband_full_piece", "waistband_grain",
             "waistband_seam_allowances", "waistband_shrinkage_warp",
             "waistband_shrinkage_weft"]},

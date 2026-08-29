@@ -131,7 +131,6 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         crotch_drop_adjust: float = 0.0,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
         waistband_width: float = 4.0,
-        waistband_front_drop: float = 1.5,
         waistband_fly_extension: float = 3.5,
         waistband_full_piece: bool = True,
         waistband_grain: WaistbandGrain | str = WaistbandGrain.WIDTH,
@@ -318,7 +317,6 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         crotch_drop_adjust 后片落裆调节量 Δc（落裆量 = H/100 + Δc；高弹取负、宽松取正）
         waistband_type   腰头类型："straight" 直腰头 / "curved" 弯腰头（打版流程.md 注意点 1）
         waistband_width  腰头宽（cm）；直腰头打版时从裤长中扣除，弯腰头忽略
-        waistband_front_drop  弯腰头弧深量（cm，正数=下口线向下凹 ∪；控制下口线弯曲度，腰头裁片.md §四）
         waistband_fly_extension  门襟搭门量（cm，左片前中端外延，§三.3）
         waistband_full_piece  True=整条腰头（后中折线对称）；False=沿后中分两片（本期实现 True）
         waistband_grain  腰头经向方向（§五.2）："width" 宽向=经（默认，横裁，=裤长方向）/ "length" 长向=经（直裁）
@@ -645,7 +643,6 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                        crotch_drop_adjust=crotch_drop_adjust,
                        waistband_type=WaistbandType(waistband_type),
                        waistband_width=waistband_width,
-                       waistband_front_drop=waistband_front_drop,
                        waistband_fly_extension=waistband_fly_extension,
                        waistband_full_piece=waistband_full_piece,
                        waistband_grain=WaistbandGrain(waistband_grain),

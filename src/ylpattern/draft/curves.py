@@ -149,49 +149,105 @@ def sag_curve(end_a: Point, end_b: Point, *, sag: float) -> CubicBezier:
     return CubicBezier(end_a, p1, p2, end_b)
 
 
-def waistband_curve(length: float, drop: float = 0.0) -> CubicBezier:
-    """弯腰头下口线：弧长精确等于 length 的三次贝塞尔（腰头裁片.md §四.分支B）。
+def uniform_arc_cubic(length: float, turn_deg: float) -> CubicBezier:
+    """过原点、起切向 +X 的均匀圆弧，单条三次贝塞尔表达（腰头裁片.md
+    §四.分支B v0.9 弯腰头下口线）。
 
-    局部坐标系（原点=后中，Y 向下，X 向右）：P0=(0,0) 后中、P3=(X,-drop)
-    前中；控制点 P1=(X/3,0) 令**后中切线水平**（以利于沿后中线镜像），
-    P2=(2X/3,-drop/3) 解除前中水平约束、使前中端自然斜出——生成均匀抛物线
-    弧，彻底消除两端皆水平造成的 S 型/钟形畸变（腰头裁片.md §四.分支B）。
+    四量定弧：起端 (0,0)、起切向水平（后中镜像 C1/C2 构造保证——过起端、
+    切 X 轴的曲线镜像+反向参数化在起端曲率自动相等）、弧长 = length（净长
+    锁形，缝制硬约束）、有向总转角 = turn_deg（负 = 向下弯；「保持拼合的
+    弯曲」——转角取自拼合链末切向，sag/裆深等经它传入）。曲率恒
+    |turn_deg|/length 全弧均匀：后段/前段同弯度、无集中肘弯。端点位置为
+    派生量 (R·sinθ, ±R·(cosθ−1))——独立带状裁片端点无装配语义，净长与
+    刀口位置才是缝制输入（v0.8 拟合忠实保留拼合链「平后段+侧缝肘弯」
+    结构，小 sag 时后段视觉近直，v0.9 改均匀弧口径）。
 
-    曲线**向下凸**（往下凹）：y(t)=-drop·t² 为开口朝 −Y 的抛物线，曲线整体
-    位于「后中→前中」弦的**下方**（往 +Y 侧凸出）；整片沿后中线镜像后呈 ∪ 形
-    （后中下凹），对应弯腰头下口（贴臀侧）外凸、上口（贴腰侧）内收的合体形态
-    （区别于早期向上凸 ∩ 形——下口内收反不合体，故翻向）。
-
-    数学性质：x(t)=X·t 线性、y(t)=-drop·t² 为抛物线（t=0 后中水平切入、
-    t=1 前中按斜率 −2·drop/X 自然上扬），x/y 均单调，曲线单调顺滑无回拐。
-    弧长 = ∫√(X²+4·drop²·t²)dt 仅依赖 |drop|、随 X 单调增（与凸向无关），
-    故二分求 X 使 ``curve.length() == length``（drop=0 退化为直线，X=length；
-    drop>0 时 X<length）。
+    圆弧的三次近似：手柄长 h = 4/3·tan(θ/4)·R（经典圆弧贝塞尔），
+    θ ≤ 60° 最大径向误差 < 0.01%·R（腰头量级 < 0.005cm）。|turn_deg|
+    ≤ 0.5° 退化为水平直线。
 
     参数：
-        length  目标下口线净弧长 L_half（cm，必须 > drop）
-        drop    弧深量（cm，≥0；0 = 直线=直腰头矩形底边；>0 向下凸呈 ∪ 形）
+        length   弧长（cm，>0）
+        turn_deg 有向总转角（度；负 = 顺时针/朝 −Y 弯）
     """
-    if length <= 0:
-        raise ValueError(f"腰头下口线长必须为正数，得到 {length}")
-    if drop < 0:
-        raise ValueError(f"腰头弧深量不能为负数，得到 {drop}")
-    if drop >= length:
-        raise ValueError(f"腰头弧深量 {drop} 须小于下口线长 {length}")
-    if drop == 0.0:
-        X = length
-    else:
-        lo, hi = 0.0, length          # 弧长仅依赖 |drop|、随 X 单调增；X<length（drop>0）
-        for _ in range(60):
-            Xm = (lo + hi) / 2
-            if CubicBezier(Point(0, 0), Point(Xm / 3, 0.0),
-                           Point(2 * Xm / 3, -drop / 3.0), Point(Xm, -drop)).length() < length:
-                lo = Xm
+    omega = math.radians(turn_deg)
+    a = abs(omega)
+    if length <= 0.0:
+        raise ValueError(f"弧长 {length:.3f} 非正")
+    if a < math.radians(0.5):
+        return CubicBezier(Point(0.0, 0.0), Point(length / 3.0, 0.0),
+                           Point(2.0 * length / 3.0, 0.0), Point(length, 0.0))
+    r = length / a
+    h = 4.0 / 3.0 * math.tan(a / 4.0) * r
+    s = 1.0 if omega > 0.0 else -1.0
+    p3 = Point(r * math.sin(a), -s * r * (math.cos(a) - 1.0))
+    p1 = Point(h, 0.0)
+    p2 = Point(p3.x - h * math.cos(a), p3.y - h * s * math.sin(a))
+    return CubicBezier(Point(0.0, 0.0), p1, p2, p3)
+
+
+def line_bezier_intersect(seg: LineSegment, bez: CubicBezier, *,
+                           n: int = 256) -> tuple[Point, float] | None:
+    """线段与三次贝塞尔的交点：采样定位符号变号段 + 二分，再校核交点落在线段内。
+
+    返回 (交点, t_on_bezier)；无交点（或交点不在线段范围内）返回 None。
+    自 yoke_flow 提升（省腿 ∩ 边界弧共用，机头/腰头闭省同源）。
+    """
+    d = seg.b - seg.a
+    nx, ny = -d.dy, d.dx                           # 线段所在直线的法向量
+
+    def dist(p: Point) -> float:                   # 点到直线的代数距离（法向点积）
+        return (p.x - seg.a.x) * nx + (p.y - seg.a.y) * ny
+
+    pts = bez.sample(n)
+    dists = [dist(p) for p in pts]
+    for i in range(n):
+        if dists[i] * dists[i + 1] > 0:
+            continue                               # 同侧未跨越直线
+        lo, hi = i / n, (i + 1) / n
+        flo = dists[i]
+        for _ in range(60):                        # 二分逼近法向距离零点
+            mid = (lo + hi) / 2
+            fm = dist(bez.point_at(mid))
+            if abs(fm) <= 1e-12:
+                break
+            if flo * fm <= 0:
+                hi = mid
             else:
-                hi = Xm
-        X = (lo + hi) / 2
-    return CubicBezier(Point(0, 0), Point(X / 3, 0.0),
-                       Point(2 * X / 3, -drop / 3.0), Point(X, -drop))
+                lo = mid
+                flo = fm
+        t = (lo + hi) / 2
+        p = bez.point_at(t)
+        # 校核交点在 seg 线段内（沿 seg 方向投影参数 ∈ [0,1]）
+        ll = d.dx * d.dx + d.dy * d.dy
+        along = ((p.x - seg.a.x) * d.dx + (p.y - seg.a.y) * d.dy) / ll
+        if -1e-9 <= along <= 1 + 1e-9:
+            return p, t
+    return None
+
+
+def t_of_point(c: CubicBezier, p: Point, *, n: int = 256) -> float:
+    """已知点 p 在曲线上（或极近）时返回其参数 t：采样最近段 + 邻域三分距离极小。
+
+    用于腰头口袋省闭口定位：P1/P1′ 构造时落在上腰弧上，此处按几何反求参数，
+    与构造选项解耦（不重推 p1_dist 链路）。
+    """
+    pts = c.sample(n)
+    best_i, best_d = 0, pts[0].distance_to(p)
+    for i in range(1, n + 1):
+        d = pts[i].distance_to(p)
+        if d < best_d:
+            best_d, best_i = d, i
+    lo = max(0.0, (best_i - 1) / n)
+    hi = min(1.0, (best_i + 1) / n)
+    for _ in range(60):
+        m1 = lo + (hi - lo) / 3
+        m2 = hi - (hi - lo) / 3
+        if c.point_at(m1).distance_to(p) < c.point_at(m2).distance_to(p):
+            hi = m2
+        else:
+            lo = m1
+    return (lo + hi) / 2
 
 
 def waist_sag_p2(p0: Point, p3: Point, p1: Point, *, at: float,

@@ -259,14 +259,13 @@ fly_sep_double       = true      # [独立] 双排（对折）门襟裁片开关
 waistband_type      = "curved"
 waistband_width     = 4.0         # 腰头宽（直腰头打版时从裤长中扣除；弯腰头忽略）
 # ---- 腰头裁片（独立裁片：净样 -> 缩水 -> 缝边，腰头裁片.md；ylpattern draft --waistband-svg）----
-# waistband_front_drop  = 2       # 弯腰头弧深量（cm，正数=下口线向下凹 ∪；控制下口线弯曲度；直腰头忽略）
                                 #   填值=手动覆盖；省略或删本行=按真实侧缝线夹角自动推算（§四.分支B）
 waistband_fly_extension = 0   # 门襟搭门量（cm，左片前中端外延；0=无搭门）
 waistband_full_piece  = true      # true=整条（后中折线对称）；false=沿后中分两片（本期实现 true）
 waistband_grain       = "width"   # 腰头经向方向："width" 宽向(=裤长)为经（默认，横裁）/ "length" 长向为经（直裁）；决定丝缕线方向与缩水经/纬→X/Y 映射
 side_rise           = 1.0         # 侧缝腰头抬高量 h（0 = 腰围外缝顶点压腰围基础线，常取 0~1.5）
-front_waist_curve_sag = 0.4     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
-back_waist_curve_sag  = 0.4     # 后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，后腰头绘制推导.md §二）
+front_waist_curve_sag = 0.2     # 前片腰围线弧额外下凹量（贴合腰腹取 0.3~0.5，前腰头绘制推导.md §3）
+back_waist_curve_sag  = 0.2     # 后片腰头线弧额外下凹量（贴合腰背背弓取 0.3~0.5，后腰头绘制推导.md §二）
                                 #   （0 = 无额外下凹，但 90° 正交平顺段的弯曲仍在，非直线）
 waist_rect_len        = 1.2     # 腰弧侧缝端直角修正段长 l_rect（腰头绘制推导.md §3，1.0~1.5）
 # 四边独立缝份见文末 [options.waistband_seam_allowances] 子表（后中折线不外扩）
