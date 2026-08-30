@@ -479,7 +479,7 @@ class PatternOptions:
     waistband_type: WaistbandType = WaistbandType.STRAIGHT
     waistband_width: float = 4.0           # 腰头宽（直腰头打版时从版顶扣除，注意点 1）
     # -- 腰头裁片（腰头裁片.md §二，独立裁片：净样 -> 缩水 -> 缝边）--
-    waistband_fly_extension: float = 3.5   # 门襟搭门量/宝剑头长（cm，左片前中端外延，§三.3）
+    waistband_fly_extension: float = 0.0   # 门襟搭门量/宝剑头长（cm，左片前中端外延，§三.3；默认 0=不外延净样，搭门量加在 left_end 缝份上的款不设此值）
     waistband_full_piece: bool = True      # True=整条（后中折线对称）；False=沿后中分两片（本期实现 True）
     waistband_grain: WaistbandGrain = WaistbandGrain.WIDTH
                                            # 腰头经向方向（§五.2）：WIDTH 宽向=经（默认，横裁）/ LENGTH 长向=经（直裁）

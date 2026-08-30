@@ -132,7 +132,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         crotch_drop_adjust: float = 0.0,
         waistband_type: WaistbandType | str = WaistbandType.STRAIGHT,
         waistband_width: float = 4.0,
-        waistband_fly_extension: float = 3.5,
+        waistband_fly_extension: float = 0.0,
         waistband_full_piece: bool = True,
         waistband_grain: WaistbandGrain | str = WaistbandGrain.WIDTH,
         shrinkage_enabled: bool = True,
@@ -320,7 +320,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         crotch_drop_adjust 后片落裆调节量 Δc（落裆量 = H/100 + Δc；高弹取负、宽松取正）
         waistband_type   腰头类型："straight" 直腰头 / "curved" 弯腰头（打版流程.md 注意点 1）
         waistband_width  腰头宽（cm）；直腰头打版时从裤长中扣除，弯腰头忽略
-        waistband_fly_extension  门襟搭门量（cm，左片前中端外延，§三.3）
+        waistband_fly_extension  门襟搭门量（cm，左片前中端外延，§三.3；默认 0=不外延净样，搭门量加在 left_end 缝份上的款不设此值）
         waistband_full_piece  True=整条腰头（后中折线对称）；False=沿后中分两片（本期实现 True）
         waistband_grain  腰头经向方向（§五.2）："width" 宽向=经（默认，横裁，=裤长方向）/ "length" 长向=经（直裁）
         shrinkage_enabled  缩水总开关（默认 True）；False = 全部裁片不缩水（全局率与

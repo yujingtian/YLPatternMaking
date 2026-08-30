@@ -33,7 +33,8 @@ from ylpattern.steps import waistband_steps as ws
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
 
-_CURVED = dict(delta=1.0, waistband_type=WaistbandType.CURVED)
+_CURVED = dict(delta=1.0, waistband_type=WaistbandType.CURVED,
+               waistband_fly_extension=3.5)   # 显式钉住 fly>0（默认已改 0：搭门量加在缝份的款不外延）
 
 
 def _assert_point_approx(a, b, *, abs=1e-3):
@@ -67,7 +68,8 @@ def _angle_deg(v1, v2):
 
 @pytest.fixture()
 def ctx():
-    return FlowRunner(M, PatternOptions(delta=1.0)).run(FULL_FLOW)
+    return FlowRunner(M, PatternOptions(delta=1.0,
+                                        waistband_fly_extension=3.5)).run(FULL_FLOW)
 
 
 @pytest.fixture()
@@ -610,7 +612,7 @@ def test_curved_fly_zero_no_degenerate_edges():
     零长边无切线，旧版 cutter._offset_edge_points 对 (b-a).normalized() 抛
     「零向量无法归一化」；装配时滤除后 8 边去两条零长搭门边 = 6。
     """
-    o = PatternOptions(waistband_fly_extension=0.0, **_CURVED)
+    o = PatternOptions(**{**_CURVED, "waistband_fly_extension": 0.0})
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     piece, _ = build_waistband(ctx)
     assert all(edge_length(e.geom) > 1e-9 for e in piece.net_edges)
