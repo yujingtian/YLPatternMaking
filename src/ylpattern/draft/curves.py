@@ -13,7 +13,9 @@ import math
 from ..geometry import LineSegment, Point, Vector, CubicBezier
 
 # 三次贝塞尔逼近"控制点弦"关系的常用系数：
-# 弧顶在 t=0.5 时，弧高 ≈ 0.375 * 控制点相对弦的偏移，故放大 8/3
+# 弧顶（t=0.5）偏离弦 = 3/4 × 控制点偏移（双控制点各贡献 3/8），
+# 按 8/3 放大后**渲染弧高 = 2×bulge**——历史系数，引擎默认值
+# （outseam 0.3、mouth 0.5 等）全按此行为调定；1:1 弧高语义用 sag_curve。
 _BULGE_TO_CTRL = 8 / 3
 
 
@@ -21,9 +23,15 @@ def arc_through(end_a: Point, end_b: Point, *,
                 bulge: float, bulge_at: float = 0.5) -> CubicBezier:
     """过两端点、按弧高控制的通用浅弧（脚口弧、膝围过渡等）。
 
+    实际渲染口径（2026-08-30 数值实测钉死）：渲染弧高 = **2×bulge**
+    （bulge=2.0 → 实测弧高 4.00）；弧顶在 t=0.5、恒为最深点，其弦位
+    = 0.375·bulge_at + 0.3125，只能落在弦中段 [0.3125, 0.6875]。
+    喂真弧高（如反解析剖面）须先 ÷2 并做弦位映射（见 reverse/measure
+    _engine_bulge）；要"参数=弧高"的精确语义用 sag_curve。
+
     参数：
-        bulge     弧高（弦的垂直方向凸起量，cm，正值向左手法向凸）
-        bulge_at  弧顶位置（弦长比例 0~1，默认中点）
+        bulge     弧高参数（cm；渲染弧高 = 2×bulge，正值向左手法向凸）
+        bulge_at  弧顶位置（控制柄分位 0~1，默认中点）
     """
     chord = end_b - end_a
     normal = chord.normalized().perpendicular()

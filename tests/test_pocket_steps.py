@@ -22,7 +22,7 @@ from ylpattern.params import Measurements, PatternOptions, WaistbandType
 
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
-O = PatternOptions(delta=1.0, front_pocket=True)
+O = PatternOptions(delta=1.0, front_pocket=True, front_pocket_dart_width=2.0)
 
 
 @pytest.fixture()
@@ -93,6 +93,7 @@ def test_pocket_mouth_bulge_at_shifts_apex():
 def test_pocket_mouth_polyline_mode():
     # 折角式（带倒角折线）：多折角列表，Ki = 弦上 ui 处沿左手法向推进 di
     o = PatternOptions(delta=1.0, front_pocket=True,
+                       front_pocket_dart_width=2.0,
                        front_pocket_mouth_mode="polyline",
                        front_pocket_mouth_corners=[(0.35, 1.2), (0.7, 0.8)])
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
@@ -145,6 +146,7 @@ def test_pocket_mouth_polyline_zero_depth_is_straight():
 def test_pocket_mouth_polyline_empty_is_straight():
     # 空折角列表 = 直袋口：净线/切削线各一段
     o = PatternOptions(delta=1.0, front_pocket=True,
+                       front_pocket_dart_width=2.0,
                        front_pocket_mouth_mode="polyline",
                        front_pocket_mouth_corners=[])
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
@@ -343,6 +345,7 @@ def test_pocket_curved_waistband_dart_extend():
     # 弯腰头 + 有省量：P1 / P1′ 沿垂直于上腰头线延长至上腰头线（法足），
     # 在腰头裁片顶边标出省位（打版流程.md 前口袋打版过程）
     o = PatternOptions(delta=1.0, front_pocket=True,
+                       front_pocket_dart_width=2.0,
                        waistband_type=WaistbandType.CURVED)
     ctx = FlowRunner(M, o).run(FRONT_FLOW)
     upper = ctx.curve("front.waistline_arc")          # 上腰头线

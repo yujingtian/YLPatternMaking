@@ -179,7 +179,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         front_pocket: bool = False,
         front_pocket_p1_dist: float = 8.5,
         front_pocket_p2_drop: float = 7.5,
-        front_pocket_dart_width: float = 2.0,
+        front_pocket_dart_width: float = 0.0,
         front_pocket_paring_n: float = 2.0,
         front_pocket_mouth_bulge: float = 0.5,
         front_pocket_mouth_bulge_at: float = 0.5,
@@ -400,7 +400,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                            打版流程.md「前口袋打版过程」；先画后裁，不做布尔裁除）
         front_pocket_p1_dist   P1 锚点：腰弧上自腰外缝顶点朝前浪顶点的弧长距离（cm）
         front_pocket_p2_drop   P2 锚点：外缝弧上自腰外缝顶点向下的弧长深度（cm）
-        front_pocket_dart_width  腰头吃省总宽 ΔW（cm，前口袋绘制.md §三.1，常规 1.5~2.5；
+        front_pocket_dart_width  腰头吃省总宽 ΔW（cm，前口袋绘制.md §三.1，默认 0 不吃省，
+                           需要时显式录入 1.5~2.5；
                            共线渐变撇削：省顶点 P1′ = P1 沿腰弧朝前浪顶点量取 ΔW（落在腰头线上），
                            切削线 = 设计净线 + (P1′−P1)·(1−t)ⁿ，侧缝端衰减至 0；0 = 不吃省）
         front_pocket_paring_n  撇削衰减幂指数 n（常规 1.5~2.0；越大吃量越集中在腰头端）

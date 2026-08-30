@@ -29,6 +29,7 @@ M = Measurements(waist=70, hip=96, knee=46, hem=36,
 O = PatternOptions(
     delta=1.0,
     front_pocket=True,
+    front_pocket_dart_width=2.0,
     front_pocket_facing=True,
     front_pocket_facing_mode="tangent",
     front_pocket_facing_width=3.5,

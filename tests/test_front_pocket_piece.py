@@ -91,6 +91,7 @@ def ctx_facing():
     """直腰头 + 有省 + 袋贴（tangent 模式）。侧缝深用默认（=袋贴宽 3.5，
     不超外缝弧臀围端可用弧长）。"""
     o = PatternOptions(delta=1.0, front_pocket=True, front_pocket_facing=True,
+                       front_pocket_dart_width=2.0,
                        front_pocket_facing_mode="tangent",
                        front_pocket_facing_width=3.5)
     return FlowRunner(M, o).run(FRONT_FLOW)

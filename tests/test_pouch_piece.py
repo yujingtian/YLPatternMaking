@@ -112,7 +112,7 @@ def ctx_dart():
 
 @pytest.fixture()
 def ctx_nodart():
-    """直腰头 + 无省 + 袋布（默认 front_pocket_dart_width=2.0，显式置 0）。"""
+    """直腰头 + 无省 + 袋布（显式置 0；默认即 0，显式保意图）。"""
     o = PatternOptions(delta=1.0, front_pocket=True, front_pouch=True,
                        front_pocket_dart_width=0.0)
     return FlowRunner(M, o).run(FRONT_FLOW)

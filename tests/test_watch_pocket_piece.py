@@ -87,6 +87,7 @@ def ctx_facing():
     """模式 A：袋贴相交延伸（袋贴 tangent 内边 + 袋口定宽 7.5 + 旋转 5°）。"""
     o = PatternOptions(
         delta=1.0, front_pocket=True, front_pocket_facing=True,
+        front_pocket_dart_width=2.0,
         front_pocket_facing_mode="tangent", watch_pocket=True,
         watch_pocket_mode="facing_intersect", watch_pocket_width=7.5,
         watch_pocket_taper=0.3, watch_pocket_rotate_deg=5.0)

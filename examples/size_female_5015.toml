@@ -1,0 +1,68 @@
+# 工厂 DXF 反解析尺寸单（款型档案 5015）
+# 源文件：out/5015#五代款正常脚边，加大半个码W15%-L8%.dxf
+# 基码：S；缩水 横15%/直8%（文件名）
+# 回环：ylpattern draft --size 本文件 --svg out/sheet.svg
+
+[measurements]
+waist = 64.3    # 腰围（成品）
+hip = 95.5    # 臀围 = 净臀围 + 放松量
+thigh = 57.8    # 大腿围（0 = 未录入）
+knee = 50.9    # 膝围
+hem = 50    # 裤口（脚口围）
+front_rise = 30    # 前浪（前裆长，含腰头）
+back_rise = 38    # 后浪（后立裆长，含腰头）
+outseam = 101.1    # 裤长（外侧缝长）
+
+[options]
+back_yoke = true
+front_pocket = true
+front_pocket_facing = true
+front_pouch = false
+front_pocket_p1_dist = 8.8    # 袋口 P1 腰弧锚距（反解析：前代顶边袋口段 P1→B′×weft）
+front_pocket_p2_drop = 6.89    # 袋口 P2 外缝锚深（反解析：前代侧边段 B′→P2×warp）
+front_pocket_mouth_mode = "bulge"    # 袋口净线模式（反解析：还原后弦法向剖面——有折角=折线式 / 平滑单峰=弧高式；tangent 不可辨识）
+front_pocket_mouth_bulge = 1.68    # 袋口弧高（反解析：剖面峰值÷2——arc_through 渲染弧高 = 2×bulge，真弧高减半发射）
+front_pocket_mouth_bulge_at = 0.21    # 袋口弧顶弦位（反解析：峰值弦位映射 (f−0.3125)/0.375，0=腰头端）
+front_pocket_facing_width = 2.15    # 袋贴腰头宽（反解析：前代顶边 P1→A 段×weft，引擎同锚 P1 沿腰弧朝前浪顶点）
+front_pocket_facing_side_w = 4.8    # 袋贴侧缝深（反解析：前代右边 P2→C 段×warp，引擎同锚 P2 沿外缝弧向下）
+front_pocket_facing_mode = "bulge"    # bulge = 前代净边大弧形态（内边弧高式，tangent/offset 不可辨识不发射）
+front_pocket_facing_bulge = 3.1    # 袋贴内边弧高（反解析：净边大弧剖面峰值÷2——arc_through 渲染弧高 = 2×bulge，背离袋口弦为正 = 向裤身内侧凹入）
+front_pocket_facing_bulge_at = 0.47    # 袋贴内边弧顶弦位（反解析：峰值弦位映射 (f−0.3125)/0.375，弧顶仅可表达弦中段 0.31~0.69，0=腰端 P_fw）
+belt_loop = true
+watch_pocket = true    # 小表袋开关（反解析：裁片在场即开，位置未量测自设默认）
+watch_pocket_mode = "custom"    # 小表袋模式（反解析：净样可定向还原 = custom 原样；对折片歧义/超宽回退 facing_intersect 默认）
+watch_pocket_points = [[0, 0], [6.8, 0], [6.8, 3.22], [3.4, 4.6], [0, 3.22]]    # custom 净样锚点表 cm、dy 向下、参考点 = 顶边外端（反解析：净环丝缕定向还原 + 共线顶点折叠，TOML 数组 dy 同向）
+watch_pocket_edges = [["line"], ["line"], ["line"], ["line"], ["line"]]    # custom 逐边形态（line / arc=弧高+弧顶分位）（反解析：段内弦高 ≥0.1cm 发射弧边，弧高已换算引擎单位 = 真弧高 ÷2；边数 = 锚点数闭合）
+watch_pocket_offset_from_top = 3.14    # 小表袋顶边深（反解析自设默认：custom = 解析重建袋口弧最深可见顶边；回退态 = 0.42×袋口侧深 p2，顶边恒在袋口弧 O 侧可见）
+watch_pocket_offset_from_side = 0.5    # 小表袋外端距侧缝腰点（反解析自设默认：custom = 0.5；回退态 = 0.12×腰锚 p1）
+back_patch = true    # 后贴袋开关（反解析：裁片在场即开，位置自设默认三定则——机头下方/对齐后腰中点/袋底保持毗围线上方）
+back_patch_inset_x = 3.52    # 距后浪线沿约克底线（反解析自设默认 = (约克底线还原长 − 袋口宽)/2 居中 ≈ 对齐后腰中点；引擎约克底线与工厂还原长的残差即居中偏心，披露不修正）
+back_patch_drop_y = 3.5    # 距约克底线向下（反解析自设默认 3.5 = 引擎常规；袋底保持毗围线上方 ≥0.5，放不下先上提后钳 0.5 披露越线）
+back_patch_shape = "custom"    # 后贴袋净形（反解析：净环丝缕定向还原可量测 = custom 原样；不可用回退 rectangle 默认并披露）
+back_patch_custom_points = [[0, 0], [13.26, 0], [12.25, 11.76], [6.63, 14.42], [1.01, 11.76], [0.09, 1.48]]    # custom 净形角点 cm、u 朝侧缝 +、v 向下 +、V0 = 袋口近后浪侧顶点（反解析：净环还原原样；铺版图无可观测手性，取向自设袋口x 小端靠后浪）
+back_patch_custom_edges = [[0, 0.5], [-0.05, 0.5], [0, 0.5], [0, 0.5], [0, 0.5], [0, 0.5]]    # custom 逐边形态 (弧高, 弧顶位)、弧高 0 = 直线（反解析：段内弦高 ≥0.1cm 发射弧边，弧高换算引擎单位 = 真弧高 ÷2；**外凸为负**——引擎局部->全局 180° 旋转（û=后浪->侧缝=全局 −X̂）保定向、全局环 CCW，arc_through 正 bulge = 左手法向 = 内凹；边数 = 角点数闭合）
+fly_separate = true
+thigh_limit = true
+size_label = "S"    # 尺码标签（头标 SAMPLE SIZE）
+delta = 2    # 前后片臀围单侧调节量 Δ（反解析：前后臀围线弦差之半）
+knee_adjust = 2.87    # 膝围前后片调节量（反解析：中裆线前后弦差之半）
+hem_adjust = 2.86    # 脚口前后片调节量（反解析：脚口线前后弦差之半）
+waist_balance = 1.62    # 前后片腰围调节量（反解析：机头上口 vs 前腰段+袋口段）
+front_intake_adjust = 0.59    # 前中内收修正量（反解析：实测内收 − 默认系数分量，ratio 保持默认）
+back_intake = 5.52    # 后中内收比例模数 X（反解析：机头拼回后腰/臀 CB 斜率×15）
+rise_adjust = 4.68    # 直裆修正（反解析：CF 腰角->裆尖竖直距 + 腰头 − 0.25H）
+waistband_width = 4.11    # 腰头宽（反解析：腰头条带面积/中线闭式解）
+waistband_type = "curved"    # 腰头类型（反解析：长边矢高 >2mm = 弯腰头）
+back_yoke_cb_dist = 5.77    # 机头后中深（反解析：机头 CB 端弧×warp）
+back_yoke_side_dist = 3.28    # 机头侧缝深（反解析：机头侧端弧×warp）
+shrinkage_warp = 0.08    # 全局经向缩水率（还原系数同时是再打版的放大率）
+shrinkage_weft = 0.15    # 全局纬向缩水率
+
+# 前片裁片缝份（反解析：净顶点->毛边最近点向量分类，横向=缝边/竖向脚口=卷边）
+[options.front_piece_seam_allowances]
+waist = 1.27
+rise = 1.27
+inseam = 1.27
+side = 1.27
+mouth = 1.27
+hem = 3.17

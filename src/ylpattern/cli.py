@@ -3,6 +3,8 @@
 用法：
   ylpattern draft --size size.toml --svg out/sheet.svg [--until 步骤名]
                   [--trace out/trace.txt] [--report out/report.txt]
+  ylpattern reverse --dxf 工厂.dxf --size out/reverse.toml [--report …]
+                    [--style auto|5015|5028] [--probe]
 """
 
 from __future__ import annotations
@@ -130,10 +132,70 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_reverse(args: argparse.Namespace) -> int:
+    """工厂 DXF 反解析（.doc/工厂DXF逆向解析.md）：层 1+2+3 -> 尺寸单 TOML。"""
+    try:
+        from .reverse import ReverseError, reverse_dxf
+        res = reverse_dxf(args.dxf, style=args.style, probe_only=args.probe)
+    except (ReverseError, RuntimeError, OSError) as e:
+        # ReverseError=口径失配 / RuntimeError=ezdxf 缺失 / OSError=文件不存在
+        print(f"错误：{e}", file=sys.stderr)
+        return 2
+
+    from .reverse.emit import build_size_file, write_size_file
+    from .reverse.report import render_reverse_report
+
+    if args.probe:
+        text = render_reverse_report(res.doc, res.profile, res.roles,
+                                     None, "", {}, None, [], None)
+        if args.report:
+            with open(args.report, "w", encoding="utf-8") as fp:
+                fp.write(text)
+            print(f"探查报告已输出：{args.report}")
+        else:
+            print(text)
+        return 0
+
+    size_run = res.size_run or None
+    data = build_size_file(res.measured[res.base], res.options, size_run)
+    header = [f"工厂 DXF 反解析尺寸单（款型档案 {res.profile.key}）",
+              f"源文件：{args.dxf}",
+              f"基码：{res.base}；缩水 横{res.calib.weft:.0%}/直{res.calib.warp:.0%}"
+              f"（{res.calib.source}）",
+              "回环：ylpattern draft --size 本文件 --svg out/sheet.svg"]
+    if args.size:
+        write_size_file(args.size, data, header)
+        print(f"尺寸单已输出：{args.size}")
+    text = render_reverse_report(res.doc, res.profile, res.roles, res.calib,
+                                 res.base, res.measured, res.options,
+                                 res.warns, size_run)
+    if args.report:
+        with open(args.report, "w", encoding="utf-8") as fp:
+            fp.write(text)
+        print(f"反解析报告已输出：{args.report}")
+    else:
+        print(text)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ylpattern",
                                      description="牛仔裤数字化打版系统")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_rev = sub.add_parser(
+        "reverse", help="工厂 DXF 反解析 -> 尺寸单 TOML（层1 8键+层2 选项+层3 档差）")
+    p_rev.add_argument("--dxf", required=True,
+                       help="工厂 DXF 路径（布衣科技 R12/mm 口径；款型档案"
+                            "外的款先用 --probe 看件清单）")
+    p_rev.add_argument("--size", help="输出尺寸单 TOML 路径（--probe 时不写）")
+    p_rev.add_argument("--report", help="输出人读报告路径（缺省打印到终端）")
+    p_rev.add_argument("--style", default="auto",
+                       help="款型档案：auto 自动识别（头标 STYLE NAME -> 块名"
+                            "款号多数表决）/ 显式款号（5015、5028）")
+    p_rev.add_argument("--probe", action="store_true",
+                       help="只读取+识别出件清单报告，不标定不测量不写 TOML")
+    p_rev.set_defaults(func=_cmd_reverse)
 
     p_draft = sub.add_parser("draft", help="绘制整版（前片/后片流程）")
     p_draft.add_argument("--size", required=True,

@@ -134,7 +134,7 @@ def _edges_by_name(piece):
 WBS = [WaistbandType.STRAIGHT, WaistbandType.CURVED]
 PKS = [({}, "无口袋"),
        ({"front_pocket": True, "front_pocket_dart_width": 0.0}, "口袋无省"),
-       ({"front_pocket": True}, "口袋有省")]      # 默认 dw=2.0
+       ({"front_pocket": True, "front_pocket_dart_width": 2.0}, "口袋有省")]
 FLS = [({}, "无门襟"), ({"fly": True}, "连裁门襟"), ({"fly_separate": True}, "独立门襟")]
 COMBOS = [(wb, {**pk, **fl}, f"{wb.name}-{pkid}-{flid}")
           for wb, (pk, pkid), (fl, flid)
@@ -587,13 +587,14 @@ def test_polyline_mouth_chain():
     抵消 → 片上即主版方向），端点 P1′/P2。"""
     corners = ((0.4, 1.0), (0.7, 0.8))
     ctx, piece, _ = _build(front_pocket=True,
+                           front_pocket_dart_width=2.0,
                            front_pocket_mouth_mode="polyline",
                            front_pocket_mouth_corners=corners)
     g = _edges_by_name(piece)
     assert len(g["mouth"]) == len(corners) + 1
     b = _b(ctx)
     p2 = _loc(ctx.point("front.pocket_p2"), b)
-    p1r = _loc(ctx.point("front.pocket_p1_transfer"), b)  # 默认 dw=2.0 有省
+    p1r = _loc(ctx.point("front.pocket_p1_transfer"), b)  # dw=2.0 有省
     assert _start(g["mouth"][0]).distance_to(p1r) < 1e-9
     assert _end(g["mouth"][-1]).distance_to(p2) < 1e-9
     for i, geom in enumerate(g["mouth"]):

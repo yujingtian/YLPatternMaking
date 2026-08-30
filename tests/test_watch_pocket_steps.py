@@ -38,11 +38,11 @@ def ctx():
 # ==============================================================================
 
 def test_watch_pocket_anchor(ctx):
-    # 参考点（pt1，默认首锚点 dx=dy=0）= B + (+3.5, −4.0)
+    # 参考点（pt1，默认首锚点 dx=dy=0）= B + (+3.5, −3.0)
     b = ctx.point("front.waist_side_point")
     a = ctx.point("front.watch_pocket_pt1")
     assert a.x == pytest.approx(b.x + 3.5)
-    assert a.y == pytest.approx(b.y - 4.0)
+    assert a.y == pytest.approx(b.y - 3.0)
     assert a.x > b.x                       # 在侧缝内侧
 
 
@@ -208,7 +208,7 @@ def test_watch_pocket_curved_waistband():
     b_sub = ctx.point("front.lower_waist_side_point")
     a = ctx.point("front.watch_pocket_pt1")
     assert a.x == pytest.approx(b_sub.x + 3.5)
-    assert a.y == pytest.approx(b_sub.y - 4.0)
+    assert a.y == pytest.approx(b_sub.y - 3.0)
 
 
 def test_watch_pocket_options_validation():

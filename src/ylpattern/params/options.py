@@ -225,7 +225,8 @@ class PatternOptions:
                                            #   不做布尔裁除——先画后裁，裁切层未建）
     front_pocket_p1_dist: float = 8.5      # P1 锚点：腰弧上自腰外缝顶点朝前浪顶点的弧长距离（cm，§二）
     front_pocket_p2_drop: float = 7.5      # P2 锚点：外缝弧上自腰外缝顶点向下的弧长深度（cm，§二）
-    front_pocket_dart_width: float = 2.0   # 腰头吃省总宽 ΔW_dart（cm，§三.1，常规 1.5~2.5；
+    front_pocket_dart_width: float = 0.0   # 腰头吃省总宽 ΔW_dart（cm，§三.1，默认 0 不吃省，
+                                           #   需要时显式录入 1.5~2.5；
                                            #   P1′ = P1 沿腰弧朝前浪顶点量取，省顶点落在腰头线上；
                                            #   袋口线按 V·(1−t)ⁿ 共线渐变偏置，侧缝端衰减至 0；
                                            #   0 = 不吃省，切削线 = 设计净线）
@@ -393,9 +394,11 @@ class PatternOptions:
     watch_pocket_width: float = 7.5        # 袋口宽 W（facing_intersect 模式，cm，常规 7.0~8.5）
     watch_pocket_taper: float = 0.3        # 两侧向内收倾斜量（facing_intersect 模式，cm；
                                            #   0 = 垂直下落，>0 为梯形微收）
-    watch_pocket_offset_from_top: float = 4.0
+    watch_pocket_offset_from_top: float = 3.0
                                            # 离口袋顶部距离：自前口袋侧缝腰点垂直向下（cm，
-                                           #   小表袋绘制.md §2.3 offset_y_from_pocket_top）
+                                           #   小表袋绘制.md §2.3 offset_y_from_pocket_top；
+                                           #   默认 3.0：无吃省（默认 dw=0）袋贴内边上端
+                                           #   左移后顶边射线须在其上方，4.0 时临界打空）
     watch_pocket_offset_from_side: float = 3.5
                                            # 离口袋侧边距离：自侧缝水平向内（cm，§2.3
                                            #   offset_x_from_side_seam）
