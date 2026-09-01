@@ -267,8 +267,9 @@ def draw_back_waistline(ctx: DraftContext) -> NamedLine:
     起翘等高辅助线（与前片腰围外缝顶点等高、平行于后腰围基础线）
     + 以后浪顶点为圆心、后腰长 L 为半径斜截辅助线，交点即后腰头
     外缝顶点 B；|AB| = L 为构造直线约束（A = 后浪顶点）。
-    L = W/4 + balance + V后省（腰围推导.md §三.2，前减后加口径；
-    V后省即 back_waist_dart，为腰头容位/约克转移量，与是否绘制省无关）。
+    L = W/4 + balance + V后省调节量 + Σ后腰省宽（腰围推导.md §三.2
+    腰长不变量：纸样腰长 = 成品目标 + 边缘省口合计，缝后腰围恒等规格；
+    V后省即 back_waist_dart，为纯调节量/约克转移量，不含绘制腰省宽）。
     本步产物为构造线；最终轮廓由 draw_back_waistband_arc 的弧线取代。
     依据：打版流程.md 后片步骤 3。"""
     m, o = ctx.measurements, ctx.options
@@ -276,8 +277,9 @@ def draw_back_waistline(ctx: DraftContext) -> NamedLine:
     waist_y = ctx.line("back.waist_line").a.y
     aux_y = ctx.point("front.waist_side_point").y   # 与前片起翘等高
     bc_drop = waist_y - a.y          # 后中落差（A 高出基础线为负）
+    darts_w = waist_f.back_darts_takeup(o.back_dart, o.back_dart_width)
     waist_len = waist_f.waist_back_target(m.waist, o.waist_balance,
-                                          o.back_waist_dart)
+                                          o.back_waist_dart, darts_w)
     span = waist_f.waistline_horizontal_span(waist_len, aux_y - waist_y,
                                              bc_drop)
     b = Point(a.x - span, aux_y)
@@ -310,8 +312,9 @@ def draw_back_waistband_arc(ctx: DraftContext) -> NamedCurve:
     m, o = ctx.measurements, ctx.options
     a = ctx.point("back.rise_top_point")
     b = ctx.point("back.waist_side_point")
+    darts_w = waist_f.back_darts_takeup(o.back_dart, o.back_dart_width)
     waist_len = waist_f.waist_back_target(m.waist, o.waist_balance,
-                                          o.back_waist_dart)
+                                          o.back_waist_dart, darts_w)
     # A 点切线 ⟂ 后中斜线（90° 正交，推导.md §一.3 核心要点）
     rise_dir = (ctx.point("back.hip_inner_point") - a).normalized()
     t_a = rise_dir.perpendicular()
@@ -659,8 +662,9 @@ def draw_back_darts(ctx: DraftContext) -> NamedLine | None:
     省口：省量逐省配置（back_dart_width 列表，顺序同省中点：后中 → 侧缝；
     写单个值则各省共用；省量为 0 的省不绘制），自省中点沿腰头直线两侧
     各取半个省量得省口两点，与省尖相连成等腰三角形（省中线为对称轴）。
-    绘省不动腰头：后腰长由 back_waist_dart（容位/约克转移量）决定，
-    与本步绘制的省相互独立（后腰可以有容位）。
+    绘省不动腰头几何：后腰长已由 draw_back_waistline 按腰长不变量
+    自动加回 Σ省口宽（W/4 + balance + back_waist_dart + Σ省宽），
+    省缝上后缝后腰围恒等规格，与 back_waist_dart（纯调节量）互不重叠。
     依据：打版流程.md 后片步骤 9。"""
     o = ctx.options
     widths = o.back_dart_width            # __post_init__ 已归一化为元组

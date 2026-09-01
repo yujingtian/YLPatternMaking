@@ -12,8 +12,8 @@ build_back_piece(main_ctx) 从整版 ctx 提取后片主裁片净样闭合轮廓
   - C. 无 yoke + 弯腰头：上边 waist = 后下腰头线（O' -> X'，同向），
     后浪/侧缝自下腰头两端点起（沿链再下移 W 的后缀）。
 后省（back_dart 开时）：省尖低于上边界（省穿越裁片区）则边界按图提取 +
-stderr 告警，省腿在裁片内部分进 marks（省量吸收主口径是 back_waist_dart
-约克转移，与机头 §2.2 绕尖旋转不联动，不改变本片边界）。
+stderr 告警，省腿在裁片内部分进 marks（省口宽已按腰长不变量进后腰长，
+与机头 §2.2 绕尖旋转不联动，不改变本片边界）。
 缝边（§2）：BackSeamAllowances 按语义边独立缝宽；后浪浪尖（后浪弧末端 ∩
 内侧缝起点）角部由 back_piece_crotch_corner 开关控制（默认开 = 镜像折角/
 反折角，防缝合翻折缺角缺肉；关闭 = 尖角跟随净样轮廓，贝塞尔多项式自然
@@ -300,7 +300,7 @@ def _dart_marks(ctx: DraftContext,
                 chain: list[LineSegment | CubicBezier]
                 ) -> list[LineSegment]:
     """后省处理（§1 分离基准）：省尖落在裁片区内（省穿越上边界）时边界仍按
-    图提取（省量吸收主口径是 back_waist_dart 约克转移），stderr 告警一次，
+    图提取（省口宽已按腰长不变量进后腰长），stderr 告警一次，
     省腿在裁片内的子段进 marks 提示车缝。"""
     marks: list[LineSegment] = []
     warned = False
@@ -312,7 +312,7 @@ def _dart_marks(ctx: DraftContext,
             continue                     # 省尖在上边界之上：省全由机头吸收
         if not warned:
             print("警告：后省尖低于裁片上边界（省穿越后片裁片区）-> 边界按图"
-                  "提取，省腿进内部标记（省量吸收主口径为 back_waist_dart）",
+                  "提取，省腿进内部标记（省口宽已按腰长不变量进后腰长）",
                   file=sys.stderr)
             warned = True
         for leg_name in (f"back.dart{i}_leg_inner", f"back.dart{i}_leg_outer"):

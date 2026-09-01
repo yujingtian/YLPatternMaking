@@ -2,7 +2,8 @@
 §三~§五；v0.9 前后腰弧真拼合 + 整根均匀圆弧）。
 
 build_waistband(main_ctx) 从整版 ctx 提取腰头净长与拼合几何：直腰头=代数求和
-（零改动）；弯腰头=省道绕尖旋转真闭口 -> 前后弧跨侧缝反射拼合 -> 局部系化 ->
+（上腰弧已按腰长不变量含省口宽，扣除得缝后净长）；弯腰头=省道绕尖旋转真闭口
+-> 前后弧跨侧缝反射拼合 -> 局部系化 ->
 整根均匀圆弧（curves.uniform_arc_cubic：同净长+同总转角+后中镜像 C2），
 在独立 DraftSheet 局部坐标系绘制腰头净样，经 cutter 三段处理产出
 PatternPiece。
@@ -17,6 +18,7 @@ from ..cutter import (add_seam_allowance, apply_shrinkage, edge_length,
                       shrink_scale)
 from ..draft import DraftContext
 from ..draft import curves
+from ..formulas import waist as waist_f
 from ..geometry import CubicBezier, LineSegment, Point, Vector
 from ..params import WaistbandGrain, WaistbandType
 from ..pieces import PatternPiece, PieceEdge
@@ -194,7 +196,7 @@ def extract_waistband_spec(main_ctx: DraftContext) -> WaistbandSpec:
 
     口径：直/弯腰头统一读上腰弧 ``front/back.waistline_arc``（用户指引阶段4/3；
     弯腰头下腰弧为贴身边，差 <0.5cm，容忍）。直腰头=代数求和（省宽仅扣长，
-    零改动）；弯腰头=后省绕尖真闭口 -> 前口袋吃省 C1 闭口 -> 跨侧缝反射拼合
+    零改动；上腰弧已按腰长不变量含省口宽）；弯腰头=后省绕尖真闭口 -> 前口袋吃省 C1 闭口 -> 跨侧缝反射拼合
     -> 局部系化（origin=后中、X̂=后弧起切向 ⟂ 后中斜线 ⇒ 局部 y 轴 ∥ 后中
     缝=镜像轴、Ŷ=垂向中朝下者）-> 整根均匀圆弧（curves.uniform_arc_cubic：
     弧长=闭省后链实长（净长锁形）、总转角=链末切向角（「保持拼合的弯曲」
@@ -206,13 +208,13 @@ def extract_waistband_spec(main_ctx: DraftContext) -> WaistbandSpec:
     back_arc = main_ctx.curve("back.waistline_arc")     # t=0 后中 A -> t=1 侧缝 B
 
     if o.waistband_type is not WaistbandType.CURVED:
-        # 直腰头：代数求和（省宽仅扣长，v0.6 前口径零改动）
+        # 直腰头：代数求和——上腰弧已按腰长不变量含省口宽，扣除得缝后净长
         back_w = sum(o.back_dart_width[i - 1]
                      for i in range(1, o.back_dart_count + 1)
                      if f"back.dart{i}_leg_inner" in main_ctx.sheet
                      and o.back_dart_width[i - 1] > 0)
-        front_w = (o.front_pocket_dart_width
-                   if o.front_pocket and o.front_pocket_dart_width > 0 else 0.0)
+        front_w = waist_f.pocket_dart_takeup(o.front_pocket,
+                                             o.front_pocket_dart_width)
         l_front = front_arc.length() - front_w
         l_back = back_arc.length() - back_w
         return WaistbandSpec(l_front=l_front, l_back=l_back,

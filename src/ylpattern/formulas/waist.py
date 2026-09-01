@@ -45,14 +45,26 @@ def waist_front_finished(waist: float, balance: float = 0.0) -> float:
     return waist / 4 - balance
 
 
+def pocket_dart_takeup(pocket_enabled: bool, dart_width: float) -> float:
+    """前口袋吃省计入前腰长的量：口袋开关开启且省宽 > 0 才生效
+    （守卫与 front_pocket_steps / waistband_flow 同口径）。
+
+    腰长不变量（腰围推导.md §三.2）：纸样腰长 = 成品目标 + 边缘省口合计，
+    袋口吃省 ΔW 加进腰长，缝后腰围恒等规格、不被吃省吃掉。
+    """
+    return dart_width if pocket_enabled and dart_width > 0 else 0.0
+
+
 def waist_front_target(waist: float, balance: float = 0.0,
-                       dart: float = 0.0) -> float:
+                       dart: float = 0.0, pocket_dart: float = 0.0) -> float:
     """前片腰部目标画线宽（纸样腰宽）：W前成品 + V前省（推导.md §三.2）。
 
-    dart（V前省）为前片省量/褶量：标准牛仔裤取 0（无前省，贴合前腹）；
-    西裤直省 1.5~2.5、打褶 3~6（推导.md §五）。
+    dart（V前省）现为前片腰长纯调节量：标准牛仔裤取 0；西裤褶裥款可加大
+    1.5~3.0（§五），不对应绘制的省。pocket_dart 为前口袋吃省总宽 ΔW
+    （见 pocket_dart_takeup）：袋口吃省加进腰长而非在定长腰弧内挖掉，
+    缝后腰围恒等规格（腰长不变量）。
     """
-    return waist_front_finished(waist, balance) + dart
+    return waist_front_finished(waist, balance) + dart + pocket_dart
 
 
 def waist_back_finished(waist: float, balance: float = 0.0) -> float:
@@ -63,14 +75,28 @@ def waist_back_finished(waist: float, balance: float = 0.0) -> float:
     return waist / 4 + balance
 
 
+def back_darts_takeup(dart_enabled: bool, widths: tuple[float, ...]) -> float:
+    """后腰省计入后腰长的省口合计：开关开启时取省宽 > 0 的省之和
+    （与 draw_back_darts 绘制守卫同口径）。
+
+    腰长不变量：省只改形、不改缝后长度——省口宽自动加进后腰长，
+    缝后腰围与是否画省、省多宽无关。
+    """
+    if not dart_enabled:
+        return 0.0
+    return sum(w for w in widths if w > 0)
+
+
 def waist_back_target(waist: float, balance: float = 0.0,
-                      dart: float = 0.0) -> float:
+                      dart: float = 0.0, darts: float = 0.0) -> float:
     """后片腰部目标画线宽（后腰长）：W后成品 + V后省（腰围推导.md §三.2）。
 
-    dart（V后省）为后片省量/约克转移量：标准牛仔裤由后约克 Yoke 承担
-    （2.5~4.0，约克步骤前取 0）；西裤直省 2.0~3.0（推导.md §五）。
+    dart（V后省）现为后片腰长纯调节量/约克转移量：标准牛仔裤由后约克
+    Yoke 承担（2.5~4.0，约克步骤前取 0）；西裤直省 2.0~3.0（§五），
+    不含绘制腰省的省口宽。darts 为后腰省省口宽合计（见 back_darts_takeup）：
+    自动加进后腰长，缝后腰围恒等规格（腰长不变量）。
     """
-    return waist_back_finished(waist, balance) + dart
+    return waist_back_finished(waist, balance) + dart + darts
 
 
 def side_seam_intake_front(front_hip: float, front_waist: float,

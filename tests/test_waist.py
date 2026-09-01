@@ -35,6 +35,19 @@ def test_waist_front_target():
     assert abs(waist.waist_front_target(70, dart=2.0) - 19.5) < 1e-9
 
 
+def test_waist_front_target_pocket_dart():
+    # 腰长不变量（腰围推导.md §三.2）：袋口吃省 ΔW 计入前腰长，
+    # 缝后腰围恒等规格：17.5 + 2.0 = 19.5
+    assert abs(waist.waist_front_target(70, pocket_dart=2.0) - 19.5) < 1e-9
+
+
+def test_pocket_dart_takeup_guard():
+    # 守卫：口袋开关开启且省宽 > 0 才计入（与 front_pocket_steps 同口径）
+    assert waist.pocket_dart_takeup(True, 2.0) == 2.0
+    assert waist.pocket_dart_takeup(False, 2.0) == 0.0
+    assert waist.pocket_dart_takeup(True, 0.0) == 0.0
+
+
 def test_side_seam_intake_front_cases():
     # 前片侧缝内收推导.md §三 三个案例（H=96, W=72 基准）
     # 案例 1：501 无前省同调节量 → 4.8
@@ -78,6 +91,15 @@ def test_waist_back_target():
     assert abs(waist.waist_back_target(70, balance=0.5) - 18.0) < 1e-9
     # 约克转移量 V后省 3.0：17.5 + 3.0 = 20.5（腰围推导.md §三.2、§五）
     assert abs(waist.waist_back_target(70, dart=3.0) - 20.5) < 1e-9
+    # 腰长不变量：Σ后腰省宽 3.5 自动计入：17.5 + 3.5 = 21.0
+    assert abs(waist.waist_back_target(70, darts=3.5) - 21.0) < 1e-9
+
+
+def test_back_darts_takeup_guard():
+    # 守卫：开关开启时取省宽 > 0 的省之和（与 draw_back_darts 同口径）
+    assert waist.back_darts_takeup(True, (1.0, 2.0)) == 3.0
+    assert waist.back_darts_takeup(True, (0.0, 2.0)) == 2.0   # 省宽 0 不计
+    assert waist.back_darts_takeup(False, (2.0,)) == 0.0      # 开关关闭
 
 
 def test_dart_center_ratios():

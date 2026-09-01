@@ -300,8 +300,9 @@ def test_pocket_anchor_beyond_arc_raises():
 
 def test_pocket_dart_beyond_waist_arc_raises():
     # P1 距禈 + 吃省量 ≥ 腰弧总长时 P1′ 越出腰弧段，抛错
+    # （腰弧已按腰长不变量含 ΔW=6.0 → 总长 ≈23.6，p1_dist=18 才越界）
     o = PatternOptions(delta=1.0, front_pocket=True,
-                       front_pocket_p1_dist=16.0, front_pocket_dart_width=6.0)
+                       front_pocket_p1_dist=18.0, front_pocket_dart_width=6.0)
     with pytest.raises(ValueError, match="之和超过腰弧总长"):
         FlowRunner(M, o).run(FRONT_FLOW)
 

@@ -425,13 +425,14 @@ def test_back_hip_waist_arc_params_customizable():
 
 # ---------- 阶段 9：后片绘制省（打版流程.md 后片步骤 9） ----------
 #
-# 金标（M 同上，back_dart=True，省量单独配置 back_dart_width；绘省不动
-# 腰头，后腰长只由 back_waist_dart 容位决定，默认 0 → |AB| = 17.5）：
+# 金标（M 同上，back_dart=True，省量单独配置 back_dart_width；腰长不变量：
+# 后腰长 = 70/4 + balance + back_waist_dart + Σ省宽，默认后两项 0+2.0
+# → |AB| = 19.5）：
 #   1 个省、省量 2.0：省中点 = AB 中点（两等分）；省中线长 11（垂线）；
 #     省口两侧各 2.0/2 = 1.0 → 省口宽 2.0；
 #     省边长 = sqrt(11² + 1²) = sqrt(122) ≈ 11.0454（等腰三角形）。
 #   2 个省、单省省量 1.5：省中点在 t = 1/3、2/3 处
-#     （距 A 17.5/3 ≈ 5.833、35/3 ≈ 11.667）；省口两侧各 0.75，
+#     （距 A 20.5/3 ≈ 6.833、41/3 ≈ 13.667）；省口两侧各 0.75，
 #     省边长 = sqrt(11² + 0.75²) ≈ 11.0256。
 
 O_DART = PatternOptions(delta=1.0, back_dart=True)
@@ -457,8 +458,8 @@ def test_back_darts_skipped_without_dart_amount():
 def test_back_dart_single(ctx_dart):
     a = ctx_dart.point("back.rise_top_point")
     b = ctx_dart.point("back.waist_side_point")
-    # 绘省不动腰头：|AB| = 后腰长 = 70/4 + 0 + 0 = 17.5（不受省量影响）
-    assert a.distance_to(b) == pytest.approx(17.5)
+    # 腰长不变量：|AB| = 后腰长 = 70/4 + 0 + 0 + 省量 2.0 = 19.5
+    assert a.distance_to(b) == pytest.approx(19.5)
 
     c = ctx_dart.point("back.dart1_center")
     apex = ctx_dart.point("back.dart1_apex")
@@ -471,11 +472,11 @@ def test_back_dart_single(ctx_dart):
     assert c.distance_to(apex) == pytest.approx(11.0)
     assert apex.y < c.y
 
-    # 省口：省中点沿腰头直线两侧各 1.0（省量 2.0），距 A 7.75 / 9.75
+    # 省口：省中点沿腰头直线两侧各 1.0（省量 2.0），距 A 8.75 / 10.75
     l_in = ctx_dart.line("back.dart1_leg_inner")
     l_out = ctx_dart.line("back.dart1_leg_outer")
-    assert a.distance_to(l_in.b) == pytest.approx(17.5 / 2 - 1.0)
-    assert a.distance_to(l_out.b) == pytest.approx(17.5 / 2 + 1.0)
+    assert a.distance_to(l_in.b) == pytest.approx(19.5 / 2 - 1.0)
+    assert a.distance_to(l_out.b) == pytest.approx(19.5 / 2 + 1.0)
     assert l_in.b.distance_to(l_out.b) == pytest.approx(2.0)
     # 等腰三角形：两省边等长 = sqrt(11² + 1²)
     assert l_in.length == pytest.approx((11.0 ** 2 + 1.0 ** 2) ** 0.5)
@@ -491,13 +492,13 @@ def test_back_dart_double():
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     a = ctx.point("back.rise_top_point")
     b = ctx.point("back.waist_side_point")
-    assert a.distance_to(b) == pytest.approx(17.5)   # 绘省不动腰头
+    assert a.distance_to(b) == pytest.approx(20.5)   # 腰长不变量：17.5 + 2×1.5
 
-    # 三等分两个中间点：距 A 17.5/3、35/3
+    # 三等分两个中间点：距 A 20.5/3、41/3
     c1 = ctx.point("back.dart1_center")
     c2 = ctx.point("back.dart2_center")
-    assert a.distance_to(c1) == pytest.approx(17.5 / 3)
-    assert a.distance_to(c2) == pytest.approx(35.0 / 3)
+    assert a.distance_to(c1) == pytest.approx(20.5 / 3)
+    assert a.distance_to(c2) == pytest.approx(41.0 / 3)
     # 单值广播：两个省省量同为 1.5，省口两侧各 0.75
     for i in (1, 2):
         l_in = ctx.line(f"back.dart{i}_leg_inner")
@@ -533,14 +534,14 @@ def test_back_dart_zero_width_skipped():
     assert l_in.b.distance_to(l_out.b) == pytest.approx(2.0)
 
 
-def test_back_dart_independent_of_waist_length():
-    # 绘省与后腰长相互独立：back_waist_dart=5.0 决定腰长（|AB| = 22.5），
-    # back_dart_width=2.0 只控制省口宽（2.0），互不干扰
+def test_back_dart_adds_to_waist_length():
+    # 腰长不变量：调节量与省口宽分别计入后腰长（|AB| = 17.5 + 5.0 + 2.0
+    # = 24.5），back_dart_width=2.0 只控制省口宽（2.0），互不重叠
     o = PatternOptions(delta=1.0, back_waist_dart=5.0, back_dart=True)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     a = ctx.point("back.rise_top_point")
     b = ctx.point("back.waist_side_point")
-    assert a.distance_to(b) == pytest.approx(22.5)
+    assert a.distance_to(b) == pytest.approx(24.5)
     l_in = ctx.line("back.dart1_leg_inner")
     l_out = ctx.line("back.dart1_leg_outer")
     assert l_in.b.distance_to(l_out.b) == pytest.approx(2.0)

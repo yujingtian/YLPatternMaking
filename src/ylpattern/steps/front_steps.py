@@ -215,15 +215,18 @@ def draw_front_waistline(ctx: DraftContext) -> NamedLine:
 
     自顶向下约束（腰头绘制推导.md §4.2）：|AB| = L 恒定，
     x_b = x_a − sqrt(L² − (h+d)²)，d = 前中下落量（前浪闭合自然推出）。
-    L = W/4 − balance + V前省（腰围推导.md §三.2）。
+    L = W/4 − balance + V前省调节量 + 袋口吃省 ΔW（腰围推导.md §三.2
+    腰长不变量：纸样腰长 = 成品目标 + 边缘省口合计，缝后腰围恒等规格）。
     本步产物为构造线；最终轮廓由 draw_front_waist_outseam_curves 的弧线取代。
     依据：打版流程.md 前片步骤 3（绘制真实腰围线）。"""
     m, o = ctx.measurements, ctx.options
     a = ctx.point("front.rise_top_point")
     waist_y = ctx.line("front.waist_line").a.y
     fc_drop = waist_y - a.y          # 前中下落量 d（A 低于基础线为正）
+    pocket_dart = waist_f.pocket_dart_takeup(o.front_pocket,
+                                             o.front_pocket_dart_width)
     waist_len = waist_f.waist_front_target(m.waist, o.waist_balance,
-                                           o.front_waist_dart)
+                                           o.front_waist_dart, pocket_dart)
     span = waist_f.waistline_horizontal_span(waist_len, o.side_rise, fc_drop)
     b = Point(a.x - span, waist_y + o.side_rise)
     ctx.add_point("front.waist_side_point", b,
@@ -252,8 +255,10 @@ def draw_front_waist_outseam_curves(ctx: DraftContext) -> NamedCurve:
     b = ctx.point("front.waist_side_point")
     hip_out = Point(ctx.line("front.outseam_refline").a.x,
                     ctx.line("front.hip_line").a.y)
+    pocket_dart = waist_f.pocket_dart_takeup(o.front_pocket,
+                                             o.front_pocket_dart_width)
     waist_len = waist_f.waist_front_target(m.waist, o.waist_balance,
-                                           o.front_waist_dart)
+                                           o.front_waist_dart, pocket_dart)
 
     # 微凸外缝弧：弦朝 B 的左手法向为 −X（向外），bulge 取正
     s_arc = curves.arc_through(hip_out, b, bulge=o.outseam_bulge)

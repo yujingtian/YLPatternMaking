@@ -76,6 +76,7 @@ python -m ylpattern.cli reverse --dxf "out/工厂款.dxf" --size out/rev.toml --
 - **腰头扣除口径**：`outseam`/`front_rise`/`back_rise` 均为**含腰头的成衣量**。直腰头打版时统一经 `PatternOptions.rise_on_pattern()` 换算（扣腰头宽）；弯腰头不扣。任何使用浪长/裤长的步骤都必须走这一个口子，不要自行扣减。
 - **缩水口径（除法）**：净样 ÷ (1−率)——缩水率以**缩水前毛坯**为基准，洗水缩回后恰为净样（旧乘法 ×(1+率) 以净样为基准、洗后偏小，2026-08 弃用）。缩放因子统一走 `cutter.shrink_scale(rate)`（`apply_shrinkage` 内部同源）；flow 里任何要自叠缩放因子的地方（pinned 刀口/切向方向/缝边交点换算）都必须调它，禁止手写 `1.0+rate`。裁片缩水率解析（专用率 None 回退全局 + 总开关 `shrinkage_enabled=False` 收缩为 0）统一走 `o.shrinkage_rates(专用warp, 专用weft)`，勿在 flow 里手写回退。
 - **前后片调节量方向**：一律**前减后加**（臀围 Δ、腰围 balance 同向）。前片 = H/4 − Δ、W/4 − balance。
+- **腰长不变量**：纸样腰长 = 成品目标 + 该腰口边缘所有省口宽合计（前片含袋口吃省 ΔW、后片含 Σ腰省宽），省只改形、不改缝后长度；`front_waist_dart`/`back_waist_dart` 是纯腰长调节量，不含任何绘制省宽（守卫收口 `formulas/waist.py` 的 `pocket_dart_takeup`/`back_darts_takeup`）。
 - **可选步骤（开关驱动）**：口袋 / 袋贴 / 贴袋 / 袋布 / 小表袋 / 后片腰省 / 后机头 / 毗围限制等都是 `PatternOptions` 上的 `bool` 开关；开关关闭或前置条件不满足（如**袋贴 `front_pocket_facing`、袋布 `front_pouch`、小表袋 `watch_pocket` 均依赖 `front_pocket` 主切口；小表袋相交模式 `facing_intersect` 额外强依赖 `front_pocket_facing`**；毗围依赖大腿围录入）时步骤返回 `None`，`FlowRunner` 标注"跳过"不上版。开关与几何参数同收敛于 `PatternOptions`。
 - **测试风格**：金标测试——测试文件头部注释写明参数下的手工演算结果，断言精确值；推导文档里的案例直接转成公式层金标（见 tests/test_waist.py）。
 - 复合线（如前浪 = 斜线 + 凹弧）作为同一步骤的多个元素上版，是"一函数一元素"原则的显式例外。

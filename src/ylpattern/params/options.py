@@ -137,11 +137,12 @@ class PatternOptions:
     front_intake_adjust: float = 0.0       # 前中内收修正（高腰加大、低腰减小）
     back_intake: float = 2.5               # 后中内收比例模数 X（实际内收 = 臀腰高×X/15；宽松 1.5~2、标准 2.5~3、紧身 3.5~4.5）
     waist_balance: float = 0.0             # 腰围前后片调节量（前减后加，同臀围 Δ；平分 0）
-    front_waist_dart: float = 0.0          # 前片省量/褶量 V前省（牛仔裤 0；西裤 1.5~2.5）
-    back_waist_dart: float = 0.0           # 后片省量/约克转移量 V后省（约克步骤前 0；Yoke 2.5~4.0；
-                                           #   后腰长容位，与绘制的腰省相互独立）
+    front_waist_dart: float = 0.0          # 前片腰长调节量 V前省（纯调节，不对应绘制的省；牛仔裤 0，
+                                           #   西裤褶裥款 1.5~3.0；袋口吃省 ΔW 另自动计入，见 waist.pocket_dart_takeup）
+    back_waist_dart: float = 0.0           # 后片腰长调节量 V后省（约克转移量，约克步骤前 0；Yoke 2.5~4.0；
+                                           #   纯调节不含绘制腰省宽，Σ省宽另自动计入，见 waist.back_darts_takeup）
     back_dart: bool = False                # 后片腰省绘制开关（可选步骤，打版流程.md 后片步骤 9；
-                                           #   只画省，不动腰头）
+                                           #   只画省不动腰头几何，省口宽按腰长不变量自动加进后腰长）
     back_dart_count: int = 1               # 后片省数（1 = 腰头两等分取中点；2 = 三等分取两个中点）
     back_dart_width: tuple[float, ...] | float = (2.0,)
                                            # 每个省的省量列表（默认 2cm，顺序同省中点：后中 → 侧缝）；

@@ -1,8 +1,10 @@
 """前口袋袋贴（facing）步骤测试（前口袋绘制.md §三.3.(1)；打版流程.md 第 88 行）。
 
 金标（H=96, Δ=1.0, outseam=102，直腰头扣腰头宽 4，腰线 y=98，臀围线 y=86，
-      裤中线立裆点 x=13.9；前口袋默认 P1 距禈 8.5、P2 下落 7.5、吃省 ΔW=2.0、
-      袋贴宽 w_waist=3.5、默认侧缝深 w_side=w_waist=3.5；腰弧总长 ≈17.53、外缝弧总长 ≈12.85）：
+      裤中线立裆点 x=13.9；前口袋默认 P1 距禈 8.5、P2 下落 7.0、吃省 ΔW=2.0、
+      袋贴宽 w_waist=3.5、默认侧缝深 w_side=w_waist=3.5；腰弧总长 ≈19.52
+      （17.5 + 吃省 2.0，腰长不变量：ΔW 计入前腰长）、外缝弧总长 ≈12.32
+      （侧缝收量被吃省分走 ~ΔW）：
   袋贴腰头顶点 P_fw：有省自 P1′、无省自 P1，沿腰弧朝前浪顶点量取 w_waist；
   袋贴侧缝顶点 P_fs：自 P2 沿外缝弧向下量取 w_side；
   闭合边弧长：腰弧 [O->P_fw] = p1_dist + dw + w_waist，外缝弧 [P_fs->O] = p2_drop + w_side；
@@ -23,7 +25,7 @@ from ylpattern.params import Measurements, PatternOptions, WaistbandType
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
 # 默认采用打版师推荐的 tangent 模式进行全流程测试
-# side_w 取 5.0：外缝弧总长 ≈12.85 − P2 下落 7.5 = 可用 5.35，侧深须严格
+# side_w 取 5.0：外缝弧总长 ≈12.32 − P2 下落 7.0 = 可用 5.32，侧深须严格
 # 小于可用弧长（s_fs > 0 校验），取 6.0 会越界报错，且 5.0 ≠ w_waist 保持
 # "独立侧缝深"测试意图
 O = PatternOptions(
@@ -34,6 +36,7 @@ O = PatternOptions(
     front_pocket_facing_mode="tangent",
     front_pocket_facing_width=3.5,
     front_pocket_facing_side_w=5.0,
+    front_pocket_p2_drop=7.0,
     front_pocket_facing_h1=5.0,
     front_pocket_facing_h2=4.0,
 )
