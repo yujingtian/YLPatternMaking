@@ -42,6 +42,14 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #    协议/回退阶梯/打包链详见 .doc/python工程设计.md §10.8）
 #   （前端已构建于 webapp/frontend/dist；改前端：cd webapp/frontend && npm run dev，
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
+# LLM agent（agent/ 独立目录与 webapp/ 平级，2026-09-03 边界：ylpattern 纯引擎、
+#   全部大模型相关代码在此——extract/ 12 模块提取管线 + cli.py 命令行 + app.py HTTP 服务；
+#   依赖方向唯一 agent → ylpattern；口径权威 .doc/python工程设计.md §10.9；
+#   pip install -e ".[agent]" 后）：
+#   python -m uvicorn agent.app:app --port 8001
+#   POST /api/extract（multipart：describe/photos/thinking/...）-> to_web_payload 契约 + 信封；
+#   缺必填尺寸/照片非法 422、VLM 未配置或失败 503；GET /healthz 查 vlm_configured（只回 bool）；
+#   vlm.toml 路径解析 YLP_VLM_CONFIG > 仓库根 > YLP_VLM_* 环境变量；CLI 与 eval 仍直调 extract 门面
 # 多码推码（尺寸单含 [size_run] 段且 enabled = true 时自动进入：逐码重打版 ->
 #   多码单文件 DXF；整版 SVG/追踪/报表只出基码，enabled = false 或删段即退化单码模式）：
 python -m ylpattern.cli draft --size examples/size_female_zhitong.toml \
@@ -54,6 +62,21 @@ python -m ylpattern.cli draft --size examples/size_female_zhitong.toml \
 python -m ylpattern.cli reverse --dxf "out/工厂款.dxf" --size out/rev.toml --report out/rev.txt
 #   --style auto|5015|5028 显式档案；--probe 只出件清单报告（新款 bring-up）；
 #   产物直接喂 draft 回环验证；仅特化已登记款号，未登记报错提示先 --probe
+# 照片参数提取（agent/extract/ 包，2026-09-03 边界：ylpattern 纯引擎、全部大模型
+#   代码在 agent/；半自动：模型是带眼睛的确认者不是业务判断者，
+#   数值全部代码查表/派生，口径权威 .doc/参数预测/（知识库4篇+索引+款式判据手册）；
+#   接入：复制 vlm.toml.example 为 vlm.toml 填 key（已 gitignore，key 不进仓库/报告）；
+#   描述缺 7 必填尺寸 → 列清单退出码 2，绝不编数值；agent/ 顶层包不进 wheel，仓库根运行）：
+python -m agent extract --photo out/front.jpg --photo out/back.jpg \
+    --describe "女款高腰小脚牛仔裤，腰围74 臀围91 膝围44 脚口34 前浪25 后浪33 裤长102" \
+    --out-dir out [--draft]
+#   产物 out/extracted.toml（逐键 # 来源注释，直接喂 draft）+ extract_report.md
+#   （预判vs照片轨迹/置信度/探针L0~L4/合理性评分/披露）；--draft 探针通过才直出
+#   sheet.svg；无照片走纯描述路径（零模型调用可全中）；
+#   Web 侧经 agent 服务（agent/app.py，POST /api/extract -> to_web_payload 契约，
+#   见上文 agent 段与 §10.9）；CLI 与 eval 仍直调 extract 门面不走 HTTP；
+#   金标评测（判据/词典改动前后必须跑对比）：python scripts/eval_extract.py
+#   --cases tests/_extract_golden/cases --out out/eval_extract.md [--baseline 上一轮]
 ```
 
 ## 文档驱动的开发方式（本项目最重要的工作流）
@@ -63,7 +86,7 @@ python -m ylpattern.cli reverse --dxf "out/工厂款.dxf" --size out/rev.toml --
 
 ## 分层架构（依赖方向自上而下，禁止反向）
 
-`cli/api → exporters → flows → steps → draft → formulas → geometry → params`（**禁止反向**；尤其 `params/` 不能 import `formulas/`）
+`cli/api → exporters → flows → steps → draft → formulas → geometry → params`（**禁止反向**；尤其 `params/` 不能 import `formulas/`）。**agent/ 与 webapp/ 同为核心外薄壳层**（2026-09-03 边界：ylpattern = 纯引擎零 LLM，全部大模型代码在 agent/），依赖方向只许 `agent/webapp → ylpattern`，引擎侧零反向引用（详见 .doc/python工程设计.md §10.9）。
 
 - **steps/**：核心层。每个函数对应手工打版的一笔，只做**定位与上版**；数值计算必须调 `formulas/`（纯 float 函数），经验常数一律收敛到 `PatternOptions`，步骤层不硬编码。
 - **draft/**：`DraftContext` 是步骤间唯一协作通道——步骤只能 `ctx.point/line/curve("front.xxx")` 读取前面步骤的元素，禁止函数间直接传几何体；产物全程可溯源。

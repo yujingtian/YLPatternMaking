@@ -1,0 +1,13 @@
+# VLM 接入配置样例——复制为 vlm.toml（已 gitignore）并填入真实 api_key。
+# 环境变量等效：YLP_VLM_API_KEY（可选 YLP_VLM_BASE_URL / YLP_VLM_MODEL / YLP_VLM_THINKING）。
+# 优先级：显式 --config 路径 > ./vlm.toml > 环境变量。
+# agent 服务（agent/app.py）：可用环境变量 YLP_VLM_CONFIG 指定本文件路径（部署推荐）。
+
+api_key = "在此填入 API key"
+base_url = "https://open.bigmodel.cn/api/coding/paas/v4"
+model = "glm-5.3-flash"
+
+# 可选项（省略走默认）：
+# max_tokens = 16384      # 思维链计入 completion，勿低于此值（8192 会掐断 JSON）
+# timeout_idle = 300.0    # SSE 相邻数据行间隔上限（秒）；推理模型思维链数百秒，勿设短
+# thinking = "off"        # 不配置=不发送该参数；"on"/"off" 强制；数值调用建议 off

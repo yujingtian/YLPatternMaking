@@ -1,4 +1,5 @@
-"""命令行入口。
+"""命令行入口（纯引擎命令；大模型相关命令在 agent/cli.py，
+`python -m agent extract ...`，2026-09-03 边界：ylpattern 零 LLM 代码）。
 
 用法：
   ylpattern draft --size size.toml --svg out/sheet.svg [--until 步骤名]

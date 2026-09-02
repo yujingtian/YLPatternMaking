@@ -1,0 +1,74 @@
+# 金标真值 truth.toml（一期示例 case：中高腰弹力小脚女款）
+# 由 2026-09-02 管线快照生成，框架键经手工核对：
+# H-W=17 straight / 弹 high / skinny；K2 mid_high 基准2.0+直体0.5-弹0.5+skinny0.2=2.2 ratio=2.2/4.25；
+# K3 d=17 插值3.2-弹0.5=2.7；delta 0.4（弹力路由）；rise_adjust 2.25；判据/词典改动后 eval 对比重跑
+# 2026-09-02 弧深三档按工厂实测定标（真弧高 浅1.5/标准2.5/深3.5 ÷2 → bulge 0.75/1.25/1.75，
+# 旧 0.3/0.4/0.5 渲染弧高偏浅 3~4 倍；出处 test_reverse_gold_5015 bulge=1.68）
+
+[measurements]
+waist = 74    # 来源：描述 | 腰围；描述摘录「腰围74」
+hip = 91    # 来源：描述 | 臀围；描述摘录「臀围91」
+knee = 44    # 来源：描述 | 膝围；描述摘录「膝围44」
+hem = 34    # 来源：描述 | 脚口；描述摘录「脚口34」
+front_rise = 30    # 来源：描述 | 前浪（含腰头）；描述摘录「前浪30」
+back_rise = 38    # 来源：描述 | 后浪（含腰头）；描述摘录「后浪38」
+outseam = 102    # 来源：描述 | 裤长；描述摘录「裤长102」
+thigh = 58    # 来源：描述 | 大腿围；描述摘录「大腿围58」
+
+[options]
+front_pocket = true    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+front_pocket_facing = true    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+watch_pocket = true    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+back_patch = true    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+back_yoke = true    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+belt_loop = true    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+fly = true    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+fly_separate = true    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+front_patch = false    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+back_dart = false    # 来源：预判 conf 0.50 | 惯例先验（未见照片/描述反例）
+waistband_type = "straight"    # 来源：默认 conf 0.40 | 引擎默认
+fit = "skinny"    # 来源：派生 conf 0.60 | fit_level skinny 轴映射（wide→loose）
+back_patch_shape = "rectangle"    # 来源：默认 conf 0.40 | 引擎默认
+front_pocket_mouth_mode = "bulge"    # 来源：默认 conf 0.40 | 引擎默认
+front_pocket_facing_mode = "offset"    # 来源：默认 conf 0.40 | 引擎默认
+watch_pocket_mode = "facing_intersect"    # 来源：默认 conf 0.40 | 引擎默认
+front_intake_ratio = 0.518    # 来源：查表 conf 0.60 | K2 前中内收预测.md：基准 mid_high 带中值 2.0、体态平腹 +0.5、高弹 −0.5、紧身 +0.2，clamp 3.5 → 2.20；ratio = 2.20÷((H−W)/4) = 0.518
+back_intake = 2.7    # 来源：查表 conf 0.60 | K3 后中内收预测.md：臀腰差 17 插值 X=3.20、有弹降半档 −0.5 → 15:2.70
+delta = 0.4    # 来源：查表 conf 0.60 | DELTA_PRESETS[high_stretch]=0.4（高弹力紧身女牛仔裤（0.3~0.5）；前后片臀围推导.md §四）
+waist_balance = 0    # 来源：查表 conf 0.60 | curvy 联动：waist_balance=0（C 表）
+rise_adjust = 2.25    # 来源：查表 conf 0.60 | 直裆深推导.md §三 Δ 矩阵：mid_high 腰档（低/中/高取带中值，中低/中高取相邻带中点）
+front_crotch_adjust = -0.75    # 来源：查表 conf 0.60 | 前小裆修正 fit=skinny → -0.75（紧身 −0.5~−1.0、常规 −0.4~0）
+crotch_drop_adjust = -0.35    # 来源：查表 conf 0.60 | 落裆推导.md §2.2：高弹 crotch −0.35、knee/hem 0.75
+knee_adjust = 0.75    # 来源：查表 conf 0.60 | 落裆推导.md §2.2：高弹 crotch −0.35、knee/hem 0.75
+hem_adjust = 0.75    # 来源：查表 conf 0.60 | 落裆推导.md §2.2：高弹 crotch −0.35、knee/hem 0.75
+front_pocket_dart_width = 0.8    # 来源：查表 conf 0.60 | K4 §1 袋口转省：常规中值 0.8
+front_pocket_p1_dist = 10    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：金标 example 值
+front_pocket_p2_drop = 7.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：腰位联动 mid_high 档（低腰竖向空间小，袋口相应变浅）
+front_pocket_paring_n = 2    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：常规 1.5~2.0 上缘
+front_pocket_mouth_bulge = 1.25    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：弧深三档 standard（判据手册 §二 真弧高 浅1.5/标准2.5/深3.5cm，÷2 发射 bulge；工厂实测 3.36 见 families 表头）
+front_pocket_mouth_bulge_at = 0.6    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：bulge_at 0.6（渲染弧顶弦位≈0.54 近中）
+front_pocket_facing_width = 3.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：引擎默认在带内
+front_pocket_facing_side_w = 3.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：金标 example 值（注释带 5~7 大码适用，需 p2+side<外缝弧长）
+watch_pocket_width = 5.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：浅小兜 5~6.5 取 5.5（实照核对，旧 7.0 偏大）
+watch_pocket_taper = 0.2    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：两侧收 0.2
+watch_pocket_offset_from_top = 1    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：贴腰头下缘 ~1.0（实照核对，旧 3.0 顶部下沉过多）
+watch_pocket_offset_from_side = 2    # 来源：查表 conf 0.60 | 小表袋配套包（引擎缺口实测 66–84 码全过）
+watch_pocket_rotate_deg = 8    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：顺时针倾 8°
+back_patch_inset_x = 4.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：距后浪 4~5.5 中值
+back_patch_drop_y = 3.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：距约克底线 3~4.5 中值
+back_patch_rotate_deg = 3.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：平行约克线倾角
+back_patch_width = 13.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：G 表女档中值（width 13~14 / height 12~15）
+back_patch_height = 14    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：G 表女档中值（width 13~14 / height 12~15）
+back_yoke_cb_dist = 6    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：基准 mid_high 档；K4 ⑤ 育克兜底 takeup≈0.00（低于常规带 2.0（浅育克，评分步观测侧缝））
+back_yoke_side_dist = 3.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：基准 mid_high 档
+fly_width = 4    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：YKK 5# 门襟宽 3.5~4.2
+fly_length_ratio = 0.35    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：开深系数（引擎默认在带内）
+fly_length_base = 2    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：开深基值（引擎默认在带内）
+fly_corner_inset = 0.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：底角内收 0.5（R = W−本值）
+belt_loop_width = 1.2    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：引擎默认（净宽 1.2）
+belt_loop_unit_length = 6    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：单根 6.0
+belt_loop_count = 5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：5 根
+belt_loop_waste = 3    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：损耗 3.0
+waistband_width = 4    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：腰头宽默认 4.0（宽窄档 3.5/4.5 待照片判据）
+size_label = "29"    # 来源：描述 conf 0.90 | 描述尺码标签摘录
+thigh_limit = true    # 来源：查表 conf 0.60 | thigh>0 → 开毗围闭环（规则）

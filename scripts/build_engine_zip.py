@@ -35,6 +35,7 @@ _PYODIDE_PKG = _ROOT / "webapp" / "frontend" / "node_modules" / "pyodide" / "pac
 _FIXED_DATE = (1980, 1, 1, 0, 0, 0)
 
 # 不进包的内容：字节码缓存与编辑器临时文件
+#（2026-09-03 边界：extract 已整体迁至 agent/，src 树纯引擎，无需排除特例）
 _EXCLUDE_NAMES = {"__pycache__"}
 _EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".pyd", ".tmp"}
 
