@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from ylpattern.exporters import svg as svg_exp
@@ -21,11 +22,19 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     from agent.extract import ExtractError, extract_from_input
     from agent.extract.emit import write_outputs
 
+    # 进度走 stderr（stdout 留给产物路径等结论行）：累计秒数 + 一句阶段话
+    t0 = time.monotonic()
+
+    def progress(message: str) -> None:
+        print(f"[agent] {time.monotonic() - t0:6.1f}s {message}",
+              file=sys.stderr, flush=True)
+
     try:
         result = extract_from_input(
             describe=args.describe, photos=args.photo, thinking=args.thinking,
             run_probe=not args.no_geometry, run_score=not args.no_score,
-            max_refeed=args.max_refeed, config_path=args.config)
+            max_refeed=args.max_refeed, config_path=args.config,
+            progress=progress)
     except ExtractError as e:
         if e.missing:
             print(f"错误：{e}\n缺失键清单：{'、'.join(e.missing)}", file=sys.stderr)
@@ -58,6 +67,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             print("错误：探针未通过，拒绝 --draft 直出（退出码 2）",
                   file=sys.stderr)
             return 2
+        progress("--draft：重跑整版并写 SVG…")
         m = Measurements.from_file(str(size_path))
         o = PatternOptions.from_file(str(size_path))
         ctx, _ = run_with_thigh_closure(m, o)

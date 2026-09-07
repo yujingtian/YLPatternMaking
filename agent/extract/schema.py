@@ -172,9 +172,12 @@ def build_prompt(describe: str, measurements: dict[str, float],
         "- 模板每项都由代码按尺寸与工业惯例算好；看照片逐项确认。",
         "- 只有明确看到不同才改 value，且必须在 evidence 写你看见的具体视觉特征"
         "（判据见下方手册段落），confidence 给 0.7 以上。",
-        "- 前口袋袋口弧线是必看项：目测弧线最深处到袋口弦（袋口两端点连线）的"
-        "垂距占弦长比例——不足 12% 改 shallow、约 20% 保持 standard、超 25% 改 "
-        "deep，evidence 写目测比例（例「弧深约为弦长 28%」）。",
+        "- 前口袋袋口是必看项，先判形态再量弧深：①形态 front_pocket_mouth_mode——"
+        "袋口是一道平滑弯月弧线=保持 bulge、近似直线斜切仅端部小圆角=改 tangent、"
+        "两段直线折点明显=改 polyline（判据见手册）；②弧深 front_pocket_mouth_depth"
+        "（仅 bulge 时）——目测弧线最深处到袋口弦（袋口两端点连线）的垂距占弦长比例"
+        "——不足 12% 改 shallow、约 20% 保持 standard、超 25% 改 deep，"
+        "evidence 写目测比例（例「弧深约为弦长 28%」）。",
         "- 看不清 / 被遮挡 / 照片没拍到：保持预判值不动，confidence 下调。",
         "- 尺寸数值（cm）不在你的职责内，不要改任何数字、不要新增尺寸。",
         "- 只输出一个 JSON 对象（可包 json 代码围栏），不要输出其它文字。",

@@ -88,6 +88,10 @@ def test_to_web_payload_shape():
     assert "delta" in payload["options"]
     k = payload["keys"]["delta"]
     assert set(k) == {"value", "source", "confidence", "evidence"}
+    # 尺寸键也进 keys（source=描述、置信顶格、evidence 带 parse 溯源文案）
+    mw = payload["keys"]["waist"]
+    assert mw["source"] == "描述" and mw["confidence"] == 1.0
+    assert mw["evidence"]
 
 
 # -- CLI ------------------------------------------------------------------

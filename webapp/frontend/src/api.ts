@@ -20,6 +20,11 @@ export const fetchSchema = http.fetchSchema
 export const fetchTemplates = http.fetchTemplates
 export const fetchTemplateDetail = http.fetchTemplateDetail
 
+// agent 照片参数提取（一期前端接线）：纯网络调用（VLM/照片均不进
+// Pyodide 本地引擎），不进 route() 引擎通道
+export const postExtract = http.postExtract
+export const fetchAgentHealth = http.fetchAgentHealth
+
 // 本地引擎单命令超时（ms）：超时本次回落 HTTP 并计数，连续 3 次会话降级
 const TIMEOUTS: Record<EngineCmd, number> = {
   sheet: 30_000,

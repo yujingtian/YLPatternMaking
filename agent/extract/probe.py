@@ -94,13 +94,18 @@ def _attribute(message: str, options: dict) -> list[str]:
 
 
 def probe_loop(measurements: dict, options: dict,
-               max_refeed: int = 2) -> ProbeOutcome:
-    """L0~L4 状态机：返回最终结论（含成功 ctx 或未通过 header）。"""
+               max_refeed: int = 2, progress=None) -> ProbeOutcome:
+    """L0~L4 状态机：返回最终结论（含成功 ctx 或未通过 header）。
+
+    progress：每轮试跑前上报一句（CLI 进度用；缺省静默）。
+    """
+    p = progress or (lambda message: None)
     out = ProbeOutcome(False, "L4", "")
     opts = dict(options)
     reverted: list[str] = []
 
     def attempt(stage: str) -> bool:
+        p(f"引擎探针 {stage}：内存试跑整版（含毗围闭环）…")
         ok, msg, keys, ctx = _run_once(measurements, opts)
         out.message = msg
         out.error_keys = keys

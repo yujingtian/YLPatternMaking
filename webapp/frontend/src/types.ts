@@ -197,3 +197,46 @@ export interface SeedResult {
   points: [number, number][]
   edges: EdgeSpec[]
 }
+
+// ---- agent 照片参数提取（一期前端接线，2026-09；§10.9） ----
+// 对齐 agent/extract/__init__.py 的 to_web_payload + agent/runner.py 信封
+
+// 逐键溯源（axes/switches/enums/derived 全集）；
+// source 为 agent/extract/derive.py 中文常量：描述|照片|预判|查表|派生|默认
+export interface ExtractKeyMeta {
+  value: unknown
+  source: string
+  confidence: number
+  evidence: string
+}
+
+export interface ExtractIssue {
+  param: string
+  message: string
+  level: string
+}
+
+export interface ExtractProbe {
+  stage: string   // "L0"~"L4"
+  ok: boolean
+  log: string[]
+}
+
+export interface ExtractScoreItem {
+  feature: string
+  value: number
+  band: string
+  verdict: string
+}
+
+export interface ExtractResponse {
+  ok: boolean
+  model: string
+  photo_count: number
+  measurements: Record<string, number>
+  options: Values
+  keys: Record<string, ExtractKeyMeta>
+  issues: ExtractIssue[]
+  probe: ExtractProbe
+  score: ExtractScoreItem[]
+}

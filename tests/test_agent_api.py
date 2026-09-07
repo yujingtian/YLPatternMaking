@@ -59,6 +59,10 @@ def test_extract_full(monkeypatch):
     assert "delta" in body["options"]
     assert set(body["keys"]["delta"]) == {"value", "source", "confidence",
                                           "evidence"}
+    # 尺寸键也进 keys（source=描述 + evidence 溯源；前端确认屏徽章数据源）
+    assert body["keys"]["waist"]["source"] == "描述"
+    assert body["keys"]["waist"]["confidence"] == 1.0
+    assert body["keys"]["waist"]["value"] == 74.0
     assert len(vlm.calls) == 1                      # S2 恰一次（S1 全中）
     assert len(vlm.calls[0]["images"]) == 2
 

@@ -9,9 +9,10 @@
 from __future__ import annotations
 
 import io
+import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -281,6 +282,30 @@ def template_detail(name: str) -> dict:
     return {"measurements": data.get("measurements", {}),
             "options": options,
             "size_run": data.get("size_run")}
+
+
+# agent 服务同源转发（一期前端接线 §10.9）：dev 由 Vite proxy /agent -> 8001，
+# 生产（dist 由本进程托管）无 Vite，故此处 httpx 原样字节透传——前端 dev/prod
+# 同构、零 CORS 依赖。multipart 直传（≤4×10MB，内存可承受）；超时 310s 对齐
+# agent uvicorn 空闲 300s；agent 未启动 -> 502（中文消息，前端弹层直显）。
+_AGENT_BASE = os.environ.get("YLP_AGENT_BASE", "http://localhost:8001")
+
+
+@app.api_route("/agent/{path:path}", methods=["GET", "POST"])
+async def agent_forward(path: str, request: Request) -> Response:
+    import httpx   # 懒加载（同 ezdxf 先例）：未装 httpx 只影响本路由
+    try:
+        async with httpx.AsyncClient(base_url=_AGENT_BASE,
+                                     timeout=httpx.Timeout(310)) as client:
+            resp = await client.request(
+                request.method, f"/{path}", content=await request.body(),
+                headers={"content-type": request.headers.get("content-type", "")})
+    except httpx.HTTPError:
+        raise HTTPException(
+            502, "agent 服务未启动或不可达（默认 http://localhost:8001，"
+                 "可用环境变量 YLP_AGENT_BASE 覆盖）")
+    return Response(resp.content, status_code=resp.status_code,
+                    media_type=resp.headers.get("content-type", ""))
 
 
 @app.get("/")

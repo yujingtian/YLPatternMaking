@@ -50,6 +50,9 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   POST /api/extract（multipart：describe/photos/thinking/...）-> to_web_payload 契约 + 信封；
 #   缺必填尺寸/照片非法 422、VLM 未配置或失败 503；GET /healthz 查 vlm_configured（只回 bool）；
 #   vlm.toml 路径解析 YLP_VLM_CONFIG > 仓库根 > YLP_VLM_* 环境变量；CLI 与 eval 仍直调 extract 门面
+#   前端接线（一期 2026-09）：页面 header「从照片提取」向导弹层 -> 确认屏 -> 预填表单；
+#   连通统一 /agent 前缀（dev Vite proxy / prod backend httpx 转发）；
+#   契约/压缩口径/踩坑见 .doc/python工程设计.md §10.9.1
 # 多码推码（尺寸单含 [size_run] 段且 enabled = true 时自动进入：逐码重打版 ->
 #   多码单文件 DXF；整版 SVG/追踪/报表只出基码，enabled = false 或删段即退化单码模式）：
 python -m ylpattern.cli draft --size examples/size_female_zhitong.toml \

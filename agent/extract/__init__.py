@@ -20,6 +20,8 @@ parse_describe（S1 纯代码） → [S1 补漏小调用·纯文本] → prejudg
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .derive import (KeyMeta, MergedView, derive_all, enforce_dependencies,  # noqa: F401 重导出
@@ -40,6 +42,11 @@ class ExtractError(RuntimeError):
         self.missing = list(missing)
 
 
+def _noop(message: str) -> None:
+    """进度回调空实现（HTTP 服务路径静默，CLI 注入 stderr 计时打印）。"""
+    return None
+
+
 @dataclass
 class ExtractResult:
     """一条龙产物：终值 + 溯源 + 探针/评分 + 待写盘文本。"""
@@ -57,6 +64,9 @@ class ExtractResult:
     report_text: str
     model_name: str
     photo_count: int
+    # 尺寸逐键来源文案（parse_describe / S1 补漏写）——前端确认屏尺寸行
+    # 徽章/依据的数据源（2026-09-03 前端接线补入契约；emit 同源共用）
+    measurement_evidence: dict = field(default_factory=dict)
 
     def options_meta(self) -> dict[str, KeyMeta]:
         """发射键全集（开关 + 派生），emit/report 共用。"""
@@ -69,12 +79,17 @@ class ExtractResult:
         """二期 POST /api/extract 直接 JSON 化（前端预填现有表单）。"""
         keys = {**self.merged.axes, **self.merged.switches,
                 **self.merged.enums, **self.derived}
+        # 尺寸键也进 keys（source=描述、置信顶格——显式数字非模型判断；
+        # S1 补漏在 evidence 里披露"模型补漏"）：确认屏逐行徽章单契约出齐
+        meas_meta = {k: KeyMeta(k, v, "描述", 1.0,
+                                self.measurement_evidence.get(k, ""))
+                     for k, v in self.measurements.items()}
         return {
             "measurements": self.measurements,
             "options": self.options_dict(),
             "keys": {k: {"value": m.value, "source": m.source,
                          "confidence": m.confidence, "evidence": m.evidence}
-                     for k, m in keys.items()},
+                     for k, m in {**keys, **meas_meta}.items()},
             "issues": [{"param": i.param, "message": i.message,
                         "level": i.level} for i in self.issues],
             "probe": {"stage": self.probe.stage, "ok": self.probe.ok,
@@ -129,8 +144,16 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
                        provider=None, thinking: str | None = None,
                        run_probe: bool = True, run_score: bool = True,
                        max_refeed: int = 2,
-                       config_path: str | None = None) -> ExtractResult:
-    """一条龙：描述+照片 -> ExtractResult（size_text/report_text 待写盘）。"""
+                       config_path: str | None = None,
+                       progress: Callable[[str], None] | None = None
+                       ) -> ExtractResult:
+    """一条龙：描述+照片 -> ExtractResult（size_text/report_text 待写盘）。
+
+    progress：阶段性进度回调（一行一句）；缺省静默（HTTP 服务同步等待
+    无处展示，CLI 注入 stderr 计时打印）。模型调用是最长环节，发起前后
+    各报一条。
+    """
+    p = progress or _noop
     parsed = parse_describe(describe)
     measurements: dict[str, float] = dict(parsed.measurements)
     evidence: dict[str, str] = dict(parsed.evidence)
@@ -143,9 +166,12 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
         cfg = getattr(provider, "config", None)
         model_name = getattr(cfg, "model", None) or type(provider).__name__
 
+    p(f"描述解析完成：{len(measurements)} 项尺寸，照片 {photo_count} 张")
+
     # S1 补漏（有 provider 才发；仍缺 → 清单退出，不编数值）
     missing = [k for k in REQUIRED_MEAS if k not in measurements]
     if missing and provider is not None and describe.strip():
+        p(f"S1 补漏：向模型询问缺失尺寸 {'、'.join(missing)}（纯文本调用）…")
         filled = _s1_fill_missing(describe, missing, provider, thinking)
         for k, v in filled.items():
             measurements[k] = v
@@ -165,8 +191,12 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
         from .schema import build_prompt
         prompt = build_prompt(describe, measurements, prejudged, priors,
                               photo_count)
+        p(f"S2 视觉确认：调用 {model_name} 读 {photo_count} 张照片"
+          "（最耗时环节，thinking 开启时可达分钟级）…")
+        t_vlm = time.monotonic()
         obs = sanitize(parse_model_json(
             provider.complete(prompt, list(photos), thinking)))
+        p(f"S2 视觉确认完成（耗时 {time.monotonic() - t_vlm:.1f}s）")
         dropped = list(obs.dropped)
 
     merged = merge(obs, measurements, prejudged, priors, parsed.hints,
@@ -180,9 +210,12 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
     from .validate import validate_candidate
     ok_static, issues = validate_candidate(measurements, options)
 
+    p(f"参数派生完成：发射 {len(derived)} 键，静态校验 "
+      f"{'通过' if ok_static else '有问题'}")
+
     from .probe import ProbeOutcome, probe_loop
     if run_probe:
-        probe = probe_loop(measurements, options, max_refeed)
+        probe = probe_loop(measurements, options, max_refeed, progress=p)
     else:
         # ok=False：--draft 拒绝直出（探针未运行 = 未验证，不许跳过人工核对）
         probe = ProbeOutcome(False, "跳过", "--no-geometry：探针未运行")
@@ -197,6 +230,7 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
     score_items: list = []
     if run_score and getattr(probe, "ctx", None) is not None:
         from .score import score_features
+        p("打版后合理性评分…")
         score_items = score_features(probe.ctx, measurements, options_final)
 
     from .emit import build_size_text
@@ -216,9 +250,11 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
         measurements=measurements, evidence=evidence, merged=merged,
         derived=derived, issues=issues, probe=probe, score_items=score_items,
         dropped=dropped, dep_notes=dep_notes, reverted=reverted)
+    p("提取完成")
     return ExtractResult(measurements=measurements, merged=merged,
                          derived=derived, issues=issues, probe=probe,
                          score_items=score_items, dropped=dropped,
                          dep_notes=dep_notes, reverted=reverted,
                          size_text=size_text, report_text=report_text,
-                         model_name=model_name, photo_count=photo_count)
+                         model_name=model_name, photo_count=photo_count,
+                         measurement_evidence=evidence)

@@ -209,3 +209,33 @@ html, body, #root { height: 100%; margin: 0; }
   display: flex; justify-content: space-between; align-items: center; gap: 16px;
 }
 .sr-footer .sr-error { color: #cf1322; font-size: 12px; }
+
+/* ---- 提取向导弹层（一期前端接线 §10.9） ---- */
+.extract-field { margin-bottom: 12px; }
+.extract-field-label { font-size: 12.5px; color: #444; margin-bottom: 4px; }
+/* 等待态：VLM 长请求（可能数十秒），锁关 + 秒表 */
+.extract-waiting {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 48px 0; color: #666;
+}
+.extract-elapsed { color: #999; font-size: 12px; }
+.extract-meta { color: #999; font-size: 12px; margin-bottom: 8px; }
+.extract-actions {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;
+}
+/* 确认屏清单表（尺寸/选项/评分共用；低置信行标黄） */
+.extract-table { border-collapse: collapse; width: 100%; }
+.extract-table th, .extract-table td {
+  border: 1px solid #eee; padding: 4px 8px; text-align: left;
+  font-size: 12px; white-space: nowrap;
+}
+.extract-table th { background: #fafafa; font-weight: 500; }
+.extract-table tr.low-conf td { background: #fffbe6; }
+.extract-table td.extract-value { font-variant-numeric: tabular-nums; }
+.extract-evidence {
+  max-width: 360px; font-size: 12px; white-space: pre-wrap; color: #555;
+}
+.extract-probe-log {
+  background: #f6f6f6; padding: 8px; font-size: 11px; max-height: 200px;
+  overflow: auto; white-space: pre-wrap;
+}

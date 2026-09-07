@@ -2,6 +2,9 @@ import type {
   AdjustResult, DraftPayload, IssueDetail, PiecesResult, Schema, SeedPayload,
   SeedResult, SheetResult, Values,
 } from './types'
+import type { ExtractResponse } from './types'
+import { AGENT_BASE } from './agentConfig'
+import { normalizeExtractError } from './extractPayload'
 
 async function handle<T>(res: Response): Promise<T> {
   if (res.status === 422) {
@@ -92,4 +95,33 @@ export async function fetchTemplateDetail(
   file: string,
 ): Promise<{ measurements: Values; options: Values; size_run?: unknown }> {
   return handle(await fetch(`/api/templates/${file}`))
+}
+
+// ---- agent 提取服务（/agent 前缀；dev=Vite proxy、prod=backend 转发） ----
+
+// agent /api/extract 的 422 detail 是双形态（字符串=照片非法 |
+// [{param,message,level}]=缺必填清单），与 handle<T> 硬编码的
+// IssueDetail[] 口径不同，不能复用——错误经 normalizeExtractError 归一
+export async function postExtract(form: FormData): Promise<ExtractResponse> {
+  const res = await fetch(`${AGENT_BASE}/api/extract`,
+    { method: 'POST', body: form })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw normalizeExtractError(res.status, body?.detail)
+  }
+  return res.json() as Promise<ExtractResponse>
+}
+
+// agent 健康预检：网络失败/非 200 返回 null（= 服务未启动），不抛错
+// ——调用方据此禁用提交但不禁输入
+export async function fetchAgentHealth(): Promise<{
+  status: string; vlm_configured: boolean
+} | null> {
+  try {
+    const res = await fetch(`${AGENT_BASE}/healthz`)
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
 }
