@@ -118,8 +118,14 @@ html, body, #root { height: 100%; margin: 0; }
 .preview-empty {
   flex: 1; display: flex; align-items: center; justify-content: center;
 }
-/* 过期横幅：参数修改后预览保留但标"已过期"（下载门控的视觉对应） */
-.stale-banner { margin: 0; border-bottom: 1px solid #e8e8e8; }
+/* 过期提示角标（替代原预览区横幅，Toolbar.tsx StaleFlag）：
+   绝对定位在按钮右上角、不占布局宽度，显隐不推动相邻按钮；
+   包裹 span 同时是 Tooltip 宿主（禁用态 button 不触发鼠标事件） */
+.stale-tip-wrap { position: relative; display: inline-flex; }
+.stale-tip-wrap .stale-flag {
+  position: absolute; top: -7px; right: -7px; z-index: 1;
+  color: #faad14; font-size: 13px; background: #fff; border-radius: 50%;
+}
 /* tabs 根吃满预览区剩余高度（原 auto 高度：整版靠 svg 固有高度撑，
    放大内容在元素边缘被裁、右侧容器空白用不上）；逐级打通 height 链
    到 sheet-view 宿主 div（裁片 tab 内容超高仍由 content-holder 滚动） */

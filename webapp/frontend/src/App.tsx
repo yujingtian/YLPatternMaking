@@ -13,7 +13,7 @@ import './styles.css'
 
 function DraftApp() {
   const d = useDraft()
-  // 拖拽进行中：暂隐"已过期"横幅（每次回写都重生成，松手后必然同步）
+  // 拖拽进行中：暂隐工具栏"已过期"角标（每次回写都重生成，松手后必然同步）
   const [dragging, setDragging] = useState(false)
   // 推板设置抽屉开合（未配置点「推板 DXF」也转到此处）
   const [sizeRunOpen, setSizeRunOpen] = useState(false)
@@ -49,6 +49,7 @@ function DraftApp() {
         canUndo={d.lastDrag !== null}
         onUndo={d.undoLastDrag}
         engineState={d.engineState}
+        dragging={dragging}
         sizeRunConfigured={d.sizeRun !== null}
         onOpenSizeRun={() => setSizeRunOpen(true)}
       />
@@ -70,9 +71,6 @@ function DraftApp() {
         <PreviewPane
           sheet={d.sheet}
           pieces={d.pieces}
-          sheetStale={d.sheetStale}
-          piecesStale={d.piecesStale}
-          dragging={dragging}
           schema={d.schema}
           base={{ measurements: d.measurements, options: d.options }}
           onApplyAdjust={(p, v, b) => void d.applyAdjust(p, v, b)}

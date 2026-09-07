@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Alert, Empty, Tabs } from 'antd'
+import { Empty, Tabs } from 'antd'
 import type {
   DraftPayload, PiecesResult, Schema, SheetResult, Snapshot,
 } from '../types'
@@ -11,17 +11,13 @@ function SvgView({ svg }: { svg: string }) {
 }
 
 // 双快照预览：整版 tab 在前、裁片 tabs 随裁片生成追加；
-// 参数修改后预览保留、上方横幅标"已过期"（下载门控见 Toolbar）；
-// 拖拽调版期间横幅暂隐（每次回写都重生成，松手后快照必然同步）
+// 参数修改后预览保留，过期提示移至 Toolbar 按钮角标 + Tooltip
+// （2026-09-07 用户口径：弃预览区横幅——显隐推挤绘图区/常驻空行都不可取）
 export default function PreviewPane({
-  sheet, pieces, sheetStale, piecesStale, dragging,
-  schema, base, onApplyAdjust, onBeginDrag, onDragChange,
+  sheet, pieces, schema, base, onApplyAdjust, onBeginDrag, onDragChange,
 }: {
   sheet: Snapshot<SheetResult> | null
   pieces: Snapshot<PiecesResult> | null
-  sheetStale: boolean
-  piecesStale: boolean
-  dragging: boolean
   schema: Schema | null
   base: DraftPayload
   onApplyAdjust: (param: string, value: number, base: DraftPayload) => void
@@ -37,15 +33,6 @@ export default function PreviewPane({
       </div>
     )
   }
-
-  const staleMsg = !dragging &&
-    (sheetStale && piecesStale
-      ? '参数已修改，整版与裁片预览均已过期；重新生成对应步骤后才能下载 DXF'
-      : sheetStale
-        ? '参数已修改，整版预览已过期；重新「整版生成」后才能下载整版 DXF'
-        : piecesStale
-          ? '参数已修改，裁片预览已过期；重新「裁片生成」后才能下载裁片 DXF'
-          : null)
 
   const items = [
     ...(sheet
@@ -76,9 +63,6 @@ export default function PreviewPane({
 
   return (
     <div className="preview-pane">
-      {staleMsg && (
-        <Alert className="stale-banner" type="warning" showIcon message={staleMsg} />
-      )}
       <Tabs
         activeKey={active}
         onChange={setTab}

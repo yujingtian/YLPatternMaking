@@ -1,8 +1,24 @@
-import { Button, Space, Alert, Tag } from 'antd'
+import { Button, Space, Alert, Tag, Tooltip } from 'antd'
 import {
-  DownloadOutlined, PlayCircleOutlined, SettingOutlined, UndoOutlined,
+  DownloadOutlined, PlayCircleOutlined, SettingOutlined, UndoOutlined, WarningOutlined,
 } from '@ant-design/icons'
 import type { DownloadKind, IssueDetail } from '../types'
+
+// 过期角标（2026-09-07 用户口径：弃 PreviewPane 常驻横幅——显隐推挤绘图区、
+// 常驻空行都不佳，提示移到按钮上）：因过期被禁用/门控的按钮右上角挂 ⚠，
+// 悬停 Tooltip 看原因；角标绝对定位不占布局宽度，显隐不推动相邻按钮。
+// 禁用态 button 不触发鼠标事件，Tooltip 须包一层 span（antd 官方口径）。
+function StaleFlag({ tip, children }: { tip: string | null; children: JSX.Element }) {
+  if (!tip) return children
+  return (
+    <Tooltip title={tip}>
+      <span className="stale-tip-wrap">
+        {children}
+        <WarningOutlined className="stale-flag" />
+      </span>
+    </Tooltip>
+  )
+}
 
 // 两步生成门控（先画后裁）：
 //   整版生成 —— 仅互斥裁片生成
@@ -17,7 +33,7 @@ export default function Toolbar({
   sheetBusy, piecesBusy, dlBusy,
   sheetReady, sheetStale, piecesReady, piecesStale,
   errors, warnings, onGenerateSheet, onGeneratePieces, onDownload,
-  canUndo, onUndo, engineState,
+  canUndo, onUndo, engineState, dragging,
   sizeRunConfigured, onOpenSizeRun,
 }: {
   sheetBusy: boolean
@@ -35,11 +51,19 @@ export default function Toolbar({
   canUndo: boolean
   onUndo: () => void
   engineState: 'loading' | 'ready' | 'http'
+  dragging: boolean
   sizeRunConfigured: boolean
   onOpenSizeRun: () => void
 }) {
   const blocked = errors.length > 0
   const busy = sheetBusy || piecesBusy || dlBusy !== null
+  // 拖拽进行中暂隐角标：每次回写都重生成、松手后必然同步，拖拽中闪无意义
+  const sheetStaleTip = !dragging && sheetStale
+    ? '参数已修改，整版预览已过期；重新「整版生成」后恢复'
+    : null
+  const piecesStaleTip = !dragging && piecesStale
+    ? '参数已修改，裁片预览已过期；重新「裁片生成」后恢复'
+    : null
 
   return (
     <div className="toolbar">
@@ -56,14 +80,16 @@ export default function Toolbar({
         >
           整版生成
         </Button>
-        <Button
-          icon={<PlayCircleOutlined />}
-          loading={piecesBusy}
-          disabled={!sheetReady || sheetStale || sheetBusy}
-          onClick={onGeneratePieces}
-        >
-          裁片生成
-        </Button>
+        <StaleFlag tip={sheetStaleTip}>
+          <Button
+            icon={<PlayCircleOutlined />}
+            loading={piecesBusy}
+            disabled={!sheetReady || sheetStale || sheetBusy}
+            onClick={onGeneratePieces}
+          >
+            裁片生成
+          </Button>
+        </StaleFlag>
         <Button
           icon={<UndoOutlined />}
           disabled={busy || !canUndo}
@@ -71,32 +97,38 @@ export default function Toolbar({
         >
           撤销上次拖拽
         </Button>
-        <Button
-          icon={<DownloadOutlined />}
-          loading={dlBusy === 'sheetDxf'}
-          disabled={busy || !sheetReady || sheetStale || blocked}
-          onClick={() => onDownload('sheetDxf')}
-        >
-          整版 DXF
-        </Button>
-        <Button
-          icon={<DownloadOutlined />}
-          loading={dlBusy === 'piecesDxf'}
-          disabled={busy || !piecesReady || piecesStale || blocked}
-          onClick={() => onDownload('piecesDxf')}
-        >
-          裁片 DXF
-        </Button>
-        <Button
-          icon={<DownloadOutlined />}
-          loading={dlBusy === 'sizeRunDxf'}
-          disabled={busy || !piecesReady || piecesStale || blocked}
-          onClick={sizeRunConfigured
-            ? () => onDownload('sizeRunDxf')
-            : onOpenSizeRun}
-        >
-          推板 DXF{sizeRunConfigured ? '' : '（未配置）'}
-        </Button>
+        <StaleFlag tip={sheetStaleTip}>
+          <Button
+            icon={<DownloadOutlined />}
+            loading={dlBusy === 'sheetDxf'}
+            disabled={busy || !sheetReady || sheetStale || blocked}
+            onClick={() => onDownload('sheetDxf')}
+          >
+            整版 DXF
+          </Button>
+        </StaleFlag>
+        <StaleFlag tip={piecesStaleTip}>
+          <Button
+            icon={<DownloadOutlined />}
+            loading={dlBusy === 'piecesDxf'}
+            disabled={busy || !piecesReady || piecesStale || blocked}
+            onClick={() => onDownload('piecesDxf')}
+          >
+            裁片 DXF
+          </Button>
+        </StaleFlag>
+        <StaleFlag tip={piecesStaleTip}>
+          <Button
+            icon={<DownloadOutlined />}
+            loading={dlBusy === 'sizeRunDxf'}
+            disabled={busy || !piecesReady || piecesStale || blocked}
+            onClick={sizeRunConfigured
+              ? () => onDownload('sizeRunDxf')
+              : onOpenSizeRun}
+          >
+            推板 DXF{sizeRunConfigured ? '' : '（未配置）'}
+          </Button>
+        </StaleFlag>
         <Button icon={<SettingOutlined />} onClick={onOpenSizeRun}>
           推板设置
         </Button>
