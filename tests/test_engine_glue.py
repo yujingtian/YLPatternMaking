@@ -49,6 +49,15 @@ def test_pieces_glue_equals_http():
     assert _glue("pieces", REQ) == http
 
 
+def test_fitting_glue_equals_http():
+    """fitting 全等：3D 试穿 payload（§10.11）三裁片 + 站点逐字段一致。"""
+    http = client.post("/api/draft/fitting", json=REQ).json()
+    assert _glue("fitting", REQ) == http
+    assert http["ok"] is True
+    assert [pc["key"] for pc in http["pieces"]] == \
+        ["front_piece", "back_piece", "waistband"]
+
+
 def test_seed_glue_equals_http():
     """seed 全等：三预设形态 × 前后侧（纯函数，输出确定）。
     入参只带贴袋尺寸子集——seed 不走 _build，其余参数缺失/非法不影响。"""
@@ -141,6 +150,17 @@ def test_unregistered_binding_matches_http():
     out = _glue("adjust", req)
     assert out["error"]["kind"] == "validation"
     assert out["error"]["message"] == r.json()["detail"]
+
+
+def test_fitting_validation_matches_http():
+    """fitting 错误口径同构：必填测量缺失 -> 422 / validation。"""
+    bad = {"measurements": {"waist": 70}, "options": {}}
+    r = client.post("/api/draft/fitting", json=bad)
+    assert r.status_code == 422
+    out = _glue("fitting", bad)
+    assert out["ok"] is False
+    assert out["error"]["kind"] == "validation"
+    assert out["error"]["detail"] == r.json()["detail"]
 
 
 def test_handle_never_raises():

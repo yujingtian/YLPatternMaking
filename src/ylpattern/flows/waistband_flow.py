@@ -335,7 +335,9 @@ def build_waistband(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContext]
     notches = _collect_notches(local)
     grain = local.line("wb.grain")
     piece = PatternPiece("waistband", "腰头裁片", net_edges,
-                         notches=notches, grain=grain)
+                         notches=notches, grain=grain,
+                         frame="local")          # 旋转局部系（X̂=后弧切向），
+                                                # 3D 试穿只随标量导出（§10.11）
 
     # 裁切三段：缩水 -> 缝边（缝份不叠加缩水，§五）
     # 缩水率按面料经/纬（warp/weft）给；映射到腰头局部 X/Y 轴由经向方向决定

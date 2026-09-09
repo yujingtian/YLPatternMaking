@@ -432,7 +432,8 @@ def build_front_piece(main_ctx: DraftContext
     grain = _vertical_grain(net_edges)
     # 5. 净样裁片
     piece = PatternPiece("front_piece", "前片裁片", net_edges,
-                         notches=notches, grain=grain, marks=marks)
+                         notches=notches, grain=grain, marks=marks,
+                         origin=origin, frame="reflect_y")
     # 6. 先缩水后缝边（缝份不叠加缩水）：主面料率 None 回退全局；
     #    经向 = 局部 Y -> Y 吃 warp、X 吃 weft（换序传参，同 front_pocket 口径）
     warp, weft = o.shrinkage_rates(o.front_piece_shrinkage_warp,

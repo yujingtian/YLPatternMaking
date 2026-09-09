@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
-  DraftPayload, DownloadKind, IssueDetail, PiecesResult, Schema, SeedPayload,
-  SeedResult, SheetResult, Snapshot, SizeRunSpec, Values,
+  DraftPayload, DownloadKind, FittingResult, IssueDetail, PiecesResult,
+  Schema, SeedPayload, SeedResult, SheetResult, Snapshot, SizeRunSpec, Values,
 } from '../types'
 import {
-  download as downloadFile, fetchSchema, postPieces, postSeed, postSheet,
+  download as downloadFile, fetchSchema, postFitting, postPieces, postSeed,
+  postSheet,
 } from '../api'
 import { normalizeSizeRun } from '../sizeRun'
 import { getEngine } from '../engine/client'
@@ -45,6 +46,9 @@ export interface DraftState {
     Promise<SeedResult | { ok: false; message: string }>
   generateSheet: () => Promise<void>
   generatePieces: () => Promise<void>
+  // 3D 试穿 payload（独立快照）：不走「先画后裁」门控——试穿是探索性
+  // 视图、引擎独立重打版；整版/裁片/DXF 的新鲜度语义不受影响
+  generateFitting: () => Promise<void>
   // opts.sizeRun：抽屉「保存+导出」同 tick 的显式覆盖（规避闭包旧值竞态）
   download: (kind: DownloadKind, opts?: { sizeRun?: SizeRunSpec | null }) =>
     Promise<void>
@@ -56,14 +60,17 @@ export interface DraftState {
   adjustInfo: { param: string; ts: number } | null
   sheet: Snapshot<SheetResult> | null
   pieces: Snapshot<PiecesResult> | null
+  fitting: Snapshot<FittingResult> | null
   sheetReady: boolean
   sheetStale: boolean
   piecesReady: boolean
   piecesStale: boolean
+  fittingStale: boolean
   errors: IssueDetail[]
   warnings: DraftWarning[]
   sheetBusy: boolean
   piecesBusy: boolean
+  fittingBusy: boolean
   dlBusy: DownloadKind | null
   // 本地引擎状态（Pyodide worker）：loading 加载中 / ready 本地计算 /
   // http 走服务端（?engine=off、加载失败降级或 worker 反复崩溃）
@@ -102,12 +109,16 @@ export function useDraft(): DraftState {
   optsRef.current = options
   const [sheet, setSheet] = useState<Snapshot<SheetResult> | null>(null)
   const [pieces, setPieces] = useState<Snapshot<PiecesResult> | null>(null)
+  const [fitting, setFitting] = useState<Snapshot<FittingResult> | null>(null)
   const [errors, setErrors] = useState<IssueDetail[]>([])
   const [warnings, setWarnings] = useState<DraftWarning[]>([])
   const [sheetBusy, setSheetBusy] = useState(false)
   const [piecesBusy, setPiecesBusy] = useState(false)
+  const [fittingBusy, setFittingBusy] = useState(false)
   const piecesBusyRef = useRef(false)
   piecesBusyRef.current = piecesBusy
+  const fittingBusyRef = useRef(false)
+  fittingBusyRef.current = fittingBusy
   const [dlBusy, setDlBusy] = useState<DownloadKind | null>(null)
   const [lastDrag, setLastDrag] = useState<{ param: string; prevValue: number } | null>(null)
   const [adjustInfo, setAdjustInfo] = useState<{ param: string; ts: number } | null>(null)
@@ -165,6 +176,7 @@ export function useDraft(): DraftState {
 
   const sheetStale = sheet !== null && sheet.version !== version
   const piecesStale = pieces !== null && pieces.version !== version
+  const fittingStale = fitting !== null && fitting.version !== version
 
   // 拖拽回写：显式载荷（base + 新参数值）直接重生成整版——闭包里捕获的
   // measurements/options 必然滞后于高频拖拽，参数面板与整版以 base 为准。
@@ -256,6 +268,30 @@ export function useDraft(): DraftState {
     }
   }, [measurements, options, version, sheet, sheetBusy])
 
+  // 3D 试穿 payload：与两步生成同构的版本竞态语义；自互斥（试穿快调环
+  // 高频触发，进行中直接丢弃新请求——debounce 层会补发最后一拍）
+  const generateFitting = useCallback(async () => {
+    if (fittingBusyRef.current) return
+    fittingBusyRef.current = true
+    setFittingBusy(true)
+    setErrors([])
+    try {
+      const res = await postFitting({ measurements, options })
+      setFitting({ data: res, version })
+      setWarnings(res.warnings.map((w) => ({ param: w.param, message: w.message })))
+    } catch (e) {
+      const err = e as Error & { detail?: IssueDetail[] }
+      if (err.detail) {
+        setErrors(err.detail)
+      } else {
+        setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
+      }
+    } finally {
+      fittingBusyRef.current = false
+      setFittingBusy(false)
+    }
+  }, [measurements, options, version])
+
   // 从形态导入：读 optsRef 规避闭包旧值；失败返回 {ok:false, message}
   // 内联显示在编辑器（422 detail 为字符串消息，其余取 error 文本）
   const seedShape = useCallback(async (kind: SeedPayload['kind'],
@@ -308,13 +344,14 @@ export function useDraft(): DraftState {
     schema, measurements, options, sizeRun,
     setMeasurement, setOption, setSizeRun, loadValues,
     seedShape,
-    generateSheet, generatePieces, download,
+    generateSheet, generatePieces, generateFitting, download,
     applyAdjust, beginDrag, undoLastDrag, lastDrag, adjustInfo,
-    sheet, pieces,
+    sheet, pieces, fitting,
     sheetReady: sheet !== null, sheetStale,
     piecesReady: pieces !== null, piecesStale,
+    fittingStale,
     errors, warnings,
-    sheetBusy, piecesBusy, dlBusy,
+    sheetBusy, piecesBusy, dlBusy, fittingBusy,
     engineState,
   }
 }

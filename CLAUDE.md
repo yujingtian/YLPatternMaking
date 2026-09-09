@@ -42,6 +42,12 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #    协议/回退阶梯/打包链详见 .doc/python工程设计.md §10.8）
 #   （前端已构建于 webapp/frontend/dist；改前端：cd webapp/frontend && npm run dev，
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
+#   3D 人台试穿（2026-09 一期）：预览区「3D 试穿」tab——前后片当布料缝到参数化人台，
+#   前端自研 PBD（模块 webapp/frontend/src/fitting3d/，新依赖 three+delaunator 惰性分包）；
+#   引擎侧出口 exporters/fitting.py build_fitting_payload（POST /api/draft/fitting 双通道）；
+#   金标 python -m pytest tests/test_fitting_payload.py -q + 前端 cd webapp/frontend && npm test
+#   （fixture 重生成命令见 fitting3d.integration.test.ts 文件头）；
+#   口径（体型/成衣分离、缝合配对、PBD 等）权威 .doc/python工程设计.md §10.11
 # LLM agent（agent/ 独立目录与 webapp/ 平级，2026-09-03 边界：ylpattern 纯引擎、
 #   全部大模型相关代码在此——extract/ 12 模块提取管线 + cli.py 命令行 + app.py HTTP 服务；
 #   依赖方向唯一 agent → ylpattern；口径权威 .doc/python工程设计.md §10.9；

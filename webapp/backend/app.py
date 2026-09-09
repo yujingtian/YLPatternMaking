@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ylpattern.exporters import dxf as dxf_exp
+from ylpattern.exporters import fitting as fitting_exp
 from ylpattern.exporters import piece_dxf as piece_dxf_exp
 from ylpattern.exporters import piece_svg as piece_exp
 from ylpattern.exporters import report as report_exp
@@ -209,6 +210,17 @@ def draft_pieces(req: DraftRequest) -> dict:
         "skips": skips,
         "warnings": warnings,
     }
+
+
+@app.post("/api/draft/fitting")
+def draft_fitting(req: DraftRequest) -> dict:
+    """3D 试穿 payload（§10.11）：前后片净样边链（整版全局坐标 cm、Y 向上）
+    + 人台放样站点 + 腰头标量。与 Pyodide 胶水 _fitting 逐字段同构
+    （tests/test_engine_glue.py 钉死全等）；size_run 忽略。
+    """
+    m, _o, ctx, warnings = _draft_ctx(req)
+    return {"ok": True, **fitting_exp.build_fitting_payload(ctx, m),
+            "warnings": warnings}
 
 
 @app.post("/api/dxf")

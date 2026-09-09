@@ -134,7 +134,8 @@ def apply_shrinkage(piece: PatternPiece, warp: float, weft: float
                         out.gross_polygon, out.gross_notches,
                         out.notes + (f"缩水：经 {warp*100:.1f}% / 纬 {weft*100:.1f}%",)
                         if warp or weft else out.notes,
-                        smarks, sdrills)
+                        smarks, sdrills,
+                        origin=out.origin, frame=out.frame)
 
 
 def _offset_point(g: CubicBezier, t: float, amt: float) -> Point:

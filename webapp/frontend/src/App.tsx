@@ -76,6 +76,12 @@ function DraftApp() {
           onApplyAdjust={(p, v, b) => void d.applyAdjust(p, v, b)}
           onBeginDrag={d.beginDrag}
           onDragChange={setDragging}
+          fitting={d.fitting}
+          fittingStale={d.fittingStale}
+          fittingBusy={d.fittingBusy}
+          onGenerateFitting={() => void d.generateFitting()}
+          measurements={d.measurements}
+          onMeasurement={d.setMeasurement}
         />
       </main>
       <SizeRunDrawer

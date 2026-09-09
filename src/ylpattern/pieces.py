@@ -65,12 +65,23 @@ class PatternPiece:
                                                 #   显式给定——与中心对称线共线，供
                                                 #   车间直接沿直线对折（2026-08 口径）
 
+    origin: Point | None = None                   # 局部系原点在整版全局坐标的位置；
+                                                # None = 未登记（裁片自成一体，如腰头
+                                                #   旋转局部系）。3D 试穿 payload 用
+                                                #   （.doc/python工程设计.md §10.11）
+    frame: str = "reflect_y"                      # 局部系约定："reflect_y" =
+                                                #   local=(x−origin.x, origin.y−y)
+                                                #   （X 不翻 Y 翻，前后片口径）；
+                                                #   "local" = 旋转局部系（腰头），
+                                                #   反变换不可逆推、只随标量导出
+
     def with_shrunk(self, edges: tuple[PieceEdge, ...],
                     notches: tuple[Point, ...]) -> "PatternPiece":
         return PatternPiece(self.name, self.label, self.net_edges,
                             self.notches, self.grain, edges, notches,
                             self.gross_polygon, self.gross_notches, self.notes,
-                            self.marks, self.drills, self.gross_notch_dirs)
+                            self.marks, self.drills, self.gross_notch_dirs,
+                            self.origin, self.frame)
 
     def with_gross(self, polygon: tuple[Point, ...],
                    notches: tuple[Point, ...],
@@ -80,4 +91,5 @@ class PatternPiece:
         return PatternPiece(self.name, self.label, self.net_edges,
                             self.notches, self.grain, self.shrunk_edges,
                             self.shrunk_notches, polygon, notches, notes,
-                            self.marks, self.drills, notch_dirs)
+                            self.marks, self.drills, notch_dirs,
+                            self.origin, self.frame)

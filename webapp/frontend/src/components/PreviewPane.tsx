@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { Empty, Tabs } from 'antd'
 import type {
-  DraftPayload, PiecesResult, Schema, SheetResult, Snapshot,
+  DraftPayload, FittingResult, PiecesResult, Schema, SheetResult, Snapshot,
+  Values,
 } from '../types'
 import SheetView from './SheetView'
+import Fitting3DView from '../fitting3d/Fitting3DView'
 
 // 裁片 SVG 为 Y 向上坐标（已由 exporters 翻转适配 viewBox），直接内联渲染
 function SvgView({ svg }: { svg: string }) {
@@ -15,6 +17,8 @@ function SvgView({ svg }: { svg: string }) {
 // （2026-09-07 用户口径：弃预览区横幅——显隐推挤绘图区/常驻空行都不可取）
 export default function PreviewPane({
   sheet, pieces, schema, base, onApplyAdjust, onBeginDrag, onDragChange,
+  fitting, fittingStale, fittingBusy, onGenerateFitting, measurements,
+  onMeasurement,
 }: {
   sheet: Snapshot<SheetResult> | null
   pieces: Snapshot<PiecesResult> | null
@@ -23,6 +27,13 @@ export default function PreviewPane({
   onApplyAdjust: (param: string, value: number, base: DraftPayload) => void
   onBeginDrag: (param: string, prevValue: number) => void
   onDragChange: (dragging: boolean) => void
+  // 3D 试穿（fitting 快照独立于裁片；整版生成后 tab 即挂载）
+  fitting: Snapshot<FittingResult> | null
+  fittingStale: boolean
+  fittingBusy: boolean
+  onGenerateFitting: () => void
+  measurements: Values
+  onMeasurement: (key: string, value: unknown) => void
 }) {
   const [tab, setTab] = useState('sheet')
 
@@ -47,6 +58,19 @@ export default function PreviewPane({
               onApplyAdjust={onApplyAdjust}
               onBeginDrag={onBeginDrag}
               onDragChange={onDragChange}
+            />
+          ) }]
+      : []),
+    ...(sheet
+      ? [{ key: 'fitting3d', label: '3D 试穿',
+          children: (
+            <Fitting3DView
+              fitting={fitting}
+              fittingStale={fittingStale}
+              fittingBusy={fittingBusy}
+              onGenerateFitting={onGenerateFitting}
+              measurements={measurements}
+              onMeasurement={onMeasurement}
             />
           ) }]
       : []),

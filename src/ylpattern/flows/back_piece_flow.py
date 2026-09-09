@@ -659,7 +659,7 @@ def build_back_piece(main_ctx: DraftContext
     # 5. 净样裁片
     piece = PatternPiece("back_piece", "后片裁片", net_edges,
                          notches=notches, grain=grain, marks=marks,
-                         drills=drills)
+                         drills=drills, origin=origin, frame="reflect_y")
     # 6. 先缩水后缝边（§3 顺序 2/3：缝份为绝对值不乘缩水率）：主面料率
     #    None 回退全局；经向 = 局部 Y -> Y 吃 warp、X 吃 weft（换序传参，
     #    同前片/机头口径）

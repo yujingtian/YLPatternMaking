@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 
+from ylpattern.exporters import fitting as fitting_exp
 from ylpattern.exporters import piece_svg as piece_exp
 from ylpattern.exporters import report as report_exp
 from ylpattern.exporters import svg as svg_exp
@@ -142,6 +143,13 @@ def _pieces(payload: dict) -> dict:
     }
 
 
+def _fitting(payload: dict) -> dict:
+    """3D 试穿 payload（复刻 /api/draft/fitting，§10.11）。"""
+    m, _o, ctx, warnings = _draft_ctx(payload)
+    return {"ok": True, **fitting_exp.build_fitting_payload(ctx, m),
+            "warnings": warnings}
+
+
 def _seed(payload: dict) -> dict:
     """预设形态 -> custom 初始点/边（复刻 /api/seed；不走 _build：
     只依赖贴袋 5 参数或袋布 2 安全量，其余参数中间态非法时也要可用，§10.8）。"""
@@ -153,7 +161,7 @@ def _seed(payload: dict) -> dict:
 
 
 _COMMANDS = {"sheet": _sheet, "adjust": _adjust, "pieces": _pieces,
-             "seed": _seed}
+             "fitting": _fitting, "seed": _seed}
 
 
 def handle(cmd: str, payload_json: str) -> str:
