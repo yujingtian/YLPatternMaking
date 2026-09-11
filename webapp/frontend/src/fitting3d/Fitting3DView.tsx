@@ -39,6 +39,11 @@ const STATION_LABEL: Record<string, string> = {
   waist: '腰', hip: '臀', thigh: '大腿', knee: '膝',
 }
 
+// 裤子渲染开关：人台形状验收期（2026-09-10）曾置 false 只显示人台，
+// 视觉验收通过当日已改回 true 恢复全量渲染（布料四半片/腰头环带/
+// 结构线与热力图/透明度/重新试穿）；开关保留备用（详见 §10.11）。
+const RENDER_GARMENT: boolean = true
+
 interface SceneCtx {
   THREE: ThreeMod
   renderer: ThreeT.WebGLRenderer
@@ -55,6 +60,8 @@ interface ContentHandles {
   clothMeshes: ThreeT.Mesh[]
   clothMat: ThreeT.MeshStandardMaterial
   heatMat: ThreeT.MeshStandardMaterial
+  lineMat: ThreeT.LineBasicMaterial
+  bandMat: ThreeT.MeshStandardMaterial
   applyHeat: () => void     // 重算应变并写入 color attr（settled 后也能切）
 }
 
@@ -71,6 +78,9 @@ export default function Fitting3DView({
 }) {
   const mountRef = useRef<HTMLDivElement>(null)
   const ctxRef = useRef<SceneCtx | null>(null)
+  // 地面格网（场景一次创建；y 随人台 bottomY 落地——2026-09-10 第四轮
+  // 加脚后 GridHelper 从 y=0 挪到脚底，人不再悬空）
+  const gridRef = useRef<ThreeT.GridHelper | null>(null)
   const [threeMod, setThreeMod] = useState<
     { THREE: ThreeMod; OrbitControls: OrbitControlsCtor } | null>(null)
   const [store, setStore] = useState<StoreShape>(() => loadStore())
@@ -167,6 +177,7 @@ export default function Fitting3DView({
     dir.position.set(40, 140, 80)
     scene.add(hemi, dir)
     const grid = new THREE.GridHelper(320, 32, 0xc9c9c9, 0xe0e0e0)
+    gridRef.current = grid
     scene.add(grid)
     const render = () => { renderer.render(scene, camera) }
     controls.addEventListener('change', render)
@@ -204,6 +215,8 @@ export default function Fitting3DView({
     if (!ctx || !threeMod || !man || !garment || !sim) return
     const { THREE } = ctx
     const group = new THREE.Group()
+    // 地面格网随人台落地（脚底 = man.bottomY）
+    if (gridRef.current) gridRef.current.position.y = man.bottomY
 
     // 人台（SDF 单张水密蒙皮：三管 smin 软并集 + marching cubes，仅体型/
     // 围度变化时重建、非每帧）+ 腰头环带（挂腰口站点高度，宽随 payload）。
@@ -242,7 +255,7 @@ export default function Fitting3DView({
     const bandMat = new THREE.MeshStandardMaterial({
       color: 0x39435c, roughness: 0.7, side: THREE.DoubleSide,
     })
-    group.add(new THREE.Mesh(wbGeo, bandMat))
+    if (RENDER_GARMENT) group.add(new THREE.Mesh(wbGeo, bandMat))
 
     // 布料（四半片，粒子连续段 memcpy 到各自 position attr）
     const clothMat = new THREE.MeshStandardMaterial({
@@ -258,6 +271,7 @@ export default function Fitting3DView({
     const posAttrs: ThreeT.BufferAttribute[] = []
     const colAttrs: ThreeT.BufferAttribute[] = []
     for (const part of garment.parts) {
+      if (!RENDER_GARMENT) break   // 裤子屏蔽：布料/结构线不建不挂
       const n = part.mesh.xy.length / 2
       const geo = new THREE.BufferGeometry()
       const pa = new THREE.BufferAttribute(new Float32Array(3 * n), 3)
@@ -280,7 +294,7 @@ export default function Fitting3DView({
     const lineMat = new THREE.LineBasicMaterial({ color: 0x16a085 })
     const lines: { baked: BakedLine; attr: ThreeT.BufferAttribute
       geo: ThreeT.BufferGeometry }[] = []
-    if (fitting) {
+    if (RENDER_GARMENT && fitting) {
       const pieceOf = (key: string) =>
         fitting.data.pieces.find((p) => p.key === key)
       for (const part of garment.parts) {
@@ -300,6 +314,7 @@ export default function Fitting3DView({
     }
     ctx.scene.add(group)
     const applyHeat = () => {
+      if (!RENDER_GARMENT) return
       const strain = computeStrain(garment, sim.pos)
       for (let p = 0; p < garment.parts.length; p++) {
         const part = garment.parts[p]
@@ -312,31 +327,34 @@ export default function Fitting3DView({
         colAttrs[p].needsUpdate = true
       }
     }
-    handlesRef.current = { bodyMeshes, clothMeshes, clothMat, heatMat, applyHeat }
+    handlesRef.current = { bodyMeshes, clothMeshes, clothMat, heatMat,
+      lineMat, bandMat, applyHeat }
     ctx.render()
 
     // 每帧：粒子 -> 布料/结构线/热力图 + 渲染
     const unregister = onFrame(() => {
-      for (let p = 0; p < garment.parts.length; p++) {
-        const part = garment.parts[p]
-        const n = part.mesh.xy.length / 2
-        posAttrs[p].array.set(
-          sim.pos.subarray(3 * part.offset, 3 * (part.offset + n)))
-        posAttrs[p].needsUpdate = true
-        clothMeshes[p].geometry.computeVertexNormals()
-      }
-      for (const { baked, attr } of lines) {
-        updateBakedLine(baked, sim.pos)
-        const segCount = baked.n - 1
-        for (let s = 0; s < segCount; s++) {
-          for (let d = 0; d < 3; d++) {
-            attr.array[s * 6 + d] = baked.positions[s * 3 + d]
-            attr.array[s * 6 + 3 + d] = baked.positions[s * 3 + 3 + d]
-          }
+      if (RENDER_GARMENT) {
+        for (let p = 0; p < garment.parts.length; p++) {
+          const part = garment.parts[p]
+          const n = part.mesh.xy.length / 2
+          posAttrs[p].array.set(
+            sim.pos.subarray(3 * part.offset, 3 * (part.offset + n)))
+          posAttrs[p].needsUpdate = true
+          clothMeshes[p].geometry.computeVertexNormals()
         }
-        attr.needsUpdate = true
+        for (const { baked, attr } of lines) {
+          updateBakedLine(baked, sim.pos)
+          const segCount = baked.n - 1
+          for (let s = 0; s < segCount; s++) {
+            for (let d = 0; d < 3; d++) {
+              attr.array[s * 6 + d] = baked.positions[s * 3 + d]
+              attr.array[s * 6 + 3 + d] = baked.positions[s * 3 + 3 + d]
+            }
+          }
+          attr.needsUpdate = true
+        }
+        if (heatRef.current) applyHeat()
       }
-      if (heatRef.current) applyHeat()
       ctx.render()
     })
 
@@ -360,7 +378,9 @@ export default function Fitting3DView({
     const h = handlesRef.current
     if (!ctx || !h) return
     heatRef.current = showHeatmap
-    for (const mat of [h.clothMat, h.heatMat]) {
+    // 透明度统一驱动全部成衣可视物（布料/结构线/腰头环带），
+    // 0=完全隐藏（只看人台）；拉满时三者同步淡出，不残留悬浮线/环带
+    for (const mat of [h.clothMat, h.heatMat, h.lineMat, h.bandMat]) {
       mat.opacity = opacity
       mat.transparent = opacity < 1
       mat.needsUpdate = true
@@ -454,7 +474,7 @@ export default function Fitting3DView({
             <Spin tip={threeMod === null ? '加载 3D 引擎…' : '构建试穿场景…'} />
           </div>
         )}
-        {solver.status === 'frozen' && (
+        {RENDER_GARMENT && solver.status === 'frozen' && (
           <div className="fitting3d-frozen">
             仿真已暂停（数值发散），可点「重新试穿」
           </div>
@@ -524,11 +544,13 @@ export default function Fitting3DView({
 
         <div className="f3d-card">
           <div className="f3d-card-title">显示</div>
-          <div className="f3d-row">
-            <span>应变热力图</span>
-            <Switch size="small" checked={showHeatmap}
-              onChange={setShowHeatmap} />
-          </div>
+          {RENDER_GARMENT && (
+            <div className="f3d-row">
+              <span>应变热力图</span>
+              <Switch size="small" checked={showHeatmap}
+                onChange={setShowHeatmap} />
+            </div>
+          )}
           <div className="f3d-row">
             <span>显示人台</span>
             <Button size="small" type="text"
@@ -537,29 +559,35 @@ export default function Fitting3DView({
               {showBody ? '开' : '关'}
             </Button>
           </div>
-          <div className="f3d-row">
-            <span>布料透明度</span>
-            <Slider className="f3d-opacity" min={0.2} max={1} step={0.05}
-              value={opacity} onChange={(v) => setOpacity(v ?? 1)}
-              tooltip={{ formatter: (v) => `${Math.round((1 - (v ?? 1)) * 100)}%` }} />
-          </div>
+          {RENDER_GARMENT && (
+            <div className="f3d-row">
+              <span>布料透明度</span>
+              <Slider className="f3d-opacity" min={0} max={1} step={0.05}
+                value={opacity} onChange={(v) => setOpacity(v ?? 1)}
+                tooltip={{ formatter: (v) => `${Math.round((1 - (v ?? 1)) * 100)}%` }} />
+            </div>
+          )}
         </div>
 
         <div className="f3d-card f3d-actions">
-          <Button size="small" icon={<RedoOutlined />}
-            onClick={solver.restart}
-            disabled={solver.status === 'idle'}>
-            重新试穿
-          </Button>
+          {RENDER_GARMENT && (
+            <Button size="small" icon={<RedoOutlined />}
+              onClick={solver.restart}
+              disabled={solver.status === 'idle'}>
+              重新试穿
+            </Button>
+          )}
           <Button size="small" icon={<CameraOutlined />} onClick={screenshot}>
             截图 PNG
           </Button>
-          <span className="f3d-status">
-            {solver.status === 'running' ? '解算中…'
-              : solver.status === 'settled' ? '已稳定'
-              : solver.status === 'frozen' ? '已暂停' : ''}
-            {fittingBusy ? ' · 计算中' : ''}
-          </span>
+          {RENDER_GARMENT && (
+            <span className="f3d-status">
+              {solver.status === 'running' ? '解算中…'
+                : solver.status === 'settled' ? '已稳定'
+                : solver.status === 'frozen' ? '已暂停' : ''}
+              {fittingBusy ? ' · 计算中' : ''}
+            </span>
+          )}
         </div>
       </div>
       <BodyProfileDrawer

@@ -2,9 +2,13 @@
 // 金标风格：手工推演值 + 强断言。
 //   1. 人台：腰环折线周长 == 体型腰围（±1.5% 标定公差）；radiusAt
 //      轴向 == 半轴；sectionAt 端点夹取
-//   1b. 互嵌接合：拓扑三盖不共面；嵌入环 containment 金标（上插环退入
-//      骨盆 (1−m) 内切 + 48 顶点最坏范数）；接合支撑金标（侧向 emergence
-//      带 / 会阴被填带 + 带外逐位零漂移锚）
+//   1b. 人体化腿管（2026-09-10 外缘连续 emergence，旧 containment 藏头
+//      已删）：拓扑三盖不共面；剪影不变量（Lipschitz 无台阶 / 最宽点≈臀
+//      / 膝踝比例 / 内缘缝隙带 / 双腿 cx>0）；接合支撑金标（emergence
+//      带腿接管 + 盆内零漂移锚 + 会阴被填带）
+//   1d. 第四轮人体化（2026-09-10）：矢状 S 曲线（腰椎谷/臀峰/臀底褶/
+//      小腹峰/腘窝/小腿肚/跟腱）、腰最窄（肋外扩 + argmin 带内）、
+//      脚盒（局部系/地面/外八）、肚脐（挂前腹表面）金标
 //   1c. （已迁移）tubeMesh 绕向/水密金标随 tubeMesh 删除整体迁至
 //      skin.test.ts——蒙皮三角形法线·∇F>0（外向绕向）+ 无向边恰共享
 //      2 次 + 闭合流形 V−E+F=2
@@ -24,9 +28,9 @@ import {
   BODY_PRESETS, exportProfiles, findProfile, importProfiles, loadStore,
   removeCustom, upsertCustom,
 } from './bodyProfileStore'
-import { BODY_RATIO } from './priors'
+import { BODY_RATIO, FOOT_PRIOR, NAVEL_PRIOR } from './priors'
 import {
-  buildMannequin, radiusAt, ringPoint, sectionAt, superellipsePerimeter,
+  buildMannequin, radiusAt, sectionAt, superellipsePerimeter,
 } from './mannequin'
 import { buildClothMesh, runIndexAt } from './mesh'
 import { placePoint, surfaceRadius } from './seams'
@@ -97,86 +101,251 @@ describe('mannequin 人台', () => {
     expect(Math.abs(hipPer - 90) / 90).toBeLessThan(0.015)
   })
 
-  it('拓扑：躯干顶 = 腰+18、骨盆底 = 裆下楔底、腿顶 = 裆+6 上插、腿底 = 脚口−8', () => {
+  it('拓扑：躯干顶 = 腰+18、骨盆底 = 裆下楔底、腿顶 = 头带首环、腿底 = 脚口−8', () => {
     const man = buildMannequin(BODY, GIRTHS)
     expect(man.pelvis.rings[0].y).toBeCloseTo(98 + 18, 6)
-    // 骨盆底 = 裆 − 5（裆下楔底），不再是裸裆环
+    // 骨盆底 = 裆 − 3（五轮楔上提，穹顶止于 gap 过零锚上方），非裸裆环
     expect(man.pelvis.rings[man.pelvis.rings.length - 1].y)
       .toBeCloseTo(78 - BODY_RATIO.wedgeDropBelowCrotch, 6)
-    expect(man.pelvis.rings.length).toBe(13)   // 上段 11 环逐位不变 + 楔 2 环
-    // 腿顶上插：min(裆+6, 臀−1) = 84（165/66A = hip−2，不越过臀峰）
+    // 五轮：上段 17（止于臀站）+ 臀下填充带 5（前瞻锚手法同楔表）+ 楔 2
+    expect(man.pelvis.rings.length).toBe(24)
+    // 腿顶头带：yTop = min(裆+7, 臀−2) = 84，环在 (crotch, yTop) 开区间
+    // 1cm 一档（k=n 环恰在 crotch 与下段首环重合，跳过）→ 首环 83
+    const yTop = Math.min(
+      Y_CROTCH + BODY_RATIO.headRiseAboveCrotch,
+      Y_HIP - BODY_RATIO.headTopBelowHip)
+    const nHead = Math.max(2, Math.ceil(yTop - Y_CROTCH))
     expect(man.legs[0].rings[0].y)
-      .toBeCloseTo(Math.min(Y_CROTCH + BODY_RATIO.legRiseAboveCrotch, Y_HIP - 1), 6)
-    expect(man.legs[0].rings.length).toBe(26)  // 上插 2 环 + 下段 24 环
+      .toBeCloseTo(yTop - (yTop - Y_CROTCH) / nHead, 6)
+    // 下段 25 环（crotch/thigh/gapFill/midGap/knee/calf/hem/ankle 八站 4cm
+    // 采样，五轮b 新 gapFill 站+calf 上提各 +1）+ 头带 5 环
+    expect(man.legs[0].rings.length).toBe(25 + (nHead - 1))
     expect(man.legs[0].rings[man.legs[0].rings.length - 1].y).toBeCloseTo(-8, 6)
-    // 三盖不共面不变量（z-fighting 根源消除）：楔底 73 / 腿顶 84 / 腿底 −8
+    // 三盖不共面不变量（z-fighting 根源消除）：楔底 75 / 腿顶 83 / 腿底 −8
     expect(new Set([
       man.pelvis.rings[man.pelvis.rings.length - 1].y,
       man.legs[0].rings[0].y,
       man.legs[0].rings[man.legs[0].rings.length - 1].y,
     ]).size).toBe(3)
-    // 双腿中心左右对称（下段 cx 常量 ∓9.9；上插后 ring5 已移至 y≈67.7）
-    expect(man.legs[0].rings[5].cx).toBeCloseTo(-man.legs[1].rings[5].cx, 9)
-    expect(man.legs[0].rings[5].y).toBeCloseTo(203 / 3, 6)   // 75→42 站 9 等分
+    // 双腿中心左右对称（逐环 cx 镜像）；ring5 = 下段首环（crotch 环）
+    for (let i = 0; i < man.legs[0].rings.length; i++) {
+      expect(man.legs[0].rings[i].cx)
+        .toBeCloseTo(-man.legs[1].rings[i].cx, 9)
+    }
+    expect(man.legs[0].rings[5].y).toBeCloseTo(Y_CROTCH, 9)
   })
 
-  it('嵌入环 containment 金标：上插环整体退入骨盆 (1−m) 内切', () => {
+  it('人体形状不变量（165/66A 剪影金标，0.5cm 采样）', () => {
     const man = buildMannequin(BODY, GIRTHS)
-    const m = BODY_RATIO.embedMarginRatio
+    // 剪影采样：outer(y) = 环范围内各管 |cx|+a 最大值（门控同 collide，
+    // 界外管不算——sectionAt 夹取会造 phantom 腿）
+    const W_h = sectionAt(man.pelvis, Y_HIP).a
+    const outerAt = (y: number): number => {
+      let best = -Infinity
+      for (const tube of [man.pelvis, ...man.legs]) {
+        if (y > tube.rings[0].y
+          || y < tube.rings[tube.rings.length - 1].y) continue
+        const s = sectionAt(tube, y)
+        best = Math.max(best, Math.abs(s.cx) + s.a)
+      }
+      return best
+    }
+    const innerLegAt = (y: number): number | null => {
+      const s = sectionAt(man.legs[0], y)
+      if (y > man.legs[0].rings[0].y
+        || y < man.legs[0].rings[man.legs[0].rings.length - 1].y) return null
+      return Math.abs(s.cx) - s.a
+    }
+    // 1) 无台阶：|Δouter|/Δy ≤ 1.05（二轮微调后实测最坏 1.016 @78.5 =
+    //    头带凸坡陡段+裆环 girth 增长的真实斜率——软化坡会压低骨盆×腿穿越
+    //    角、威胁 kPL 外凸预算（priors headRise 注），故阈值按实测放至
+    //    1.05；阈值语义=台阶检测非斜率美学，上界仍 ≈1cm/cm。旧 0.7 阈值
+    //    是 fb/bb 矢状偏置（收窄骨盆壁）前口径）
+    const yFloor = man.legs[0].rings[man.legs[0].rings.length - 1].y
+    let worstLip = 0
+    for (let y = man.topY - 0.5; y >= yFloor; y -= 0.5) {
+      const lip = Math.abs(outerAt(y) - outerAt(y + 0.5)) / 0.5
+      worstLip = Math.max(worstLip, lip)
+    }
+    expect(worstLip).toBeLessThanOrEqual(1.05)
+    // 2) 最宽点 ≈ 臀：全身 outer ≤ W_h + 0.5（实测 15.90 = 大腿带 gap 下限
+    //    绑定 2a+gap，臀站 15.70——54cm 腿 × 90cm 臀的真实解剖比例）
+    let maxOuter = -Infinity
+    for (let y = man.topY; y >= yFloor; y -= 0.5) {
+      maxOuter = Math.max(maxOuter, outerAt(y))
+    }
+    expect(maxOuter).toBeLessThanOrEqual(W_h + 0.5)
+    expect(outerAt(Y_HIP)).toBeCloseTo(15.703, 3)
+    // 3) 站点剪影锚（五轮b 实测）：腰 11.652 / 裆腿外缘 14.996（外缘目标
+    //    绑定 0.955×W_h，inner −1.08）/ 膝 12.25 / 脚口
+    //    11.29（X 站姿 gap 外展绑定）/ 踝 10.657
+    expect(outerAt(98)).toBeCloseTo(11.652, 3)
+    expect(outerAt(78)).toBeCloseTo(14.996, 3)
+    expect(outerAt(42)).toBeCloseTo(12.25, 2)
+    expect(outerAt(0)).toBeCloseTo(11.29, 2)
+    expect(outerAt(-7)).toBeCloseTo(10.685, 2)   // 五轮c 峰下收拢站 CR 下传 +0.03
+    // 4) 膝/踝外缘比例（人体比例带，W_h 归一）
+    expect(outerAt(42) / W_h).toBeGreaterThan(0.72)
+    expect(outerAt(42) / W_h).toBeLessThan(0.85)
+    expect(outerAt(-7) / W_h).toBeGreaterThan(0.55)
+    expect(outerAt(-7) / W_h).toBeLessThan(0.70)
+    // 5) 小腿肚微凸：calf 站（五轮b 膝下 7→5 解剖位）外缘 > 膝外缘
+    expect(outerAt(37)).toBeGreaterThan(outerAt(42))
+    // 6) 内缘缝隙（五轮有意变更，决策日志 §十一）：裆下互叠带（inner<0）
+    //    ≤6cm 且止于过零锚（实测零点 73.5 = 裆下 4.5cm；@72 已转正、@66
+    //    缝 2×1.4=2.8 可辨——旧 10cm「接触带」微缝在 kLL 桥接与 MC 可辨
+    //    阈之下视觉焊死，已废）；膝内缘 ≥ +1.1、脚口内缘 ≥ +1.0
+    let band = 0
+    for (let y = Y_CROTCH; y >= man.bottomY; y -= 0.5) {
+      if ((innerLegAt(y) ?? 1) < 0) band += 0.5
+    }
+    expect(band).toBeLessThanOrEqual(6.0)
+    expect(innerLegAt(Y_CROTCH)!).toBeLessThan(0)       // 裆上预支外缘预算
+    expect(innerLegAt(72)!).toBeGreaterThanOrEqual(0)   // 分离点在裆下 ~5cm
+    expect(innerLegAt(66)!).toBeGreaterThanOrEqual(1.3) // 中腿缝 2×1.4 稳可辨
+    expect(innerLegAt(42)!).toBeGreaterThanOrEqual(1.1)
+    expect(innerLegAt(0)!).toBeGreaterThanOrEqual(1.0)
+    // 7) 双腿分居两侧（病理负 cx 回归守卫）：|cx| 逐环 ≥ 5（实测踝环 5.25）
     for (const leg of man.legs) {
       for (const r of leg.rings) {
-        if (r.y <= Y_CROTCH) continue
-        const P = sectionAt(man.pelvis, r.y)
-        expect(Math.abs(r.cx) + r.a)
-          .toBeLessThanOrEqual((1 - m) * P.a + 1e-9)
-        expect(r.bF).toBeLessThanOrEqual((1 - m) * P.bF + 1e-9)
-        expect(r.bB).toBeLessThanOrEqual((1 - m) * P.bB + 1e-9)
+        expect(Math.abs(r.cx)).toBeGreaterThanOrEqual(5)
       }
     }
-    // 手工演算 165/66A（per_hip=5.8997、per_default=6.0161）：
-    // 81 环 k = (0.96·aP(81) − 9.9) / a81 = (14.2787 − 9.9) / 6.8211
-    //        = 0.6419，恰饱和 |cx|+a = (1−m)·aP(81)（a: 6.8211 → 4.379）；
-    // 84 环 k = 1（容纳余量 0.96·aP(84) − 9.9 = 4.793 > a = 4.488，不触发）
-    const r81 = man.legs[0].rings.find((r) => Math.abs(r.y - 81) < 1e-9)!
-    expect(r81.a).toBeCloseTo(4.379, 3)
-    expect(Math.abs(r81.cx) + r81.a)
-      .toBeCloseTo((1 - m) * sectionAt(man.pelvis, 81).a, 9)
-    // 48 顶点最坏骨盆范数：81 环 +X 极值点恰落 (1−m)·aP 界上，
-    // 范数 = (1−m)^e_hip = 0.96^2.3 = 0.9104 < 1（嵌入头整体在骨盆体内，
-    // 顶盖零外露）；全上插环上限断言 0.92
-    let worst = 0
-    for (const leg of man.legs) {
-      for (const r of leg.rings) {
-        if (r.y <= Y_CROTCH) continue
-        const P = sectionAt(man.pelvis, r.y)
-        for (let i = 0; i < 48; i++) {
-          const [px, pz] = ringPoint(r.a, r.bF, r.bB, r.e, i / 48)
-          const norm = Math.pow(Math.abs(r.cx + px) / P.a, P.e)
-            + Math.pow(Math.abs(pz) / (pz >= 0 ? P.bF : P.bB), P.e)
-          worst = Math.max(worst, norm)
-        }
-      }
+    // 8) 骨盆反直筒（第四轮重述：矢状 fb/bb 偏置使 (78,86) 内 a 非单调——
+    //    bB/bF 峰值带吃宽度，a 在 ~82 出浅谷；不变量退为：带内永不超臀宽
+    //    + 裆环收细 ≥1.2（0.85 比直筒 0.94 的收细量）
+    const aHip = sectionAt(man.pelvis, Y_HIP).a
+    for (const r of man.pelvis.rings) {
+      if (r.y >= Y_HIP || r.y <= Y_CROTCH) continue
+      expect(r.a).toBeLessThanOrEqual(aHip + 1e-9)
     }
-    expect(worst).toBeCloseTo(0.9104, 3)
-    expect(worst).toBeLessThanOrEqual(0.92)
+    expect(aHip - sectionAt(man.pelvis, Y_CROTCH).a).toBeGreaterThanOrEqual(1.2)
+    // 9) 头带环贴盆：y ≥ crotch+2.5 的腿环外缘仍在盆壁内（emergence 渐出，
+    //    y<crotch+2.5 段允许穿出——接管点在 crotch+2 附近）
+    for (const r of man.legs[0].rings) {
+      if (r.y <= Y_CROTCH + 2.5) continue
+      expect(Math.abs(r.cx) + r.a)
+        .toBeLessThanOrEqual(sectionAt(man.pelvis, r.y).a + 1e-9)
+    }
+    // 10) 盆-腿壁交接无台阶（五轮 thighTopBackBias 与 crotchBack·FrontBias
+    //     对值构造；四轮前腿首锚硬编码 1.0，交接差 1.21 是臀底/小腹台阶
+    //     根因）：@crotch 前后壁差 ≤0.6（实测 bB 0.253 / bF 0.501）
+    expect(Math.abs(sectionAt(man.legs[0], Y_CROTCH).bB
+      - sectionAt(man.pelvis, Y_CROTCH).bB)).toBeLessThanOrEqual(0.6)
+    expect(Math.abs(sectionAt(man.pelvis, Y_CROTCH).bF
+      - sectionAt(man.legs[0], Y_CROTCH).bF)).toBeLessThanOrEqual(0.6)
+    // 11) 腰髋沟上限（五轮填充锚回归网）：outer@82 ≥ W_h−2.2（实测 14.054，
+    //     谷深 1.71 ≤1.8——矢状峰锚「保围缩 a」的允许消耗带）
+    expect(outerAt(82)).toBeGreaterThanOrEqual(W_h - 2.2)
   })
 
-  it('接合支撑金标（165/66A 手工演算）', () => {
+  it('接合支撑金标（165/66A 实测锚）', () => {
     const man = buildMannequin(BODY, GIRTHS)
-    // 侧向 emergence 带 (78,81)：腿管外缘开始挑大梁，支撑 +2.946(79)/
-    // +1.175(80)；81 以上逐位零漂移（surfaceRadius === 骨盆半轴）
-    expect(surfaceRadius(man, 79, Math.PI / 2)).toBeCloseTo(17.463, 3)
-    expect(surfaceRadius(man, 81, Math.PI / 2))
-      .toBeCloseTo(sectionAt(man.pelvis, 81).a, 9)
-    // 上段站点表逐位不变锚：82 环 a = 88.8 / per_hip = 15.052
-    expect(surfaceRadius(man, 82, Math.PI / 2)).toBeCloseTo(15.052, 3)
-    // 会阴被填带 (75.5,78) 后中：+1.395(76)/+3.07(77)——fixture 后浪尖
-    // 77.04 落带内（旧口径裆下夹取 78 环导致布料塌陷，属预期口径变更）
-    expect(surfaceRadius(man, 76, Math.PI)).toBeCloseTo(9.076, 3)
-    // 楔底(73)低于腿撑：74 处支撑仍由腿管决定（带外零漂移锚）
+    // 侧向 emergence 带 (78,80)：五轮b 填充锚下沉（hip−5）后 79 仍是盆壁
+    // 主导（盆 a 14.902 > 腿 |cx|+a 14.86，五轮c 小腹降峰保围微调 −0.014）
+    // ——支撑 = 骨盆半轴
+    expect(surfaceRadius(man, 79, Math.PI / 2)).toBeCloseTo(14.902, 3)
+    expect(surfaceRadius(man, 79, Math.PI / 2))
+      .toBeCloseTo(sectionAt(man.pelvis, 79).a, 9)
+    // 接管点以上零漂移锚：82 处支撑 === 骨盆半轴（头带贴盆内壁；
+    // 五轮b 填充锚抬谷 14.05→15.26，五轮c 小腹降峰保围还宽 +0.10→15.36，
+    // 腰髋沟上限不变量见剪影测试 11）
+    expect(surfaceRadius(man, 82, Math.PI / 2))
+      .toBeCloseTo(sectionAt(man.pelvis, 82).a, 9)
+    expect(surfaceRadius(man, 82, Math.PI / 2)).toBeCloseTo(15.36, 2)
+    // 臀站 = W_h（fb 臀站锚 1.0 -> 站点环 a 即外缘梯子 W_h 口径）
+    expect(surfaceRadius(man, 86, Math.PI / 2)).toBeCloseTo(15.703, 3)
+    // 会阴被填带 (75.5,78) 后中：支撑由腿 bB 决定（fixture 后浪尖 77.04
+    // 落带内，布料不塌陷）
+    expect(surfaceRadius(man, 76, Math.PI)).toBeCloseTo(9.627, 3)
+    // 楔底(75)低于腿撑：74 处支撑仍由腿管决定（带外零漂移锚）
     expect(surfaceRadius(man, 74, Math.PI))
       .toBeCloseTo(sectionAt(man.legs[0], 74).bB, 9)
-    expect(sectionAt(man.legs[0], 74).bB).toBeCloseTo(7.575, 3)
+    expect(sectionAt(man.legs[0], 74).bB).toBeCloseTo(9.07, 2)
+  })
+
+  it('第四轮人体化金标：矢状 S / 腰最窄 / 腿节奏 / 脚 / 脐', () => {
+    const man = buildMannequin(BODY, GIRTHS)
+    const Y_WAIST = 98, Y_RIB = 98 + BODY_RATIO.ribRiseAboveWaist
+    // ---- 骨盆矢状 S（bB 后半深）：腰 → 腰椎谷 → 臀站 → 臀峰 → 臀底褶 ----
+    const bB = (y: number) => sectionAt(man.pelvis, y).bB
+    const bF = (y: number) => sectionAt(man.pelvis, y).bF
+    let vY = 0, vV = Infinity, pY = 0, pV = -Infinity, fY = 0, fV = -Infinity
+    for (let y = Y_HIP; y <= Y_WAIST; y += 0.25) {
+      if (bB(y) < vV) { vV = bB(y); vY = y }
+    }
+    for (let y = Y_CROTCH; y <= Y_HIP; y += 0.25) {
+      if (bB(y) > pV) { pV = bB(y); pY = y }
+      if (bF(y) > fV) { fV = bF(y); fY = y }
+    }
+    // 腰椎谷：(hip, waist) 带内、深度 ≤ 0.98×腰（五轮「自然圆润」重校
+    // lumbarBias 0.67→0.77，实测 8.298@94 = 0.950 浅谷——四轮逐轮加深史
+    // 0.73→0.70→0.67 见决策日志，用户否决深谷）
+    expect(vY).toBeGreaterThan(Y_HIP)
+    expect(vY).toBeLessThan(Y_WAIST)
+    expect(vV / bB(Y_WAIST)).toBeLessThan(0.98)
+    // 臀峰：(crotch, hip) 带内偏下（真人臀峰在臀线下 ~4.5cm）、
+    // > 1.01×臀站（五轮实测 13.777@83 = 1.044——glute 1.42→1.30 自然
+    // 圆润窗口 1.02-1.04 上沿）；臀底褶：裆处 ≤ 0.72×峰（实测 0.682）
+    expect(pY).toBeGreaterThan(Y_CROTCH + 1)
+    expect(pY).toBeLessThan(Y_HIP)
+    expect(pV / bB(Y_HIP)).toBeGreaterThan(1.01)
+    expect(bB(Y_CROTCH) / pV).toBeLessThan(0.72)
+    // 小腹峰：frontBias 臀站锚 1.0 后 bF@86 不被小腹凸吃宽度——
+    // (crotch, hip) 带内 bF 局部峰 > bF@86 + 0.3（五轮实测 12.668@83
+    // vs 11.777；belly 1.28 单锚尖峰已降 1.18 宽缓微凸）
+    expect(fY).toBeGreaterThan(Y_CROTCH + 1)
+    expect(fY).toBeLessThan(Y_HIP)
+    expect(fV).toBeGreaterThan(bF(Y_HIP) + 0.3)
+    // ---- 腿矢状节奏：腘窝谷 → 小腿肚峰 → 跟腱收 ----
+    const lb = (y: number) => sectionAt(man.legs[0], y).bB
+    expect(lb(42)).toBeLessThan(lb(44))       // 膝站腘窝局部极小
+    expect(lb(42)).toBeLessThan(lb(40))
+    // 腘窝可见深度：膝上 2cm 处后壁高出谷 ≥0.2cm（五轮环缢减半 rim 1.00→
+    // 0.97 / 谷 0.80→0.86 后实测 0.246；四轮推深态 0.471 见决策日志——
+    // 删任一锚 dip 回落 ~0.1 即红，VLM「腘窝不可辨」回归守卫）
+    expect(lb(44) - lb(42)).toBeGreaterThanOrEqual(0.2)
+    expect(lb(37)).toBeGreaterThan(lb(38))    // 小腿肚站局部极大（五轮b
+    expect(lb(37)).toBeGreaterThan(lb(35))    // 站膝下 7→5 解剖位，VLM 复验
+                                              // 旧 7cm 站肌腹视觉重心过低+尖峰）
+    expect(lb(35)).toBeGreaterThan(lb(32))
+    expect(lb(-7) / lb(37)).toBeLessThan(0.65)   // 跟腱收（实测 ~0.60）
+    // ---- 腰最窄（肋外扩锚后腰 = 下躯干全局最窄）----
+    let aY = 0, aV = Infinity
+    for (let y = Y_HIP; y <= Y_RIB; y += 0.25) {
+      const a = sectionAt(man.pelvis, y).a
+      if (a < aV) { aV = a; aY = y }
+    }
+    expect(aY).toBeGreaterThan(Y_WAIST - 2)   // argmin ∈ (waist−2, waist+2)
+    expect(aY).toBeLessThan(Y_WAIST + 2)
+    expect(sectionAt(man.pelvis, Y_RIB).a)
+      .toBeGreaterThan(sectionAt(man.pelvis, Y_WAIST).a)   // 肋外扩 > 腰
+    // ---- 脚：踝局部系圆角盒、落地地面、微外八 ----
+    const yAnkle = man.legs[1].rings[man.legs[1].rings.length - 1].y
+    expect(man.bottomY).toBe(FOOT_PRIOR.groundY)
+    for (const [i, f] of man.feet.entries()) {
+      const sgn = i === 0 ? -1 : 1
+      expect(f.origin[0]).toBeCloseTo(
+        sgn * Math.abs(man.legs[i].rings[man.legs[i].rings.length - 1].cx), 9)
+      expect(f.origin[1]).toBeCloseTo(yAnkle, 9)
+      expect(f.origin[2]).toBeCloseTo(0, 9)
+      expect(f.yaw).toBeCloseTo(sgn * FOOT_PRIOR.toeOutDeg * Math.PI / 180, 9)
+      // 局部系盒：世界底 = groundY（+round 圆角触地）、顶 ≈ 踝下 0.6、
+      // z 跨 [−heelBehind, totalLength−heelBehind]
+      for (const b of f.boxes) {
+        expect(b.c[1] - b.h[1] - f.round + yAnkle)
+          .toBeCloseTo(FOOT_PRIOR.groundY, 6)
+        expect(b.c[1] + b.h[1] + f.round).toBeLessThan(0)
+        expect(b.c[2] - b.h[2] - f.round)
+          .toBeGreaterThanOrEqual(-FOOT_PRIOR.heelBehind - 1e-9)
+        expect(b.c[2] + b.h[2] + f.round)
+          .toBeLessThanOrEqual(FOOT_PRIOR.totalLength - FOOT_PRIOR.heelBehind + 1e-9)
+      }
+    }
+    // ---- 脐：腰下 4.5、挂前腹表面（bF 极值内移 inset）----
+    expect(man.navel.y).toBeCloseTo(Y_WAIST - NAVEL_PRIOR.dropBelowWaist, 9)
+    expect(man.navel.z).toBeCloseTo(
+      sectionAt(man.pelvis, man.navel.y).bF - NAVEL_PRIOR.inset, 9)
   })
 
   it('radiusAt 轴向收敛到半轴；sectionAt 端点夹取', () => {
@@ -398,12 +567,13 @@ describe('buildMannequin 入口守卫（畸形/退化/极端 payload）', () => 
       ...extra,
     ],
   })
-  it('crotch y=88 ≥ hip 86：clamp 到 hip−2，两管严格降序、containment 不抛', () => {
+  it('crotch y=88 ≥ hip 86：clamp 到 hip−2，两管严格降序、头带不抛', () => {
     const man = buildMannequin(withStations({ crotch: 88 }), GIRTHS)
     expect(strictlyDown(man.pelvis)).toBe(true)
     expect(strictlyDown(man.legs[0])).toBe(true)
-    // 腿首环 = min(clamp 裆 84 + 6, 臀 86 − 1) = 85
-    expect(man.legs[0].rings[0].y).toBeCloseTo(85, 6)
+    // yTop = min(clamp 裆 84 + 7, 臀 86 − 2) = 84 == crotch → 头带退化为
+    // 空（Δ=0 首 k 环即 break），腿顶 = 下段 crotch 环 84
+    expect(man.legs[0].rings[0].y).toBeCloseTo(84, 6)
   })
   it('thigh 站 y=78 == crotch（集成夹具真实场景）：clamp 到 77.5，无重复 y 环', () => {
     const man = buildMannequin(withStations({},
@@ -412,32 +582,35 @@ describe('buildMannequin 入口守卫（畸形/退化/极端 payload）', () => 
     expect(man.legs[0].rings.some((r) => Math.abs(r.y - 77.5) < 1e-9)).toBe(true)
   })
   it('浅裆（hip 80 / crotch 78，间隔 2 为入口 clamp 下限）：楔独立成立', () => {
-    // 注：入口 clamp 保证 yHip−yCrotch ≥ 2，故 yTop ≤ crotch+0.5 的
-    // 「放弃上插」分支为防御性代码；本例取 clamp 下限验证浅裆下几何仍完备
+    // 入口 clamp 保证 yHip−yCrotch ≥ 2，故 yTop ≤ crotch+0.5 的「无头带」
+    // 分支为防御性代码（yTop = min(85, 78) = 78 = crotch）；几何仍完备
     const man = buildMannequin(withStations({ hip: 80 }), GIRTHS)
-    expect(man.pelvis.rings[man.pelvis.rings.length - 1].y).toBeCloseTo(73, 6)
+    // 五轮楔底 = crotch − wedgeDropBelowCrotch（3，随常数走防再失联）
+    expect(man.pelvis.rings[man.pelvis.rings.length - 1].y)
+      .toBeCloseTo(78 - BODY_RATIO.wedgeDropBelowCrotch, 6)
     expect(strictlyDown(man.legs[0])).toBe(true)
-    expect(man.legs[0].rings[0].y).toBeCloseTo(79, 6)   // min(78+6, 80−1)
+    expect(man.legs[0].rings[0].y).toBeCloseTo(78, 6)   // 腿自 crotch 穹顶起
   })
-  it('极端围度比：hip75×thigh80 / hip130（thigh 缺省）：头环自动退到容纳上限不抛', () => {
-    // 隐藏头围挂 hip 派生（0.30×hip），极端 thigh 不影响容纳能力
+  it('极端围度比：hip75×thigh80 / hip130（thigh 缺省）：外缘超标=诚实降级不抛', () => {
+    // 新口径无容纳预检：粗腿 gap 下限绑定（腿确实比盆宽），cx 恒正
     const slim = buildMannequin(BODY, { waist: 60, hip: 75, thigh: 80, knee: 32 })
-    expect(slim.legs[0].rings[0].y).toBeCloseTo(84, 6)
+    expect(slim.legs[0].rings[0].y).toBeCloseTo(83, 6)
+    expect(slim.legs[0].rings.every((r) => Math.abs(r.cx) > 5)).toBe(true)
     const wide = buildMannequin(BODY, { waist: 100, hip: 130, knee: 44 })
-    expect(wide.legs[0].rings[0].y).toBeCloseTo(84, 6)
+    expect(wide.legs[0].rings[0].y).toBeCloseTo(83, 6)
     expect(strictlyDown(wide.legs[0])).toBe(true)
   })
-  it('胖腰粗腿病理体型（waist130/hip70/thigh90 逐字段合法）：降级放弃上插不抛', () => {
-    // 腰围≫臀围使骨盆裆上环 CR 欠冲（围 ≈0.92×hip）+ 腿头巨大，81 环
-    // k ≈ 0.28 < 0.3 真实放不下：整段放弃上插（腿顶回 crotch 平盖旧观感），
-    // 不抛错——抛错会被解算层 catch 掉使 3D tab 静默空白；楔与严格降序
-    // 不受影响
+  it('胖腰粗腿病理体型（waist130/hip70/thigh90 逐字段合法）：cx 恒正不抛', () => {
+    // 旧 containment 口径在此体型降级放弃上插；新口径 gap 下限保证
+    // cx ≥ a−1.8 > 0（实测 min 5.25），双腿永不跨中线融合/翻转
     const man = buildMannequin(
       BODY, { waist: 130, hip: 70, thigh: 90, knee: 35 })
     expect(strictlyDown(man.pelvis)).toBe(true)
     expect(strictlyDown(man.legs[0])).toBe(true)
-    expect(man.legs[0].rings[0].y).toBeCloseTo(Y_CROTCH, 6)   // 上插段整体移除
-    expect(man.legs[0].rings.every((r) => r.y <= Y_CROTCH + 1e-9)).toBe(true)
+    expect(man.legs[0].rings[0].y).toBeCloseTo(83, 6)
+    for (const leg of man.legs) {
+      for (const r of leg.rings) expect(Math.abs(r.cx)).toBeGreaterThan(0)
+    }
     expect(man.pelvis.rings[man.pelvis.rings.length - 1].y)
       .toBeCloseTo(Y_CROTCH - BODY_RATIO.wedgeDropBelowCrotch, 6)
   })

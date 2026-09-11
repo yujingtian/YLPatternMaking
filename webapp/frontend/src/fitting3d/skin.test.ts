@@ -1,37 +1,39 @@
 // SDF 蒙皮金标（2026-09-09：tubeMesh 三管装配体 -> 单张水密隐式蒙皮，
-// 本文件承接其绕向/水密金标并加站点围度/支配/解耦不变量）。
+// 本文件承接其绕向/水密金标并加站点围度/支配/解耦不变量；2026-09-10
+// 人台人体化后锚值随并集重校）。
 // 夹具 165/66A（与 fitting3d.test.ts 同款：waist98/hip86/crotch78/
-// knee42/hem0，围 66/90/54/35），关键手工演算：
-//   · 臀站支配余量：腿顶环钳位在 84（a=27/6.0161=4.488），y=86 处穹顶
-//     sD=√(1−(2/2.5)²)=0.6 → 腿穹顶壁 9.9+0.6×4.488=12.593；骨盆 86 环
-//     a=90/5.8997=15.255，两腿场相等 +2.662 → 腿群 smin 值 2.662−kLL/4
-//     =2.412 ≥ kPL=0.75（余量 1.662）→ 臀站逐射线 R_skin == pelvis 精确
+// knee42/hem0，围 66/90/54/35），关键实测/演算：
+//   · 臀站支配余量：腿顶头带环在 83（穹顶止 85.5），y=86 腿场 ≈ +0.5、
+//     腿群 smin ≈ 0.35，骨盆 86 环 a=W_h=15.703（四轮 bias 标定）场
+//     −15.703 → |差| ≥ kPL 精确 min → 臀站逐射线 R_skin == pelvis 精确
 //     1e-6（换指数 smin / k 抬升即红，兼 smin 族选型回归守卫）
-//   · y=79 侧向：腿壁 9.9+a79=9.9+7.564=17.464，骨盆场 +2.946 ≥ kPL →
-//     精确 min，R_skin=17.463（emergence 带实测下沿）
-//   · thigh 站 y=75：内腿缝中点本被骨盆楔占据（楔 a(75)=8.43，
-//     (0,75,0) 场 ≈ −6.58 负——会阴被填带属预期），腿对 smin 谷底在
-//     楔底下方：y=70 处 (0,70,0) 场 ≈ +0.39 > 0 不桥接、谷成浅沟
+//   · y=79 侧向：盆壁 a=14.902（五轮b 填充锚下沉后盆壁仍主导），
+//     骨盆场 ≥ kPL → 精确 min，R_skin==腿壁（emergence 带腿外缘接管）
+//   · 腿间缝隙（五轮：旧 68~78 大腿接触带已废，过零锚上移 y=73）：
+//     (0,75,0) 在楔内场负（会阴被填带）；(0,72,0) 过零锚下轴带场已
+//     转正（断言点离分离点 ≥0.5）；(0,66,0) 中腿缝 2×2.0 稳可辨——
+//     内腿缝浅沟（≈真人腿根形态）
 //   · thigh 围度尺则（裆侧回退）：从腿中心 360 射线，首穿 r_exit ≤
 //     ring+0.5（融合带表面）取 r_exit，深融向（r_exit 越窗——楔接管带
 //     与切向放大首穿）回退取 ring——会阴属骨盆不属于大腿轮廓。实测
-//     回退 91/360 方向、围度漂移 +1.95%（漂移由回退带边界 2~4 个切向
+//     回退 87/360 方向、围度漂移 +1.82%（漂移由回退带边界 2~4 个切向
 //     放大方向主导，对 k 微扰敏感）；**深融向按环回退不计入，融合外凸
 //     上界由下方「解耦」两测度金标把守**（2026-09-09 四轮：原
 //     maxExcess ≤ k/4 断言系恒真构造，已删）
 //   · 解耦双测度（渲染蒙皮 vs 解析并集=碰撞/摆位几何本体）：
-//     ①并集表面点法向位移 −F_skin/|∇F_skin| ≤ garmentGap=1.2（实测最坏
-//       0.81 @hip75×thigh80 内壁融合带；标准 165/66A 0.23 @楔底 y≈73）；
-//     ②轴心/腿心射线首穿−并集末次出射 ≤ 1.2（实测最坏 0.76 @瘦小
-//       55/75/40/30 y=75 裆侧；标准 0.49）。原单 k=2 在 165/66A 腿心
-//       y=75 θ≈295°（楔前壁×对侧腿前内壁近切向接触带，|∇F|≈0.3）实测
-//       +1.66 超 1.2——k/4 只是场值下压上界、非表面位移上界，此即四轮
-//       per-pair 融合半径（kPL=0.75/kLL=1.0）的由来
+//     ①并集表面点法向位移 −F_skin/|∇F_skin| ≤ garmentGap=1.2。2026-09-10
+//       人体化后最坏 1.065 @(0,68,0) 接触带出口（kLL=1.0 时 1.774 超
+//       预算——大腿接触带使两内侧壁切向擦碰、|∇F|≈0.14 放大 k/4，
+//       kLL 1.0→0.6 即此由来；①是全局最终裁决）
+//     ②腿心/轴心射线首穿−并集末次出射 ≤ 1.2。轴心原点仅 y≥70（会阴
+//       楔区）：y<70 的轴心 θ≈0° 射线落在设计接触带的腿间凹谷（并集
+//       凹区，布料按凸支撑 surfaceRadius+gap 摆位永不进谷，谷内外凸由
+//       ①把守）；腿心原点全域（含接触带出口 66-69，实测 0.000）
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../types'
 import type { BodyGirths } from './bodyProfile'
 import { buildMannequin, radiusAt, sectionAt, type Mannequin } from './mannequin'
-import { SKIN_PRIOR, SOLVER_PRIOR } from './priors'
+import { FOOT_PRIOR, SKIN_PRIOR, SOLVER_PRIOR } from './priors'
 import { buildSkinMesh, skinField, tubeSlice, unionField } from './skin'
 
 const BODY: FittingResult['body'] = {
@@ -141,16 +143,20 @@ describe('skin SDF 蒙皮', () => {
   })
 
   it('场符号：体内负、体外正；smin ≤ min 单侧性（蒙皮永不陷并集内）', () => {
+    // 腿心 x 锚 = 各高度实测 cx（逐环派生，勿写字面量——改梯子即失联）
+    const cx75 = sectionAt(man.legs[1], 75).cx     // 7.396
+    const cx42 = sectionAt(man.legs[1], 42).cx     // 6.951
     expect(skinField(man, 0, 86, 0)).toBeLessThan(0)      // 臀站骨盆心
-    expect(skinField(man, 9.9, 42, 3)).toBeLessThan(0)    // 膝站腿内
+    expect(skinField(man, cx42, 42, 3)).toBeLessThan(0)   // 膝站腿内
     expect(skinField(man, 0, 86, 30)).toBeGreaterThan(0)  // 臀前远场
     expect(skinField(man, 30, 42, 0)).toBeGreaterThan(0)  // 膝外侧远场
     // 单侧性：任意采样点 skinField ≤ unionField（融合只向外鼓；
     // 相等出现在融合窗外精确 min 区）
     let equal = 0
-    for (const [x, y, z] of [[0, 86, 0], [9.9, 75, 3], [-4, 75, 5.9],
-      [0, 70, 0], [2, 79, 12], [0, 116, 2], [9.9, -8, 0], [-13, 42, -4],
-      [0, 73.5, 2], [5, 75, -6], [-9.9, 50, 0]]) {
+    for (const [x, y, z] of [[0, 86, 0], [cx75, 75, 3], [-4, 75, 5.9],
+      [0, 70, 0], [2, 79, 12], [0, 116, 2],
+      [sectionAt(man.legs[1], -8).cx, -8, 0], [-13, 42, -4],
+      [0, 73.5, 2], [5, 75, -6], [-sectionAt(man.legs[1], 50).cx, 50, 0]]) {
       expect(skinField(man, x, y, z))
         .toBeLessThanOrEqual(unionField(man, x, y, z) + 1e-12)
       if (Math.abs(skinField(man, x, y, z) - unionField(man, x, y, z)) < 1e-12) {
@@ -162,8 +168,8 @@ describe('skin SDF 蒙皮', () => {
 
   it('单原语站精确支配（smin 族回归守卫）：36 向 R_skin==radiusAt ±1e-6', () => {
     // 紧支 smin |a−b|≥k 严格 =min：单原语站（他管场 ≥ k 正）蒙皮面与
-    // 碰撞面逐点重合。腰 98：腿穹顶止于 84+2.5=86.5，腿场=98−86.5=11.5；
-    // 臀 86：腿穹顶场 2.662、腿群值 2.412（余量 1.662，见头注）；膝 42/
+    // 碰撞面逐点重合。腰 98：腿穹顶止于 83+2.5=85.5，腿场=98−85.5=12.5；
+    // 臀 86：腿穹顶场 ≈ +0.5、腿群 smin ≈ 0.35（余量见头注）；膝 42/
     // 脚口 0：骨盆底穹顶止于 73−2.5=70.5，骨盆场 ≥ 28.5。换指数式 smin
     // （全域支撑）或 k 抬升都会在此红——smin 族/半径选型锁死
     const stations: [string, number, 'pelvis' | 'leg', number][] = [
@@ -209,8 +215,8 @@ describe('skin SDF 蒙皮', () => {
     }
     // thigh 75：裆侧回退尺则——首穿 ≤ ring+0.5（融合带表面）取首穿，
     // 深融向（楔接管带/切向放大首穿）回退取 ring（会阴属骨盆）。
-    // 断言：回退方向数 ≤120（实测 91，钉住裆侧楔接管带弧宽——楔参数
-    // 变宽/腿内移即红）+ 围度总漂移 ≤2%（实测 +1.95%）。非回退子集的
+    // 断言：回退方向数 ≤120（实测 87，钉住裆侧楔接管带弧宽——楔参数
+    // 变宽/腿内移即红）+ 围度总漂移 ≤2%（实测 +1.82%）。非回退子集的
     // 逐向外凸上界由构造 ≤0.5 恒成立（2026-09-09 四轮删原恒真断言），
     // 真实融合外凸上界见解耦双测度金标
     const ox = sectionAt(man.legs[1], 75).cx
@@ -230,16 +236,20 @@ describe('skin SDF 蒙皮', () => {
     expect(Math.abs(perS - perR) / perR).toBeLessThan(SKIN_PRIOR.girthTolThigh)
   })
 
-  it('融合带与内腿缝：y=79 侧向精确 min=17.463；楔下方不桥接', () => {
-    // emergence 带：腿壁 9.9+a79=17.464、骨盆场 +2.946≥kPL 精确 min
-    // （融合窗外——R_skin==腿壁；上界 +0.1 为数值护栏带）
+  it('融合带与内腿缝：y=79 侧向 min=14.902；分离带轴心不桥接', () => {
+    // emergence 带：五轮b 填充锚下沉（hip−5+0.995）后 79 仍是盆壁主导
+    // （盆 a 14.902 > 腿 |cx|+a 14.86——五轮c 小腹降峰保围微调 −0.014，
+    // 骨盆场 ≥ kPL 精确 min；上界 +0.2 收 smin 融合外凸，实测 ≈+0.16
+    // < garmentGap 预算）
     const r79 = rayHit(man, 0, 79, 0, Math.PI / 2)
-    expect(r79).toBeGreaterThanOrEqual(17.463 - 1e-3)
-    expect(r79).toBeLessThanOrEqual(17.463 + 0.1)
-    // (0,75,0) 在骨盆楔内（会阴被填带，场负属预期）；楔底穹顶下方
-    // 两腿 smin 谷底 > 0：不桥接、谷成浅沟（≈真人腿根）
+    expect(r79).toBeGreaterThanOrEqual(14.902 - 1e-3)
+    expect(r79).toBeLessThanOrEqual(14.902 + 0.2)
+    // (0,75,0) 在骨盆楔内（会阴被填带，场负属预期）；五轮缝隙带：过零
+    // 锚 yGapOpen=73 下轴带场转正（72 断言点离分离点 ≥0.5、留穹顶/桥接
+    // 余量），中腿 66 缝 2×2.0——smin 谷底 > 0 不桥接、缝成浅沟
     expect(skinField(man, 0, 75, 0)).toBeLessThan(0)
-    expect(skinField(man, 0, 70, 0)).toBeGreaterThan(0)
+    expect(skinField(man, 0, 72, 0)).toBeGreaterThan(0)
+    expect(skinField(man, 0, 66, 0)).toBeGreaterThan(0)
   })
 
   it('MC 水密+外向+质量（标准夹具）', () => {
@@ -289,7 +299,9 @@ describe('skin SDF 蒙皮', () => {
       sampled++
     }
     expect(sampled).toBeGreaterThanOrEqual(100)
-    // 三角预算（预算循环收敛后恒 ≤ maxTriangles）与栅格点预算
+    // 三角预算（预算循环收敛后恒 ≤ maxTriangles）与栅格点预算（公式
+    // 镜像 marchOnce bbox：脚盒 AABB 含盒心偏移 |c|——漏 c 即脚尖出界，
+    // mXZ = K_FAR+2 含 kLF；yMin = bottomY−1.5——脚平底贴地无腿穹顶下延）
     expect(F).toBeLessThanOrEqual(SKIN_PRIOR.maxTriangles)
     let extX = 0, extZ = 0
     for (const tube of [man.pelvis, man.legs[0], man.legs[1]]) {
@@ -298,33 +310,48 @@ describe('skin SDF 蒙皮', () => {
         extZ = Math.max(extZ, r.bF, r.bB)
       }
     }
-    const mXZ = Math.max(SKIN_PRIOR.blendKPelvisLeg, SKIN_PRIOR.blendKLegLeg) + 2
+    for (const f of man.feet) {
+      const ca = Math.abs(Math.cos(f.yaw)), sa = Math.abs(Math.sin(f.yaw))
+      for (const b of f.boxes) {
+        const ex = Math.abs(b.c[0]) + b.h[0] + f.round
+        const ez = Math.abs(b.c[2]) + b.h[2] + f.round
+        extX = Math.max(extX, Math.abs(f.origin[0]) + ex * ca + ez * sa)
+        extZ = Math.max(extZ, Math.abs(f.origin[2]) + ex * sa + ez * ca)
+      }
+    }
+    const mXZ = Math.max(SKIN_PRIOR.blendKPelvisLeg, SKIN_PRIOR.blendKLegLeg,
+      SKIN_PRIOR.blendKLegFoot) + 2
     const h = mesh.spacing
     const gridPts = (Math.ceil((2 * extX + 2 * mXZ) / h) + 1)
       * (Math.ceil((man.topY + SKIN_PRIOR.capDomePelvisTop + 1.5
-        - (man.bottomY - SKIN_PRIOR.capDomeLeg - 1.5)) / h) + 1)
+        - (man.bottomY - 1.5)) / h) + 1)
       * (Math.ceil((2 * extZ + 2 * mXZ) / h) + 1)
     expect(gridPts).toBeLessThanOrEqual(450000)
   })
 
-  it('穹顶符号：骨盆顶/楔底/踝，端内负端外正（平端盖彻底消失）', () => {
+  it('穹顶符号：骨盆顶/楔底端内负端外正 + 脚平底贴地（平端盖彻底消失）', () => {
     const topY = man.topY
     const wedgeY = man.pelvis.rings[man.pelvis.rings.length - 1].y
     const botY = man.bottomY
-    const cx = sectionAt(man.legs[1], botY).cx
     expect(skinField(man, 0, topY + SKIN_PRIOR.capDomePelvisTop / 2, 0))
       .toBeLessThan(0)
     expect(skinField(man, 0, topY + SKIN_PRIOR.capDomePelvisTop + 0.1, 0))
       .toBeGreaterThan(0)
     expect(skinField(man, 0, wedgeY - SKIN_PRIOR.capDomePelvisBottom / 2, 0))
       .toBeLessThan(0)
-    // 楔底端外取 −L−0.5（−0.1 处与腿场 smin 混合余量仅 ~0.07，取稳点）
-    expect(skinField(man, 0, wedgeY - SKIN_PRIOR.capDomePelvisBottom - 0.5, 0))
+    // 楔底端外（−L−0.5）取 z=+6 偏轴点：中轴线 (0,70,0) 落设计大腿
+    // 接触带（68~78，腿贴腿桥接场负属预期），z=6 已出两腿内壁与楔穹
+    // 侧向范围（实测 +1.59），楔底平端盖消失断言仍有效
+    expect(skinField(man, 0, wedgeY - SKIN_PRIOR.capDomePelvisBottom - 0.5, 6))
       .toBeGreaterThan(0)
-    expect(skinField(man, cx, botY - SKIN_PRIOR.capDomeLeg / 2, 0))
-      .toBeLessThan(0)
-    expect(skinField(man, cx, botY - SKIN_PRIOR.capDomeLeg - 0.1, 0))
-      .toBeGreaterThan(0)
+    // 脚（2026-09-10 第四轮替代旧踝穹顶断言——腿穹顶藏进脚盒 smin 融合，
+    // 独立可见的端部语义换成脚平底贴地）：后盒核底 = groundY、圆角面恰
+    // 触地——脚体中高断面内负、地面下 0.5 正（无任何原语沉入地下；
+    // bbox yMin=bottomY−1.5 兜住）。z=2 取后盒 z 跨度中部（yaw 7° 旋转
+    // 下仍远离 ±5.5 端缘）
+    const fxAbs = Math.abs(sectionAt(man.legs[1], botY).cx)
+    expect(skinField(man, fxAbs, FOOT_PRIOR.groundY + 2.5, 2)).toBeLessThan(0)
+    expect(skinField(man, fxAbs, FOOT_PRIOR.groundY - 0.5, 2)).toBeGreaterThan(0)
   })
 
   // ---- 解耦双测度（2026-09-09 四轮：替换原 surfaceRadius 参照版——
@@ -335,10 +362,11 @@ describe('skin SDF 蒙皮', () => {
 
   it('解耦①并集表面点法向外凸 ≤ garmentGap（标准+病理最坏两夹具）', () => {
     // p 取各管表面（含穹顶缩放截面）且不严格陷入他管（=并集表面点），
-    // 外凸 = −F_skin(p)/|∇F_skin(p)|（smin≤min 单侧性保证恒 ≥0）
+    // 外凸 = −F_skin(p)/|∇F_skin(p)|（smin≤min 单侧性保证恒 ≥0）。
+    // 实测（2026-09-10 人体化+kLL=0.6）：三夹具最坏同为 1.065
+    // @(0,68,0) 大腿接触带出口（kLL=1.0 时 1.774——两内侧壁切向擦碰
+    // |∇F|≈0.14 放大，kLL 降 0.6 的直接动因）；①是全局最终裁决
     const cases: [string, BodyGirths, number, number][] = [
-      // 实测：标准 0.23（楔底 y≈73 带）；hip75×thigh80 0.80（粗腿内壁
-      // 融合带，四轮 kLL=2 时 1.62 的修复验证位）；滑杆极值 0.20
       ['标准 165/66A', GIRTHS, 0.5, 360],
       ['hip75×thigh80', { waist: 60, hip: 75, thigh: 80, knee: 32 }, 1, 180],
       ['滑杆极值 120/130/80/60', { waist: 120, hip: 130, thigh: 80, knee: 60 },
@@ -384,22 +412,27 @@ describe('skin SDF 蒙皮', () => {
       expect(worst).toBeLessThanOrEqual(GAP)
       void name
     }
-  })
+  }, 30000)
 
-  it('解耦②射线首穿−并集末次出射 ≤ garmentGap（轴心+双腿心，1° 向）', () => {
-    // 实测最坏：标准 0.49 @y72 轴心裆前；瘦小 55/75/40/30 0.76 @y75
-    // 腿心裆侧（原单 k=2 同口径 1.66 @165/66A 腿心 y75——四轮修复位）
-    const cases: [string, BodyGirths, number[]][] = [
-      ['标准 165/66A', GIRTHS, [70, 71, 72, 73, 74, 75, 76, 78, 79, 81, 84]],
+  it('解耦②射线首穿−并集末次出射 ≤ garmentGap（腿心全域+轴心楔区，1° 向）', () => {
+    // 作用域（2026-09-10 五轮缝隙带重校）：腿心原点全域（66-69 旧接触带
+    // 出口已随开缝消失，实测 0.000）；轴心原点 y≥70 含新过零锚 73 附近
+    // （72-74 段 smin 谷桥场仍接近 0——缝刚打开、两内侧壁切向贴近）；
+    // 70 以下轴心场已转正、smin=严格 min、自动安全。原单 k=2 修复位：
+    // 165/66A 腿心 y75 θ≈295° +1.66（四轮）
+    const cases: [string, BodyGirths, number[], number[]][] = [
+      // [名, 围, 腿心 heights, 轴心 heights]
+      ['标准 165/66A', GIRTHS,
+        [66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 78, 79, 81, 84],
+        [70, 72, 73, 74, 76, 78, 79, 81, 84]],
       ['瘦小 55/75/40/30', { waist: 55, hip: 75, thigh: 40, knee: 30 },
-        [72, 73, 74, 75, 76, 77, 78]],
+        [70, 72, 74, 75, 76, 77, 78], [72, 74, 76, 78]],
     ]
-    for (const [name, g, heights] of cases) {
+    for (const [name, g, legYs, axisYs] of cases) {
       const m = buildMannequin(BODY, g)
       let worst = -Infinity, covered = 0
-      for (const y of heights) {
-        const cxs = [0, sectionAt(m.legs[0], y).cx, sectionAt(m.legs[1], y).cx]
-        for (const ox of cxs) {
+      for (const y of legYs) {
+        for (const ox of [sectionAt(m.legs[0], y).cx, sectionAt(m.legs[1], y).cx]) {
           for (let i = 0; i < 360; i++) {
             const th = (i / 360) * Math.PI * 2
             const s = rayHit(m, ox, y, 0, th)
@@ -411,15 +444,29 @@ describe('skin SDF 蒙皮', () => {
           }
         }
       }
+      for (const y of axisYs) {
+        for (let i = 0; i < 360; i++) {
+          const th = (i / 360) * Math.PI * 2
+          const s = rayHit(m, 0, y, 0, th)
+          const u = rayLastExitF(
+            (x, yy, z) => unionField(m, x, yy, z), 0, y, 0, th)
+          if (!Number.isFinite(s) || !Number.isFinite(u)) continue
+          covered++
+          worst = Math.max(worst, s - u)
+        }
+      }
       expect(covered).toBeGreaterThanOrEqual(500)   // 覆盖非空
       expect(worst).toBeLessThanOrEqual(GAP)
       void name
     }
-  }, 30000)
+    // 90s：单跑 ~25s，全量并行 CPU 争抢下文件级可到 ~60s（30s 预算曾致
+    // 间歇超时假红——几何断言全过，纯 harness 预算；integration 60s 同性质）
+  }, 90000)
 
   it('边界格恒正（bbox 闭合前提）', () => {
-    // bbox 界定公式复刻：X/Z 全环极值外扩 max(kPL,kLL)+2；Y 上下各扩
-    // 穹顶长+1.5。边界面场恒正（实测最小值 = Y 边距 1.5，穹顶 cap 下界恰触）
+    // bbox 界定公式复刻（与 marchOnce 同式，含脚盒 AABB——盒心偏移 |c|
+    // 不可漏）：X/Z 极值外扩 K_FAR+2；Y 上扩穹顶长+1.5、下扩 1.5（脚平底
+    // 贴地无穹顶）。边界面场恒正（实测最小值 = Y 边距 1.5，穹顶 cap 下界恰触）
     let extX = 0, extZ = 0
     for (const tube of [man.pelvis, man.legs[0], man.legs[1]]) {
       for (const r of tube.rings) {
@@ -427,9 +474,19 @@ describe('skin SDF 蒙皮', () => {
         extZ = Math.max(extZ, r.bF, r.bB)
       }
     }
-    const m = Math.max(SKIN_PRIOR.blendKPelvisLeg, SKIN_PRIOR.blendKLegLeg) + 2
+    for (const f of man.feet) {
+      const ca = Math.abs(Math.cos(f.yaw)), sa = Math.abs(Math.sin(f.yaw))
+      for (const b of f.boxes) {
+        const ex = Math.abs(b.c[0]) + b.h[0] + f.round
+        const ez = Math.abs(b.c[2]) + b.h[2] + f.round
+        extX = Math.max(extX, Math.abs(f.origin[0]) + ex * ca + ez * sa)
+        extZ = Math.max(extZ, Math.abs(f.origin[2]) + ex * sa + ez * ca)
+      }
+    }
+    const m = Math.max(SKIN_PRIOR.blendKPelvisLeg, SKIN_PRIOR.blendKLegLeg,
+      SKIN_PRIOR.blendKLegFoot) + 2
     const xMin = -extX - m, xMax = extX + m, zMin = -extZ - m, zMax = extZ + m
-    const yMin = man.bottomY - (SKIN_PRIOR.capDomeLeg + 1.5)
+    const yMin = man.bottomY - 1.5
     const yMax = man.topY + (SKIN_PRIOR.capDomePelvisTop + 1.5)
     for (let t = 0; t <= 50; t++) {
       const q = t / 50
@@ -460,7 +517,7 @@ describe('skin 病理/极端体型（优雅降级，复用入口守卫夹具集�
     ],
   })
   const cases: [string, FittingResult['body'], BodyGirths][] = [
-    ['胖腰粗腿 130/70/90（放弃上插）', BODY,
+    ['胖腰粗腿 130/70/90（cx 恒正降级）', BODY,
       { waist: 130, hip: 70, thigh: 90, knee: 35 }],
     ['hip75×thigh80', BODY, { waist: 60, hip: 75, thigh: 80, knee: 32 }],
     ['hip130 缺 thigh', BODY, { waist: 100, hip: 130, knee: 44 }],
@@ -490,8 +547,8 @@ describe('skin 病理/极端体型（优雅降级，复用入口守卫夹具集�
       // 预算循环收敛（单次 ×1.15 重跑不闭合：滑杆上限单档后仍 32780
       // >30000，循环逐档放粗保证恒回预算内——2026-09-09 四轮）
       expect(mesh.triangles).toBeLessThanOrEqual(SKIN_PRIOR.maxTriangles)
-      // 放弃上插的降级体型：腿顶穹顶在 crotch 上方侧伸 ~1cm 融成大转子
-      // 凸（smin 自动处理分叉），拓扑可能非球（不钉 V−E+F）
+      // 新口径无容纳降级路径：粗腿体型的外缘超标是「腿确实比盆宽」的
+      // 诚实降级（gap 下限绑定 cx>a−1.5 恒正），smin 自动融合分叉
       expect(mesh.triangles).toBeGreaterThan(0)
     })
   }

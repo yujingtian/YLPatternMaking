@@ -1,16 +1,20 @@
 // SDF 隐式蒙皮（2026-09-09：tubeMesh 三管装配体 -> 单张水密蒙皮）。
 // 用户反馈：三管互相穿插只做到几何连通，交线 C0 硬折痕、剪影髋-腿过渡
 // 有凹角、明暗交线两侧突变——视觉仍是搭积木。本模块以 buildMannequin
-// 环参数（SectionParams + sectionAt 线性插值）为单一事实源构造符号
+// 环参数（SectionParams + sectionAt 单调样条插值）为单一事实源构造符号
 // 距离场：三管二次紧支 smin 软并集（分叉拓扑自动处理、平端盖彻底消失、
 // 融合带圆滑），自写查表 marching cubes 三角化成一张水密蒙皮。
+// 2026-09-10 第四轮：融合树末端加**场加原语**——双脚（圆角盒对，smin
+// 融进同侧踝穹顶）与肚脐（椭球 smax 凹刻）；环模型（y 降序放样）表达
+// 不了水平前伸的脚与 θ 局部凹坑的脐，故不走截面环、直接进 SDF 场
+// （蒙皮/解耦参照专用，碰撞路径零改动）。
 // 纯数值零 three 依赖（node vitest 可测）；碰撞/摆位仍走 sectionAt/
 // radiusAt 解析路径（seams/pbd 不动），蒙皮-碰撞差仅在 smin 融合带——
-// 融合半径分对校准（blendKPelvisLeg/blendKLegLeg），外凸由 skin.test.ts
-// 解耦金标按解析并集双测度断言 ≤ garmentGap（见 §10.11）。
-import type { Mannequin, Tube } from './mannequin'
+// 融合半径分对校准（blendKPelvisLeg/blendKLegLeg/blendKLegFoot），外凸由
+// skin.test.ts 解耦金标按解析并集双测度断言 ≤ garmentGap（见 §10.11）。
+import type { FootBox, FootParams, Mannequin, NavelParams, Tube } from './mannequin'
 import { sectionAt } from './mannequin'
-import { SKIN_PRIOR } from './priors'
+import { FOOT_PRIOR, NAVEL_PRIOR, SKIN_PRIOR } from './priors'
 
 // ---- 单管闭式伪距离 ----
 // 一个 y 切片内该管的全部场参数（cx/a/bF/bB 已含穹顶 sD 缩放；cap 为
@@ -72,29 +76,102 @@ export function sliceField(sl: TubeSlice, x: number, z: number, k: number): numb
 // 锁死。**族锁死**：换指数式（全域支撑）会使所有站点围度漂移不可证，
 // 臀站精确支配金标即红（SKIN_PRIOR 注释）
 function smin(a: number, b: number, k: number): number {
+  // +Inf 哨兵（带外原语跳过）精确恒等 smin(x,+Inf)=x：数学极限虽成立，
+  // 多项式代数式在 h=1 处是 b+(a−b) = Inf−Inf = NaN——必须显式短路
+  // （2026-09-10 第四轮实测：未短路时带外层全 NaN、MC 出空网格）
+  if (a === Infinity) return b
+  if (b === Infinity) return a
   const h = Math.max(0, Math.min(1, 0.5 + (0.5 * (b - a)) / k))
   return b + (a - b) * h - k * h * (1 - h)
 }
 
-// 三管融合树（skinField 逐点 / marchOnce 逐层共用同一表达式 -> 逐位
-// 一致）：F = smin(F_骨盆, smin(F_左腿, F_右腿, kLL), kPL)——腿对先融
-// （内腿缝浅沟/病理粗腿重叠带），骨盆再加入腿群（emergence/裆区），
-// per-pair 融合半径见 SKIN_PRIOR。穹顶配置：骨盆顶 capDomePelvisTop /
-// 楔底 capDomePelvisBottom / 双腿两端 capDomeLeg（腿顶隐藏头穹顶在骨盆
-// containment 内：165/66A 臀站 86 处 sD=0.6×a84=2.69，骨盆壁场 −2.66、
-// 腿群值 2.66−kLL/4=2.41 ≥ kPL，腿为精确 min 的劣势方——由 skin.test.ts
-// 臀站逐射线金标守卫）
+// 紧支 smax（smin 恒等式 smax(a,b,k) = −smin(−a,−b,k)，2026-09-10 第四轮
+// 肚脐凹刻引入）：b>0 一侧挖除；|a−b|≥k 严格 max——紧支族不变，脐带外
+// 零点集/围度零影响（换非紧支族即破站点围度可证性，同 SKIN_PRIOR 族锁）
+function smax(a: number, b: number, k: number): number {
+  return -smin(-a, -b, k)
+}
+
+// 融合树（skinField 逐点 / marchOnce 逐层共用同一表达式 -> 逐位一致）：
+// F = smax( smin(F_骨盆, smin(smin(F_左腿, F_左脚, kLF), smin(F_右腿,
+// F_右脚, kLF), kLL), kPL), −F_脐, k脐 )——腿对先融（内腿缝浅沟/病理
+// 粗腿重叠带），脚先融进同侧腿（踝穹顶衔接；两脚相距 ≫ kLL+kLF 窗口
+// 互不串扰），骨盆再加入腿群（emergence/裆区），肚脐 smax 凹刻收尾
+//（2026-09-10 第四轮）。脚/脐均只进蒙皮与解耦参照，碰撞/摆位解析路径
+// 零改动（脚顶 < 裤口、脐浅凹，布料不可达）。穹顶配置：骨盆顶
+// capDomePelvisTop / 楔底 capDomePelvisBottom / 双腿两端 capDomeLeg
+//（腿顶隐藏头穹顶深藏盆壁内，臀站逐射线金标守卫，见 skin.test.ts）
 const K_PL = SKIN_PRIOR.blendKPelvisLeg
 const K_LL = SKIN_PRIOR.blendKLegLeg
-const K_FAR = Math.max(K_PL, K_LL)   // 远场短路阈值（恒 ≥ 各对窗口半宽）
+const K_LF = SKIN_PRIOR.blendKLegFoot
+const K_FOOT = FOOT_PRIOR.blendKFoot
+const K_NAVEL = NAVEL_PRIOR.blend
+const K_FAR = Math.max(K_PL, K_LL, K_LF)   // 远场短路阈值（恒 ≥ 各对窗口半宽）
 
-function blend3(fp: number, fl: number, fr: number): number {
-  return smin(fp, smin(fl, fr, K_LL), K_PL)
+function blendAll(
+  fp: number, fl: number, fr: number, footL: number, footR: number,
+  nav: number,
+): number {
+  const legs = smin(smin(fl, footL, K_LF), smin(fr, footR, K_LF), K_LL)
+  return smax(smin(fp, legs, K_PL), -nav, K_NAVEL)
+}
+
+// ---- 脚/脐场原语（2026-09-10 第四轮，与 mannequin FootParams/NavelParams
+// 配对）----
+// 圆角盒 SDF（精确距离：外区欧氏模 + 内区最深轴负值，再减圆角）
+function boxField(
+  b: FootBox, lx: number, ly: number, lz: number, r: number,
+): number {
+  const qx = Math.abs(lx - b.c[0]) - b.h[0]
+  const qy = Math.abs(ly - b.c[1]) - b.h[1]
+  const qz = Math.abs(lz - b.c[2]) - b.h[2]
+  const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0))
+  return out + Math.min(Math.max(qx, Math.max(qy, qz)), 0) - r
+}
+
+// 世界 -> 脚局部系（绕 Y 旋转 yaw，原点=踝）；局部 x/z
+function footLocal(
+  f: FootParams, x: number, z: number,
+): { lx: number; lz: number } {
+  const c = Math.cos(f.yaw), s = Math.sin(f.yaw)
+  const dx = x - f.origin[0], dz = z - f.origin[2]
+  return { lx: dx * c - dz * s, lz: dx * s + dz * c }
+}
+
+// 单脚场：两圆角盒 smin（kFoot）
+function footField(f: FootParams, x: number, y: number, z: number): number {
+  const { lx, lz } = footLocal(f, x, z)
+  const ly = y - f.origin[1]
+  return smin(boxField(f.boxes[0], lx, ly, lz, f.round),
+    boxField(f.boxes[1], lx, ly, lz, f.round), K_FOOT)
+}
+
+// 单脚原始 min（无 smin）：解耦参照 unionField 专用
+function footBoxesMin(f: FootParams, x: number, y: number, z: number): number {
+  const { lx, lz } = footLocal(f, x, z)
+  const ly = y - f.origin[1]
+  return Math.min(boxField(f.boxes[0], lx, ly, lz, f.round),
+    boxField(f.boxes[1], lx, ly, lz, f.round))
+}
+
+// 肚脐椭球伪 SDF（k0(k0−1)/k1 逼近式：符号精确、表面附近近距）。
+// k0>3 紧支返 +Inf：伪 SDF 远场随 k0 线性增长而**低估**真距离（骨盆心
+// 实测真距 12.6、伪值 10.9），深内部 −nav > F 时 smax 会取到污染值
+// （skinField(0,86,0) = −10.9 ≠ 骨盆 −11.8）破单侧性金标；k0>3 即真距
+// ≥ 2×最小半轴 = 1.8 > 2·K脐，smax 恒等带外零影响（marchOnce 的 y 带
+// 开关之外的第二道闸，skinField 逐点路径同样受益）
+function navelField(n: NavelParams, x: number, y: number, z: number): number {
+  const qx = x / n.rx, qy = (y - n.y) / n.ry, qz = (z - n.z) / n.rz
+  const k0 = Math.hypot(qx, qy, qz)
+  if (k0 > 3) return Infinity
+  if (k0 < 1e-9) return -Math.min(n.rx, n.ry, n.rz)
+  const k1 = Math.hypot(qx / n.rx, qy / n.ry, qz / n.rz)
+  return k1 < 1e-12 ? 0 : (k0 * (k0 - 1)) / k1
 }
 
 // 蒙皮场（测试/法线/三角化共用的精确场）
 export function skinField(man: Mannequin, x: number, y: number, z: number): number {
-  return blend3(
+  return blendAll(
     sliceField(
       tubeSlice(man.pelvis, y, SKIN_PRIOR.capDomePelvisTop,
         SKIN_PRIOR.capDomePelvisBottom), x, z, K_FAR),
@@ -103,12 +180,17 @@ export function skinField(man: Mannequin, x: number, y: number, z: number): numb
       x, z, K_FAR),
     sliceField(
       tubeSlice(man.legs[1], y, SKIN_PRIOR.capDomeLeg, SKIN_PRIOR.capDomeLeg),
-      x, z, K_FAR))
+      x, z, K_FAR),
+    footField(man.feet[0], x, y, z),
+    footField(man.feet[1], x, y, z),
+    navelField(man.navel, x, y, z))
 }
 
-// 解析并集场（测试参照）：三管单管场严格 min = 碰撞/摆位解析路径的
-// 几何本体（无融合）。smin ≤ min 恒成立 -> 蒙皮永不陷入并集内部，
-// 融合只向外鼓；解耦金标用它度量蒙皮外凸（点法向位移 + 射线首穿差）
+// 解析并集场（测试参照）：三管 + 四脚盒严格 min = 碰撞/摆位解析路径的
+// 几何本体（无融合）。smin ≤ min 恒成立 -> 蒙皮永不陷入并集内部，融合
+// 只向外鼓；解耦金标用它度量蒙皮外凸（点法向位移 + 射线首穿差）。脚是
+// 向外新几何 -> 必须收编（否则双测度对脚全红）；脐是向内凹刻（蒙皮在
+// 并集外侧），不进并集、由脐区豁免带覆盖（skin.test.ts）
 export function unionField(man: Mannequin, x: number, y: number, z: number): number {
   return Math.min(
     sliceField(
@@ -119,7 +201,9 @@ export function unionField(man: Mannequin, x: number, y: number, z: number): num
       x, z, K_FAR),
     sliceField(
       tubeSlice(man.legs[1], y, SKIN_PRIOR.capDomeLeg, SKIN_PRIOR.capDomeLeg),
-      x, z, K_FAR))
+      x, z, K_FAR),
+    footBoxesMin(man.feet[0], x, y, z),
+    footBoxesMin(man.feet[1], x, y, z))
 }
 
 export interface SkinMesh {
@@ -155,8 +239,9 @@ const CELL_EDGES: readonly (readonly [number, number, 0 | 1 | 2])[] = [
 const FLIP_WINDING = true
 
 function marchOnce(man: Mannequin, h: number): SkinMesh {
-  // ---- bbox：X/Z 全环极值外扩融合窗口+2；Y 上下各扩穹顶长+1.5
-  // （保证边界场恒正 -> MC 闭合；skin.test.ts 边界格恒正金标守卫）
+  // ---- bbox：X/Z 全环极值 + 脚盒旋转外接（2026-09-10 第四轮）外扩融合
+  // 窗口+2；Y 上扩穹顶长+1.5、下扩 1.5（脚平底贴 man.bottomY，无穹顶；
+  // 保证边界场恒正 -> MC 闭合；skin.test.ts 边界格恒正金标守卫）
   let extX = 0, extZ = 0
   for (const t of [man.pelvis, man.legs[0], man.legs[1]]) {
     for (const r of t.rings) {
@@ -164,11 +249,32 @@ function marchOnce(man: Mannequin, h: number): SkinMesh {
       extZ = Math.max(extZ, r.bF, r.bB)
     }
   }
+  // 脚盒：绕 Y 旋转的轴对齐外接保守界（|cos|+|sin| 组合）。X/Z 必须含
+  // 盒心偏移 |c|——盒心不在踝原点上（前盒 c2≈12.75），漏掉会把脚尖切出
+  // bbox 外 ~2cm：网格在趾尖平面截断、悬挂边破水密（crotch88/hip75×80
+  // 实测 46~54 条边=1；标准夹具靠粗骨盆 bB+mXZ 侥幸盖住，2026-09-10 四轮）
+  let footYLo = Infinity, footYHi = -Infinity
+  for (const f of man.feet) {
+    const ca = Math.abs(Math.cos(f.yaw)), sa = Math.abs(Math.sin(f.yaw))
+    for (const b of f.boxes) {
+      const ex = Math.abs(b.c[0]) + b.h[0] + f.round
+      const ez = Math.abs(b.c[2]) + b.h[2] + f.round
+      extX = Math.max(extX, Math.abs(f.origin[0]) + ex * ca + ez * sa)
+      extZ = Math.max(extZ, Math.abs(f.origin[2]) + ex * sa + ez * ca)
+      footYLo = Math.min(footYLo, f.origin[1] + b.c[1] - b.h[1] - f.round)
+      footYHi = Math.max(footYHi, f.origin[1] + b.c[1] + b.h[1] + f.round)
+    }
+  }
   const mXZ = K_FAR + 2
   const xMin = -extX - mXZ, xMax = extX + mXZ
   const zMin = -extZ - mXZ, zMax = extZ + mXZ
-  const yMin = man.bottomY - (SKIN_PRIOR.capDomeLeg + 1.5)
+  const yMin = man.bottomY - 1.5
   const yMax = man.topY + (SKIN_PRIOR.capDomePelvisTop + 1.5)
+  // 脚/脐 y 活动带（带外层跳过点原语求值：传 +Inf 进 smin/smax 为精确
+  // 恒等 —— smin(x,+Inf)=x、smax(x,−Inf)=x，值逐位一致，纯性能开关）
+  const footBandLo = footYLo - (K_FAR + 1), footBandHi = footYHi + (K_FAR + 1)
+  const navBandLo = man.navel.y - man.navel.ry - (K_NAVEL + 1)
+  const navBandHi = man.navel.y + man.navel.ry + (K_NAVEL + 1)
   const nx = Math.max(1, Math.ceil((xMax - xMin) / h))
   const ny = Math.max(1, Math.ceil((yMax - yMin) / h))
   const nz = Math.max(1, Math.ceil((zMax - zMin) / h))
@@ -193,14 +299,20 @@ function marchOnce(man: Mannequin, h: number): SkinMesh {
       SKIN_PRIOR.capDomeLeg, SKIN_PRIOR.capDomeLeg)
   }
   for (let j = 0; j < npY; j++) {
+    const yv = gy(j)
     const sp = slicesP[j], sl = slicesL[j], sr = slicesR[j]
+    const fOn = yv >= footBandLo && yv <= footBandHi
+    const nOn = yv >= navBandLo && yv <= navBandHi
     for (let kk = 0; kk < npZ; kk++) {
       const z = gz(kk)
       const rowBase = npX * (j + npY * kk)
       for (let i = 0; i < npX; i++) {
         const x = gx(i)
-        let v = blend3(sliceField(sp, x, z, K_FAR),
-          sliceField(sl, x, z, K_FAR), sliceField(sr, x, z, K_FAR))
+        let v = blendAll(sliceField(sp, x, z, K_FAR),
+          sliceField(sl, x, z, K_FAR), sliceField(sr, x, z, K_FAR),
+          fOn ? footField(man.feet[0], x, yv, z) : Infinity,
+          fOn ? footField(man.feet[1], x, yv, z) : Infinity,
+          nOn ? navelField(man.navel, x, yv, z) : Infinity)
         if (v > -1e-12 && v < 1e-12) v = 1e-6
         val[rowBase + i] = v
       }
