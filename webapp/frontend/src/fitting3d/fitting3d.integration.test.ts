@@ -12,18 +12,44 @@
 //       open('webapp/frontend/src/fitting3d/_fixture_fitting.json','w'))"
 // 断言口径：链序/缝合配对/碰撞不穿透/解算有限不冻结——几何与拓扑
 // 不变量，不钉具体构型（构型随先验收敛而变）。
+// 人台 = 真人网格唯一路径（2026-09-11 换轨）：node 无 fetch，fs 读
+// public/bodymesh 真资产 -> parseBin -> buildMeshMannequin（与浏览器
+// 运行时同一解析与出口，端到端含 morph/对齐/围度闭环/高度场）。
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../types'
-import { buildMannequin, radiusAt, sectionAt } from './mannequin'
+import type { BodyGirths } from './bodyProfile'
+import { buildMeshMannequin } from './bodymesh/build'
+import { parseBin } from './bodymesh/load'
+import type { BodyMeshAsset, BodyMeshMeta } from './bodymesh/types'
+import { radiusAt, sectionAt, type Mannequin } from './mannequin'
 import { buildClothMesh } from './mesh'
 import { buildGarment } from './seams'
 import { createSim, stepSim } from './pbd/solver'
 import { SOLVER_PRIOR } from './priors'
 import fixtureJson from './_fixture_fitting.json'
 
-// 静态 import（Vite JSON 导入；勿用 node:fs——tsc 浏览器 lib 无其类型）
+// node:fs 仅测试用（vitest 运行时 = node）；tsc 浏览器 lib 无其类型，
+// 指令须紧贴 import 行才压得住 TS2307（勿隔注释行）
+// @ts-expect-error
+import { readFileSync } from 'node:fs'
+
+// 静态 import（Vite JSON 导入）
 const payload = fixtureJson as unknown as FittingResult
-const GIRTHS = { waist: 66, hip: 90, thigh: 54, knee: 35 }
+const GIRTHS: BodyGirths = { waist: 66, hip: 90, thigh: 54, knee: 35 }
+
+// 真资产单例：morph 链路毫秒级、解析一次全 describe 复用
+const assetDir = new URL('../../public/bodymesh/', import.meta.url)
+const asset: BodyMeshAsset = (() => {
+  const bin = readFileSync(new URL('base.bin', assetDir))
+  const meta = JSON.parse(
+    readFileSync(new URL('targets.json', assetDir), 'utf8')) as BodyMeshMeta
+  return {
+    ...parseBin(bin.buffer.slice(
+      bin.byteOffset, bin.byteOffset + bin.byteLength) as ArrayBuffer),
+    meta,
+  }
+})()
+const buildMan = (): Mannequin => buildMeshMannequin(asset, payload.body, GIRTHS)
 
 describe('真实 payload 端到端（引擎 -> 3D 试穿）', () => {
   const front = payload.pieces.find((p) => p.key === 'front_piece')!
@@ -52,7 +78,7 @@ describe('真实 payload 端到端（引擎 -> 3D 试穿）', () => {
   })
 
   it('整裤摆位：缝合对完备、左负右正、初态不穿体', () => {
-    const man = buildMannequin(payload.body, GIRTHS)
+    const man = buildMan()
     const meshes = {
       front: buildClothMesh(front), back: buildClothMesh(back),
     }
@@ -67,9 +93,14 @@ describe('真实 payload 端到端（引擎 -> 3D 试穿）', () => {
         expect(sign * x).toBeGreaterThanOrEqual(-1e-6)   // 左半 x<=0 右半 x>=0
       }
     }
-    // 初态支撑半径：任一粒子到所属管中心的距离 >= 体表半径（支撑摆位
-    // 上界保证；松量已在 placePoint 里加过）。radiusAt 单位向量口径：
-    // 未归一化输入使其返回向量倍数、判据空转（2026-09-09 修复）
+    // 初态支撑半径：任一粒子到所属管中心的距离 >= 体表半径 − 2.0。
+    // surfaceRadius 是「cx·sinθ + R(θ)」的原点支撑近似（seams 零改动
+    // 红线内的旧式），真人网格 R(θ) 角向起伏（腿肚/大腿凸）会留初始残差
+    //——踝节点换轨（2026-09-11）后全量扫描实测最坏 ~1.5cm，冷启动
+    // preRelaxIters 200 第一帧前推出，终态真实不穿透由 PBD 测试的
+    // +skin−0.15 强断言把守（实测全过）。
+    // radiusAt 单位向量口径：未归一化输入使其返回向量倍数、判据空转
+    //（2026-09-09 修复）
     for (let i = 0; i < g.total; i++) {
       const px = g.pos[3 * i], py = g.pos[3 * i + 1], pz = g.pos[3 * i + 2]
       for (const tube of [man.pelvis, man.legs[0], man.legs[1]]) {
@@ -80,13 +111,13 @@ describe('真实 payload 端到端（引擎 -> 3D 试穿）', () => {
         const dist = Math.hypot(px - s.cx, pz)
         if (dist < 1e-9) continue
         expect(dist).toBeGreaterThanOrEqual(
-          radiusAt(s, (px - s.cx) / dist, pz / dist) - 0.5)
+          radiusAt(s, (px - s.cx) / dist, pz / dist) - 2.0)
       }
     }
   })
 
   it('PBD 150 帧解算：有限、不冻结、缝合闭合、无穿透', () => {
-    const man = buildMannequin(payload.body, GIRTHS)
+    const man = buildMan()
     const g = buildGarment({
       front: buildClothMesh(front), back: buildClothMesh(back),
     }, man)
@@ -115,12 +146,10 @@ describe('真实 payload 端到端（引擎 -> 3D 试穿）', () => {
     expect(seamSum / (g.seam.length / 2)).toBeLessThan(1)
     // 无穿透：碰撞投影后粒子在体表外（skin 余量；float32 存储 eps）。
     // radiusAt 单位向量口径 + collideSweeps 扫描后此断言才真正检验
-    // 无穿透（修复前未归一化输入使其空转）。−0.15 容差（先例口径随实测
-    // 收放：−0.01/−0.1/−0.15/−0.30 → 二轮微调后收回 −0.15：ham/腘窝上沿
-    // 锚使大腿接触带 bB 增 → a 重标定收细、两腿壁分开，内缝焊合与碰撞
-    // 推出的对抗减轻，实测最坏侵入 skin 余量带 0.283→0.082 @y66.0——
-    // 全部粒子仍在各管真实表面外 ≥0.218cm，零可见穿模；容差语义 =
-    // 不进真实表面，collideSweeps 维持 3（4 遍 +33% 每帧碰撞开销不值）
+    // 无穿透（修复前未归一化输入使其空转）。−0.15 容差：容差语义 =
+    // 允许侵入 skin 余量带、不进真实表面（顺序投影非幂等的扫描残差
+    // + 网格角向过渡带；collideSweeps 维持 3，4 遍 +33% 每帧碰撞开销
+    // 不值）。初态 placePoint 近似残差（≤~1cm）已被 pre-relax 收敛
     const skin = SOLVER_PRIOR.collisionSkin
     for (let i = 0; i < g.total; i++) {
       const px = sim.pos[3 * i], py = sim.pos[3 * i + 1], pz = sim.pos[3 * i + 2]
@@ -136,8 +165,7 @@ describe('真实 payload 端到端（引擎 -> 3D 试穿）', () => {
           radiusAt(s, dx / dist, dz / dist) + skin - 0.15)
       }
     }
-    // 3 遍扫描下本测实测 33-36s（2 遍最坏残差 0.13 超 −0.1 容差，见
-    // priors.ts collideSweeps 注释），超时给足 60s；全量并行 CPU 争抢下
-    // 曾到 ~58s（30s/60s 预算间歇假红——几何断言全过），放宽 120s
+    // 真网格人台下本测实测 ~21s（含 morph/标定/高度场 + 150 帧解算；
+    // 全量并行 CPU 争抢会拉长——超时给足 120s，几何断言不受预算抖动）
   }, 120_000)
 })

@@ -25,7 +25,7 @@ const STORE_KEY = 'ylpattern.body.v1'
 export interface StoreShape {
   version: 1
   activeId: string          // 当前生效体型 id（预设 id 或自定义 id 或 'estimated'）
-  estimated?: BodyProfile   // 最近一次「按成衣估计」结果缓存
+  estimated?: BodyProfile   // 首次有效尺寸时的估计快照（人台固定口径：不随成衣参数联动）
   customs: BodyProfile[]
 }
 
@@ -40,7 +40,8 @@ export function loadStore(): StoreShape {
       }
     }
   } catch { /* 损坏即重置 */ }
-  // 默认激活「估计体型」：首次使用即按成衣尺寸反推，用户选预设后覆盖
+  // 默认激活「估计体型」：首次有效尺寸时按成衣快照（Fitting3DView 落本字段），
+  // 之后不随成衣参数联动；显式刷新走抽屉「按成衣尺寸重估」
   return { version: 1, activeId: 'estimated', customs: [] }
 }
 

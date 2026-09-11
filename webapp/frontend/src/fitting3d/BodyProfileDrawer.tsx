@@ -1,6 +1,7 @@
 // 体型设置抽屉（仿 SizeRunDrawer 先例，挂 3D 试穿 tab 内）：
-// 估计体型（按成衣尺寸反推，随参数联动）/ 内置预设 / 自定义三源单选，
-// 选中后可微调数值「保存为自定义」；JSON 导入导出跨设备分享。
+// 估计体型（首次按成衣快照、不随参数联动，「按成衣尺寸重估」显式刷新）
+// / 内置预设 / 自定义三源单选，选中后可微调数值「保存为自定义」；
+// JSON 导入导出跨设备分享。
 // 体型是纯浏览器态：改动只重建人台+重解算，不 bump 参数版本号、
 // 不触发整版/裁片 stale（口径 §10.11）。
 import { useEffect, useState } from 'react'
@@ -38,9 +39,8 @@ export default function BodyProfileDrawer({
     knee: Number(measurements.knee ?? 0),
     thigh: measurements.thigh ? Number(measurements.thigh) : undefined,
   })
-  const active = store.activeId === 'estimated'
-    ? estimated
-    : (findProfile(store, store.activeId) ?? estimated)
+  // 估计体型走快照（store.estimated），未快照前兜底实时估计
+  const active = findProfile(store, store.activeId) ?? estimated
   const isCustom = store.customs.some((c) => c.id === active.id)
 
   const [name, setName] = useState(active.name)
@@ -55,7 +55,7 @@ export default function BodyProfileDrawer({
       waist: active.waist, hip: active.hip,
       thigh: active.thigh ?? 0, knee: active.knee,
     })
-    // 切换选中/抽屉开合时重置编辑态（估计体型随参数自动刷新）
+    // 切换选中/抽屉开合/重估快照时重置编辑态
   }, [open, store.activeId, active.waist, active.hip, active.thigh, active.knee])
 
   const err = validateGirths(draft)
@@ -123,14 +123,15 @@ export default function BodyProfileDrawer({
     >
       <div className="body-hint">
         体型独立于尺寸单：成衣围含松量/调节量，直接当人体围会假紧假松。
-        默认按成衣尺寸反推估计值，建议录入真实测量值。
+        默认按成衣尺寸反推估计值（首次快照，不随后续参数联动，可重估），
+        建议录入真实测量值。
       </div>
       <Radio.Group
         value={store.activeId}
         onChange={(e) => onChange(setActive(store, e.target.value as string))}
         className="body-list"
       >
-        {row(estimated)}
+        {row(store.estimated ?? estimated)}
         {BODY_PRESETS.map(row)}
         {store.customs.length > 0 && (
           <div className="body-group">自定义</div>
@@ -176,8 +177,9 @@ export default function BodyProfileDrawer({
             onClick={saveCustom}>
             {isCustom ? '保存修改' : '保存为自定义'}
           </Button>
-          <Button size="small" onClick={() => onChange(setActive(store, 'estimated'))}>
-            用估计值
+          <Button size="small" onClick={() =>
+            onChange({ ...setActive(store, 'estimated'), estimated })}>
+            按成衣尺寸重估
           </Button>
         </Space>
       </div>

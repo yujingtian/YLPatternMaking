@@ -6,7 +6,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FittingResult } from '../types'
 import type { BodyGirths } from './bodyProfile'
-import { buildMannequin, type Mannequin } from './mannequin'
+import { buildMeshMannequin } from './bodymesh/build'
+import { loadBodyMesh } from './bodymesh/load'
+import type { Mannequin } from './mannequin'
 import { buildClothMesh, type ClothMesh } from './mesh'
 import { buildGarment, type Garment } from './seams'
 import { createSim, stepSim, type SimState } from './pbd/solver'
@@ -57,42 +59,56 @@ export function useFittingSolver(
       return
     }
     setStatus('building')
-    // 让出首帧给 Spin 再做重活（网格/预松弛 ~百 ms 级）
+    // 让出首帧给 Spin 再做重活（网格/预松弛 ~百 ms 级）。bodymesh 路径
+    // fetch 是异步：await 后先查 stale（deps 已换轮次则丢弃，防旧结果
+    // 抢写新轮的 refs/状态）
+    let stale = false
     const id = window.setTimeout(() => {
-      try {
-        const front = result.pieces.find((p) => p.key === 'front_piece')
-        const back = result.pieces.find((p) => p.key === 'back_piece')
-        if (!front || !back) throw new Error('fitting payload 缺前后片')
-        if (!meshesRef.current || meshesRef.current.from !== result) {
-          meshesRef.current = {
-            meshes: {
-              front: buildClothMesh(front),
-              back: buildClothMesh(back),
-            },
-            sig: '', sigWarm: '', from: result,
+      void (async () => {
+        try {
+          const front = result.pieces.find((p) => p.key === 'front_piece')
+          const back = result.pieces.find((p) => p.key === 'back_piece')
+          if (!front || !back) throw new Error('fitting payload 缺前后片')
+          if (!meshesRef.current || meshesRef.current.from !== result) {
+            meshesRef.current = {
+              meshes: {
+                front: buildClothMesh(front),
+                back: buildClothMesh(back),
+              },
+              sig: '', sigWarm: '', from: result,
+            }
+            meshesRef.current.sig = runSig(meshesRef.current.meshes)
           }
-          meshesRef.current.sig = runSig(meshesRef.current.meshes)
+          const { meshes, sig } = meshesRef.current
+          // 真人网格唯一路径（2026-09-11 退役旧环模型）：数据 fetch 异步，
+          // await 后先查 stale。加载/morph/标定失败走 catch 降级空人台
+          //（console.error 披露、状态回 idle，不炸 React 树）
+          const asset = await loadBodyMesh()
+          if (stale) return
+          const man: Mannequin = buildMeshMannequin(asset, result.body, girths)
+          const garment = buildGarment(meshes, man)
+          const warmOk = !forceCold.current && simRef.current !== null
+            && meshesRef.current.sigWarm === sig
+          forceCold.current = false
+          const sim = createSim(garment, man,
+            warmOk ? simRef.current! : undefined)
+          if (stale) return
+          simRef.current = sim
+          garmentRef.current = garment
+          manRef.current = man
+          meshesRef.current.sigWarm = sig
+          setBuildVersion((v) => v + 1)
+          setStatus('running')
+        } catch (e) {
+          console.error('[fitting3d] 构建失败', e)
+          if (!stale) setStatus('idle')
         }
-        const { meshes, sig } = meshesRef.current
-        const man = buildMannequin(result.body, girths)
-        const garment = buildGarment(meshes, man)
-        const warmOk = !forceCold.current && simRef.current !== null
-          && meshesRef.current.sigWarm === sig
-        forceCold.current = false
-        const sim = createSim(garment, man,
-          warmOk ? simRef.current! : undefined)
-        simRef.current = sim
-        garmentRef.current = garment
-        manRef.current = man
-        meshesRef.current.sigWarm = sig
-        setBuildVersion((v) => v + 1)
-        setStatus('running')
-      } catch (e) {
-        console.error('[fitting3d] 构建失败', e)
-        setStatus('idle')
-      }
+      })()
     }, 0)
-    return () => window.clearTimeout(id)
+    return () => {
+      stale = true
+      window.clearTimeout(id)
+    }
   }, [result, girths, restartTick])
 
   useEffect(() => {

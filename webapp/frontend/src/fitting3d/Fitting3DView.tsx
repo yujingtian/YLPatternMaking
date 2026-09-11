@@ -16,7 +16,6 @@ import { estimateBody } from './bodyProfile'
 import {
   findProfile, loadStore, saveStore, type StoreShape,
 } from './bodyProfileStore'
-import { buildSkinMesh } from './skin'
 import { buildWaistBand } from './seams'
 import { bakeStructureLines, updateBakedLine, type BakedLine } from './structureLines'
 import { computeStrain, strainColor } from './heatmap'
@@ -39,8 +38,8 @@ const STATION_LABEL: Record<string, string> = {
   waist: '腰', hip: '臀', thigh: '大腿', knee: '膝',
 }
 
-// 裤子渲染开关：人台形状验收期（2026-09-10）曾置 false 只显示人台，
-// 视觉验收通过当日已改回 true 恢复全量渲染（布料四半片/腰头环带/
+// 裤子渲染开关：人台换轨验收期（2026-09-11）曾置 false 只显示人台，
+// VLM 八图验收通过当日改回 true 恢复全量渲染（布料四半片/腰头环带/
 // 结构线与热力图/透明度/重新试穿）；开关保留备用（详见 §10.11）。
 const RENDER_GARMENT: boolean = true
 
@@ -87,7 +86,8 @@ export default function Fitting3DView({
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [showBody, setShowBody] = useState(true)
-  const [opacity, setOpacity] = useState(1)
+  // 布料默认不可见（用户口径 2026-09-11：进 3D 先看人台，拉滑杆再看布料效果）
+  const [opacity, setOpacity] = useState(0)
   const flyRaf = useRef(0)
   const handlesRef = useRef<ContentHandles | null>(null)
   const heatRef = useRef(false)
@@ -105,6 +105,10 @@ export default function Fitting3DView({
   }, [])
 
   // ---- 体型（独立浏览器态；改体型不 bump 参数版本） ----
+  // 人台固定口径（用户 2026-09-11：设置好多少就是多少）：估计体型 = 首次
+  // 出现有效尺寸时快照进 store.estimated 持久化，之后成衣参数变化零联动
+  //（人台是「穿衣服的人」，不随版变）；显式重估走抽屉「按成衣尺寸重估」。
+  // estimated 实时值仅作快照前兜底与重估来源。
   const estimated = useMemo(() => estimateBody({
     waist: Number(measurements.waist ?? 0),
     hip: Number(measurements.hip ?? 0),
@@ -112,9 +116,14 @@ export default function Fitting3DView({
     thigh: measurements.thigh ? Number(measurements.thigh) : undefined,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [measurements.waist, measurements.hip, measurements.knee, measurements.thigh])
-  const activeProfile = store.activeId === 'estimated'
-    ? estimated
-    : (findProfile(store, store.activeId) ?? estimated)
+  useEffect(() => {
+    // 空面板 waist=0 不快照（防 0 值估计固化）
+    if (!store.estimated && Number(measurements.waist ?? 0) > 0) {
+      setStore({ ...store, estimated })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, estimated])
+  const activeProfile = findProfile(store, store.activeId) ?? estimated
   const girths: BodyGirths = useMemo(() => ({
     waist: activeProfile.waist, hip: activeProfile.hip,
     thigh: activeProfile.thigh, knee: activeProfile.knee,
@@ -123,11 +132,9 @@ export default function Fitting3DView({
   useEffect(() => { saveStore(store) }, [store])
 
   // ---- 围度喂入解算的 trailing debounce（200ms，2026-09-09 四轮） ----
-  // 默认估计体型下腰/臀/腿/膝快捷滑杆与围度直连（estimateBody 1:1 反推），
-  // 每 0.5cm tick 都会触发 useFittingSolver 重建——蒙皮+PBD 为 ~百 ms 级
-  // 同步重活（buildSkinMesh 165/66A 实测 ~230ms、病理 ~500ms），拖动期间
-  // 逐 tick 重建卡主线程。与 payload 的 800ms 重生成链路独立：拖动停顿
-  // 200ms 后才重建一次（warm-start 语义不变，仅降频）
+  // 人台固定后围度只在切体型/重估快照时变化；debounce 保留防连续操作
+  // 逐 tick 重建卡主线程，与 payload 的 800ms 重生成链路独立（拖动停顿
+  // 200ms 后才重建一次，warm-start 语义不变，仅降频）
   const [girthsDebounced, setGirthsDebounced] = useState(girths)
   useEffect(() => {
     const t = window.setTimeout(() => setGirthsDebounced(girths), 200)
@@ -218,30 +225,28 @@ export default function Fitting3DView({
     // 地面格网随人台落地（脚底 = man.bottomY）
     if (gridRef.current) gridRef.current.position.y = man.bottomY
 
-    // 人台（SDF 单张水密蒙皮：三管 smin 软并集 + marching cubes，仅体型/
+    // 人台（真人网格：morph+对齐后 sourceMesh 直出 BufferGeometry，法线
+    // 随绕向——vendor 侧有向体积 +37L = 外法向，Python 金标把守；仅体型/
     // 围度变化时重建、非每帧）+ 腰头环带（挂腰口站点高度，宽随 payload）。
-    // 渲染前提守卫：蒙皮为单张水密外法向闭合面（法线 = SDF 梯度、
-    // FLIP_WINDING 锁外向绕向），不透明 FrontSide + 深度写入前提由蒙皮
-    // 继承；改 transparent 会透视体内布料与腰头环带，须同步
-    // .doc/python工程设计.md §10.11 评估。构建失败 console.error 且
-    // bodyMeshes=[] 降级（不炸 React 树，布料仍可解算渲染）
+    // 不透明 FrontSide + 深度写入；改 transparent 会透视体内布料与腰头
+    // 环带，须同步 .doc/python工程设计.md §10.11 评估。构建失败
+    // console.error 且 bodyMeshes=[] 降级（不炸 React 树，布料仍可解算）
     const bodyMat = new THREE.MeshStandardMaterial({
       color: 0xd8c3b0, roughness: 0.85, metalness: 0.02,
     })
     const bodyMeshes: ThreeT.Mesh[] = []
     try {
-      const skin = buildSkinMesh(man)
       const geo = new THREE.BufferGeometry()
       geo.setAttribute('position',
-        new THREE.Float32BufferAttribute(skin.positions, 3))
-      geo.setAttribute('normal',
-        new THREE.Float32BufferAttribute(skin.normals, 3))
-      geo.setIndex(new THREE.Uint32BufferAttribute(skin.indices, 1))
+        new THREE.Float32BufferAttribute(man.sourceMesh!.positions, 3))
+      geo.setIndex(
+        new THREE.Uint32BufferAttribute(man.sourceMesh!.indices, 1))
+      geo.computeVertexNormals()
       const mesh = new THREE.Mesh(geo, bodyMat)
       bodyMeshes.push(mesh)
       group.add(mesh)
     } catch (e) {
-      console.error('[fitting3d] 蒙皮构建失败，人台降级为空', e)
+      console.error('[fitting3d] 人台网格装配失败，降级为空', e)
     }
     const yWaist = fitting?.data.body.stations.find((s) => s.key === 'waist')
       ?.y ?? 90

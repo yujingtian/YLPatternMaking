@@ -1,0 +1,294 @@
+{
+ "schema": 1,
+ "units": "cm",
+ "frame": {
+  "yAxis": "up",
+  "origin": "sole-center",
+  "front": "+z"
+ },
+ "vertexCount": 4264,
+ "triangleCount": 8524,
+ "targets": [
+  {
+   "name": "waist+",
+   "file": "measure-waist-circ-incr.target",
+   "count": 732
+  },
+  {
+   "name": "waist-",
+   "file": "measure-waist-circ-decr.target",
+   "count": 732
+  },
+  {
+   "name": "hips+",
+   "file": "measure-hips-circ-incr.target",
+   "count": 707
+  },
+  {
+   "name": "hips-",
+   "file": "measure-hips-circ-decr.target",
+   "count": 692
+  },
+  {
+   "name": "thigh+",
+   "file": "derived:radial@crotch-3",
+   "count": 272
+  },
+  {
+   "name": "thigh-",
+   "file": "derived:radial@crotch-3",
+   "count": 272
+  },
+  {
+   "name": "knee+",
+   "file": "measure-knee-circ-incr.target",
+   "count": 536
+  },
+  {
+   "name": "knee-",
+   "file": "measure-knee-circ-decr.target",
+   "count": 532
+  }
+ ],
+ "landmarks": {
+  "sole": 1796,
+  "crotch": 480,
+  "waist": 150,
+  "hip": 398,
+  "knee": 2734,
+  "ankle": 2970
+ },
+ "landmarkHeights": {
+  "sole": 0.0,
+  "crotch": 80.562,
+  "hip": 86.562,
+  "waist": 107.562,
+  "knee": 48.062,
+  "ankle": 13.5
+ },
+ "cut": {
+  "aboveWaistCm": 15.0,
+  "planeY": 122.56
+ },
+ "stations": [
+  {
+   "name": "waist",
+   "per": "body",
+   "y": 107.562
+  },
+  {
+   "name": "hips",
+   "per": "body",
+   "y": 86.562
+  },
+  {
+   "name": "thigh",
+   "per": "leg",
+   "y": 77.562
+  },
+  {
+   "name": "knee",
+   "per": "leg",
+   "y": 48.062
+  }
+ ],
+ "calibration": {
+  "waist+": {
+   "waist": [
+    69.537,
+    74.8201,
+    80.1817
+   ],
+   "hips": [
+    98.7636,
+    98.7636,
+    98.7636
+   ],
+   "thigh": [
+    54.1464,
+    54.1464,
+    54.1464
+   ],
+   "knee": [
+    34.3917,
+    34.3917,
+    34.3917
+   ]
+  },
+  "waist-": {
+   "waist": [
+    69.537,
+    64.3523,
+    59.2937
+   ],
+   "hips": [
+    98.7636,
+    98.7636,
+    98.7636
+   ],
+   "thigh": [
+    54.1464,
+    54.1464,
+    54.1464
+   ],
+   "knee": [
+    34.3917,
+    34.3917,
+    34.3917
+   ]
+  },
+  "hips+": {
+   "waist": [
+    69.537,
+    69.537,
+    69.537
+   ],
+   "hips": [
+    98.7636,
+    108.4413,
+    118.1236
+   ],
+   "thigh": [
+    54.1464,
+    57.4237,
+    60.7823
+   ],
+   "knee": [
+    34.3917,
+    34.3917,
+    34.3917
+   ]
+  },
+  "hips-": {
+   "waist": [
+    69.537,
+    69.537,
+    69.537
+   ],
+   "hips": [
+    98.7636,
+    93.9315,
+    89.1015
+   ],
+   "thigh": [
+    54.1464,
+    52.548,
+    50.9708
+   ],
+   "knee": [
+    34.3917,
+    34.3917,
+    34.3917
+   ]
+  },
+  "thigh+": {
+   "waist": [
+    69.537,
+    69.537,
+    69.537
+   ],
+   "hips": [
+    98.7636,
+    98.7636,
+    98.7636
+   ],
+   "thigh": [
+    54.1464,
+    56.2075,
+    58.285
+   ],
+   "knee": [
+    34.3917,
+    34.3917,
+    34.3917
+   ]
+  },
+  "thigh-": {
+   "waist": [
+    69.537,
+    69.537,
+    69.537
+   ],
+   "hips": [
+    98.7636,
+    98.7636,
+    98.7636
+   ],
+   "thigh": [
+    54.1464,
+    52.1034,
+    50.0798
+   ],
+   "knee": [
+    34.3917,
+    34.3917,
+    34.3917
+   ]
+  },
+  "knee+": {
+   "waist": [
+    69.537,
+    69.537,
+    69.537
+   ],
+   "hips": [
+    98.7636,
+    98.7636,
+    98.7636
+   ],
+   "thigh": [
+    54.1464,
+    54.1464,
+    54.1464
+   ],
+   "knee": [
+    34.3917,
+    37.5673,
+    40.8349
+   ]
+  },
+  "knee-": {
+   "waist": [
+    69.537,
+    69.537,
+    69.537
+   ],
+   "hips": [
+    98.7636,
+    98.7636,
+    98.7636
+   ],
+   "thigh": [
+    54.1464,
+    54.1464,
+    54.1464
+   ],
+   "knee": [
+    34.3917,
+    32.5232,
+    30.6936
+   ]
+  }
+ },
+ "provenance": {
+  "repo": "makehumancommunity/makehuman",
+  "tag": "v1.3.0",
+  "commit": "1f508f60",
+  "license": "CC0-1.0 (bundled assets)",
+  "files": {
+   "base.obj": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
+   "LICENSE.ASSETS.md": "f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c",
+   "PROVENANCE.md": "acd9d80b8ead4d5c356a79e2d5071174c9947a2aa486b8b658040487720e36a7",
+   "caucasian-male-young.target": "70e228ba7164737dae664454394536fc5935fa48d333c1a97d77e2dc6eacc5f5",
+   "universal-female-young-averagemuscle-averageweight.target": "4ba5396ddabda448ece15650a566fbebfbb10239256ccb201e8f883429e12249",
+   "measure-hips-circ-decr.target": "8a98e80047ab89148d60067aad3b452ce715eadcaf7a1e28402140dd1ac8fb11",
+   "measure-hips-circ-incr.target": "e4294db231dd3283680e6be4b9d3d8d81aa7c575a32f937f8d0751b1ec3d6512",
+   "measure-knee-circ-decr.target": "fc8d4ff31694018587f32979183f2342ac2e4882b99ff9eac71050eac2bcca27",
+   "measure-knee-circ-incr.target": "a3f57ce71ae6955ebca4b3927fa9adcf7d4718df7e0c8641adea37cb1e781ecb",
+   "measure-thigh-circ-decr.target": "fe5303874b0ffe26a69cefd3e213b6478eec4648f60b0b110a1e176ccf24eaa9",
+   "measure-thigh-circ-incr.target": "5dca89b139df6f9b7c7641485dee18e9f0da10087359b9df5ca6a1e752ea0bcc",
+   "measure-waist-circ-decr.target": "6a976bd7819fa037a290b381bb3e04dfd04220dddeac194c476472295d2baba8",
+   "measure-waist-circ-incr.target": "4949212ec9a5e227b177a029ee42b0be3fd3b273a211bc91c6f4d4dbf0334856"
+  }
+ }
+}
