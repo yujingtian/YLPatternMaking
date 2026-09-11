@@ -14,8 +14,10 @@ import type {
 export type { Template } from './apiHttp'
 
 // 下载（DXF/toml）与模板/参数 schema：永远 HTTP（引擎不落盘、
-// ezdxf 不进浏览器；schema 首屏不等 worker 就绪）
+// ezdxf 不进浏览器；schema 首屏不等 worker 就绪）。
+// downloadBlob 为内存直存（SVG/报表，无 HTTP）
 export const download = http.download
+export const downloadBlob = http.downloadBlob
 export const fetchSchema = http.fetchSchema
 export const fetchTemplates = http.fetchTemplates
 export const fetchTemplateDetail = http.fetchTemplateDetail

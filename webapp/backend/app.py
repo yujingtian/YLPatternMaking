@@ -71,6 +71,10 @@ if (_DIST / "engine").is_dir():
 if (_DIST / "pyodide").is_dir():
     app.mount("/pyodide", _ImmutableStatic(directory=_DIST / "pyodide"),
               name="pyodide")
+# 真人网格人台数据（public/ 直拷产物，无 hash 文件名——走短缓存防钉死旧数据）
+if (_DIST / "bodymesh").is_dir():
+    app.mount("/bodymesh", StaticFiles(directory=_DIST / "bodymesh"),
+              name="bodymesh")
 
 _EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 

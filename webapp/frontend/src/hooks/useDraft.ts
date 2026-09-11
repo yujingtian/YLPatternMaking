@@ -44,11 +44,17 @@ export interface DraftState {
   // 返回判别结果、不进全局 errors——非生成动作，失败内联显示在编辑器里
   seedShape: (kind: SeedPayload['kind'], shape: string) =>
     Promise<SeedResult | { ok: false; message: string }>
-  generateSheet: () => Promise<void>
-  generatePieces: () => Promise<void>
+  // 生成动作返回快照（失败/互斥返回 null）：导出中心与高级编辑按需
+  // 补算后直接消费结果，不依赖 state 重渲染取数（2026-09-11 交互重构）
+  generateSheet: () => Promise<Snapshot<SheetResult> | null>
+  generatePieces: () => Promise<Snapshot<PiecesResult> | null>
   // 3D 试穿 payload（独立快照）：不走「先画后裁」门控——试穿是探索性
   // 视图、引擎独立重打版；整版/裁片/DXF 的新鲜度语义不受影响
-  generateFitting: () => Promise<void>
+  generateFitting: () => Promise<Snapshot<FittingResult> | null>
+  // 按需补算（新主流程：生成=只算 3D，2D 进高级编辑/导出时才补）：
+  // 快照缺失或 stale 才重跑，新鲜直接复用；读 ref 规避闭包旧值
+  ensureSheet: () => Promise<Snapshot<SheetResult> | null>
+  ensurePieces: () => Promise<Snapshot<PiecesResult> | null>
   // opts.sizeRun：抽屉「保存+导出」同 tick 的显式覆盖（规避闭包旧值竞态）
   download: (kind: DownloadKind, opts?: { sizeRun?: SizeRunSpec | null }) =>
     Promise<void>
@@ -109,10 +115,17 @@ export function useDraft(): DraftState {
   optsRef.current = options
   const [sheet, setSheet] = useState<Snapshot<SheetResult> | null>(null)
   const [pieces, setPieces] = useState<Snapshot<PiecesResult> | null>(null)
+  // 快照镜像：ensure* 的"已新鲜即复用"判定读 ref（回调闭包不滞后）
+  const sheetRef = useRef<Snapshot<SheetResult> | null>(null)
+  sheetRef.current = sheet
+  const piecesRef = useRef<Snapshot<PiecesResult> | null>(null)
+  piecesRef.current = pieces
   const [fitting, setFitting] = useState<Snapshot<FittingResult> | null>(null)
   const [errors, setErrors] = useState<IssueDetail[]>([])
   const [warnings, setWarnings] = useState<DraftWarning[]>([])
   const [sheetBusy, setSheetBusy] = useState(false)
+  const sheetBusyRef = useRef(false)
+  sheetBusyRef.current = sheetBusy
   const [piecesBusy, setPiecesBusy] = useState(false)
   const [fittingBusy, setFittingBusy] = useState(false)
   const piecesBusyRef = useRef(false)
@@ -227,14 +240,23 @@ export function useDraft(): DraftState {
     })
   }, [applyAdjust])
 
+  // 三个生成动作统一 ref 取参（measRef/optsRef 恒新，闭包不滞后）+
+  // 调用时捕获版本号 ver 落快照（生成途中改参数 -> 快照落后于当前
+  // version 自然标过期，语义与旧 state 闭包版一致）；返回快照本体，
+  // 失败/互斥返回 null（导出中心/高级编辑按需补算直接消费返回值）
   const generateSheet = useCallback(async () => {
-    if (piecesBusy) return            // 两步互斥（引擎 CPU 密集，毗围闭环可多轮重跑）
+    if (piecesBusyRef.current) return null   // 两步互斥（引擎 CPU 密集）
+    const ver = versionRef.current
+    const payload = { measurements: measRef.current, options: optsRef.current }
     setSheetBusy(true)
     setErrors([])
     try {
-      const res = await postSheet({ measurements, options })
-      setSheet({ data: res, version })
+      const res = await postSheet(payload)
+      const snap = { data: res, version: ver }
+      sheetRef.current = snap      // 先同步 ref：紧随其后的 ensurePieces 门控可读
+      setSheet(snap)
       setWarnings(res.warnings.map((w) => ({ param: w.param, message: w.message })))
+      return snap
     } catch (e) {
       const err = e as Error & { detail?: IssueDetail[] }
       if (err.detail) {
@@ -242,20 +264,28 @@ export function useDraft(): DraftState {
       } else {
         setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
       }
+      return null
     } finally {
       setSheetBusy(false)
     }
-  }, [measurements, options, version, piecesBusy])
+  }, [])
 
   const generatePieces = useCallback(async () => {
     // 先画后裁（UI 门控）：整版未生成/已过期/生成中均不开裁片
-    if (sheetBusy || !sheet || sheet.version !== version) return
+    const s = sheetRef.current
+    if (piecesBusyRef.current || sheetBusyRef.current
+        || !s || s.version !== versionRef.current) return null
+    const ver = versionRef.current
+    const payload = { measurements: measRef.current, options: optsRef.current }
     setPiecesBusy(true)
     setErrors([])
     try {
-      const res = await postPieces({ measurements, options })
-      setPieces({ data: res, version })
+      const res = await postPieces(payload)
+      const snap = { data: res, version: ver }
+      piecesRef.current = snap
+      setPieces(snap)
       setWarnings(res.warnings.map((w) => ({ param: w.param, message: w.message })))
+      return snap
     } catch (e) {
       const err = e as Error & { detail?: IssueDetail[] }
       if (err.detail) {
@@ -263,22 +293,27 @@ export function useDraft(): DraftState {
       } else {
         setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
       }
+      return null
     } finally {
       setPiecesBusy(false)
     }
-  }, [measurements, options, version, sheet, sheetBusy])
+  }, [])
 
   // 3D 试穿 payload：与两步生成同构的版本竞态语义；自互斥（试穿快调环
   // 高频触发，进行中直接丢弃新请求——debounce 层会补发最后一拍）
   const generateFitting = useCallback(async () => {
-    if (fittingBusyRef.current) return
+    if (fittingBusyRef.current) return null
     fittingBusyRef.current = true
+    const ver = versionRef.current
+    const payload = { measurements: measRef.current, options: optsRef.current }
     setFittingBusy(true)
     setErrors([])
     try {
-      const res = await postFitting({ measurements, options })
-      setFitting({ data: res, version })
+      const res = await postFitting(payload)
+      const snap = { data: res, version: ver }
+      setFitting(snap)
       setWarnings(res.warnings.map((w) => ({ param: w.param, message: w.message })))
+      return snap
     } catch (e) {
       const err = e as Error & { detail?: IssueDetail[] }
       if (err.detail) {
@@ -286,11 +321,29 @@ export function useDraft(): DraftState {
       } else {
         setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
       }
+      return null
     } finally {
       fittingBusyRef.current = false
       setFittingBusy(false)
     }
-  }, [measurements, options, version])
+  }, [])
+
+  // 按需补算：新鲜（快照存在且 version 一致）直接复用，否则重跑对应
+  // 生成动作；generate* 内部已同步 ref，ensurePieces 紧随 ensureSheet
+  // 的门控（先画后裁）天然通过。供高级编辑进入与导出中心复用
+  const ensureSheet = useCallback(async () => {
+    const s = sheetRef.current
+    if (s && s.version === versionRef.current) return s
+    return generateSheet()
+  }, [generateSheet])
+
+  const ensurePieces = useCallback(async () => {
+    const p = piecesRef.current
+    if (p && p.version === versionRef.current) return p
+    const s = await ensureSheet()
+    if (!s) return null
+    return generatePieces()
+  }, [ensureSheet, generatePieces])
 
   // 从形态导入：读 optsRef 规避闭包旧值；失败返回 {ok:false, message}
   // 内联显示在编辑器（422 detail 为字符串消息，其余取 error 文本）
@@ -333,8 +386,10 @@ export function useDraft(): DraftState {
                            'size_draft.toml')
       }
     } catch (e) {
-      // 下载失败入 errors（与 schema 加载失败同口径，Toolbar Alert 呈现）
+      // 下载失败入 errors（左栏 IssueStrip 呈现）并向上抛出——导出中心
+      // 队列按项落账 failed；调用方 void 消费时须自带 catch
       setErrors([{ param: null, group: null, message: `下载失败：${e}`, level: 'error' }])
+      throw e
     } finally {
       setDlBusy(null)
     }
@@ -344,7 +399,8 @@ export function useDraft(): DraftState {
     schema, measurements, options, sizeRun,
     setMeasurement, setOption, setSizeRun, loadValues,
     seedShape,
-    generateSheet, generatePieces, generateFitting, download,
+    generateSheet, generatePieces, generateFitting, ensureSheet, ensurePieces,
+    download,
     applyAdjust, beginDrag, undoLastDrag, lastDrag, adjustInfo,
     sheet, pieces, fitting,
     sheetReady: sheet !== null, sheetStale,

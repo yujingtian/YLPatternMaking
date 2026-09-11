@@ -1,7 +1,10 @@
 // 3D 试穿视图（一期）：three 惰性分包加载（首屏零影响）；人台 + 腰头
 // 环带 + 四半片布料 + 结构线随 PBD 解算逐帧渲染。侧栏：体型入口/松量
-// 读数/快捷滑杆（debounce 自动重试穿）/热力图/透明度/视角/截图。
+// 读数/热力图/透明度/视角/截图。
 // 坐标口径：payload 整版全局系 Y-up 直接作为身体高度；θ=0 前中 +Z。
+// 2026-09-11 交互重构：常驻主视图（生成=只算 3D），删快捷滑杆卡与
+// 800ms 自动重试穿——改参数走左栏，stale 由舞台 Tag + 生成按钮角标提示；
+// 保留首挂载自动生成一次（进系统即有人台+裤子）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Empty, Slider, Spin, Switch, Tag } from 'antd'
 import {
@@ -24,15 +27,6 @@ import BodyProfileDrawer from './BodyProfileDrawer'
 
 type ThreeMod = typeof import('three')
 type OrbitControlsCtor = typeof import('three/examples/jsm/controls/OrbitControls.js').OrbitControls
-
-const SLIDERS: { key: string; label: string; min: number; max: number }[] = [
-  { key: 'waist', label: '腰围', min: 55, max: 120 },
-  { key: 'hip', label: '臀围', min: 75, max: 130 },
-  { key: 'thigh', label: '大腿围', min: 40, max: 80 },
-  { key: 'knee', label: '膝围', min: 30, max: 60 },
-  { key: 'hem', label: '脚口', min: 24, max: 50 },
-  { key: 'outseam', label: '裤长', min: 60, max: 120 },
-]
 
 const STATION_LABEL: Record<string, string> = {
   waist: '腰', hip: '臀', thigh: '大腿', knee: '膝',
@@ -66,14 +60,12 @@ interface ContentHandles {
 
 export default function Fitting3DView({
   fitting, fittingStale, fittingBusy, onGenerateFitting, measurements,
-  onMeasurement,
 }: {
   fitting: Snapshot<FittingResult> | null
   fittingStale: boolean
   fittingBusy: boolean
   onGenerateFitting: () => void
   measurements: Values
-  onMeasurement: (key: string, value: unknown) => void
 }) {
   const mountRef = useRef<HTMLDivElement>(null)
   const ctxRef = useRef<SceneCtx | null>(null)
@@ -143,27 +135,14 @@ export default function Fitting3DView({
 
   const solver = useFittingSolver(fitting?.data ?? null, girthsDebounced)
 
-  // ---- 自动生成/防抖重试穿（滑杆拖动 -> 800ms 自动重算） ----
-  const baseKey = useMemo(
-    () => JSON.stringify(measurements), [measurements])
-  const lastReq = useRef('')
+  // ---- 首挂载自动生成一次（进系统即有人台+裤子；此后全手动：改参数
+  // 走左栏，stale 由舞台 Tag + 生成按钮角标提示，不再 800ms 自动重算） ----
   useEffect(() => {
     if (fitting === null && !fittingBusy) {
-      lastReq.current = baseKey
       onGenerateFitting()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  useEffect(() => {
-    if (!fitting || fittingBusy || lastReq.current === '') return
-    if (baseKey === lastReq.current) return
-    const t = window.setTimeout(() => {
-      lastReq.current = baseKey
-      onGenerateFitting()
-    }, 800)
-    return () => window.clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseKey, fitting !== null, fittingBusy])
 
   // ---- 场景初始化（three 就绪后一次） ----
   useEffect(() => {
@@ -452,8 +431,6 @@ export default function Fitting3DView({
   })
 
   const loading = threeMod === null || solver.status === 'building'
-  const pendingRegen = fitting !== null
-    && (fittingStale || baseKey !== lastReq.current)
 
   return (
     <div className="fitting3d">
@@ -467,6 +444,11 @@ export default function Fitting3DView({
             </Button>
           ))}
         </div>
+        {fittingStale && !loading && (
+          <div className="fitting3d-stale">
+            <Tag color="orange">参数已修改，点左下「生成」刷新试穿</Tag>
+          </div>
+        )}
         {showHeatmap && (
           <div className="fitting3d-legend">
             <span className="lg lg-tight" />紧绷
@@ -528,24 +510,6 @@ export default function Fitting3DView({
             ))}
           </div>
         )}
-
-        <div className="f3d-card">
-          <div className="f3d-card-title">
-            快捷参数
-            {pendingRegen && <Tag className="f3d-pending">自动重试穿中</Tag>}
-          </div>
-          {SLIDERS.filter((s) => measurements[s.key] != null).map((s) => (
-            <div key={s.key} className="f3d-slider">
-              <span className="f3d-slider-label">{s.label}</span>
-              <Slider
-                min={s.min} max={s.max} step={0.5}
-                value={Number(measurements[s.key])}
-                onChange={(v) => onMeasurement(s.key, v ?? 0)}
-                tooltip={{ formatter: (v) => `${v ?? 0} cm` }}
-              />
-            </div>
-          ))}
-        </div>
 
         <div className="f3d-card">
           <div className="f3d-card-title">显示</div>

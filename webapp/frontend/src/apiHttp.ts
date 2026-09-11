@@ -91,6 +91,21 @@ export async function download(
   URL.revokeObjectURL(url)
 }
 
+// 内存内容直存文件（无 HTTP，2026-09-11 导出中心）：整版/裁片 SVG 与
+// 打版报表来自内存快照（本地引擎可出、零后端），与 download() 同款
+// blob + a[download]
+export function downloadBlob(
+  content: string, filename: string,
+  mime = 'text/plain;charset=utf-8',
+): void {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export interface Template {
   name: string
   file: string
