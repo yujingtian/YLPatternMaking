@@ -4,10 +4,13 @@
 // 合成体：躯干椭圆管（a=8、b=6，y∈[30,50]）+ 双腿圆柱（r=4、x=±5、
 // y∈[0,30]），环距 2.5、24 边侧壁三角带（封盖不必要：切片环/碰撞/渲染
 // 测试只消费侧壁；crotch=30、hem=0、knee=15 与 payload 站恒等 -> 对齐
-// a=1、b=0 精确可断言）。两个 target：waist+ = 躯干环径向 ×10%
+// a=1、b=0 精确可断言）。三个 target：waist+ = 躯干环径向 ×10%
 //（crotch 环除外）-> 围度解析 g(w)=g0·(1+0.1w)；thigh+ = 腿环
-// y∈(20,30) 绕腿轴径向 ×10%（盖 thigh 站 27、不碰 knee 站 15）——
-// 派生径向保形场的合成替身（宽钳档）。
+// y∈(15,30) 绕腿轴径向 ×10%·W(y)，非对称 cos² 锥形窗（峰=thigh 站 27、
+// 下半宽 12 铺到 knee 站 15 精确归零、上半宽 3 到叉 30）——派生径向
+// 保形场的合成替身（宽钳档；旧 fixture 硬带 (20,30) 复刻了真数据「膝上
+// 死区」缺陷设计，2026-09-11 已废弃）；knee+ = 腿环 y∈(7.5,22.5) 对称
+// cos² 窗（峰=knee 站 15、半宽 7.5）×8%——派生 knee 场替身（宽钳档）。
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
 import type { BodyGirths } from '../bodyProfile'
@@ -86,19 +89,40 @@ function syntheticAsset(): BodyMeshAsset {
   }
   const idx = new Uint32Array(tIdx)
   const d = new Float32Array(tD)
-  // thigh+ 增量：腿环 y∈(20,30) 绕各自腿轴径向 ×10%
+  // thigh+ 增量：腿环 y∈(15,30) 绕各自腿轴径向 ×10%·W(y)，非对称 cos² 锥形窗
+  //（峰=thigh 站 27；下半宽 12 铺到 knee 站 15 精确归零、上半宽 3 到叉 30）——
+  // 复刻真数据派生场「根→膝单调渐变」语义（旧 fixture 硬带 (20,30) 是死区
+  // 台阶设计的合成替身，2026-09-11 废弃）
   const t2Idx: number[] = []
   const t2D: number[] = []
+  const wTh = (y: number) =>
+    Math.cos(Math.PI * (y - 27) / (y <= 27 ? 24 : 6)) ** 2
   for (let i = 0; i < V; i++) {
     const x = positions[3 * i], y = positions[3 * i + 1], z = positions[3 * i + 2]
-    if (y > 20 + 1e-9 && y < 30 - 1e-9) {
+    if (y > 15 + 1e-9 && y < 30 - 1e-9) {
       const cx = x > 0 ? 5 : -5
+      const w = 0.1 * wTh(y)
       t2Idx.push(i)
-      t2D.push(0.1 * (x - cx), 0, 0.1 * z)
+      t2D.push(w * (x - cx), 0, w * z)
     }
   }
   const idx2 = new Uint32Array(t2Idx)
   const d2 = new Float32Array(t2D)
+  // knee+ 增量：腿环 y∈(7.5,22.5) 绕腿轴径向 ×8%·cos² 对称窗（峰=knee 站 15、
+  // 半宽 7.5 两缘精确归零）——真数据派生 knee 场（2026-09-11 替换原生）替身
+  const t3Idx: number[] = []
+  const t3D: number[] = []
+  for (let i = 0; i < V; i++) {
+    const x = positions[3 * i], y = positions[3 * i + 1], z = positions[3 * i + 2]
+    if (y > 7.5 + 1e-9 && y < 22.5 - 1e-9) {
+      const cx = x > 0 ? 5 : -5
+      const w = 0.08 * Math.cos(Math.PI * (y - 15) / 15) ** 2
+      t3Idx.push(i)
+      t3D.push(w * (x - cx), 0, w * z)
+    }
+  }
+  const idx3 = new Uint32Array(t3Idx)
+  const d3 = new Float32Array(t3D)
   // 预标定矩阵（解析）：waist+ 影响躯干站（waist/hips 均缩放）、thigh+
   // 只影响 thigh 站；其余站不受影响
   const g0 = (y: number, per: 'body' | 'leg') =>
@@ -116,14 +140,24 @@ function syntheticAsset(): BodyMeshAsset {
   calibration['waist+'] = {
     waist: sc(gW), hips: sc(gH), thigh: flat(gT), knee: flat(gK),
   }
+  // 三点表降级为诊断元数据（calibrate.ts 运行时差分实测）；thigh/knee 行按
+  // 锥形窗解析响应写：thigh 站切片夹在环 27.5/25（同窗值 cos²(π/12)≈0.933）
+  // → +9.33%/w；knee 站恰在环 15（窗值 1）→ +8%/w
+  const gTs = gT * 1.0933, gKs = gK * 1.08
   calibration['thigh+'] = {
-    waist: flat(gW), hips: flat(gH), thigh: sc(gT), knee: flat(gK),
+    waist: flat(gW), hips: flat(gH),
+    thigh: [gT, (gT + gTs) / 2, gTs], knee: flat(gK),
+  }
+  calibration['knee+'] = {
+    waist: flat(gW), hips: flat(gH), thigh: flat(gT),
+    knee: [gK, (gK + gKs) / 2, gKs],
   }
   const meta: BodyMeshMeta = {
     vertexCount: V,
     triangleCount: indices.length / 3,
     targets: [{ name: 'waist+', file: 'synthetic', count: idx.length },
-      { name: 'thigh+', file: 'synthetic', count: idx2.length }],
+      { name: 'thigh+', file: 'synthetic', count: idx2.length },
+      { name: 'knee+', file: 'synthetic', count: idx3.length }],
     landmarks: {
       sole: findVertex(positions, (_x, y, _z) => y < 1e-9),
       crotch: findVertex(positions, (_x, y, _z) => Math.abs(y - 30) < 1e-9),
@@ -141,7 +175,8 @@ function syntheticAsset(): BodyMeshAsset {
   }
   return {
     positions, indices,
-    targets: [{ name: 'waist+', idx, d }, { name: 'thigh+', idx: idx2, d: d2 }],
+    targets: [{ name: 'waist+', idx, d }, { name: 'thigh+', idx: idx2, d: d2 },
+      { name: 'knee+', idx: idx3, d: d3 }],
     meta,
   }
 }
@@ -190,6 +225,23 @@ describe('bodymesh 合成网格链路', () => {
     for (let k = 0; k < positions.length; k++) {
       expect(out0[k]).toBe(positions[k])   // w=0 逐位恒等
     }
+  })
+
+  it('morph 锥形窗语义：thigh+ 根→膝单调渐变 + 膝站精确归零（死区台阶防回归）', () => {
+    const g0 = (y: number) => stationGirth(positions, indices, y, 'leg')!
+    const out = morphPositions(asset, { 'thigh+': 1 })
+    const g1 = (y: number) => stationGirth(out, indices, y, 'leg')!
+    // 切片恰在环上（环距 2.5）：环 27.5/25 同窗值 cos²(π/12)=0.9330 →
+    // 站 27 切片 = 0.9330×原环；17.5/22.5 窗值 0.1033/0.6913；膝站 15 环
+    // 在带外（下缘 15+ε 排除）→ 精确不动。旧 fixture 硬带 (20,30) 在 17.5
+    // 处恒 1.0——膝上死区台阶的合成指纹，此断言先红后绿钉死修复
+    expect(g1(27) / g0(27)).toBeCloseTo(1.0933, 3)
+    expect(g1(22.5) / g0(22.5)).toBeCloseTo(1.0691, 3)
+    expect(g1(17.5) / g0(17.5)).toBeCloseTo(1.0103, 3)
+    // 膝站 15：环在带外不动。切片恰撞环格点时 slice 微移 1e-6 重切（其
+    // 头注口径：围度影响 ~1e-6 cm）——容差 5e-8 收纳该噪声，仍比中带
+    // 信号 1.0103 低 5 个量级
+    expect(g1(15) / g0(15)).toBeCloseTo(1, 7)
   })
 
   it('align：节点精确过点 + 段内线性 + 顶上斜率 1.0；applyVertical 只动 y', () => {
@@ -325,6 +377,14 @@ describe('bodymesh 合成网格链路', () => {
     expect(rt.converged).toBe(false)
     expect(rt.weights['thigh+']).toBe(BODYMESH_PRIOR.weightClamp)
     expect(rt.residual.thigh).toBeLessThan(0)
+    // 极端膝目标（响应 8%/w → 需 w=3.75）：knee± 2026-09-11 起同为派生场，
+    // 与 thigh 同档宽钳（旧原生档会钳 nativeWeightClamp=1.0）
+    const rk = calibrateWeights(asset,
+      { waist: gW, hip: gH, thigh: gT, knee: gK * 1.3 },
+      { waist: 40, hips: 35, thigh: 27, knee: 15 })
+    expect(rk.converged).toBe(false)
+    expect(rk.weights['knee+']).toBe(BODYMESH_PRIOR.weightClamp)
+    expect(rk.residual.knee).toBeLessThan(0)
   })
 
   it('buildMeshMannequin：整链出口契约（环降序/hf/bottomY/围度/半径）', () => {

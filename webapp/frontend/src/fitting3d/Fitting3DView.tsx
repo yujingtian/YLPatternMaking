@@ -34,8 +34,11 @@ const STATION_LABEL: Record<string, string> = {
 
 // 裤子渲染开关：人台换轨验收期（2026-09-11）曾置 false 只显示人台，
 // VLM 八图验收通过当日改回 true 恢复全量渲染（布料四半片/腰头环带/
-// 结构线与热力图/透明度/重新试穿）；开关保留备用（详见 §10.11）。
-const RENDER_GARMENT: boolean = true
+// 结构线与热力图/透明度/重新试穿）。现行默认 true；裸台核验走 URL 参数
+// ?garment=0（截图/VLM 验收用，免改源重编），详见 §10.11。
+const RENDER_GARMENT: boolean =
+  typeof location === 'undefined' ||
+  new URLSearchParams(location.search).get('garment') !== '0'
 
 interface SceneCtx {
   THREE: ThreeMod

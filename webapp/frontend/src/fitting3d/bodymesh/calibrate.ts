@@ -1,17 +1,20 @@
 // 围度闭环标定：求 8 个 measure target 权重，使 morph 后网格在**payload
 // 站点高度**的切片围度逼近体型目标（±1.5%，同环标定口径）。
 // 反演 = **运行时前向差分实测雅可比**（2026-09-11 二轮报障重构）：targets.json
-// 预标定三点表是单 target 对角近似，忽略 cos² 窗重叠耦合（thigh 派生场在
-// hips 站贡献 ~2.5cm/w）——对角迭代虽收敛但落在**大对消权重**上（hips− 与
-// thigh− 互相打架、膝+ 外推 1.3 出 +1.4cm 半径鼓包带），放大成用户可见的
-// 「不平整」；差分雅可比在当前权重点实测 4×4 真耦合（含原生 target 顶点
-// y 迁移效应），Gauss-Jordan 联立解出**最小权重**，杜绝对消。三点表降级为
-// 诊断元数据（vendor 金标仍把守 target 对位）。
+// 预标定三点表是单 target 对角近似，忽略场间耦合（如原生 hips± 在 thigh 站
+// 贡献 ~+6.6cm/w、比 thigh± 自身 +4.1 还强）——对角迭代虽收敛但落在**大对
+// 消权重**上（hips− 与 thigh− 互相打架），放大成用户可见的「不平整」；差分
+// 雅可比在当前权重点实测 4×4 真耦合（含 target 顶点 y 迁移效应），
+// Gauss-Jordan 联立解出**最小权重**，杜绝对消。三点表降级为诊断元数据
+// （vendor 金标仍把守 target 对位）。
 // incr/decr 按误差符号分流（永不同时非零）；阻尼联合迭代；不收敛（目标超
-// 网格可达域）分档钳界并回传残差（诚实降级）：thigh± = 派生径向保形场
-// （cos² 平滑、w=2 已验收）宽钳 weightClamp；waist/hips/knee± = MakeHuman
-// 原生 target 钳 nativeWeightClamp=1（作者化域 [0,1] 之外的位移分布未作者
-// 化——w≈1.3 实测膝带局部鼓包、w=2 髋部大转凸包/大腿波浪，两轮报障）。
+// 网格可达域）分档钳界并回传残差（诚实降级）：thigh±/knee± = 派生径向
+// 保形场（cos² 平滑、w=2 已验收）宽钳 weightClamp——knee± 2026-09-11 起
+// 同为派生场（原生弃用：上缘 y57-66 纯内侧 −x 剪切把大腿中段往中线拖 +
+// canonical 站错位 + 满钳 1.0 可达 40.8 够不着常见输入 43~46 → 常年满钳
+// 剪切边永久生效）；waist/hips± = MakeHuman 原生 target 钳
+// nativeWeightClamp=1（作者化域 [0,1] 之外的位移分布未作者化——外推实测
+// 过髋部大转凸包/大腿波浪，两轮报障）。
 import { BODYMESH_PRIOR } from '../priors'
 import type { BodyMeshAsset, TargetName } from './types'
 import { morphPositions } from './morph'
@@ -108,8 +111,9 @@ export function calibrateWeights(
     for (let i = 0; i < N; i++) {
       const mk = ST_KEYS[i][1]
       if (!Number.isFinite(dw[i])) continue
-      // 分档钳界：thigh± 派生场平滑可外推（宽钳），原生 target 钳回作者化域
-      const clamp = mk === 'thigh'
+      // 分档钳界：thigh±/knee± 派生场平滑可外推（宽钳），原生 target 钳回
+      // 作者化域（knee± 已派生替换，2026-09-11 腿部扭曲报障，见头注）
+      const clamp = mk === 'thigh' || mk === 'knee'
         ? BODYMESH_PRIOR.weightClamp : BODYMESH_PRIOR.nativeWeightClamp
       const nw = Math.max(-clamp,
         Math.min(clamp, signed(mk) + dw[i] * BODYMESH_PRIOR.calibDamping))

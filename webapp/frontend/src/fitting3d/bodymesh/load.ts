@@ -13,15 +13,20 @@ export function loadBodyMesh(): Promise<BodyMeshAsset> {
 }
 
 async function doLoad(): Promise<BodyMeshAsset> {
-  const [binRes, jsonRes] = await Promise.all([
-    fetch('bodymesh/base.bin'),
-    fetch('bodymesh/targets.json'),
-  ])
-  if (!binRes.ok || !jsonRes.ok) {
-    throw new Error(`bodymesh 数据拉取失败 bin=${binRes.status} json=${jsonRes.status}`)
+  // targets.json 先行 no-cache（强再验证）拿 baseSha256，再以 ?v=<sha8> 拉
+  // base.bin——vendor 重跑后指纹变 → URL 变 → 浏览器缓存自然击穿；无指纹
+  // （旧 meta）回落无参路径。bin 直取 HTTP 缓存，meta 仅几 KB。
+  const jsonRes = await fetch('bodymesh/targets.json', { cache: 'no-cache' })
+  if (!jsonRes.ok) {
+    throw new Error(`bodymesh 数据拉取失败 json=${jsonRes.status}`)
+  }
+  const meta = JSON.parse(await jsonRes.text()) as BodyMeshMeta
+  const v = (meta as { baseSha256?: string }).baseSha256
+  const binRes = await fetch(v ? `bodymesh/base.bin?v=${v}` : 'bodymesh/base.bin')
+  if (!binRes.ok) {
+    throw new Error(`bodymesh 数据拉取失败 bin=${binRes.status}`)
   }
   const buf = await binRes.arrayBuffer()
-  const meta = JSON.parse(await jsonRes.text()) as BodyMeshMeta
   return { ...parseBin(buf), meta }
 }
 

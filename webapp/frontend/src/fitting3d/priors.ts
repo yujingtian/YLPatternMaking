@@ -69,14 +69,16 @@ export const BODYMESH_PRIOR = {
   legBelowHem: 2,        // 腿管底 = 踝节点目标（脚口下 cm）：踝精确落此高度、
                          // 真脚（~13cm）整体在场底之下——布料不可达（脚进
                          // 高度场会以 θ≈0° 假半径 15+ 污染脚口带碰撞）
-  weightClamp: 2.0,      // 派生径向保形场（thigh±）外推钳（±）：cos² 场
-                         // w=2 仍平滑（legheavy VLM 验收过），可线性外推
-  nativeWeightClamp: 1.0, // MakeHuman 原生 target（waist/hips/knee±）钳（±）：
+  weightClamp: 2.0,      // 派生径向保形场（thigh±/knee±）外推钳（±）：cos² 场
+                         // w=2 仍平滑（legheavy VLM 验收过），可线性外推；
+                         // knee± 2026-09-11 起同为派生场（原生弃用理由见
+                         // scripts/vendor_makehuman.py derived_knee_targets）
+  nativeWeightClamp: 1.0, // MakeHuman 原生 target（waist/hips±）钳（±）：
                          // 预标定/作者化域只到 w=1，外推位移分布未作者化——
-                         // w≈1.3 实测膝带 +1.4cm 半径局部鼓包、满钳 2.0 髋部
-                         // 大转凸包/大腿波浪（2026-09-11 两轮报障）；钳回作者
-                         // 化域，超域目标残差披露（缺量的半径当量 ~毫米级
-                         // 视觉不可见，宁可平滑欠量不要外推鼓包）
+                         // 满钳 2.0 实测髋部大转凸包/大腿波浪（2026-09-11
+                         // 两轮报障）；钳回作者化域，超域目标残差披露（缺量
+                         // 的半径当量 ~毫米级视觉不可见，宁可平滑欠量不要
+                         // 外推鼓包）
   calibIters: 6,         // 围度闭环最大迭代轮数
   calibFdStep: 0.1,      // 差分雅可比扰动步（权重单位；方向取该站需求方向）
   calibTol: 0.015,       // 围度相对残差收敛目标（±1.5%）

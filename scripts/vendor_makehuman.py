@@ -13,9 +13,13 @@
 （A-pose → 腿轴竖直）→ 腿内收（A-pose 腿间距 gap 5~6.5cm → ≤2cm，逐高度共向平移、
 切片周长不变）→ 两阶段裁切（先粗裁 ~0.73H + 最大连通域过滤去臂/手〔裁切面必须低于
 腋窝褶 ~0.75H，否则手臂经肩与躯干连通无法过滤〕→ 检测地标 → 按腰+cut 精裁 → 再过滤
-→ 边界环质心扇形封盖）→ target 顶点索引按裁切重映射（thigh± 除外——原生
-measure-thigh-circ 峰值带 crotch−14 与我们站点 crotch−3 错位 11cm〔站点灵敏度仅峰值
-39%，闭环为凑站点围度把大腿中段推爆〕，改用派生径向保形场替换，见 derived_thigh_targets）
+→ 边界环质心扇形封盖）→ target 顶点索引按裁切重映射（thigh±/knee± 除外——原生
+measure-*-circ 的 canonical 站与我们站点错位〔thigh 峰 crotch−14 vs 站 crotch−3、
+knee 峰 ~45.5 vs 站 48.06，站点灵敏度仅峰值 39%，闭环为凑站点围度把权重推大〕，
+且原生 knee+ 上缘 y57-66 是纯内侧 −x 剪切边、满钳 1.0 可达膝围 40.8 够不着常见
+输入 43~46 → 常年满钳把大腿中段往中线拖〔「腿部中段往中间扭曲」根因，2026-09-11
+逐顶点数字坐实〕，二者改用派生径向保形场替换，见 derived_thigh_targets /
+derived_knee_targets）
 → 地标存顶点索引（morph 后运行时重读）→ w=0/0.5/1 站点围度预标定（影响矩阵）
 → 产出 base.bin + targets.json。
 
@@ -512,16 +516,26 @@ def desplay_legs(verts, tris):
 
 # ---------------------------------------------------------------- 腿内收
 
-def adduct_thighs(verts, tris, crotch, gap_thigh=2.0, gap_calf=3.5, y_bot=30.0):
+def adduct_thighs(verts, tris, crotch, gap_thigh=2.0, gap_calf=3.5, y_bot=30.0,
+                  fork_ramp_cm=12.0):
     """A-pose 腿间距内收（去外张只对直腿轴、pivot 在裆上，裆下腿轴间距 ~19cm
     原样保留：膝上 gap 5.3~6.5、膝下 6.2~7.7，真实并拢站姿应 ≤2/3.5）。逐 1cm
     高度量右腿环内侧间隙 gap(y)=2·min|x|，单侧内收 δ(y)=max(0, gap−target)/2
     （分段目标：大腿段〔膝上〕→2、小腿段〔膝下〕→3.5〔胫骨微内翻多留 1.5〕，
     ±2cm 线性过渡；踝上 6cm 渐入 ramp；脚部原生不动——gap 8~11 是自然外展
-    站姿）。δ 全程 1.6~2.2 平稳带 → 质心共移，腿轴竖直三点差 <1.2 保持
-    （同 test_leg_axis_vertical 口径）。右腿 x−=δ / 左腿 x+=δ（y<crotch−0.5
-    按 x 符号归属；同高度共向平移无内部错动 → 水密保持；切片环刚体平移 →
-    周长/围度/地标高度/裁切面全不变）。"""
+    站姿）。
+
+    **叉部渐出 fork_ramp_cm（2026-09-12「球包/腿往中间收拢」根因修复）**：
+    大腿上部与臀胯长在一起，δ 若在裆下即达全量（旧版实测 dy−2 处 δ≈2.1），
+    等于把大腿干从臀线正下方整体拽进 2.2cm——外缘在裆下 3cm 内撕出 2.6cm
+    台阶（desplay 后自然锥线 18.3→16.9 每cm仅降0.2，平移后 18.32→15.95），
+    正视读作「大腿外侧球包+凹口+腿往中线收拢」。修法：δ 自 crotch−2 起
+    12cm 线性渐出至全量——臀线锚定不动，gap 剖面变「裆下 ~6 渐收、裆下
+    15cm 处到 2」（=环模型时代用户拍板「裆下 ~5cm 内分开、大腿中段 ≥2」），
+    腿轴由竖直改自然内斜（股骨斜度 ~2.3°）。平移是刚体 → 围度/地标高度/
+    水密/裁切面零影响，纯位置修复。自检 1 守卫带随之收窄到渐出带以下；
+    自检 2 竖直改共线（斜轴是设计意图，弯轴才是回归）；新增自检 3 外缘
+    Lipschitz（每cm 骤降 ≤0.5，旧台阶 0.85~1.0 必红）。"""
     knee_line = crotch - 32.0
 
     def tgt_at(y):
@@ -542,7 +556,8 @@ def adduct_thighs(verts, tris, crotch, gap_thigh=2.0, gap_calf=3.5, y_bot=30.0):
         pts, _ = max(cand, key=lambda l: l[1])
         gap = 2.0 * min(p[0] for p in pts)
         ramp = min(1.0, (y - y_bot) / 6.0)  # 踝上渐入，脚不动
-        raw[y] = max(0.0, (gap - tgt_at(y)) / 2.0) * ramp
+        fork = min(1.0, max(0.0, ((crotch - 2.0) - y) / fork_ramp_cm))  # 叉部渐出
+        raw[y] = max(0.0, (gap - tgt_at(y)) / 2.0) * ramp * fork
     if len(raw) < len(ys2) * 0.5:
         raise RuntimeError(f"腿内收：gap 采样不足（{len(raw)}/{len(ys2)}）")
     # 缺测带线性填充（端点取最近有效值）
@@ -579,9 +594,10 @@ def adduct_thighs(verts, tris, crotch, gap_thigh=2.0, gap_calf=3.5, y_bot=30.0):
         d = d_at(y)
         out.append([x - d if x > 0 else x + d, y, z])
 
-    # 自检 1：收后相对各自带目标的残差（3 点平滑削峰 ~1cm，容差 1.2）
+    # 自检 1：收后相对各自带目标的残差（3 点平滑削峰 ~1cm，容差 1.2）——
+    # 守卫带收窄到叉部渐出带以下（渐出带 gap 高于目标是设计意图，见 docstring）
     max_over = 0.0
-    for y in _frange(y_bot + 6.0, crotch - 1.0, 2.0):
+    for y in _frange(y_bot + 6.0, crotch - 3.0 - fork_ramp_cm, 2.0):
         loops = _slice_loops(out, tris, y + 0.5)
         cand = [(pts, cx) for pts, cx in loops if cx > 2.0]
         if not cand:
@@ -590,34 +606,75 @@ def adduct_thighs(verts, tris, crotch, gap_thigh=2.0, gap_calf=3.5, y_bot=30.0):
         max_over = max(max_over, 2.0 * min(p[0] for p in pts) - tgt_at(y + 0.5))
     if max_over > 1.2:
         raise RuntimeError(f"腿内收不足：残 gap 超带目标 {max_over:.2f} > 1.2")
-    # 自检 2：腿轴竖直（δ 共向平移也平移质心——三点 δ 差即残差增量）
+    # 自检 2：腿轴散布（叉部渐出后轴自然内斜，spread 放宽到 2.5；方向守卫保留：
+    # 低处不得比高处更外 >1.0——外撇才是回归。共线口径弃用：质心轴本身带解剖
+    # 弯度〔pre-adduct 二阶差分 ~0.95、旧出货 ~1.8〕，0.8 阈值定错红过）
     cxs = [_leg_cx(out, tris, y, "+") for y in (crotch - 10.0, crotch - 25.0, crotch - 45.0)]
     if any(c is None for c in cxs):
         raise RuntimeError(f"腿内收自检：腿环缺失 {cxs}")
     spread = max(cxs) - min(cxs)
-    if spread > 1.2:
-        raise RuntimeError(f"腿内收破坏腿轴竖直：spread {spread:.2f}cm > 1.2（δ 曲线过陡）")
+    if spread > 2.5:
+        raise RuntimeError(f"腿内收破坏腿轴：spread {spread:.2f}cm > 2.5（δ 曲线过陡）")
+    if cxs[2] > cxs[0] + 1.0:
+        raise RuntimeError(f"腿轴低处显著更外（{cxs[2]:.2f} > {cxs[0]:.2f}+1.0，外张未去净）")
+    # 自检 3：外缘轮廓连续（叉部渐出的存在意义）——裆下 17 到裆上+1 每cm
+    # 外缘骤降 ≤0.5cm（旧版整段平移实测 0.6~1.0 = 球包/台阶；自然锥度 0.2~0.4；
+    # 升序采样、相邻差取 upper−lower = 向下的骤降，_frange 不支持负步长）
+    edge = []
+    for y in _frange(crotch - 17.0, crotch + 1.0, 1.0):
+        loops = _slice_loops(out, tris, y)
+        if not loops:
+            continue
+        edge.append(max(abs(p[0]) for l in loops for p in l[0]))
+    cliff = max((edge[i + 1] - edge[i] for i in range(len(edge) - 1)), default=0.0)
+    if cliff > 0.5:
+        raise RuntimeError(f"外缘台阶 {cliff:.2f}cm/cm > 0.5（叉部渐出失效，球包回归）")
+    # 自检 4：渐出不得引入新回升——post 剖面相邻回升 ≤ pre 剖面回升 +0.3。
+    # post = pre − 2δ(y) 且 δ 沿向下单调不减 → 结构上 post 回升恒 ≤ pre 回升；
+    # 唯能红的是 δ 剖面自 wiobble（回摆）。旧的「post 单调不升」绝对口径与
+    # 解剖相悖（臀褶带 pre gap 本自然回升 ~0.9，fork≈0 处 post 忠实跟随 pre，
+    # 曾误报 0.90）且守卫带相位依赖 crotchRaw 估计，2026-09-12 改 pre 相对口径
+    gaps = []
+    gaps_pre = []
+    for d in range(2, 17, 2):
+        val = []
+        for mesh in (out, verts):
+            loops = _slice_loops(mesh, tris, crotch - d)
+            cand = [(pts, cx) for pts, cx in loops if cx > 2.0]
+            if not cand:
+                val = []
+                break
+            pts, _ = max(cand, key=lambda l: l[1])
+            val.append(2.0 * min(p[0] for p in pts))
+        if val:
+            gaps.append(val[0])
+            gaps_pre.append(val[1])
+    rises = max((gaps[i + 1] - gaps[i] for i in range(len(gaps) - 1)), default=0.0)
+    rises_pre = max((gaps_pre[i + 1] - gaps_pre[i]
+                     for i in range(len(gaps_pre) - 1)), default=0.0)
+    if rises > rises_pre + 0.3:
+        raise RuntimeError(f"gap 剖面回升 {rises:.2f} > pre 解剖回升 {rises_pre:.2f}"
+                           "+0.3（渐出带 δ 剖面回摆）")
     return out, {"gapThigh": gap_thigh, "gapCalf": gap_calf, "yBot": y_bot,
                  "dMax": round(max(sm), 2), "maxOver": round(max_over, 2),
-                 "axisSpread": round(spread, 2)}
+                 "axisSpread": round(spread, 2), "outerCliff": round(cliff, 2),
+                 "gapRampRise": round(rises, 2)}
 
 
-def derived_thigh_targets(verts, tris, crotch):
-    """派生 thigh± target：以 payload thigh 站（crotch−3）为中心的**径向保形
-    膨胀场**，替换 MakeHuman 原生 measure-thigh-circ（原生 Δgirth 峰值带在
-    crotch−14 = 它自家 canonical 站，与我们站点错位 11cm：站点灵敏度仅峰值
-    39%，闭环为凑站点围度把权重推大、大腿中段被撑爆、根部反而紧——「调
-    大腿围变粗位置太靠下」根因，2026-09-11 用户目检 + _diag_thigh 数字坐实）。
-
-    逐顶点相对**该高度腿环质心**的径向增量（截面形状保持 base 解剖轮廓），
-    cos² 窗半宽 18cm 峰值幅度 0.8cm@w=1（站点 Δg≈5cm，与原生同量级 → 闭环
-    权重量级不变）；内侧（径向指向中线）幅度 ×0.7 防病理权重下两腿互穿；
+def _derived_radial_field(verts, tris, y_st, half_below, half_above, amp0, medial_att):
+    """派生径向保形场构建核心（thigh±/knee± 共用）。逐顶点相对**该高度腿环
+    质心**的径向增量（截面形状保持 base 解剖轮廓），cos² 窗**非对称**——下半
+    宽 half_below、上半宽 half_above，窗值与一阶导在两缘精确归零（与相邻场
+    无缝衔接，无剪切边）；峰值幅度 amp0 cm@w=1；内侧（径向指向中线）幅度
+    ×medial_att（互穿防线，按各站间隙预算取值，见两包装函数 docstring）；
     dy≡0 站点高度不漂（踝/膝对齐地标不受累）。腿环在裆上并入整圈躯干，
-    窗上半自动失效（增量止于大腿分离带）。返回 {'thigh+': Δ⁺, 'thigh-': Δ⁻}。"""
-    y_st = crotch - 3.0
-    half = 18.0
-    amp0 = 0.8
-    y_lo, y_hi = y_st - half, y_st + half
+    窗上半自动失效（增量止于大腿分离带）。返回 (plus, minus) 增量 dict。"""
+    y_lo, y_hi = y_st - half_below, y_st + half_above
+
+    def window(y):
+        half = half_below if y <= y_st else half_above
+        return math.cos(math.pi * (y - y_st) / (2.0 * half)) ** 2
+
     centers = {}
     for y in _frange(y_lo, y_hi, 1.0):
         loops = _slice_loops(verts, tris, y + 0.5)
@@ -628,7 +685,7 @@ def derived_thigh_targets(verts, tris, crotch):
         centers[round(y + 0.5, 3)] = (cx, sum(p[1] for p in pts) / len(pts))
     cys = sorted(centers)
     if len(cys) < 10:
-        raise RuntimeError(f"派生 thigh target：腿环采样不足（{len(cys)}）")
+        raise RuntimeError(f"派生径向场：腿环采样不足（{len(cys)}）")
 
     def center_at(y):
         if y <= cys[0] or y >= cys[-1]:
@@ -642,8 +699,8 @@ def derived_thigh_targets(verts, tris, crotch):
 
     plus, minus = {}, {}
     for i, (x, y, z) in enumerate(verts):
-        # |x|<0.9 = 裆中带顶点不加增量（防内列顶点跨侧歧义）；大腿最内列
-        # （adduct 后 min|x|≈1.0）保留在内——胖腿时根部贴合（内侧 ×0.7 衰减）
+        # |x|<0.9 = 裆中带顶点不加增量（防内列顶点跨侧歧义）；大腿/膝最内列
+        # （adduct 后 min|x|≈1.0）保留在内——胖腿时根部贴合（内侧衰减兜底）
         if not (y_lo <= y <= y_hi) or abs(x) < 0.9:
             continue
         c = center_at(y)
@@ -656,15 +713,58 @@ def derived_thigh_targets(verts, tris, crotch):
         r = math.hypot(dx, dz)
         if r < 1e-6:
             continue
-        amp = amp0 * (math.cos(math.pi * (y - y_st) / (2.0 * half)) ** 2)
+        amp = amp0 * window(y)
         ux, uz = dx / r, dz / r
         if (x > 0 and ux < 0) or (x < 0 and ux > 0):
-            amp *= 0.7  # 内侧衰减：病理权重下两腿互穿防线
+            amp *= medial_att  # 内侧衰减：病理权重下两腿互穿防线
         plus[i] = (amp * ux, 0.0, amp * uz)
         minus[i] = (-amp * ux, 0.0, -amp * uz)
+    return plus, minus
+
+
+def derived_thigh_targets(verts, tris, crotch, knee_y):
+    """派生 thigh± target：以 payload thigh 站（crotch−3）为峰值的**径向保形
+    膨胀场**，替换 MakeHuman 原生 measure-thigh-circ（原生 Δgirth 峰值带在
+    crotch−14 = 它自家 canonical 站，与我们站点错位 11cm：站点灵敏度仅峰值
+    39%，闭环为凑站点围度把权重推大、大腿中段被撑爆、根部反而紧——「调
+    大腿围变粗位置太靠下」根因，2026-09-11 用户目检 + _diag_thigh 数字坐实）。
+
+    非对称窗（2026-09-11 二轮报障「大腿→膝维度不渐变」修复）：下半宽 =
+    站点到膝标（≈29.5，W(膝站)=0 精确归零 → 膝围串扰≈0），**下尾自大腿根
+    部峰值单调递减一路铺到膝**——替代旧对称半宽 18 在 crotch−21 截断留下的
+    膝上 11.5cm 死区（死区+台阶 =「调大腿围时大腿→膝收窄突变」根因）。
+    上半 15：裆上被腿环并入躯干自然截断（实测对臀站泄漏 0）。峰值幅度
+    0.8cm@w=1（站点 Δg≈4.1，与原生同量级 → 闭环权重量级不变）；内侧 ×0.7
+    （thigh 站间隙预算 4.7 宽松）。返回 {'thigh+': Δ⁺, 'thigh-': Δ⁻}。"""
+    y_st = crotch - 3.0
+    plus, minus = _derived_radial_field(verts, tris, y_st, y_st - knee_y, 15.0, 0.8, 0.7)
     if len(plus) < 200:
         raise RuntimeError(f"派生 thigh target 增量过少（{len(plus)}）")
     return {"thigh+": plus, "thigh-": minus}
+
+
+def derived_knee_targets(verts, tris, knee_y):
+    """派生 knee± target：以膝站为峰值的径向保形场，替换 MakeHuman 原生
+    measure-knee-circ。弃用原生三重根因（2026-09-11「腿部中段往中线扭曲」
+    报障，逐顶点数字坐实）：
+    ① 原生上缘 y∈[57,66] 是**纯内侧 −x 剪切**（dz≡0，内柱 dx −0.54/w、
+      外柱≈0）而径向主体在 y≈45-55——原生膝围基准 34.38 + 响应 6.44/w 使
+      常见输入（34~43）权重 >1 常年钳 1.0，剪切边永久生效把大腿中段往全局
+      X=0 拖，与 thigh 场旧死区（已另修）叠加成褶/扭曲；
+    ② canonical 站错位（原生峰 ~45.5 vs 我们膝站 48.06，thigh 同类教训）；
+    ③ 满钳 1.0 可达膝围 40.82 够不着常见输入 43~46。
+
+    派生场：站 y=膝标、half 15 双侧、amp0=1.25（站点 Δg/w≈6.4 对齐原生
+    量级 → 闭环权重量级不变）、内侧 ×0.30——膝站间隙预算 2.0 的解析约束
+    att ≤ (gap0−floor)/(2·amp0·weightClamp) = (2.0−0.5)/(2×1.25×2.0)，
+    满钳 w=2 后间隙恰落 0.5 不互穿；w=1 间隙 1.25、est-default 膝 43 →
+    w≈1.35 间隙 ≈0.96，双膝常态分离。小腿代价：原生 knee+ 曾顺带
+    +2.8@y36.5，派生 half15 尾 ≈+0.8 → 高膝围档小腿每侧 ~0.28cm 变细
+    （VLM 复验核对，可接受差）。返回 {'knee+': Δ⁺, 'knee-': Δ⁻}。"""
+    plus, minus = _derived_radial_field(verts, tris, knee_y, 15.0, 15.0, 1.25, 0.30)
+    if len(plus) < 200:
+        raise RuntimeError(f"派生 knee target 增量过少（{len(plus)}）")
+    return {"knee+": plus, "knee-": minus}
 
 
 # ---------------------------------------------------------------- 主流程
@@ -785,8 +885,10 @@ def main(argv=None) -> int:
     targets_out = []
     dropped_stats = {}
     for station, (incr, decr) in MEASURE_TARGETS.items():
-        if station == "thigh":
-            continue  # 原生峰值带 crotch−14 与站点 crotch−3 错位 → 7.5 派生场替换
+        if station in ("thigh", "knee"):
+            continue  # 原生 canonical 站与我们站点错位（thigh 峰 crotch−14 vs 站
+            # crotch−3；knee 峰 ~45.5 vs 站 48.06）+ 原生 knee+ 上缘纯内侧 −x 剪切
+            # 边（大腿中段往中线拖的向量）→ 7.5 派生径向场替换
         for direction, fname in (("+", incr), ("-", decr)):
             raw = parse_target(src / "targets" / "measure" / fname)
             remapped = {}
@@ -807,14 +909,20 @@ def main(argv=None) -> int:
             dropped_stats[f"{station}{direction}"] = dropped
     probe["droppedTargetDeltas"] = dropped_stats
 
-    # 7.5) 派生 thigh± 插入 hips± 之后（名字序 waist±/hips±/thigh±/knee± 保持，
-    #      运行时按名消费零感知；径向保形场以站点为中心，见 derived_thigh_targets）
-    derived = derived_thigh_targets(tight_v, tight_t, lm["crotch"])
+    # 7.5) 派生 thigh±/knee±（原生弃用理由见两函数 docstring）。thigh± 插入
+    #      hips± 之后、knee± 追加末尾——名字序 waist±/hips±/thigh±/knee± 与
+    #      base.bin 槽序契约（load.ts SLOT_ORDER）保持，运行时按名消费零感知
+    derived_th = derived_thigh_targets(tight_v, tight_t, lm["crotch"], lm["knee"])
     pos4 = next(i for i, t in enumerate(targets_out) if t["name"] == "hips-") + 1
     targets_out[pos4:pos4] = [
-        {"name": "thigh+", "file": "derived:radial@crotch-3", "deltas": derived["thigh+"]},
-        {"name": "thigh-", "file": "derived:radial@crotch-3", "deltas": derived["thigh-"]},
+        {"name": "thigh+", "file": "derived:radial@crotch-3", "deltas": derived_th["thigh+"]},
+        {"name": "thigh-", "file": "derived:radial@crotch-3", "deltas": derived_th["thigh-"]},
     ]
+    derived_kn = derived_knee_targets(tight_v, tight_t, lm["knee"])
+    targets_out.extend([
+        {"name": "knee+", "file": "derived:radial@knee-station", "deltas": derived_kn["knee+"]},
+        {"name": "knee-", "file": "derived:radial@knee-station", "deltas": derived_kn["knee-"]},
+    ])
 
     # 8) 预标定影响矩阵：每 target 在 w=0/0.5/1 于四站量围度
     station_y = {"waist": lm["waist"], "hips": lm["hip"], "thigh": lm["crotch"] - 3.0, "knee": lm["knee"]}
@@ -837,12 +945,12 @@ def main(argv=None) -> int:
     if kg and wg and (kg[2] - kg[0]) <= (wg[2] - wg[0]):
         print(f"[ERR] knee+ 语义自检失败：膝围增量 {kg[2]-kg[0]:.2f} ≤ 腰围增量 {wg[2]-wg[0]:.2f}（索引基数可疑）", file=sys.stderr)
         return 9
-    # thigh 派生场对位自检：峰值带对齐站点 + 站点响应量级 + 对角性
-    # （防将来换数据/调参退回「原生错位」形态——那是观感事故的根因）
+    # thigh 派生场对位自检：峰值带对齐站点 + 站点响应量级 + 对角性 + 下尾铺膝
+    # （防将来换数据/调参退回「原生错位」或「半宽截断死区」形态——都是观感事故根因）
     th_deltas = next(t["deltas"] for t in targets_out if t["name"] == "thigh+")
     v_th = apply_target(tight_v, th_deltas, 1.0)
     dg_curve = []
-    for y in _frange(lm["crotch"] - 30.0, lm["crotch"] + 2.0, 1.0):
+    for y in _frange(lm["crotch"] - 34.0, lm["crotch"] + 2.0, 1.0):
         g0 = girth_at(tight_v, tight_t, y + 0.5, leg_side="+")
         g1 = girth_at(v_th, tight_t, y + 0.5, leg_side="+")
         if g0 and g1:
@@ -866,6 +974,59 @@ def main(argv=None) -> int:
         if abs(frow[2] - frow[0]) > 0.3:
             print(f"[ERR] thigh+ 串扰 {far} 站 {frow[2] - frow[0]:.2f} > 0.3（对角性破坏）", file=sys.stderr)
             return 13
+    # 下尾铺膝守卫：crotch−15 带 Δg ≥ 2.0（旧对称半宽 18 场在此仅 ~1.08——
+    # 膝上死区台阶的数字指纹）+ 膝→峰单调递增（容差 0.4 吸收切片抖动）
+    g0m = girth_at(tight_v, tight_t, lm["crotch"] - 15.0, leg_side="+")
+    g1m = girth_at(v_th, tight_t, lm["crotch"] - 15.0, leg_side="+")
+    dg_mid = (g1m - g0m) if (g0m and g1m) else None
+    probe["thighDerived"]["dgAtCrotchMinus15"] = round(dg_mid, 2) if dg_mid is not None else None
+    if dg_mid is None or dg_mid < 2.0:
+        print(f"[ERR] thigh+ 下尾 crotch−15 Δg {dg_mid} < 2.0（半宽截断死区回归）", file=sys.stderr)
+        return 14
+    asc = sorted(dg_curve, key=lambda s: s[1])
+    pk = max(range(len(asc)), key=lambda i: asc[i][0])
+    for a, b in zip(asc[:pk], asc[1:pk + 1]):
+        if b[0] < a[0] - 0.4:
+            print(f"[ERR] thigh+ 膝→峰非单调：Δg@{a[1]:.1f}={a[0]:.2f} → @{b[1]:.1f}={b[0]:.2f}", file=sys.stderr)
+            return 15
+    # knee 派生场自检（镜像 thigh 四守卫 + 内侧间隙 floor——两膝贴拢回归防线）
+    kn_deltas = next(t["deltas"] for t in targets_out if t["name"] == "knee+")
+    v_kn = apply_target(tight_v, kn_deltas, 1.0)
+    kn_curve = []
+    for y in _frange(lm["knee"] - 18.0, lm["knee"] + 18.0, 1.0):
+        g0 = girth_at(tight_v, tight_t, y + 0.5, leg_side="+")
+        g1 = girth_at(v_kn, tight_t, y + 0.5, leg_side="+")
+        if g0 and g1:
+            kn_curve.append((g1 - g0, y + 0.5))
+    if not kn_curve:
+        print("[ERR] knee 派生场 Δgirth 曲线全空", file=sys.stderr)
+        return 16
+    kn_peak_dg, kn_peak_y = max(kn_curve)
+    kn_gap = None
+    kn_loops = _slice_loops(v_kn, tight_t, station_y["knee"])
+    kn_cand = [(pts, cx) for pts, cx in kn_loops if cx > 2.0]
+    if kn_cand:
+        kn_pts, _ = max(kn_cand, key=lambda l: l[1])
+        kn_gap = 2.0 * min(p[0] for p in kn_pts)
+    probe["kneeDerived"] = {"peakY": round(kn_peak_y, 2), "peakDg": round(kn_peak_dg, 2),
+                            "stationY": station_y["knee"],
+                            "gapAtStationW1": round(kn_gap, 2) if kn_gap is not None else None}
+    if abs(kn_peak_y - station_y["knee"]) > 3.5:
+        print(f"[ERR] knee+ 峰值带 {kn_peak_y:.1f} 偏离站点 {station_y['knee']:.1f} 超 3.5cm", file=sys.stderr)
+        return 17
+    krow = calib["knee+"]["knee"]
+    kn_st_dg = krow[2] - krow[0]
+    if not (4.0 <= kn_st_dg <= 9.0):
+        print(f"[ERR] knee+ 站点响应 {kn_st_dg:.2f} 不在 [4,9]cm 量级带", file=sys.stderr)
+        return 18
+    for far in ("waist", "hips", "thigh"):
+        frow = calib["knee+"][far]
+        if abs(frow[2] - frow[0]) > 0.3:
+            print(f"[ERR] knee+ 串扰 {far} 站 {frow[2] - frow[0]:.2f} > 0.3（对角性破坏）", file=sys.stderr)
+            return 19
+    if kn_gap is None or kn_gap < 0.5:
+        print(f"[ERR] knee+ w=1 膝站内侧 gap {kn_gap} < 0.5（两膝贴拢回归）", file=sys.stderr)
+        return 20
 
     if args.dump:
         _dump_tables(tight_v, tight_t, lm)
@@ -897,6 +1058,10 @@ def main(argv=None) -> int:
         "schema": 1,
         "units": "cm",
         "frame": {"yAxis": "up", "origin": "sole-center", "front": "+z"},
+        # base.bin 内容指纹：load.ts 以 ?v=<sha8> 拉二进制——重跑 vendor 后
+        # URL 变化即击穿浏览器缓存（2026-09-12「改了没变化」事故：base.bin
+        # 更新后旧缓存照常命中，用户看到的一直是旧人台）
+        "baseSha256": hashlib.sha256(bin_path.read_bytes()).hexdigest()[:8],
         "vertexCount": len(tight_v),
         "triangleCount": len(tight_t),
         "targets": [{"name": t["name"], "file": t["file"], "count": len(t["deltas"])} for t in targets_out],
