@@ -1,33 +1,46 @@
 # -*- coding: utf-8 -*-
 """MakeHuman vendor 产物金标（webapp/frontend/public/bodymesh/{base.bin, targets.json}）。
 
-数据缺席整文件 skip（先例 test_reverse_gold_5015.py）。锚值 = 2026-09-11 默认参数
-vendor 运行的手工核读（含腿去外张 + 臀检测带上移 + 腿内收 + thigh/knee 派生场与非对称窗修复）：
+数据缺席整文件 skip（先例 test_reverse_gold_5015.py）。锚值 = 2026-09-12 默认参数
+vendor 运行的手工核读（含腿去外张 + 臀检测带上移 + 腿内收 v3 剖面 + thigh/knee/hips
+三派生场 + 基网格四解剖 sculpt：大转子削圆/大腿肌群三叶/耻骨隆突/腹股沟凹槽）：
 
     地标高度（cm，脚底=0、+Z 前）：crotch 80.6 / hip 86.6 / waist 107.6 / knee 48.1 / ankle 13.5
-    w=0 基网格站点围度（cm）：waist 69.54 / hips 98.76 / thigh 右腿 54.15 / knee 右腿 34.38
-    w=1 knee+（派生场）响应：膝围 39.55（+5.16），腰/臀/大腿三站零变化
+    w=0 基网格站点围度（cm）：waist 69.54 / hips 99.19 / thigh 右腿 53.46 / knee 右腿 34.38
+        （二轮较一轮 hips +0.43/thigh −0.29：转子主削自裆+3.5 移到穹顶裆−1——臀站
+         （裆+6）窗值 0 不再削、大腿上段近肩带被轻削；构建期自检已锁；
+         sculpt 存活守卫在 vendor 脚本 return 26-29，本金标锁产物侧形态）
+    w=1 knee+（派生场）响应：膝围 39.51（+5.12），腰/臀/大腿三站零变化
     w=1 waist+ 响应：腰围 80.18（+10.64），膝站零变化
-    w=1 thigh+（派生场）响应：站点 Δg ≈ +3.9~4.2，峰值带 78.1（站点 77.6 ±0.5）；
-        非对称窗下尾铺膝：crotch−15 带 Δg 2.69、膝站串扰 0（旧对称半宽 18 场此处仅 1.08）
-    knee+ w=1 膝站内侧 gap 1.31（旧原生场 0.01~0.3 = 双膝贴拢根因）
+    w=1 hips+（派生躯干场·二轮平顶窗，2026-09-12 替换原生）响应：臀围 114.12
+        （+14.92），腰站零变化、thigh 站 +9.20（平顶窗把场下缘铺到臀褶带——
+        臀腿物理重叠刻意保留，闭环差分雅可比联立消解；thigh± amp0 同步 1.0）
+    w=1 thigh+（派生场）响应：站点 Δg +5.21（amp0 0.8→1.0），峰值带 77.1
+        （站点 77.6 ±0.5）；非对称窗下尾铺膝：crotch−15 带 Δg 2.14、膝站串扰 0
+    knee+ w=1 膝站内侧 gap 1.40（旧原生场 0.01~0.3 = 双膝贴拢根因）
     去外张：α=10.71°、脚底下探 re-zero +3.1cm、腿轴自然内斜残差 spread <2.5 金标
-    腿内收（2026-09-12 叉部 12cm 渐出口径）：裆下 gap ~5~6（fork≈0 保留臀褶解剖）→
-        裆−16 处渐收至 ≤2.5、主段 ≤3.2；外缘 Lipschitz 每cm 骤降 ≤0.5
-        （旧整段平移 δ≈2.2 外缘撕出 2.6cm/3cm 台阶 =「大腿球包+腿往中线收拢」根因）
+    腿内收 v3 剖面（2026-09-12 二轮 VLM「大腿缝等宽槽」加深，smoothstep C¹ 插值）：
+        控制点 (裆−1, 4.2) → (裆−12, 1.2) → (裆−20, 0.9) → (裆−26, 1.8) →
+        (裆−38, 3.5)，叉口水滴形、大腿中段贴合 ~1、膝上回松；fork 渐出 12→7cm
+        （v2 在裆下 6~10 压弱 δ = 叉口全张读作挖空的根因）；裆−6 处 ~3.9
+        （fork 渐出带，解剖臀褶自然张开）、裆−16 ~1.2、主段 ≤3.2；
+        外缘 Lipschitz 每cm 骤降 ≤0.5（旧整段平移 δ≈2.2 外缘撕台阶 =「球包」根因）
     网格：V 4264 / F 8524 / E 12786，水密（每边恰 2 面），欧拉 = 2
 
 守卫口径：拓扑跨 morph 恒定（裁切后顶点索引冻结，morph 只动位置）、朝向（脚趾 +Z）、
 地标高度带（防地标检测回归——2026-09-11 曾有腰=髂骨上凹/臀<裆两轮误检）、围度锚带
-（防标定站点漂移）、单调响应 + 串扰界（标定矩阵可用性）、腿轴竖直（去外张回归守卫：
-base.obj 是 A-pose 绑定姿势，腿自裆 ±9.6 外撇到踝 ±22，不去外张则人台叉腿）、
+（防标定站点漂移）、单调响应 + 串扰界（标定矩阵可用性）、腿轴自然内斜（去外张回归
+守卫：base.obj 是 A-pose 绑定姿势，腿自裆 ±9.6 外撇到踝 ±22，不去外张则人台叉腿）、
 thigh 派生场对位（原生 measure-thigh-circ 峰值带 crotch−14 与站点 crotch−3 错位
 11cm、站点灵敏度仅峰值 39%，闭环为凑站点围度把大腿中段推爆——「调大腿围变粗
 位置太靠下」根因，2026-09-11 用户目检坐实）、thigh 下尾铺膝（对称半宽 18 在
 crotch−21 截断留膝上 11.5cm 死区 →「大腿→膝维度不渐变」根因，同日二轮报障）、
 knee± 派生场对位 + 膝站间隙 floor（原生 knee+ 上缘 y57-66 纯内侧 −x 剪切边 +
 canonical 站错位 + 满钳可达 40.8 不够常见输入 43~46 →「腿部中段往中线扭曲/
-双膝贴拢」根因，同日逐顶点数字坐实）、大腿内侧 gap（A-pose 腿间距回归守卫）。"""
+双膝贴拢」根因，同日逐顶点数字坐实）、hips± 派生躯干场对位（原生拉力剖面非单调
+y79 0.71 → y81 0.66 凹 → y83 1.15 跳升台阶指纹 + 基网格裆线平台 →「平顶+陡崖」
+方形折角根因，2026-09-12 逐顶点坐实）、大腿内侧 gap（A-pose 腿间距回归守卫）、
+外缘轮廓连续（自裆−17 到裆+8 覆盖转子削圆带——sculpt 后外缘骤降 ≤0.5/cm）。"""
 import struct
 import unittest
 from pathlib import Path
@@ -38,7 +51,7 @@ _META = _ROOT / "webapp" / "frontend" / "public" / "bodymesh" / "targets.json"
 
 # 手工演算锚值（见模块 docstring；容差吸收 girth 切片步进的舍入）
 ANCHOR_LANDMARKS = {"crotch": 80.6, "hip": 86.6, "waist": 107.6, "knee": 48.1, "ankle": 13.5}
-ANCHOR_GIRTH_W0 = {"waist": 69.54, "hips": 98.76, "thigh": 54.15, "knee": 34.38}
+ANCHOR_GIRTH_W0 = {"waist": 69.54, "hips": 99.19, "thigh": 53.46, "knee": 34.38}
 TOL_LANDMARK = 2.0
 TOL_GIRTH = 1.0
 
@@ -251,11 +264,83 @@ class TestVendorBodymesh(unittest.TestCase):
             fr = self.meta["calibration"]["knee+"][far]
             self.assertLess(abs(fr[2] - fr[0]), 0.3, f"knee+ 串扰 {far} 站")
 
+    def test_hips_derived_band_alignment(self):
+        """hips± 派生躯干场对位守卫（2026-09-12「胯部方形折角」报障根因修复；
+        二轮平顶窗 + 双相轨道重写）：原生 measure-hips-circ 弃用——拉力剖面
+        非单调（y79 0.711 → y81 0.663 凹陷 → y83 1.154 跳升 1.7 倍，分段构造
+        台阶指纹），叠加基网格裆线平台（外缘 74-80 恒 ~18.2）把臀拉成「平顶 +
+        裆上陡崖」（外缘 d2 折角 −0.33/−1.48）。派生**平顶**场 core [裆+1,
+        臀+2] 窗值恒 1（转子穹顶与站带同进同退，一轮纯 cos² 峰只削站带不削
+        穹顶 → 两者间挖 ~2cm 凹槽 = 二轮 VLM 3/10 根因）→ 峰值带可落 core
+        任一处（±6.0 宽口径）、响应 [8,20]、腰串扰 <0.3、thigh 串扰 <12
+        （平顶窗把场下缘铺到臀褶带 +9.2/w——臀腿物理重叠刻意保留，闭环差分
+        雅可比联立消解）、叉带 0.25cm 逐扫 w1/w2 gap ≥0.5（旧单点裆−4 守卫
+        漏叉顶 pre-gap 0.77 处 w=1 互穿 −0.41，对抗审查 [3]）。"""
+        vm = _load_vendor_module()
+        stations = {s["name"]: s["y"] for s in self.meta["stations"]}
+        crotch = self.meta["landmarkHeights"]["crotch"]
+        hp = self.targets[self.by_name["hips+"]]
+        pos = [list(p) for p in self.pos]
+        for i, d in hp.items():
+            for k in range(3):
+                pos[i][k] += d[k]
+        curve = []
+        for y in range(int(crotch) + 1, int(stations["hips"]) + 14):
+            g0 = girth(self.pos, self.faces, y + 0.5)
+            g1 = girth(pos, self.faces, y + 0.5)
+            if g0 and g1:
+                curve.append((y + 0.5, g1 - g0))
+        self.assertTrue(curve, "hips+ Δgirth 曲线全空")
+        best_y, best_dg = max(curve, key=lambda s: s[1])
+        self.assertLess(abs(best_y - stations["hips"]), 6.0,
+                        f"hips+ 峰值带 {best_y:.1f} 偏离站点 {stations['hips']:.1f}")
+        row = self.meta["calibration"]["hips+"]["hips"]
+        self.assertTrue(8.0 <= row[2] - row[0] <= 20.0,
+                        f"hips+ 站点响应 {row[2] - row[0]:.2f} 不在 [8,20]cm")
+        fr = self.meta["calibration"]["hips+"]["waist"]
+        self.assertLess(abs(fr[2] - fr[0]), 0.8, "hips+ 串扰 waist 站")
+        tr = self.meta["calibration"]["hips+"]["thigh"]
+        self.assertLess(abs(tr[2] - tr[0]), 12.0,
+                        f"hips+ 串扰 thigh 站 {tr[2] - tr[0]:.2f} > 12.0（重叠带泄漏超预算）")
+        # 叉带互穿防线（镜像 vendor 守卫 25）：自裆−4 逐 0.25cm 上扫到最后一个
+        # 分腿切片（分腿 = 右腿环存在且总环数 ≥2；左腿环质心为负 x），w=1/w=2
+        # 双档全带内侧 gap ≥ 0.5
+        faces = [tuple(f) for f in self.faces]
+
+        def _fork_gap_at(mesh, y):
+            loops = vm._slice_loops(mesh, faces, y)
+            cand = [(pts, cx) for pts, cx in loops if cx > 2.0]
+            if not cand or len(loops) < 2:
+                return None
+            pts2, _ = max(cand, key=lambda l: l[1])
+            return 2.0 * min(p[0] for p in pts2)
+
+        base = [list(p) for p in self.pos]
+        y_last = crotch - 4.0
+        yy = y_last
+        while yy < crotch + 2.0:
+            if _fork_gap_at(base, yy) is not None:
+                y_last = yy
+            yy += 0.25
+        n_sweep = int(round((y_last - (crotch - 4.0)) / 0.25))
+        for w_chk in (1.0, 2.0):
+            pw = pos if w_chk == 1.0 else [list(p) for p in self.pos]
+            if w_chk == 2.0:
+                for i, d in hp.items():
+                    for k in range(3):
+                        pw[i][k] += w_chk * d[k]
+            gaps = [g for g in (_fork_gap_at(pw, y_last - 0.25 * k) for k in range(n_sweep + 1))
+                    if g is not None]
+            self.assertTrue(gaps, f"hips+ w={w_chk} 叉带分腿切片全缺")
+            self.assertGreaterEqual(min(gaps), 0.5,
+                                    f"hips+ w={w_chk} 叉带 min gap {min(gaps):.2f} < 0.5（两腿互穿）")
+
     def test_knee_gap_floor(self):
         """膝站内侧间隙 floor：knee+ w=1 右腿环内间隙 ≥ 0.5cm。旧原生场 w=1
         把间隙压到 0.01~0.3（双膝贴拢/穿插根因）；派生场内侧 ×0.30 来自解析
-        约束 att ≤ (gap0−floor)/(2·amp0·weightClamp) = (2.0−0.5)/(2×1.25×2.0)，
-        w=1 间隙 1.31、满钳 w=2 恰落 0.5 floor 不互穿。"""
+        约束 att ≤ (gap0−floor)/(2·amp0·weightClamp) = (2.0−0.65)/(2×1.25×2.0)
+        （floor 0.65 = 守卫 0.5 + 采样网格插值边际 0.15，2026-09-12 二轮），
+        w=1 间隙 1.40、满钳 w=2 落 ~0.65 不互穿。"""
         vm = _load_vendor_module()
         knee_y = {s["name"]: s["y"] for s in self.meta["stations"]}["knee"]
         kn = self.targets[self.by_name["knee+"]]
@@ -283,19 +368,22 @@ class TestVendorBodymesh(unittest.TestCase):
         return 2.0 * min(p[0] for p in pts)
 
     def test_thigh_gap_closed(self):
-        """A-pose 腿间距内收守卫（2026-09-12 叉部 12cm 渐出后带分流）：
-        主段（裆−30..−16）gap ≤ 3.2（原 5.3~6.5）；渐出带（裆−16..−2）
-        自 ~6 单调渐收至 ≤2.5——渐出是「大腿球包+腿往中线收拢」根因修复：
-        旧版裆下即满量 δ≈2.2 刚体平移，把大腿干从臀线正下方拽进 2.2cm。
-        渐出带顶部（裆−2..−6，fork≈0）保留臀褶解剖自然分开 ~5~6（不过度内收）。"""
+        """A-pose 腿间距内收守卫（2026-09-12 v3 剖面：叉口 4.2 / 裆−12 1.2 /
+        裆−20 0.9 贴合 / 膝上 1.8 回松，fork 渐出 12→7cm）：
+        主段（裆−30..−16）gap ≤ 3.2（原 5.3~6.5；v3 实测 ~1.1-2.2）；
+        渐出带（裆−16..−2）自叉口单调渐收——渐出是「大腿球包+腿往中线收拢」
+        根因修复：旧版裆下即满量 δ≈2.2 刚体平移，把大腿干从臀线正下方拽进
+        2.2cm。顶部（裆−6，fork 渐出中段）≥3.0：叉口要收（v2 的 ~4.8 等宽
+        槽 = 二轮 VLM「大腿缝生硬挖空」根因）但臀褶解剖张开保留。"""
         worst = max(g for g in (self._leg_gap(d) for d in range(16, 32, 2))
                     if g is not None)
         self.assertLessEqual(worst, 3.2, f"大腿主段内侧 gap 残 {worst:.2f} > 3.2（内收回归）")
         profile = [(d, self._leg_gap(d)) for d in range(2, 17, 2)]
         self.assertTrue(all(g is not None for _, g in profile), "渐出带腿环缺失")
-        # 顶部解剖保留：裆−6 处 gap ≥ 4.5（fork≈0，pre 臀褶 ~6.5 经微内收后 ~6）
-        self.assertGreaterEqual(profile[2][1], 4.5,
-                                f"裆−6 gap {profile[2][1]:.2f} < 4.5（叉部过度内收）")
+        # 顶部：裆−6 处 gap ≥ 3.0（v3 fork 渐出 7cm 中段实测 ~3.9；既要收叉口
+        # 又保留臀褶解剖张开）
+        self.assertGreaterEqual(profile[2][1], 3.0,
+                                f"裆−6 gap {profile[2][1]:.2f} < 3.0（叉部过度内收）")
         # 渐收：裆−8 起单调不升（容差 0.4 吸切片抖动），裆−16 收至 ≤2.5
         for (da, ga), (db, gb) in zip(profile[3:], profile[4:]):
             self.assertLessEqual(gb, ga + 0.4,
@@ -304,25 +392,32 @@ class TestVendorBodymesh(unittest.TestCase):
                              f"裆−16 gap {profile[-1][1]:.2f} > 2.5（渐出不到位）")
 
     def test_outer_silhouette_continuity(self):
-        """外缘轮廓连续金标（2026-09-12「大腿球包」根因修复的回归守卫）：
-        正视外缘（每高度 max|x|）自裆+1 到裆−17 逐 cm 骤降 ≤0.5cm。旧版
-        adduct 整段平移在裆下撕出 2.6cm/3cm 台阶（每cm 0.85~1.0）= 用户截图
-        「球包+凹口」；叉部 12cm 渐出后实测 0.35（臀胯锚定 18.3、大腿段
-        ~0.33/cm 自然内斜）。同时锁臀部锚量：裆−1 外缘 ≥17.8（内收不得缩臀）。"""
+        """外缘轮廓连续金标（2026-09-12「大腿球包」+「胯部方形折角」双根因守卫）：
+        正视外缘（每高度 max|x|）自裆−17 到裆+8 逐 cm 骤降 ≤0.5cm——上界伸到
+        裆+8 覆盖大转子削圆带（二轮轻量化：穹顶倒圆 −0.20@裆−1 半宽 4 + 下翼
+        −0.22@裆−7 半宽 3.5；一轮主削 −0.38@裆+3.5 实为在 hips± 挖出的凹槽
+        上加深台阶，帮倒忙）。旧版 adduct 整段平移在裆下撕出台阶（每cm
+        0.85~1.0）= 用户截图「球包+凹口」。同时锁臀部锚量：裆−1 外缘 ≥17.8
+        （实测穹顶倒圆后 ~18.1；内收/削圆不得缩臀）。"""
         vm = _load_vendor_module()
         crotch = self.meta["landmarkHeights"]["crotch"]
         pos = [list(p) for p in self.pos]
         faces = [tuple(f) for f in self.faces]
         edge = []
-        for y in [crotch + dy for dy in range(-17, 2)]:
+        for y in [crotch + dy for dy in range(-17, 9)]:
             loops = vm._slice_loops(pos, faces, y)
             if loops:
                 edge.append(max(abs(p[0]) for l in loops for p in l[0]))
-        self.assertGreaterEqual(len(edge), 15, "外缘采样缺失过多")
-        self.assertGreaterEqual(edge[-1], 17.8, f"臀部外缘 {edge[-1]:.2f} < 17.8（内收缩臀）")
+        self.assertGreaterEqual(len(edge), 20, "外缘采样缺失过多")
+        hip_loops = vm._slice_loops(pos, faces, crotch - 1.0)
+        hip_edge = (max(abs(p[0]) for l in hip_loops for p in l[0])
+                    if hip_loops else None)
+        self.assertIsNotNone(hip_edge, "裆−1 切片缺失")
+        self.assertGreaterEqual(hip_edge, 17.8,
+                                f"裆−1 臀部外缘 {hip_edge:.2f} < 17.8（内收缩臀）")
         cliff = max(edge[i + 1] - edge[i] for i in range(len(edge) - 1))
         self.assertLessEqual(cliff, 0.5,
-                             f"外缘每cm骤降 {cliff:.2f} > 0.5（球包/台阶回归）")
+                             f"外缘每cm骤降 {cliff:.2f} > 0.5（球包/台阶/削圆过猛回归）")
 
     def test_calibration_matrix_monotone(self):
         tol = 0.05  # 切片围度插值噪声 ~0.005cm；真实信号 3~16cm，0.05 只吸收抖动

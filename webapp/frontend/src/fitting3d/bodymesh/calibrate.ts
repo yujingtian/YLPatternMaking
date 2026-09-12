@@ -8,11 +8,14 @@
 // Gauss-Jordan 联立解出**最小权重**，杜绝对消。三点表降级为诊断元数据
 // （vendor 金标仍把守 target 对位）。
 // incr/decr 按误差符号分流（永不同时非零）；阻尼联合迭代；不收敛（目标超
-// 网格可达域）分档钳界并回传残差（诚实降级）：thigh±/knee± = 派生径向
+// 网格可达域）分档钳界并回传残差（诚实降级）：thigh±/knee±/hips± = 派生径向
 // 保形场（cos² 平滑、w=2 已验收）宽钳 weightClamp——knee± 2026-09-11 起
 // 同为派生场（原生弃用：上缘 y57-66 纯内侧 −x 剪切把大腿中段往中线拖 +
 // canonical 站错位 + 满钳 1.0 可达 40.8 够不着常见输入 43~46 → 常年满钳
-// 剪切边永久生效）；waist/hips± = MakeHuman 原生 target 钳
+// 剪切边永久生效）；hips± 2026-09-12 同因替换为躯干径向场（原生拉力剖面
+// y79 0.71 → y81 0.66 凹 → y83 1.15 跳升的非单调台阶指纹 + 基网格裆线
+// 平台 →「平顶+陡崖」方形折角，且满钳 -1 可达 83.1 够不着小臀输入）；
+// waist± = MakeHuman 原生 target 钳
 // nativeWeightClamp=1（作者化域 [0,1] 之外的位移分布未作者化——外推实测
 // 过髋部大转凸包/大腿波浪，两轮报障）。
 import { BODYMESH_PRIOR } from '../priors'
@@ -111,9 +114,10 @@ export function calibrateWeights(
     for (let i = 0; i < N; i++) {
       const mk = ST_KEYS[i][1]
       if (!Number.isFinite(dw[i])) continue
-      // 分档钳界：thigh±/knee± 派生场平滑可外推（宽钳），原生 target 钳回
-      // 作者化域（knee± 已派生替换，2026-09-11 腿部扭曲报障，见头注）
-      const clamp = mk === 'thigh' || mk === 'knee'
+      // 分档钳界：thigh±/knee±/hips± 派生场平滑可外推（宽钳），原生 target 钳回
+      // 作者化域（knee± 已派生替换 2026-09-11、hips± 2026-09-12 同因——原生
+      // 拉力剖面非单调台阶指纹 + 满钳不可达常见小臀输入，见头注）
+      const clamp = mk === 'thigh' || mk === 'knee' || mk === 'hips'
         ? BODYMESH_PRIOR.weightClamp : BODYMESH_PRIOR.nativeWeightClamp
       const nw = Math.max(-clamp,
         Math.min(clamp, signed(mk) + dw[i] * BODYMESH_PRIOR.calibDamping))

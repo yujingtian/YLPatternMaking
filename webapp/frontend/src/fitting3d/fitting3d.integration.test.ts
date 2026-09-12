@@ -116,6 +116,32 @@ describe('真实 payload 端到端（引擎 -> 3D 试穿）', () => {
     }
   })
 
+  it('人台碰撞包络：裆带 θ=±90° 无别名坑台阶（fillThetaPits 金标）', () => {
+    // 2026-09-12「臀腿交界起伏」根因防线：叉带截面非星形（8 字环），切片
+    // 外缘点因 z 偏移跳相邻 bin 时，侧缝向 θ=±90° bin 可能只剩会阴桥内
+    // 缘点，R 从 ~15 塌到 ~3，布料碰撞包络被撕出 8.9cm/0.5cm 假台阶把
+    // 布料拽向中线。修复后包络沿 y 连续：0.5cm 步相邻行 |Δenv| < 2cm
+    //（自然解剖渐变实测 ≤~0.5；坑指纹 8.9）。waist/knee 对齐节点无此病，
+    // 另两根因（thigh 站钳叉下 / hips 钉解剖臀峰）见 build.ts 测点注释
+    const man = buildMan()
+    const hfP = man.pelvis.rings[0].hf!
+    const hfL = man.legs[0].rings[0].hf!
+    const hfR = man.legs[1].rings[0].hf!
+    const yCrotch = payload.body.stations
+      .find((s) => s.key === 'crotch')!.y
+    for (const th of [Math.PI / 2, -Math.PI / 2]) {
+      let prev = NaN
+      for (let y = yCrotch - 6; y <= yCrotch + 12 + 1e-9; y += 0.5) {
+        const env = Math.max(hfP(y, th), hfL(y, th), hfR(y, th))
+        expect(env).toBeGreaterThan(0)
+        if (Number.isFinite(prev)) {
+          expect(Math.abs(env - prev)).toBeLessThan(2)
+        }
+        prev = env
+      }
+    }
+  })
+
   it('PBD 150 帧解算：有限、不冻结、缝合闭合、无穿透', () => {
     const man = buildMan()
     const g = buildGarment({

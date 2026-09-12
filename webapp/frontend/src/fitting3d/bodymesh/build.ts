@@ -46,9 +46,13 @@ export function buildMeshMannequin(
   const meshAnkle = asset.meta.landmarks.ankle !== undefined
     ? landmarkY(base, asset, 'ankle')
     : undefined
+  const meshCrotch = landmarkY(base, asset, 'crotch')
+  const meshHip = asset.meta.landmarks.hip !== undefined
+    ? landmarkY(base, asset, 'hip')
+    : undefined
   const align = fitVerticalAlign(
     {
-      crotch: landmarkY(base, asset, 'crotch'),
+      crotch: meshCrotch,
       knee: landmarkY(base, asset, 'knee'),
       sole: landmarkY(base, asset, 'sole'),
       ankle: meshAnkle,
@@ -65,17 +69,28 @@ export function buildMeshMannequin(
     })
 
   // 2) 围度闭环：目标 = 体型围度（thigh 缺省 hip×ratio 同旧口径），
-  // 站高 = payload 站 unmap 回 mesh 坐标（布料贴合跟站点高度走）
+  // 测点口径见下方 stationYmesh 注释
   const targets = {
     waist: girths.waist,
     hip: girths.hip,
     thigh: girths.thigh ?? girths.hip * BODYMESH_PRIOR.thighGirthRatio,
     knee: girths.knee,
   }
+  // 测点 = mesh 解剖站而非 payload 版线的 unmap（2026-09-12 裆叉/错位
+  // 双重根因修复，此前「布料贴合跟站点高度走」口径被数字否决）：
+  // · thigh 站钳到裆叉下 thighStationDrop：引擎毗围线默认与裆线等高
+  //   （thigh_measure_offset=0），unmap 恰落叉点上——该处「腿环」含伸到
+  //   x≈0.6 的裆桥，w=0 实测 59.2cm 虚高 ~10cm 且切片差 1e-5cm 围度
+  //   ±1.4cm 病态敏感，闭环为凑数解出 thigh−≈1.8 把大腿整段挖空
+  //   （「腿内凹 + 臀腿交界起伏」报障根因）；
+  // · hips 钉解剖臀峰地标：unmap(payload 臀线) 因躯干段压缩（实测
+  //   0.735）偏臀峰 +4.7cm，hips± 作用带上移出 vendor 设计域（围裙带
+  //   包络锯齿贡献项）。waist/knee 无此病（均为对齐节点，偏差 0）。
   const stationYmesh = {
     waist: align.unmapY(yOf('waist')),
-    hips: align.unmapY(yHip),
-    thigh: align.unmapY(yThigh),
+    hips: meshHip ?? align.unmapY(yHip),
+    thigh: Math.min(align.unmapY(yThigh),
+      meshCrotch - BODYMESH_PRIOR.thighStationDrop),
     knee: align.unmapY(yKnee),
   }
   const calib = calibrateWeights(asset, targets, stationYmesh)

@@ -20,3 +20,6 @@ vlm.toml
 
 # 照片提取金标集照片（描述与真值入库，照片不进 git）
 tests/_extract_golden/cases/*/photos/
+
+# MakeHuman 原始网格直显（诊断用 ?bodymesh=raw；vendor/makehuman/base.obj 的本地副本，不进 git）
+webapp/frontend/public/bodymesh/raw.obj

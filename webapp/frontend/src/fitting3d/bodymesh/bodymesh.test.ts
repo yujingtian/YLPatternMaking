@@ -19,7 +19,7 @@ import { radiusAt, sectionAt } from '../mannequin'
 import { applyVertical, fitVerticalAlign } from './align'
 import { buildMeshMannequin } from './build'
 import { calibrateWeights } from './calibrate'
-import { buildTubeFields, sampleField } from './heightfield'
+import { buildTubeFields, fillThetaPits, sampleField } from './heightfield'
 import { morphPositions } from './morph'
 import { sliceLoops, stationGirth } from './slice'
 import type { BodyMeshAsset, BodyMeshMeta, CalibrationMatrix, TargetName } from './types'
@@ -423,5 +423,77 @@ describe('bodymesh 合成网格链路', () => {
     const gKnee = stationGirth(man.sourceMesh!.positions,
       man.sourceMesh!.indices, 15, 'leg')!
     expect(Math.abs(gKnee - girths.knee) / girths.knee).toBeLessThan(0.001)
+  })
+
+  it('fillThetaPits：θ-bin 别名单坑抬到邻 max；宽谷/浅谷/空 bin 不动', () => {
+    // 2026-09-12「臀腿交界起伏」根因之一金标：叉带截面非星形，切片外缘
+    // 点跳 bin 时侧缝向 θ=±90° bin 只剩会阴桥点（R ~15 塌到 ~3）。坑 =
+    // 低于两邻且深度超 2cm 的局部谷 → 抬到邻 max（与空洞膨胀同向保守）
+    const bins = 96
+    const rowOf = (patch: [number, number][]) => {
+      const row = new Float32Array(bins).fill(15)
+      for (const [b, v] of patch) row[b] = v
+      return row
+    }
+    // 单 bin 坑（实测形态：~15 行里只剩桥点 3.2）
+    const pit = rowOf([[40, 15.1], [41, 3.2], [42, 14.9]])
+    fillThetaPits(pit)
+    expect(pit[41]).toBeCloseTo(15.1, 5)
+    // 相邻双坑（快照 pass 内互为邻，一轮同修）
+    const pair = rowOf([[41, 3.0], [42, 3.0]])
+    fillThetaPits(pair)
+    expect(pair[41]).toBeCloseTo(15, 5)
+    expect(pair[42]).toBeCloseTo(15, 5)
+    // 缝上坑（θ=0 缝两侧环向相邻，环向连续性）
+    const seam = rowOf([[0, 3.2]])
+    fillThetaPits(seam)
+    expect(seam[0]).toBeCloseTo(15, 5)
+    // 浅谷不动（深 ≤2：解剖谷 bin 间自然变化 ~0.5cm）
+    const shallow = rowOf([[41, 13.5]])
+    fillThetaPits(shallow)
+    expect(shallow[41]).toBeCloseTo(13.5, 5)
+    // 光滑宽谷不动（臀沟 ~20 bin 宽的解剖谷不受累）
+    const valley = new Float32Array(bins)
+    for (let b = 0; b < bins; b++) {
+      valley[b] = 15 - 4 * Math.cos((2 * Math.PI * b) / bins)
+    }
+    const valleySnap = Float32Array.from(valley)
+    fillThetaPits(valley)
+    for (let b = 0; b < bins; b++) {
+      expect(valley[b]).toBeCloseTo(valleySnap[b], 5)
+    }
+    // 合法锐台阶不动（0.4/bin 下降 + 1.2 跳回，全部 <2 阈）
+    const stair = rowOf([[3, 14.6], [4, 14.2], [5, 13.8], [6, 13.8]])
+    fillThetaPits(stair)
+    expect(stair[5]).toBeCloseTo(13.8, 5)
+    expect(stair[6]).toBeCloseTo(13.8, 5)
+    // 空 bin 不动（cur=0 由空洞膨胀负责，坑修复只抬已占位 bin）
+    const hole = rowOf([[41, 0]])
+    fillThetaPits(hole)
+    expect(hole[41]).toBe(0)
+  })
+
+  it('buildMeshMannequin：thigh 站钳裆叉下方（thigh_measure_offset=0 叉环防线）', () => {
+    // 引擎毗围线与裆线等高（thigh_measure_offset 默认 0，真实 payload 口径
+    // 2026-09-12 实测 fixture thigh y=78=crotch）：unmap 恰落叉环——旧口径
+    // 该处 leg 过滤后无右腿环（叉上单环 = 躯干整圈，cx=0），围度 null、
+    // 标定为凑数推爆权重把大腿整段挖空。钳到 meshCrotch−3 后站点回正常
+    // 双腿带（合成网格对齐恒等，30−3=27），闭环收敛、morph 后站点围度
+    // = 目标 ±1.5%
+    const BODY_FORK: FittingResult['body'] = {
+      ...BODY,
+      stations: [...BODY.stations,
+        { key: 'thigh', y: 30, girth_finished: 26, per: 'leg' }],
+    }
+    const gW = stationGirth(positions, indices, 40, 'body')!
+    const gH = stationGirth(positions, indices, 35, 'body')!
+    const gK = stationGirth(positions, indices, 15, 'leg')!
+    const gT = stationGirth(positions, indices, 27, 'leg')!
+    const target = gT * 1.05
+    const man = buildMeshMannequin(asset, BODY_FORK,
+      { waist: gW * 1.02, hip: gH * 1.02, thigh: target, knee: gK })
+    const gAfter = stationGirth(man.sourceMesh!.positions,
+      man.sourceMesh!.indices, 27, 'leg')!
+    expect(Math.abs(gAfter - target) / target).toBeLessThan(0.015)
   })
 })

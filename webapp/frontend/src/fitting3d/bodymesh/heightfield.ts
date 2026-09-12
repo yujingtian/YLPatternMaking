@@ -125,6 +125,7 @@ function finishField(f: HeightField): void {
       }
       if (!holes) break
     }
+    fillThetaPits(table.subarray(off, off + bins))
   }
   // 纵向持有：自上而下空行抄上一非空行；再自下而上补头部空行（如裁切面
   // 恰在格点上方的半行残缺）
@@ -144,6 +145,34 @@ function copyIfEmpty(f: HeightField, dst: number, src: number): void {
   if (table[s] <= 0) return
   table.copyWithin(d, s, s + bins)
   f.cx[dst] = f.cx[src]
+}
+
+// 单 bin 低坑修复（θ-bin 别名防线，导出供金标）：切片点落 bin 是离散的，
+// 叉带截面非星形（8 字环）——外缘点因 z 偏移跳进相邻 bin 时，正对侧缝的
+// θ=±90° bin 可能只剩会阴桥内缘点，R 从 ~15 塌到 ~3（2026-09-12 实测
+// 76.5 行尖刺 3.25 vs 邻行 15.1，布料碰撞包络被撕出 8.9cm/0.5cm 假台阶、
+// 裆下 1~1.5cm 处把布料拽向中线；且 sampleField 在 bin 边界 fc=0 处不与
+// 邻 bin 插值，单 bin 坑原样穿透到包络）。坑 = 低于两邻且深度超阈的局部
+// 谷，抬到邻 max——与空洞膨胀同向保守（只会偏外）；深阈 2cm 区分别名坑
+// （桥点 vs 外缘差 ~12cm）与真实解剖谷（0.37cm 弧长的 bin 内自然变化
+// ≤0.5cm），单调坡/宽谷（臀沟 ~20 bin）不受影响。
+export function fillThetaPits(row: Float32Array): void {
+  const bins = row.length
+  for (let pass = 0; pass < 8; pass++) {
+    const snap = Float32Array.from(row)
+    let changed = false
+    for (let b = 0; b < bins; b++) {
+      const cur = snap[b]
+      const l = snap[(b + bins - 1) % bins]
+      const r = snap[(b + 1) % bins]
+      if (cur > 0 && cur <= Math.min(l, r) && cur < Math.max(l, r)
+        && Math.max(l, r) - cur > 2) {
+        row[b] = Math.max(l, r)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
 }
 
 // 双线性查表：y 夹端行、θ 环向插值（th 为任意弧度，atan2 口径）

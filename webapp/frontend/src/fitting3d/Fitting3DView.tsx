@@ -19,6 +19,8 @@ import { estimateBody } from './bodyProfile'
 import {
   findProfile, loadStore, saveStore, type StoreShape,
 } from './bodyProfileStore'
+import { loadBodyMesh } from './bodymesh/load'
+import { loadRawObj } from './rawMesh'
 import { buildWaistBand } from './seams'
 import { bakeStructureLines, updateBakedLine, type BakedLine } from './structureLines'
 import { computeStrain, strainColor } from './heatmap'
@@ -39,6 +41,16 @@ const STATION_LABEL: Record<string, string> = {
 const RENDER_GARMENT: boolean =
   typeof location === 'undefined' ||
   new URLSearchParams(location.search).get('garment') !== '0'
+
+// 网格直显诊断模式（2026-09-12 160/64A 报障分层排查，与 ?garment=0 同机制）：
+// ?bodymesh=raw  = MakeHuman 原始 base.obj 零处理直显（A-pose 全身带头带臂）
+// ?bodymesh=base = base.bin 直显（vendor 加工后、运行时 morph/标定/对齐全跳过）
+// 两档与现行渲染三点对比，定位失真引入层（源数据 / vendor 脚本 / 运行时）。
+const BODYMESH_MODE: 'raw' | 'base' | null =
+  typeof location === 'undefined'
+    ? null
+    : (new URLSearchParams(location.search).get('bodymesh') as
+      'raw' | 'base' | null)
 
 interface SceneCtx {
   THREE: ThreeMod
@@ -86,6 +98,9 @@ export default function Fitting3DView({
   const flyRaf = useRef(0)
   const handlesRef = useRef<ContentHandles | null>(null)
   const heatRef = useRef(false)
+  // 直显诊断：网格加载态 + 挂载物（卸载/重建时释放）
+  const [rawLoading, setRawLoading] = useState(BODYMESH_MODE !== null)
+  const rawMeshRef = useRef<ThreeT.Mesh | null>(null)
 
   // ---- three 分包加载（一次） ----
   useEffect(() => {
@@ -141,6 +156,7 @@ export default function Fitting3DView({
   // ---- 首挂载自动生成一次（进系统即有人台+裤子；此后全手动：改参数
   // 走左栏，stale 由舞台 Tag + 生成按钮角标提示，不再 800ms 自动重算） ----
   useEffect(() => {
+    if (BODYMESH_MODE !== null) return   // 直显诊断：不触发 fitting/解算链
     if (fitting === null && !fittingBusy) {
       onGenerateFitting()
     }
@@ -195,6 +211,59 @@ export default function Fitting3DView({
       },
     }
     return () => { ctxRef.current?.dispose() }
+  }, [threeMod])
+
+  // ---- 直显诊断（?bodymesh=raw|base）：网格原样上屏，零处理不走 solver ----
+  useEffect(() => {
+    if (!threeMod || BODYMESH_MODE === null) return
+    let alive = true
+    void (BODYMESH_MODE === 'raw'
+      ? loadRawObj('bodymesh/raw.obj')
+      : loadBodyMesh().then((a) => ({
+          positions: a.positions, indices: a.indices,
+        }))
+    ).then(({ positions, indices }) => {
+      const ctx = ctxRef.current
+      if (!alive || !ctx) return
+      const { THREE } = ctx
+      // 包围盒自适应取景（raw 全身高 ~170cm、base 裁切后 ~124cm）
+      let yMin = Infinity, yMax = -Infinity
+      for (let i = 1; i < positions.length; i += 3) {
+        if (positions[i] < yMin) yMin = positions[i]
+        if (positions[i] > yMax) yMax = positions[i]
+      }
+      const cy = yMin + (yMax - yMin) * 0.55
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position',
+        new THREE.Float32BufferAttribute(positions, 3))
+      geo.setIndex(new THREE.Uint32BufferAttribute(indices, 1))
+      geo.computeVertexNormals()
+      const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color: 0xd8c3b0, roughness: 0.85, metalness: 0.02,
+      }))
+      ctx.scene.add(mesh)
+      rawMeshRef.current = mesh
+      if (gridRef.current) gridRef.current.position.y = yMin
+      ctx.camera.position.set(0, cy, (yMax - yMin) * 1.45)
+      ctx.controls.target.set(0, cy, 0)
+      ctx.controls.update()
+      ctx.render()
+      setRawLoading(false)
+    }).catch((e) => {
+      console.error('[fitting3d] 直显网格加载失败', e)
+      setRawLoading(false)
+    })
+    return () => {
+      alive = false
+      const mesh = rawMeshRef.current
+      const ctx = ctxRef.current
+      if (mesh && ctx) {
+        ctx.scene.remove(mesh)
+        mesh.geometry.dispose()
+        ;(mesh.material as ThreeT.MeshStandardMaterial).dispose()
+        rawMeshRef.current = null
+      }
+    }
   }, [threeMod])
 
   // ---- 内容重建（每次解算对象更换：人台/布料/结构线/环带） ----
@@ -433,7 +502,8 @@ export default function Fitting3DView({
       ease: finished - body }
   })
 
-  const loading = threeMod === null || solver.status === 'building'
+  const loading =
+    threeMod === null || solver.status === 'building' || rawLoading
 
   return (
     <div className="fitting3d">
@@ -469,7 +539,8 @@ export default function Fitting3DView({
             仿真已暂停（数值发散），可点「重新试穿」
           </div>
         )}
-        {solver.status === 'idle' && fitting === null && !loading && (
+        {BODYMESH_MODE === null && solver.status === 'idle' &&
+          fitting === null && !loading && (
           <div className="fitting3d-loading">
             <Empty description="试穿数据未生成">
               <Button size="small" type="primary" onClick={onGenerateFitting}>
