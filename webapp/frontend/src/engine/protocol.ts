@@ -2,12 +2,11 @@
 // 请求带 id 配对响应；计算命令与 HTTP 端点一一对应：
 //   sheet   <-> POST /api/draft/sheet    pieces  <-> POST /api/draft/pieces
 //   adjust  <-> POST /api/adjust         seed    <-> POST /api/seed
-//   fitting <-> POST /api/draft/fitting（3D 试穿 payload，§10.11）
 // 结果类型与 apiHttp 各函数返回值完全同构（worker 胶水逐字段复刻 app.py），
 // 上层（useDraft/SheetView）对两条通道零感知。
 import type { DraftPayload, IssueDetail, SeedPayload } from '../types'
 
-export type EngineCmd = 'sheet' | 'pieces' | 'adjust' | 'fitting' | 'seed'
+export type EngineCmd = 'sheet' | 'pieces' | 'adjust' | 'seed'
 
 export type AdjustPayload = DraftPayload & {
   element: string
@@ -20,7 +19,6 @@ export type EngineRequest =
   | { id: number; cmd: 'sheet'; payload: DraftPayload }
   | { id: number; cmd: 'pieces'; payload: DraftPayload }
   | { id: number; cmd: 'adjust'; payload: AdjustPayload }
-  | { id: number; cmd: 'fitting'; payload: DraftPayload }
   | { id: number; cmd: 'seed'; payload: SeedPayload }
 
 // 错误两分法（路由层据此决定回退与否）：

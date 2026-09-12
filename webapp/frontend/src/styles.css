@@ -35,8 +35,6 @@ html, body, #root { height: 100%; margin: 0; }
   display: flex; align-items: center; gap: 8px;
   padding: 8px; border-top: 1px solid #e8e8e8; background: #fff;
 }
-.action-bar .btn-grow { flex: 1; }
-
 .app-main { display: flex; flex: 1; min-height: 0; }
 /* 右栏：3D 主视图（常驻）/ 高级编辑工作台（advanced 时整体替换） */
 .right-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -278,7 +276,7 @@ html, body, #root { height: 100%; margin: 0; }
   overflow: auto; white-space: pre-wrap;
 }
 
-/* ---- 3D 试穿（fitting3d，§10.11） ---- */
+/* ---- 3D 人台（fitting3d，§10.11） ---- */
 .fitting3d {
   display: flex; gap: 0; height: 100%; min-height: 420px;
 }
@@ -298,13 +296,7 @@ html, body, #root { height: 100%; margin: 0; }
   display: flex; align-items: center; justify-content: center;
   background: rgba(255, 255, 255, 0.6); flex-direction: column; gap: 8px;
 }
-/* 参数已修改提示（手动生成语义）：舞台顶部居中浮层 */
-.fitting3d-stale {
-  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-  z-index: 2; background: rgba(255, 255, 255, 0.9);
-  padding: 2px; border-radius: 4px;
-}
-/* 侧栏：体型卡/显示控制/动作 */
+/* 侧栏：显示控制/动作 */
 .fitting3d-side {
   width: 250px; flex: none; overflow-y: auto; padding: 8px 10px;
   background: #fafaf9;
@@ -314,28 +306,23 @@ html, body, #root { height: 100%; margin: 0; }
   font-size: 12px; color: #888; margin-bottom: 6px;
   display: flex; align-items: center; gap: 6px;
 }
-.f3d-body-line { display: flex; align-items: center; gap: 6px; }
-.f3d-body-girths { color: #666; font-size: 12px; margin-top: 2px; }
 .f3d-row {
   display: flex; align-items: center; justify-content: space-between;
   font-size: 12px; color: #555; margin-bottom: 4px;
 }
 .f3d-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.f3d-status { font-size: 12px; color: #999; }
-/* 体型抽屉 */
-.body-hint { font-size: 12px; color: #888; margin-bottom: 12px; }
-.body-list { display: flex; flex-direction: column; gap: 6px; }
-.body-radio { display: flex; align-items: center; margin: 0; }
-.body-radio .body-name { font-size: 13px; }
-.body-radio .body-tag { margin-left: 6px; }
-.body-radio .body-girths { color: #999; font-size: 12px; margin-left: 8px; }
-.body-group { font-size: 12px; color: #aaa; margin-top: 6px; }
-.body-custom-row { display: flex; align-items: center; justify-content: space-between; }
-.body-edit { margin-top: 16px; padding-top: 12px; border-top: 1px solid #f0f0f0; }
-.body-edit-title { font-size: 12px; color: #666; margin-bottom: 8px; }
-.body-name-input { margin-bottom: 8px; }
-.body-field { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #555; }
-.body-err { color: #cf1322; font-size: 12px; margin-top: 4px; }
+/* 滑杆试验场 */
+.f3d-slider { margin-bottom: 2px; }
+.f3d-slider-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; color: #555;
+}
+.f3d-slider-val { color: #2c6e49; display: inline-flex; gap: 6px; }
+.f3d-slider-val code {
+  color: #999; font-size: 11px; line-height: inherit;
+}
+.f3d-slider .ant-slider { margin: 2px 0 8px; }
+.f3d-hint { font-size: 11px; color: #aaa; margin-top: 6px; }
 
 /* ---- 导出中心（勾选产物 -> 逐项串行下载） ---- */
 .ec-hint {

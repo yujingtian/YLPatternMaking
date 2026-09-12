@@ -132,66 +132,6 @@ export interface PiecesResult {
   warnings: DraftWarning[]
 }
 
-// ---- 3D 试穿（fitting 端点，§10.11） ----
-// 净样边链已由引擎反变换到整版全局坐标（cm、Y 向上）；腰头为旋转
-// 局部系（frame='local'、origin=null）只随 scalars 导出。girth_finished
-// 是成衣量（waist/hip 整圈、thigh/knee/hem 单腿），供松量读数；
-// 人台围度来自独立 BodyProfile（fitting3d/bodyProfile.ts），不在本契约
-
-export type FittingStationKey =
-  'waist' | 'hip' | 'crotch' | 'thigh' | 'knee' | 'hem'
-
-export interface FittingStation {
-  key: FittingStationKey
-  y: number
-  girth_finished: number | null   // crotch 为拓扑分叉站无围度
-  per: 'body' | 'leg'
-}
-
-export type FittingEdgeRole = 'top_chain' | 'seam' | 'hem' | 'free'
-
-export interface FittingEdge {
-  name: string                    // 语义边名（缝合配对键，可重复连续段）
-  kind: 'line' | 'bezier'
-  role: FittingEdgeRole
-  pts: [number, number][]         // 0.01cm 弦高折线（1e-6 舍入）
-  length: number                  // 精确弧长（边长守恒校验基准）
-}
-
-export interface FittingPiece {
-  key: string
-  name: string
-  origin: [number, number] | null
-  frame: 'reflect_y' | 'local'
-  bbox: [number, number, number, number]
-  edges: FittingEdge[]
-  marks: { pts: [number, number][] }[]
-  notches: [number, number][]
-  grain: [number, number][] | null
-  // 腰头专属：旋转局部系不可逆推，只随标量导出
-  scalars?: { top_length: number; bottom_length: number; width: number }
-}
-
-export interface FittingResult {
-  ok: boolean
-  schema_version: number
-  units: string
-  frame: { system: string; y_axis: string }
-  body: {
-    stations: FittingStation[]
-    points: {
-      front_crotch_vertex: [number, number]
-      back_crotch_vertex: [number, number]
-    }
-    crotch_drop: number
-    waistband_width: number
-    waistband_type: 'straight' | 'curved'
-    outseam: number
-  }
-  pieces: FittingPiece[]           // 固定序：front_piece, back_piece, waistband
-  warnings: DraftWarning[]
-}
-
 // 产物快照：data + 生成时的参数版本号（version 不匹配 = 已过期，
 // 预览保留但 DXF 下载禁用，重新生成后恢复）
 export interface Snapshot<T> {

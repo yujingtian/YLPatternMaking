@@ -1,9 +1,6 @@
 import { useState } from 'react'
-import { App as AntApp, Alert, Button, ConfigProvider, Segmented, Tag, Tooltip } from 'antd'
-import {
-  CameraOutlined, DownloadOutlined, EditOutlined, PlayCircleOutlined,
-  WarningOutlined,
-} from '@ant-design/icons'
+import { App as AntApp, Alert, Button, ConfigProvider, Segmented, Tag } from 'antd'
+import { CameraOutlined, DownloadOutlined, EditOutlined } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import TemplatePicker from './components/TemplatePicker'
 import ParamPanel from './components/ParamPanel'
@@ -16,20 +13,6 @@ import Fitting3DView from './fitting3d/Fitting3DView'
 import type { IssueDetail } from './types'
 import { useDraft } from './hooks/useDraft'
 import './styles.css'
-
-// 过期角标（旧 Toolbar 口径迁入）：目标按钮右上角挂 ⚠、悬停看原因，
-// 绝对定位不占布局宽度；禁用 button 不触发鼠标事件，Tooltip 须包 span
-function StaleFlag({ tip, children }: { tip: string | null; children: JSX.Element }) {
-  if (!tip) return children
-  return (
-    <Tooltip title={tip}>
-      <span className="stale-tip-wrap">
-        {children}
-        <WarningOutlined className="stale-flag" />
-      </span>
-    </Tooltip>
-  )
-}
 
 // 校验错误/警告条（旧 Toolbar Alert 迁入左栏，紧凑化）：错误优先全量
 // 展开给明细，无错误才显警告；都没有不占位
@@ -94,9 +77,6 @@ function DraftApp() {
   // 左栏参数分层：核心参数（白名单 17 控件）/ 全部参数（原全量面板）
   const [paramTab, setParamTab] = useState<'core' | 'all'>('core')
 
-  const generateTip = !dragging && d.fittingStale
-    ? '参数已修改，点击重新生成 3D 人台' : null
-
   return (
     <div className="app">
       <header className="app-header">
@@ -157,18 +137,6 @@ function DraftApp() {
             {d.engineState === 'loading' && <Tag color="processing">引擎…</Tag>}
             {d.engineState === 'ready' && <Tag color="success">本地计算</Tag>}
             {d.engineState === 'http' && <Tag>服务端计算</Tag>}
-            <StaleFlag tip={generateTip}>
-              <Button
-                type="primary"
-                className="btn-grow"
-                icon={<PlayCircleOutlined />}
-                loading={d.fittingBusy}
-                disabled={d.errors.length > 0}
-                onClick={() => void d.generateFitting()}
-              >
-                生成
-              </Button>
-            </StaleFlag>
             <Button
               icon={<DownloadOutlined />}
               onClick={() => setExportOpen(true)}
@@ -206,13 +174,7 @@ function DraftApp() {
               dragging={dragging}
             />
           ) : (
-            <Fitting3DView
-              fitting={d.fitting}
-              fittingStale={d.fittingStale}
-              fittingBusy={d.fittingBusy}
-              onGenerateFitting={() => void d.generateFitting()}
-              measurements={d.measurements}
-            />
+            <Fitting3DView />
           )}
         </section>
       </main>
