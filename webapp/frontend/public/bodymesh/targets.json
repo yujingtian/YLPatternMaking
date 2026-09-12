@@ -1,276 +1,130 @@
 {
- "schema": 1,
+ "schema": 2,
  "units": "cm",
  "frame": {
   "yAxis": "up",
   "origin": "sole-center",
   "front": "+z"
  },
- "baseSha256": "4a9e3e34",
- "vertexCount": 4264,
- "triangleCount": 8524,
+ "baseSha256": "3d0acc10",
+ "vertexCount": 4276,
+ "triangleCount": 8548,
  "targets": [
   {
    "name": "waist+",
    "file": "measure-waist-circ-incr.target",
-   "count": 732
+   "count": 752
   },
   {
    "name": "waist-",
    "file": "measure-waist-circ-decr.target",
-   "count": 732
+   "count": 752
   },
   {
    "name": "hips+",
-   "file": "derived:torso-radial@hip-station",
-   "count": 760
+   "file": "measure-hips-circ-incr.target",
+   "count": 707
   },
   {
    "name": "hips-",
-   "file": "derived:torso-radial@hip-station",
-   "count": 760
+   "file": "measure-hips-circ-decr.target",
+   "count": 692
   },
   {
    "name": "thigh+",
-   "file": "derived:radial@crotch-3",
-   "count": 694
+   "file": "measure-thigh-circ-incr.target",
+   "count": 551
   },
   {
    "name": "thigh-",
-   "file": "derived:radial@crotch-3",
-   "count": 694
+   "file": "measure-thigh-circ-decr.target",
+   "count": 548
   },
   {
    "name": "knee+",
-   "file": "derived:radial@knee-station",
-   "count": 482
+   "file": "measure-knee-circ-incr.target",
+   "count": 536
   },
   {
    "name": "knee-",
-   "file": "derived:radial@knee-station",
-   "count": 482
+   "file": "measure-knee-circ-decr.target",
+   "count": 532
+  },
+  {
+   "name": "calf+",
+   "file": "measure-calf-circ-incr.target",
+   "count": 404
+  },
+  {
+   "name": "calf-",
+   "file": "measure-calf-circ-decr.target",
+   "count": 404
+  },
+  {
+   "name": "ankle+",
+   "file": "measure-ankle-circ-incr.target",
+   "count": 506
+  },
+  {
+   "name": "ankle-",
+   "file": "measure-ankle-circ-decr.target",
+   "count": 506
   }
  ],
  "landmarks": {
-  "sole": 1796,
-  "crotch": 480,
-  "waist": 150,
-  "hip": 398,
-  "knee": 2734,
-  "ankle": 2970
+  "sole": 1805,
+  "crotch": 512,
+  "waist": 160,
+  "hip": 408,
+  "knee": 2735,
+  "calf": 2867,
+  "ankle": 2952
  },
  "landmarkHeights": {
   "sole": 0.0,
-  "crotch": 80.562,
-  "hip": 86.562,
-  "waist": 107.562,
-  "knee": 48.062,
-  "ankle": 13.5
+  "crotch": 77.644,
+  "hip": 83.644,
+  "waist": 104.644,
+  "knee": 47.144,
+  "calf": 34.0,
+  "ankle": 12.5
  },
  "cut": {
   "aboveWaistCm": 15.0,
-  "planeY": 122.56
+  "planeY": 119.64
  },
  "stations": [
   {
    "name": "waist",
    "per": "body",
-   "y": 107.562
+   "y": 104.644
   },
   {
    "name": "hips",
    "per": "body",
-   "y": 86.562
+   "y": 83.644
   },
   {
    "name": "thigh",
    "per": "leg",
-   "y": 77.562
+   "y": 74.644
   },
   {
    "name": "knee",
    "per": "leg",
-   "y": 48.062
+   "y": 47.144
+  },
+  {
+   "name": "calf",
+   "per": "leg",
+   "y": 34.0
+  },
+  {
+   "name": "ankle",
+   "per": "leg",
+   "y": 12.5
   }
  ],
- "calibration": {
-  "waist+": {
-   "waist": [
-    69.537,
-    74.8201,
-    80.1817
-   ],
-   "hips": [
-    99.1945,
-    99.1945,
-    99.1945
-   ],
-   "thigh": [
-    53.464,
-    53.464,
-    53.464
-   ],
-   "knee": [
-    34.3832,
-    34.3832,
-    34.3832
-   ]
-  },
-  "waist-": {
-   "waist": [
-    69.537,
-    64.3523,
-    59.2937
-   ],
-   "hips": [
-    99.1945,
-    99.1945,
-    99.1945
-   ],
-   "thigh": [
-    53.464,
-    53.464,
-    53.464
-   ],
-   "knee": [
-    34.3832,
-    34.3832,
-    34.3832
-   ]
-  },
-  "hips+": {
-   "waist": [
-    69.537,
-    69.5835,
-    69.6301
-   ],
-   "hips": [
-    99.1945,
-    106.534,
-    113.9693
-   ],
-   "thigh": [
-    53.464,
-    54.1966,
-    54.9342
-   ],
-   "knee": [
-    34.3832,
-    34.3832,
-    34.3832
-   ]
-  },
-  "hips-": {
-   "waist": [
-    69.537,
-    69.4905,
-    69.444
-   ],
-   "hips": [
-    99.1945,
-    91.9709,
-    84.8891
-   ],
-   "thigh": [
-    53.464,
-    52.7366,
-    52.0146
-   ],
-   "knee": [
-    34.3832,
-    34.3832,
-    34.3832
-   ]
-  },
-  "thigh+": {
-   "waist": [
-    69.537,
-    69.537,
-    69.537
-   ],
-   "hips": [
-    99.1945,
-    99.4209,
-    99.6474
-   ],
-   "thigh": [
-    53.464,
-    56.0767,
-    58.7035
-   ],
-   "knee": [
-    34.3832,
-    34.3846,
-    34.386
-   ]
-  },
-  "thigh-": {
-   "waist": [
-    69.537,
-    69.537,
-    69.537
-   ],
-   "hips": [
-    99.1945,
-    98.9683,
-    98.7422
-   ],
-   "thigh": [
-    53.464,
-    50.8677,
-    48.29
-   ],
-   "knee": [
-    34.3832,
-    34.3818,
-    34.3804
-   ]
-  },
-  "knee+": {
-   "waist": [
-    69.537,
-    69.537,
-    69.537
-   ],
-   "hips": [
-    99.1945,
-    99.1945,
-    99.1945
-   ],
-   "thigh": [
-    53.464,
-    53.464,
-    53.464
-   ],
-   "knee": [
-    34.3832,
-    36.8547,
-    39.5079
-   ]
-  },
-  "knee-": {
-   "waist": [
-    69.537,
-    69.537,
-    69.537
-   ],
-   "hips": [
-    99.1945,
-    99.1945,
-    99.1945
-   ],
-   "thigh": [
-    53.464,
-    53.464,
-    53.464
-   ],
-   "knee": [
-    34.3832,
-    32.1339,
-    30.1178
-   ]
-  }
- },
  "provenance": {
   "repo": "makehumancommunity/makehuman",
   "tag": "v1.3.0",
@@ -282,6 +136,10 @@
    "PROVENANCE.md": "acd9d80b8ead4d5c356a79e2d5071174c9947a2aa486b8b658040487720e36a7",
    "caucasian-male-young.target": "70e228ba7164737dae664454394536fc5935fa48d333c1a97d77e2dc6eacc5f5",
    "universal-female-young-averagemuscle-averageweight.target": "4ba5396ddabda448ece15650a566fbebfbb10239256ccb201e8f883429e12249",
+   "measure-ankle-circ-decr.target": "0abb3c55b334b8508addf583a626f775ac45fa95eff773131dbd7ff48bf6d95d",
+   "measure-ankle-circ-incr.target": "01bbc7823b71199826e987227e22fc97ac88247467368414fd11309062d0fdcf",
+   "measure-calf-circ-decr.target": "2914fc47781e23987607c6546f4535ae5d8b04e2e2bec908ab588ee94e74aa15",
+   "measure-calf-circ-incr.target": "c6106ec484a875a8763a7e9b12a4891da8efcd5152efbc1c7061f40bdc4353a6",
    "measure-hips-circ-decr.target": "8a98e80047ab89148d60067aad3b452ce715eadcaf7a1e28402140dd1ac8fb11",
    "measure-hips-circ-incr.target": "e4294db231dd3283680e6be4b9d3d8d81aa7c575a32f937f8d0751b1ec3d6512",
    "measure-knee-circ-decr.target": "fc8d4ff31694018587f32979183f2342ac2e4882b99ff9eac71050eac2bcca27",

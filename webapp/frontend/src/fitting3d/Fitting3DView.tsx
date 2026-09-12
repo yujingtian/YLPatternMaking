@@ -1,12 +1,12 @@
 // 3D 人台视图：three 惰性分包加载（首屏零影响）；MakeHuman 官方 target
-// 滑杆试验场（2026-09-12 用户口径：**全身**模型 + 用它的 targets 调节）。
-// 链路：loadNativeBody（raw.obj 全身 A-pose 基网格——含头/臂，顶点号与
-// .target 天然对齐——+ 8 个官方 measure 场）→ morphPositions(权重) →
-// BufferGeometry 直显；四个部位滑杆双极（−1..+1，正推 site+ 场 / 负推
-// site− 场），拖动实时重 morph + 站点围度实时读数（站高为粗探测近似值，
-// native 场会微移站高，读数在极端权重下有轻微口径偏差，试验场可接受；
-// 原生场固有缺陷如 thigh 膝上死区属 MakeHuman 作者化行为，原样呈现）。
-// 坐标口径：顶点 cm、Y-up、body 组脚底 y=0（native.ts）。
+// 滑杆试验场（2026-09-13 用户口径：**下半身**切割人台 + 用它的 targets 调节）。
+// 链路：loadBodyMesh（base.bin = 纯切割链产物：A-pose 零姿势修改、粗裁去臂、
+// 精裁腰+15、官方 12 场已按切割后索引重映射；targets.json 带 vendor 地标站）
+// → morphPositions(权重) → BufferGeometry 直显；六个部位滑杆双极（−1..+1，
+// 正推 site+ 场 / 负推 site− 场），拖动实时重 morph + 站点围度实时读数
+// （站高取 vendor 地标检测值，场会微移站高，极端权重下读数有轻微口径偏差，
+// 试验场可接受；原生场固有缺陷如 thigh 膝上死区属作者化行为，原样呈现）。
+// 坐标口径：顶点 cm、Y-up、脚底 y=0（bin.ts 头注）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Empty, Slider, Spin } from 'antd'
 import {
@@ -14,21 +14,24 @@ import {
 } from '@ant-design/icons'
 import type * as ThreeT from 'three'
 import type { OrbitControls as OrbitControlsT } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { NativeBody } from './bodymesh/native'
-import { loadNativeBody, readGirth } from './bodymesh/native'
+import type { BodyMeshAsset } from './bodymesh/bin'
+import { loadBodyMesh } from './bodymesh/bin'
+import { readGirth } from './bodymesh/slice'
 import type { MeshWeights } from './bodymesh/morph'
 import { morphPositions } from './bodymesh/morph'
 
 type ThreeMod = typeof import('three')
 type OrbitControlsCtor = typeof import('three/examples/jsm/controls/OrbitControls.js').OrbitControls
 
-// 滑杆部位 <-> base.bin target 槽位（SLOT_ORDER 固定序里的 4 对场）
-type Site = 'waist' | 'hips' | 'thigh' | 'knee'
+// 滑杆部位 <-> base.bin target 槽位（SLOT_ORDER 固定序里的 6 对场）
+type Site = 'waist' | 'hips' | 'thigh' | 'knee' | 'calf' | 'ankle'
 const SITES: { key: Site; label: string }[] = [
   { key: 'waist', label: '腰' },
   { key: 'hips', label: '臀' },
   { key: 'thigh', label: '大腿' },
   { key: 'knee', label: '膝' },
+  { key: 'calf', label: '小腿' },
+  { key: 'ankle', label: '踝' },
 ]
 type Sliders = Record<Site, number>
 
@@ -48,18 +51,18 @@ export default function Fitting3DView() {
   // 地面格网（场景一次创建；脚底 y=0 恒落地）
   const gridRef = useRef<ThreeT.GridHelper | null>(null)
   const meshRef = useRef<ThreeT.Mesh | null>(null)
-  const assetRef = useRef<NativeBody | null>(null)
+  const assetRef = useRef<BodyMeshAsset | null>(null)
   // 取景基准（mesh 身高 cm；初始机位/视角预设全由它定标，加载前 0）
   const heightRef = useRef(0)
   const flyRaf = useRef(0)
   const [threeMod, setThreeMod] = useState<
     { THREE: ThreeMod; OrbitControls: OrbitControlsCtor } | null>(null)
-  const [asset, setAsset] = useState<NativeBody | null>(null)
+  const [asset, setAsset] = useState<BodyMeshAsset | null>(null)
   const [assetError, setAssetError] = useState<string | null>(null)
   const [sliders, setSliders] = useState<Sliders>(
-    { waist: 0, hips: 0, thigh: 0, knee: 0 })
+    { waist: 0, hips: 0, thigh: 0, knee: 0, calf: 0, ankle: 0 })
   const [girths, setGirths] = useState<Record<Site, number | null>>(
-    { waist: null, hips: null, thigh: null, knee: null })
+    { waist: null, hips: null, thigh: null, knee: null, calf: null, ankle: null })
   const [showBody, setShowBody] = useState(true)
 
   // ---- three 分包加载（一次） ----
@@ -125,11 +128,11 @@ export default function Fitting3DView() {
     return () => { ctxRef.current?.dispose() }
   }, [threeMod])
 
-  // ---- 人台加载（场景就绪后一次）：raw.obj 全身基网格（w=0）上屏 ----
+  // ---- 人台加载（场景就绪后一次）：base.bin 下半身切割网格（w=0）上屏 ----
   useEffect(() => {
     if (!threeMod || !ctxRef.current) return
     let alive = true
-    void loadNativeBody().then((a) => {
+    void loadBodyMesh().then((a) => {
       const ctx = ctxRef.current
       if (!alive || !ctx) return
       const { THREE } = ctx
@@ -142,11 +145,10 @@ export default function Fitting3DView() {
       geo.computeVertexNormals()
       const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
         color: 0xd8c3b0, roughness: 0.85, metalness: 0.02,
-        side: THREE.DoubleSide,   // raw.obj 面序不保证统一，先双面保观感
       }))
       ctx.scene.add(mesh)
       meshRef.current = mesh
-      // 初始机位按身高定标（正观全身 A-pose）
+      // 初始机位按裁切面高定标（正观下半身）
       const h = a.height
       ctx.camera.position.set(0, h * 0.55, h * 1.95)
       ctx.controls.target.set(0, h * 0.47, 0)
@@ -172,7 +174,7 @@ export default function Fitting3DView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threeMod])
 
-  // ---- 站点查询表（粗探测站：站高 + body/leg 口径，w=0 值） ----
+  // ---- 站点查询表（vendor 地标站：站高 + body/leg 口径，w=0 值） ----
   const stationOf = useMemo(() => {
     const m = new Map<Site, { y: number; per: 'body' | 'leg' }>()
     if (asset) {
@@ -204,7 +206,7 @@ export default function Fitting3DView() {
     mesh.geometry.computeVertexNormals()
     ctx.render()
     const read: Record<Site, number | null> = {
-      waist: null, hips: null, thigh: null, knee: null }
+      waist: null, hips: null, thigh: null, knee: null, calf: null, ankle: null }
     for (const { key } of SITES) {
       const st = stationOf.get(key)
       if (st) {
@@ -312,7 +314,8 @@ export default function Fitting3DView() {
           ))}
           <Button size="small" icon={<UndoOutlined />}
             disabled={!asset}
-            onClick={() => setSliders({ waist: 0, hips: 0, thigh: 0, knee: 0 })}>
+            onClick={() => setSliders(
+              { waist: 0, hips: 0, thigh: 0, knee: 0, calf: 0, ankle: 0 })}>
             全部归零
           </Button>
           <div className="f3d-hint">

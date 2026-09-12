@@ -23,6 +23,10 @@
 | `targets/measure/measure-thigh-circ-decr.target` | `fe5303874b0ffe26a69cefd3e213b6478eec4648f60b0b110a1e176ccf24eaa9` |
 | `targets/measure/measure-knee-circ-incr.target` | `a3f57ce71ae6955ebca4b3927fa9adcf7d4718df7e0c8641adea37cb1e781ecb` |
 | `targets/measure/measure-knee-circ-decr.target` | `fc8d4ff31694018587f32979183f2342ac2e4882b99ff9eac71050eac2bcca27` |
+| `targets/measure/measure-calf-circ-incr.target` | `c6106ec484a875a8763a7e9b12a4891da8efcd5152efbc1c7061f40bdc4353a6` |
+| `targets/measure/measure-calf-circ-decr.target` | `2914fc47781e23987607c6546f4535ae5d8b04e2e2bec908ab588ee94e74aa15` |
+| `targets/measure/measure-ankle-circ-incr.target` | `01bbc7823b71199826e987227e22fc97ac88247467368414fd11309062d0fdcf` |
+| `targets/measure/measure-ankle-circ-decr.target` | `0abb3c55b334b8508addf583a626f775ac45fa95eff773131dbd7ff48bf6d95d` |
 
 原文件在源仓库中的路径：`base.obj` → 顶点级基础网格导出；
 `targets/*` → `makehuman/data/targets/` 同名文件（v1.3.0 树）。
@@ -30,8 +34,8 @@
 ## 派生物
 
 `webapp/frontend/public/bodymesh/{base.bin, targets.json, LICENSE.ASSETS.md}`
-由 `python scripts/vendor_makehuman.py` 从本目录确定性派生（女性 macro 烘进基网格、
-下半身裁切 + 去臂连通域、顶点索引重映射、围度预标定；口径权威
+由 `python scripts/vendor_makehuman.py` 从本目录确定性派生（纯切割链：下半身
+裁切 + 去臂连通域、官方 12 场顶点索引重映射；口径权威
 `.doc/python工程设计.md` §10.11）。派生不改变许可（CC0）。
 
 ## 再生与校验

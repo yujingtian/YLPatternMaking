@@ -1,6 +1,6 @@
-// 水平切片：三角形与 y=const 平面求交 -> 交线段 -> 闭环链（native.ts
-// 站高探测/围度读数的底座）。约定：d = y_vertex − y_slice，d ≤ 0 记
-// 「下」；跨面三角形恰有 2 条符号相异边（顶点恰在平面上计入「下」）。
+// 水平切片：三角形与 y=const 平面求交 -> 交线段 -> 闭环链（围度读数底座）。
+// 约定：d = y_vertex − y_slice，d ≤ 0 记「下」；跨面三角形恰有 2 条符号
+// 相异边（顶点恰在平面上计入「下」）。
 
 export interface SlicePoint {
   x: number
@@ -94,4 +94,23 @@ export function sliceLoops(
     loops.push({ pts, cx: cx / pts.length, girth: g, closed })
   }
   return loops
+}
+
+// 大环过滤阈值（cm）：防御性口径（下半身切割网格无臂无指、腰/臀恒单环，
+// 腿站恒双腿环；阈值剔除万一出现的微小碎片环）
+const BIG = 25
+
+// 站点围度：body 站取最大环（腰/臀单环即躯干）；leg 站取最右大环（右腿，
+// cx 最大确定性挑出，不受躯干质心微偏影响）。只信闭环（开链 = 撕裂态）。
+export function readGirth(
+  positions: Float32Array, indices: Uint32Array,
+  y: number, per: 'body' | 'leg',
+): number | null {
+  const loops = sliceLoops(positions, indices, y)
+    .filter((l) => l.closed && l.girth > BIG)
+  if (!loops.length) return null
+  const pick = per === 'leg'
+    ? loops.reduce((m, l) => (l.cx > m.cx ? l : m))
+    : loops.reduce((m, l) => (l.girth > m.girth ? l : m))
+  return pick.girth
 }
