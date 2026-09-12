@@ -1,9 +1,9 @@
 // bodymesh 模块合成网格金标（node vitest 无 fetch/public——真数据金标在
 // Python 侧 tests/test_vendor_bodymesh.py；此处验证 TS 链路数学：切片/
-// morph/对齐/围度闭环/高度场/整链 buildMeshMannequin）。
+// morph/对齐/围度闭环/整链 buildMeshMannequin）。
 // 合成体：躯干椭圆管（a=8、b=6，y∈[30,50]）+ 双腿圆柱（r=4、x=±5、
-// y∈[0,30]），环距 2.5、24 边侧壁三角带（封盖不必要：切片环/碰撞/渲染
-// 测试只消费侧壁；crotch=30、hem=0、knee=15 与 payload 站恒等 -> 对齐
+// y∈[0,30]），环距 2.5、24 边侧壁三角带（封盖不必要：切片环/渲染测试
+// 只消费侧壁；crotch=30、hem=0、knee=15 与 payload 站恒等 -> 对齐
 // a=1、b=0 精确可断言）。三个 target：waist+ = 躯干环径向 ×10%
 //（crotch 环除外）-> 围度解析 g(w)=g0·(1+0.1w)；thigh+ = 腿环
 // y∈(15,30) 绕腿轴径向 ×10%·W(y)，非对称 cos² 锥形窗（峰=thigh 站 27、
@@ -11,15 +11,15 @@
 // 保形场的合成替身（宽钳档；旧 fixture 硬带 (20,30) 复刻了真数据「膝上
 // 死区」缺陷设计，2026-09-11 已废弃）；knee+ = 腿环 y∈(7.5,22.5) 对称
 // cos² 窗（峰=knee 站 15、半宽 7.5）×8%——派生 knee 场替身（宽钳档）。
+// 2026-09-12 裁撤试穿：heightfield/fillThetaPits describe 随三管高度场
+// 碰撞桥退役（演进史见决策日志）。
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
 import type { BodyGirths } from '../bodyProfile'
 import { BODYMESH_PRIOR } from '../priors'
-import { radiusAt, sectionAt } from '../mannequin'
 import { applyVertical, fitVerticalAlign } from './align'
 import { buildMeshMannequin } from './build'
 import { calibrateWeights } from './calibrate'
-import { buildTubeFields, fillThetaPits, sampleField } from './heightfield'
 import { morphPositions } from './morph'
 import { sliceLoops, stationGirth } from './slice'
 import type { BodyMeshAsset, BodyMeshMeta, CalibrationMatrix, TargetName } from './types'
@@ -294,29 +294,6 @@ describe('bodymesh 合成网格链路', () => {
     expect(pos[1]).toBe(10)   // 原数组不被改写
   })
 
-  it('heightfield：三管 R(y,θ) 与合成体表一致；裆下并集保守', () => {
-    const f = buildTubeFields(positions, indices, {
-      crotch: 30, top: 50, pelvisBottom: 27, legTop: 37, legBottom: -2,
-    })
-    // 骨盆：腰带椭圆半轴 θ=0 前向 6 / θ=90° 侧向 8（±0.1 表离散）
-    expect(sampleField(f.pelvis, 40, 0)).toBeCloseTo(6, 1)
-    expect(sampleField(f.pelvis, 40, Math.PI / 2)).toBeCloseTo(8, 1)
-    // 腿：膝带圆柱 r=4（相对腿轴 cx≈5）
-    expect(sampleField(f.legR, 15, 0)).toBeCloseTo(4, 1)
-    expect(sampleField(f.legL, 15, Math.PI / 2)).toBeCloseTo(4, 1)
-    // 裆下（<crotch）骨盆 = 双腿并集：侧向 R ≈ 5+4 = 9
-    expect(sampleField(f.pelvis, 28, Math.PI / 2)).toBeCloseTo(9, 1)
-    // 头带（>crotch 单环分喂）：R 相对腿轴，外缘 cx+R ≈ 8（躯干半宽连续）
-    const row33 = Math.round((f.legR.yTop - 33) / f.legR.dy)
-    expect(f.legR.cx[row33] + sampleField(f.legR, 33, Math.PI / 2))
-      .toBeCloseTo(8, 1)
-    // 底部越界（脚口下延伸行持有）：不 NaN、有限
-    expect(Number.isFinite(sampleField(f.legR, -1, 0))).toBe(true)
-    // 轴符号：右腿正、左腿负（rows 抽查）
-    expect(f.legR.cx[f.legR.rows - 1]).toBeGreaterThan(4)
-    expect(f.legL.cx[f.legL.rows - 1]).toBeLessThan(-4)
-  })
-
   it('calibrate：差分雅可比反演收敛到 w≈0.2（阻尼+容差内）', () => {
     const gW = stationGirth(positions, indices, 40, 'body')!
     const gH = stationGirth(positions, indices, 35, 'body')!
@@ -387,7 +364,7 @@ describe('bodymesh 合成网格链路', () => {
     expect(rk.residual.knee).toBeLessThan(0)
   })
 
-  it('buildMeshMannequin：整链出口契约（环降序/hf/bottomY/围度/半径）', () => {
+  it('buildMeshMannequin：整链出口契约（topY/bottomY/围度）', () => {
     const gW = stationGirth(positions, indices, 40, 'body')!
     const gH = stationGirth(positions, indices, 35, 'body')!
     const gT = stationGirth(positions, indices, 27, 'leg')!
@@ -399,23 +376,6 @@ describe('bodymesh 合成网格链路', () => {
     expect(man.sourceMesh).toBeDefined()
     expect(man.bottomY).toBeCloseTo(0, 6)      // sole↔hem 恒等对齐
     expect(man.topY).toBeCloseTo(50, 1)
-    // 管环 y 严格降序 + hf 柄传播
-    for (const tube of [man.pelvis, man.legs[0], man.legs[1]]) {
-      for (let i = 1; i < tube.rings.length; i++) {
-        expect(tube.rings[i - 1].y).toBeGreaterThan(tube.rings[i].y)
-      }
-      expect(tube.rings[0].hf).toBeDefined()
-    }
-    // 左右腿管轴符号
-    const cxR = man.legs[1].rings[man.legs[1].rings.length - 1].cx
-    expect(cxR).toBeGreaterThan(4)
-    expect(man.legs[0].rings[man.legs[0].rings.length - 1].cx).toBeLessThan(-4)
-    // 适配层查询：radiusAt 走 hf 查表（θ=0 前向 ≈ 6×1.02、θ=90° ≈ 8×1.02）
-    const s40 = sectionAt(man.pelvis, 40)
-    expect(radiusAt(s40, 0, 1)).toBeCloseTo(6 * 1.016, 1)
-    expect(radiusAt(s40, 1, 0)).toBeCloseTo(8 * 1.016, 1)
-    const s15 = sectionAt(man.legs[1], 15)
-    expect(radiusAt(s15, 0, 1)).toBeCloseTo(4, 1)
     // morph 后源网格站点围度 = 目标 ±1.5%（同环标定口径）
     const gAfter = stationGirth(man.sourceMesh!.positions,
       man.sourceMesh!.indices, 40, 'body')!
@@ -423,54 +383,6 @@ describe('bodymesh 合成网格链路', () => {
     const gKnee = stationGirth(man.sourceMesh!.positions,
       man.sourceMesh!.indices, 15, 'leg')!
     expect(Math.abs(gKnee - girths.knee) / girths.knee).toBeLessThan(0.001)
-  })
-
-  it('fillThetaPits：θ-bin 别名单坑抬到邻 max；宽谷/浅谷/空 bin 不动', () => {
-    // 2026-09-12「臀腿交界起伏」根因之一金标：叉带截面非星形，切片外缘
-    // 点跳 bin 时侧缝向 θ=±90° bin 只剩会阴桥点（R ~15 塌到 ~3）。坑 =
-    // 低于两邻且深度超 2cm 的局部谷 → 抬到邻 max（与空洞膨胀同向保守）
-    const bins = 96
-    const rowOf = (patch: [number, number][]) => {
-      const row = new Float32Array(bins).fill(15)
-      for (const [b, v] of patch) row[b] = v
-      return row
-    }
-    // 单 bin 坑（实测形态：~15 行里只剩桥点 3.2）
-    const pit = rowOf([[40, 15.1], [41, 3.2], [42, 14.9]])
-    fillThetaPits(pit)
-    expect(pit[41]).toBeCloseTo(15.1, 5)
-    // 相邻双坑（快照 pass 内互为邻，一轮同修）
-    const pair = rowOf([[41, 3.0], [42, 3.0]])
-    fillThetaPits(pair)
-    expect(pair[41]).toBeCloseTo(15, 5)
-    expect(pair[42]).toBeCloseTo(15, 5)
-    // 缝上坑（θ=0 缝两侧环向相邻，环向连续性）
-    const seam = rowOf([[0, 3.2]])
-    fillThetaPits(seam)
-    expect(seam[0]).toBeCloseTo(15, 5)
-    // 浅谷不动（深 ≤2：解剖谷 bin 间自然变化 ~0.5cm）
-    const shallow = rowOf([[41, 13.5]])
-    fillThetaPits(shallow)
-    expect(shallow[41]).toBeCloseTo(13.5, 5)
-    // 光滑宽谷不动（臀沟 ~20 bin 宽的解剖谷不受累）
-    const valley = new Float32Array(bins)
-    for (let b = 0; b < bins; b++) {
-      valley[b] = 15 - 4 * Math.cos((2 * Math.PI * b) / bins)
-    }
-    const valleySnap = Float32Array.from(valley)
-    fillThetaPits(valley)
-    for (let b = 0; b < bins; b++) {
-      expect(valley[b]).toBeCloseTo(valleySnap[b], 5)
-    }
-    // 合法锐台阶不动（0.4/bin 下降 + 1.2 跳回，全部 <2 阈）
-    const stair = rowOf([[3, 14.6], [4, 14.2], [5, 13.8], [6, 13.8]])
-    fillThetaPits(stair)
-    expect(stair[5]).toBeCloseTo(13.8, 5)
-    expect(stair[6]).toBeCloseTo(13.8, 5)
-    // 空 bin 不动（cur=0 由空洞膨胀负责，坑修复只抬已占位 bin）
-    const hole = rowOf([[41, 0]])
-    fillThetaPits(hole)
-    expect(hole[41]).toBe(0)
   })
 
   it('buildMeshMannequin：thigh 站钳裆叉下方（thigh_measure_offset=0 叉环防线）', () => {

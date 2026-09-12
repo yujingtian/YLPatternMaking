@@ -43,17 +43,18 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #    协议/回退阶梯/打包链详见 .doc/python工程设计.md §10.8）
 #   （前端已构建于 webapp/frontend/dist；改前端：cd webapp/frontend && npm run dev，
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
-#   3D 人台试穿（2026-09 一期）：右栏 3D 主视图常驻（进系统即有人台+裤子）——前后片当布料缝到人台上，
-#   前端自研 PBD（模块 webapp/frontend/src/fitting3d/，新依赖 three+delaunator 惰性分包）；
-#   引擎侧出口 exporters/fitting.py build_fitting_payload（POST /api/draft/fitting 双通道）；
+#   3D 人台显示（2026-09 一期试穿；2026-09-12 裁撤试穿只留人台——布料/PBD/碰撞链
+#   前端退役，演进史 .doc/决策日志.md §十一）：右栏 3D 主视图常驻（进系统即有人台），
+#   three 惰性分包（模块 webapp/frontend/src/fitting3d/）；
+#   引擎侧出口 exporters/fitting.py build_fitting_payload（POST /api/draft/fitting）照旧——
+#   前端只消费 payload.body 站点作人台纵向对齐锚，pieces 闲置（恢复试穿 = 前端 revert，引擎零改动）；
 #   人台 = MakeHuman CC0 真人网格（2026-09-11 换轨，旧环模型/SDF 蒙皮退役）：
 #   vendor/makehuman/ 原始数据进 git（PROVENANCE sha256，.gitattributes -text）
 #   -> scripts/vendor_makehuman.py 派生 public/bodymesh/{base.bin,targets.json}，
-#   运行时 fitting3d/bodymesh/（稀疏 morph + 分段 y-warp 踝节点对齐 + 围度闭环
-#   + 三管高度场碰撞桥），seams/pbd/collide 零改动；
+#   运行时 fitting3d/bodymesh/（稀疏 morph + 分段 y-warp 踝节点对齐 + 围度闭环）；
 #   金标 python -m pytest tests/test_fitting_payload.py tests/test_vendor_bodymesh.py -q
 #   + 前端 cd webapp/frontend && npm test（fixture 重生成命令见 fitting3d.integration.test.ts 文件头）；
-#   口径（体型/成衣分离、缝合配对、PBD、真人网格人台）权威 .doc/python工程设计.md §10.11
+#   口径（体型/成衣分离、真人网格人台）权威 .doc/python工程设计.md §10.11
 # LLM agent（agent/ 独立目录与 webapp/ 平级，2026-09-03 边界：ylpattern 纯引擎、
 #   全部大模型相关代码在此——extract/ 12 模块提取管线 + cli.py 命令行 + app.py HTTP 服务；
 #   依赖方向唯一 agent → ylpattern；口径权威 .doc/python工程设计.md §10.9；

@@ -1,15 +1,14 @@
-// 3D 试穿视图（一期）：three 惰性分包加载（首屏零影响）；人台 + 腰头
-// 环带 + 四半片布料 + 结构线随 PBD 解算逐帧渲染。侧栏：体型入口/松量
-// 读数/热力图/透明度/视角/截图。
+// 3D 人台视图：three 惰性分包加载（首屏零影响）；真人网格人台常驻
+// 显示（morph + 围度闭环 + 纵向对齐，随体型/尺寸重建，静态无解算）。
+// 侧栏：体型入口/显示开关/视角/截图。
 // 坐标口径：payload 整版全局系 Y-up 直接作为身体高度；θ=0 前中 +Z。
-// 2026-09-11 交互重构：常驻主视图（生成=只算 3D），删快捷滑杆卡与
-// 800ms 自动重试穿——改参数走左栏，stale 由舞台 Tag + 生成按钮角标提示；
-// 保留首挂载自动生成一次（进系统即有人台+裤子）。
+// 2026-09-12 裁撤试穿：布料四半片/腰头环带/结构线/应变热力图/PBD
+// 解算与碰撞链整体退役，只留人台显示（演进史见决策日志）；「生成」
+// 仍取 payload——body 站点（腰/裆/膝/脚口高度）是人台纵向对齐锚。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Empty, Slider, Spin, Switch, Tag } from 'antd'
+import { Button, Empty, Spin, Tag } from 'antd'
 import {
-  CameraOutlined, EyeInvisibleOutlined, EyeOutlined, RedoOutlined,
-  SettingOutlined,
+  CameraOutlined, EyeInvisibleOutlined, EyeOutlined, SettingOutlined,
 } from '@ant-design/icons'
 import type * as ThreeT from 'three'
 import type { OrbitControls as OrbitControlsT } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -21,28 +20,13 @@ import {
 } from './bodyProfileStore'
 import { loadBodyMesh } from './bodymesh/load'
 import { loadRawObj } from './rawMesh'
-import { buildWaistBand } from './seams'
-import { bakeStructureLines, updateBakedLine, type BakedLine } from './structureLines'
-import { computeStrain, strainColor } from './heatmap'
-import { useFittingSolver } from './useFittingSolver'
+import { useMannequin } from './useMannequin'
 import BodyProfileDrawer from './BodyProfileDrawer'
 
 type ThreeMod = typeof import('three')
 type OrbitControlsCtor = typeof import('three/examples/jsm/controls/OrbitControls.js').OrbitControls
 
-const STATION_LABEL: Record<string, string> = {
-  waist: '腰', hip: '臀', thigh: '大腿', knee: '膝',
-}
-
-// 裤子渲染开关：人台换轨验收期（2026-09-11）曾置 false 只显示人台，
-// VLM 八图验收通过当日改回 true 恢复全量渲染（布料四半片/腰头环带/
-// 结构线与热力图/透明度/重新试穿）。现行默认 true；裸台核验走 URL 参数
-// ?garment=0（截图/VLM 验收用，免改源重编），详见 §10.11。
-const RENDER_GARMENT: boolean =
-  typeof location === 'undefined' ||
-  new URLSearchParams(location.search).get('garment') !== '0'
-
-// 网格直显诊断模式（2026-09-12 160/64A 报障分层排查，与 ?garment=0 同机制）：
+// 网格直显诊断模式（2026-09-12 160/64A 报障分层排查）：
 // ?bodymesh=raw  = MakeHuman 原始 base.obj 零处理直显（A-pose 全身带头带臂）
 // ?bodymesh=base = base.bin 直显（vendor 加工后、运行时 morph/标定/对齐全跳过）
 // 两档与现行渲染三点对比，定位失真引入层（源数据 / vendor 脚本 / 运行时）。
@@ -65,12 +49,7 @@ interface SceneCtx {
 // 内容重建产物（显示控制 effect 直接取用，避免 traverse 误伤人台材质）
 interface ContentHandles {
   bodyMeshes: ThreeT.Mesh[]
-  clothMeshes: ThreeT.Mesh[]
-  clothMat: ThreeT.MeshStandardMaterial
-  heatMat: ThreeT.MeshStandardMaterial
-  lineMat: ThreeT.LineBasicMaterial
-  bandMat: ThreeT.MeshStandardMaterial
-  applyHeat: () => void     // 重算应变并写入 color attr（settled 后也能切）
+  bodyMat: ThreeT.MeshStandardMaterial
 }
 
 export default function Fitting3DView({
@@ -84,20 +63,15 @@ export default function Fitting3DView({
 }) {
   const mountRef = useRef<HTMLDivElement>(null)
   const ctxRef = useRef<SceneCtx | null>(null)
-  // 地面格网（场景一次创建；y 随人台 bottomY 落地——2026-09-10 第四轮
-  // 加脚后 GridHelper 从 y=0 挪到脚底，人不再悬空）
+  // 地面格网（场景一次创建；y 随人台 bottomY 落地）
   const gridRef = useRef<ThreeT.GridHelper | null>(null)
   const [threeMod, setThreeMod] = useState<
     { THREE: ThreeMod; OrbitControls: OrbitControlsCtor } | null>(null)
   const [store, setStore] = useState<StoreShape>(() => loadStore())
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [showHeatmap, setShowHeatmap] = useState(false)
   const [showBody, setShowBody] = useState(true)
-  // 布料默认不可见（用户口径 2026-09-11：进 3D 先看人台，拉滑杆再看布料效果）
-  const [opacity, setOpacity] = useState(0)
   const flyRaf = useRef(0)
   const handlesRef = useRef<ContentHandles | null>(null)
-  const heatRef = useRef(false)
   // 直显诊断：网格加载态 + 挂载物（卸载/重建时释放）
   const [rawLoading, setRawLoading] = useState(BODYMESH_MODE !== null)
   const rawMeshRef = useRef<ThreeT.Mesh | null>(null)
@@ -141,22 +115,20 @@ export default function Fitting3DView({
   }), [activeProfile.waist, activeProfile.hip, activeProfile.thigh, activeProfile.knee])
   useEffect(() => { saveStore(store) }, [store])
 
-  // ---- 围度喂入解算的 trailing debounce（200ms，2026-09-09 四轮） ----
-  // 人台固定后围度只在切体型/重估快照时变化；debounce 保留防连续操作
-  // 逐 tick 重建卡主线程，与 payload 的 800ms 重生成链路独立（拖动停顿
-  // 200ms 后才重建一次，warm-start 语义不变，仅降频）
+  // ---- 围度喂入构建的 trailing debounce（200ms）：防连续操作（切体型/
+  // 重估）逐 tick 重建卡主线程，拖动停顿 200ms 后才重建一次 ----
   const [girthsDebounced, setGirthsDebounced] = useState(girths)
   useEffect(() => {
     const t = window.setTimeout(() => setGirthsDebounced(girths), 200)
     return () => { window.clearTimeout(t) }
   }, [girths])
 
-  const solver = useFittingSolver(fitting?.data ?? null, girthsDebounced)
+  const man = useMannequin(fitting?.data.body ?? null, girthsDebounced)
 
-  // ---- 首挂载自动生成一次（进系统即有人台+裤子；此后全手动：改参数
-  // 走左栏，stale 由舞台 Tag + 生成按钮角标提示，不再 800ms 自动重算） ----
+  // ---- 首挂载自动生成一次（进系统即有人台；此后全手动：改参数走左栏，
+  // stale 由舞台 Tag + 生成按钮角标提示） ----
   useEffect(() => {
-    if (BODYMESH_MODE !== null) return   // 直显诊断：不触发 fitting/解算链
+    if (BODYMESH_MODE !== null) return   // 直显诊断：不触发 payload/构建链
     if (fitting === null && !fittingBusy) {
       onGenerateFitting()
     }
@@ -213,7 +185,7 @@ export default function Fitting3DView({
     return () => { ctxRef.current?.dispose() }
   }, [threeMod])
 
-  // ---- 直显诊断（?bodymesh=raw|base）：网格原样上屏，零处理不走 solver ----
+  // ---- 直显诊断（?bodymesh=raw|base）：网格原样上屏，零处理不走构建链 ----
   useEffect(() => {
     if (!threeMod || BODYMESH_MODE === null) return
     let alive = true
@@ -266,22 +238,20 @@ export default function Fitting3DView({
     }
   }, [threeMod])
 
-  // ---- 内容重建（每次解算对象更换：人台/布料/结构线/环带） ----
+  // ---- 内容重建（人台对象更换时：人台网格） ----
   useEffect(() => {
     const ctx = ctxRef.current
-    const { man, garment, sim, onFrame } = solver
-    if (!ctx || !threeMod || !man || !garment || !sim) return
+    const m = man.man
+    if (!ctx || !threeMod || !m) return
     const { THREE } = ctx
     const group = new THREE.Group()
-    // 地面格网随人台落地（脚底 = man.bottomY）
-    if (gridRef.current) gridRef.current.position.y = man.bottomY
+    // 地面格网随人台落地（脚底 = m.bottomY）
+    if (gridRef.current) gridRef.current.position.y = m.bottomY
 
     // 人台（真人网格：morph+对齐后 sourceMesh 直出 BufferGeometry，法线
     // 随绕向——vendor 侧有向体积 +37L = 外法向，Python 金标把守；仅体型/
-    // 围度变化时重建、非每帧）+ 腰头环带（挂腰口站点高度，宽随 payload）。
-    // 不透明 FrontSide + 深度写入；改 transparent 会透视体内布料与腰头
-    // 环带，须同步 .doc/python工程设计.md §10.11 评估。构建失败
-    // console.error 且 bodyMeshes=[] 降级（不炸 React 树，布料仍可解算）
+    // 围度/尺寸变化时重建）。不透明 FrontSide + 深度写入。构建失败
+    // console.error 且 bodyMeshes=[] 降级（不炸 React 树）
     const bodyMat = new THREE.MeshStandardMaterial({
       color: 0xd8c3b0, roughness: 0.85, metalness: 0.02,
     })
@@ -289,9 +259,9 @@ export default function Fitting3DView({
     try {
       const geo = new THREE.BufferGeometry()
       geo.setAttribute('position',
-        new THREE.Float32BufferAttribute(man.sourceMesh!.positions, 3))
+        new THREE.Float32BufferAttribute(m.sourceMesh.positions, 3))
       geo.setIndex(
-        new THREE.Uint32BufferAttribute(man.sourceMesh!.indices, 1))
+        new THREE.Uint32BufferAttribute(m.sourceMesh.indices, 1))
       geo.computeVertexNormals()
       const mesh = new THREE.Mesh(geo, bodyMat)
       bodyMeshes.push(mesh)
@@ -299,162 +269,27 @@ export default function Fitting3DView({
     } catch (e) {
       console.error('[fitting3d] 人台网格装配失败，降级为空', e)
     }
-    const yWaist = fitting?.data.body.stations.find((s) => s.key === 'waist')
-      ?.y ?? 90
-    const wb = buildWaistBand(
-      man, yWaist, fitting?.data.body.waistband_width ?? 4)
-    const wbGeo = new THREE.BufferGeometry()
-    wbGeo.setAttribute('position',
-      new THREE.Float32BufferAttribute(wb.positions, 3))
-    wbGeo.setIndex(new THREE.Uint32BufferAttribute(wb.indices, 1))
-    wbGeo.computeVertexNormals()
-    const bandMat = new THREE.MeshStandardMaterial({
-      color: 0x39435c, roughness: 0.7, side: THREE.DoubleSide,
-    })
-    if (RENDER_GARMENT) group.add(new THREE.Mesh(wbGeo, bandMat))
-
-    // 布料（四半片，粒子连续段 memcpy 到各自 position attr）
-    const clothMat = new THREE.MeshStandardMaterial({
-      color: 0x5b7ba8, roughness: 0.92, metalness: 0,
-      side: THREE.DoubleSide, transparent: opacity < 1, opacity,
-    })
-    const heatMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.92, metalness: 0,
-      side: THREE.DoubleSide, vertexColors: true,
-      transparent: opacity < 1, opacity,
-    })
-    const clothMeshes: ThreeT.Mesh[] = []
-    const posAttrs: ThreeT.BufferAttribute[] = []
-    const colAttrs: ThreeT.BufferAttribute[] = []
-    for (const part of garment.parts) {
-      if (!RENDER_GARMENT) break   // 裤子屏蔽：布料/结构线不建不挂
-      const n = part.mesh.xy.length / 2
-      const geo = new THREE.BufferGeometry()
-      const pa = new THREE.BufferAttribute(new Float32Array(3 * n), 3)
-      pa.array.set(sim.pos.subarray(3 * part.offset, 3 * (part.offset + n)))
-      pa.needsUpdate = true
-      geo.setAttribute('position', pa)
-      geo.setIndex(new THREE.Uint32BufferAttribute(part.mesh.tri, 1))
-      const ca = new THREE.BufferAttribute(new Float32Array(3 * n), 3)
-      ca.array.fill(1)
-      geo.setAttribute('color', ca)
-      geo.computeVertexNormals()
-      const mesh = new THREE.Mesh(geo, clothMat)
-      clothMeshes.push(mesh)
-      posAttrs.push(pa)
-      colAttrs.push(ca)
-      group.add(mesh)
-    }
-
-    // 结构线（marks 重采样 -> 重心绑定 -> LineSegments）
-    const lineMat = new THREE.LineBasicMaterial({ color: 0x16a085 })
-    const lines: { baked: BakedLine; attr: ThreeT.BufferAttribute
-      geo: ThreeT.BufferGeometry }[] = []
-    if (RENDER_GARMENT && fitting) {
-      const pieceOf = (key: string) =>
-        fitting.data.pieces.find((p) => p.key === key)
-      for (const part of garment.parts) {
-        const piece = pieceOf(
-          part.key === 'front' ? 'front_piece' : 'back_piece')
-        if (!piece) continue
-        for (const baked of bakeStructureLines(piece, part.mesh, part.offset)) {
-          const segCount = Math.max(0, baked.n - 1)
-          const attr = new THREE.BufferAttribute(
-            new Float32Array(segCount * 2 * 3), 3)
-          const geo = new THREE.BufferGeometry()
-          geo.setAttribute('position', attr)
-          group.add(new THREE.LineSegments(geo, lineMat))
-          lines.push({ baked, attr, geo })
-        }
-      }
-    }
     ctx.scene.add(group)
-    const applyHeat = () => {
-      if (!RENDER_GARMENT) return
-      const strain = computeStrain(garment, sim.pos)
-      for (let p = 0; p < garment.parts.length; p++) {
-        const part = garment.parts[p]
-        const n = part.mesh.xy.length / 2
-        const arr = colAttrs[p].array as Float32Array
-        for (let i = 0; i < n; i++) {
-          const [r, g, b] = strainColor(strain[part.offset + i])
-          arr[3 * i] = r; arr[3 * i + 1] = g; arr[3 * i + 2] = b
-        }
-        colAttrs[p].needsUpdate = true
-      }
-    }
-    handlesRef.current = { bodyMeshes, clothMeshes, clothMat, heatMat,
-      lineMat, bandMat, applyHeat }
+    handlesRef.current = { bodyMeshes, bodyMat }
     ctx.render()
 
-    // 每帧：粒子 -> 布料/结构线/热力图 + 渲染
-    const unregister = onFrame(() => {
-      if (RENDER_GARMENT) {
-        for (let p = 0; p < garment.parts.length; p++) {
-          const part = garment.parts[p]
-          const n = part.mesh.xy.length / 2
-          posAttrs[p].array.set(
-            sim.pos.subarray(3 * part.offset, 3 * (part.offset + n)))
-          posAttrs[p].needsUpdate = true
-          clothMeshes[p].geometry.computeVertexNormals()
-        }
-        for (const { baked, attr } of lines) {
-          updateBakedLine(baked, sim.pos)
-          const segCount = baked.n - 1
-          for (let s = 0; s < segCount; s++) {
-            for (let d = 0; d < 3; d++) {
-              attr.array[s * 6 + d] = baked.positions[s * 3 + d]
-              attr.array[s * 6 + 3 + d] = baked.positions[s * 3 + 3 + d]
-            }
-          }
-          attr.needsUpdate = true
-        }
-        if (heatRef.current) applyHeat()
-      }
-      ctx.render()
-    })
-
     return () => {
-      unregister()
       ctx.scene.remove(group)
-      for (const m of bodyMeshes) m.geometry.dispose()
-      wbGeo.dispose()
-      for (const m of clothMeshes) m.geometry.dispose()
-      for (const { geo } of lines) geo.dispose()
-      bodyMat.dispose(); bandMat.dispose()
-      clothMat.dispose(); heatMat.dispose(); lineMat.dispose()
+      for (const mesh of bodyMeshes) mesh.geometry.dispose()
+      bodyMat.dispose()
       handlesRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threeMod, solver.buildVersion])
+  }, [threeMod, man.buildVersion])
 
-  // ---- 显示控制同步（材质/可见性直接改，不重建场景） ----
-  useEffect(() => {
-    const ctx = ctxRef.current
-    const h = handlesRef.current
-    if (!ctx || !h) return
-    heatRef.current = showHeatmap
-    // 透明度统一驱动全部成衣可视物（布料/结构线/腰头环带），
-    // 0=完全隐藏（只看人台）；拉满时三者同步淡出，不残留悬浮线/环带
-    for (const mat of [h.clothMat, h.heatMat, h.lineMat, h.bandMat]) {
-      mat.opacity = opacity
-      mat.transparent = opacity < 1
-      mat.needsUpdate = true
-    }
-    for (const mesh of h.clothMeshes) {
-      mesh.material = showHeatmap ? h.heatMat : h.clothMat
-    }
-    if (showHeatmap) h.applyHeat()     // settled 后切换也能立即上色
-    ctx.render()
-  }, [opacity, showHeatmap, solver.buildVersion, threeMod])
-
+  // ---- 显示控制同步（可见性直接改，不重建场景） ----
   useEffect(() => {
     const ctx = ctxRef.current
     const h = handlesRef.current
     if (!ctx || !h) return
     for (const mesh of h.bodyMeshes) mesh.visible = showBody
     ctx.render()
-  }, [showBody, solver.buildVersion])
+  }, [showBody, man.buildVersion])
 
   // ---- 视角预设（球面插值 ~300ms；OrbitControls 随时可继续自由拖） ----
   const flyTo = (view: 'front' | 'side' | 'back' | 'iso') => {
@@ -491,19 +326,8 @@ export default function Fitting3DView({
     a.click()
   }
 
-  // ---- 松量读数（成衣围 − 体型围；负值标「紧身」） ----
-  const easeRows = (fitting?.data.body.stations ?? []).filter(
-    (s) => s.girth_finished != null && STATION_LABEL[s.key]
-      && girths[s.key as keyof BodyGirths] != null,
-  ).map((s) => {
-    const finished = s.girth_finished as number
-    const body = girths[s.key as keyof BodyGirths] as number
-    return { key: s.key, label: STATION_LABEL[s.key], finished, body,
-      ease: finished - body }
-  })
-
   const loading =
-    threeMod === null || solver.status === 'building' || rawLoading
+    threeMod === null || man.status === 'building' || rawLoading
 
   return (
     <div className="fitting3d">
@@ -519,30 +343,18 @@ export default function Fitting3DView({
         </div>
         {fittingStale && !loading && (
           <div className="fitting3d-stale">
-            <Tag color="orange">参数已修改，点左下「生成」刷新试穿</Tag>
-          </div>
-        )}
-        {showHeatmap && (
-          <div className="fitting3d-legend">
-            <span className="lg lg-tight" />紧绷
-            <span className="lg lg-fit" />贴合
-            <span className="lg lg-loose" />松弛
+            <Tag color="orange">参数已修改，点左下「生成」刷新人台</Tag>
           </div>
         )}
         {loading && (
           <div className="fitting3d-loading">
-            <Spin tip={threeMod === null ? '加载 3D 引擎…' : '构建试穿场景…'} />
+            <Spin tip={threeMod === null ? '加载 3D 引擎…' : '构建人台…'} />
           </div>
         )}
-        {RENDER_GARMENT && solver.status === 'frozen' && (
-          <div className="fitting3d-frozen">
-            仿真已暂停（数值发散），可点「重新试穿」
-          </div>
-        )}
-        {BODYMESH_MODE === null && solver.status === 'idle' &&
+        {BODYMESH_MODE === null && man.status === 'idle' &&
           fitting === null && !loading && (
           <div className="fitting3d-loading">
-            <Empty description="试穿数据未生成">
+            <Empty description="人台数据未生成">
               <Button size="small" type="primary" onClick={onGenerateFitting}>
                 重新生成
               </Button>
@@ -568,32 +380,8 @@ export default function Fitting3DView({
           </div>
         </div>
 
-        {easeRows.length > 0 && (
-          <div className="f3d-card">
-            <div className="f3d-card-title">松量读数（成衣 − 体型）</div>
-            {easeRows.map((r) => (
-              <div key={r.key} className="f3d-ease-row">
-                <span className="f3d-ease-label">{r.label}</span>
-                <span>{r.finished} / {r.body}</span>
-                <span className={r.ease < 0 ? 'f3d-ease tight'
-                  : r.ease < 2 ? 'f3d-ease snug' : 'f3d-ease'}>
-                  {r.ease >= 0 ? `+${r.ease.toFixed(1)}` : r.ease.toFixed(1)} cm
-                  {r.ease < 0 ? ' 紧身' : r.ease < 2 ? ' 偏紧' : ''}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
         <div className="f3d-card">
           <div className="f3d-card-title">显示</div>
-          {RENDER_GARMENT && (
-            <div className="f3d-row">
-              <span>应变热力图</span>
-              <Switch size="small" checked={showHeatmap}
-                onChange={setShowHeatmap} />
-            </div>
-          )}
           <div className="f3d-row">
             <span>显示人台</span>
             <Button size="small" type="text"
@@ -602,35 +390,13 @@ export default function Fitting3DView({
               {showBody ? '开' : '关'}
             </Button>
           </div>
-          {RENDER_GARMENT && (
-            <div className="f3d-row">
-              <span>布料透明度</span>
-              <Slider className="f3d-opacity" min={0} max={1} step={0.05}
-                value={opacity} onChange={(v) => setOpacity(v ?? 1)}
-                tooltip={{ formatter: (v) => `${Math.round((1 - (v ?? 1)) * 100)}%` }} />
-            </div>
-          )}
         </div>
 
         <div className="f3d-card f3d-actions">
-          {RENDER_GARMENT && (
-            <Button size="small" icon={<RedoOutlined />}
-              onClick={solver.restart}
-              disabled={solver.status === 'idle'}>
-              重新试穿
-            </Button>
-          )}
           <Button size="small" icon={<CameraOutlined />} onClick={screenshot}>
             截图 PNG
           </Button>
-          {RENDER_GARMENT && (
-            <span className="f3d-status">
-              {solver.status === 'running' ? '解算中…'
-                : solver.status === 'settled' ? '已稳定'
-                : solver.status === 'frozen' ? '已暂停' : ''}
-              {fittingBusy ? ' · 计算中' : ''}
-            </span>
-          )}
+          {fittingBusy && <span className="f3d-status">计算中</span>}
         </div>
       </div>
       <BodyProfileDrawer

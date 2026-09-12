@@ -95,7 +95,7 @@ function DraftApp() {
   const [paramTab, setParamTab] = useState<'core' | 'all'>('core')
 
   const generateTip = !dragging && d.fittingStale
-    ? '参数已修改，点击重新生成 3D 试穿' : null
+    ? '参数已修改，点击重新生成 3D 人台' : null
 
   return (
     <div className="app">
