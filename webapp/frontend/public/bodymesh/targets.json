@@ -6,19 +6,19 @@
   "origin": "sole-center",
   "front": "+z"
  },
- "baseSha256": "3d0acc10",
- "vertexCount": 4276,
- "triangleCount": 8548,
+ "baseSha256": "620dc7d1",
+ "vertexCount": 4311,
+ "triangleCount": 8618,
  "targets": [
   {
    "name": "waist+",
    "file": "measure-waist-circ-incr.target",
-   "count": 752
+   "count": 775
   },
   {
    "name": "waist-",
    "file": "measure-waist-circ-decr.target",
-   "count": 752
+   "count": 775
   },
   {
    "name": "hips+",
@@ -72,47 +72,66 @@
   }
  ],
  "landmarks": {
-  "sole": 1805,
-  "crotch": 512,
-  "waist": 160,
-  "hip": 408,
-  "knee": 2735,
-  "calf": 2867,
-  "ankle": 2952
+  "sole": 1817,
+  "crotch": 502,
+  "waist": 172,
+  "hip": 417,
+  "knee": 2758,
+  "calf": 2890,
+  "ankle": 2975
  },
  "landmarkHeights": {
   "sole": 0.0,
-  "crotch": 77.644,
-  "hip": 83.644,
-  "waist": 104.644,
-  "knee": 47.144,
+  "crotch": 78.644,
+  "hip": 84.644,
+  "waist": 105.644,
+  "knee": 48.144,
   "calf": 34.0,
   "ankle": 12.5
  },
  "cut": {
   "aboveWaistCm": 15.0,
-  "planeY": 119.64
+  "planeY": 120.64
+ },
+ "pose": {
+  "name": "standing",
+  "thetasDeg": {
+   "L": {
+    "t": -6.515,
+    "k": -2.792,
+    "ca": -9.307
+   },
+   "R": {
+    "t": 6.515,
+    "k": 2.792,
+    "ca": 9.307
+   }
+  },
+  "rigFiles": [
+   "rigs/default.mhskel",
+   "rigs/default_weights.mhw"
+  ]
  },
  "stations": [
   {
    "name": "waist",
    "per": "body",
-   "y": 104.644
+   "y": 105.644
   },
   {
    "name": "hips",
    "per": "body",
-   "y": 83.644
+   "y": 84.644
   },
   {
    "name": "thigh",
    "per": "leg",
-   "y": 74.644
+   "y": 75.644
   },
   {
    "name": "knee",
    "per": "leg",
-   "y": 47.144
+   "y": 48.144
   },
   {
    "name": "calf",
@@ -133,7 +152,9 @@
   "files": {
    "base.obj": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
    "LICENSE.ASSETS.md": "f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c",
-   "PROVENANCE.md": "acd9d80b8ead4d5c356a79e2d5071174c9947a2aa486b8b658040487720e36a7",
+   "PROVENANCE.md": "6f87c0df5c4db5e8f27c2ffd7dd07b0293fb95e5bfa7e36c8d640a8953d98ec0",
+   "default.mhskel": "99f179bce0aa850b45d4191a1d0d234c5851f881c057439470ded3bddf729a24",
+   "default_weights.mhw": "0f3641d651ae3d00ad6b4ccee43142edb109d3bd909d27d9e4139ef1beed8625",
    "caucasian-male-young.target": "70e228ba7164737dae664454394536fc5935fa48d333c1a97d77e2dc6eacc5f5",
    "universal-female-young-averagemuscle-averageweight.target": "4ba5396ddabda448ece15650a566fbebfbb10239256ccb201e8f883429e12249",
    "measure-ankle-circ-decr.target": "0abb3c55b334b8508addf583a626f775ac45fa95eff773131dbd7ff48bf6d95d",

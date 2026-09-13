@@ -69,7 +69,10 @@ export function loadBodyMesh(): Promise<BodyMeshAsset> {
 }
 
 async function doLoad(): Promise<BodyMeshAsset> {
-  const mj = await fetch('bodymesh/targets.json')
+  // targets.json 是缓存击穿链的头（baseSha256 在它里面）：裸 fetch 会被浏览器
+  // 启发式缓存钉死在旧指纹、指向旧 base.bin——vendor 重跑后整条链原地转圈
+  // （2026-09-13 实发）。no-cache = 每次带 ETag 再验证，正常 304 空响应。
+  const mj = await fetch('bodymesh/targets.json', { cache: 'no-cache' })
   if (!mj.ok) throw new Error(`targets.json 拉取失败 ${mj.status}`)
   const meta = await mj.json()
   const r = await fetch(`bodymesh/base.bin?v=${meta.baseSha256}`)

@@ -1,36 +1,42 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""MakeHuman CC0 数据 vendor（纯切割链，2026-09-13 定型）：base.obj →
-下半身人台 → webapp/frontend/public/bodymesh/{base.bin, targets.json}。
+"""MakeHuman CC0 数据 vendor（切割+站直姿势链，2026-09-13 定型）：base.obj →
+下半身站直人台 → webapp/frontend/public/bodymesh/{base.bin, targets.json}。
 
-口径（用户 2026-09-13 指令）：**只做切割，不做任何姿势/形态修改**。
-腿去外张 / 腿内收 / 四项解剖雕塑 / thigh·knee·hips 派生场 / 预标定
-影响矩阵全部退役——姿势手术会撕裂臀线（臀大肌解剖上罩着大腿后上段，
-「腿」与「臀」的交界带是共有区域，窗口化旋转/平移无法完全规避耦合，
-2026-09-12 四轮报障坐实，演进史 .doc/决策日志.md §十一）。形态调节
-一律由官方 12 个 measure target（腰/臀/大腿/膝/小腿/踝）在运行时叠加
-（与退役前端全身原生链 native.ts 同口径——原生场固有缺陷如 thigh 膝上
-死区原样呈现）。
+口径（用户 2026-09-13 拍板）：**站直姿势 = 官方 rigs 数据 + clean-room LBS**
+（default.mhskel 骨架 + default_weights.mhw 蒙皮权重，均 CC0 内嵌 license，
+只借数据零 AGPL 代码）。早间「零姿势修改」口径退役——其成立前提是自研
+姿势手术撕裂臀线（窗口化旋转/平移无法规避腿-臀交界耦合，2026-09-12 四轮
+报障坐实）；官方蒙皮权重是连续影响场，臀带由 upperleg01 权重自然携带，
+交界带光滑（探针实测：w=1 刚性偏差 0.006cm、混合带围长损失 ≤1.7cm、
+外缘包络零台阶）。逐关节角度：大腿绕髋 θ_t（髋→膝竖直化）、小腿绕移动后
+膝补 θ_k（净角 θ_c = 髋→踝竖直化）、脚绕移动后踝反补 −θ_c（脚底回水平）
+——髋/膝/踝三点落铅垂线。`--pose apose` 可退回 A-pose 原样切割（复现口径）。
+形态调节仍由官方 12 个 measure target 在运行时叠加（原生场固有缺陷如
+thigh 膝上死区原样呈现）。
 
 流程：解析 base.obj（只取 g body、dm→cm、+Z 前自检、脚底=0）→
 女性 macro 烘底（DEFAULT_FEMALE="" 恒等占位，保 --female-target 复现
-口径）→ 粗裁 0.73H + 最大连通域过滤（去臂/手；裁切面须低于腋窝褶
-~0.75H，否则臂-躯干连通无法过滤）→ 地标检测（姿势无关：裆 = 2环→1环
-拓扑合并、臀/腰 = 围度切片极值、膝/踝 = 右腿围度局部极小、小腿肚 =
-右腿围度局部极大）→ 精裁 腰+15cm → 封盖 → 紧凑化 → 水密/欧拉自检 →
-官方 12 场按裁切后索引重映射
-（.target 索引即 base.obj 原始顶点号，经 vmap→keep_map→remap 三级
-映射到紧凑切割网格；无姿势旋转 → 增量原样缩放 dm→cm）。
+口径）→ **站直姿势（官方 rigs 蒙皮 LBS，逐关节角度；切割前最后一个
+全网格操作）** → 粗裁 0.73H + 最大连通域过滤（去臂/手；裁切面须低于
+腋窝褶 ~0.75H，否则臂-躯干连通无法过滤）→ 地标检测（姿势无关：裆 =
+2环→1环拓扑合并、臀/腰 = 围度切片极值、膝/踝 = 右腿围度局部极小、
+小腿肚 = 右腿围度局部极大）→ 精裁 腰+15cm → 封盖 → 紧凑化 →
+水密/欧拉自检 → 官方 12 场按裁切后索引重映射（.target 索引即 base.obj
+原始顶点号，经 vmap→keep_map→remap 三级映射到紧凑切割网格；增量
+dm→cm 后按逐顶点累积角随帧旋转——官方场从绑定帧跟到站直帧）。
 
 base.bin 布局（little-endian）：
     <III> V F T；V×<3f> 顶点 cm（Y-up、脚底=0、+Z 前）；
     F×<3I> 三角 0-based；每 target：<I> n、n×<I> idx、3n×<f> d（cm）。
 targets.json：schema 2（无标定矩阵——闭环链已退役）：目标名/文件、
-地标顶点索引与高度、站点（body/leg 口径）、裁切面、内容指纹、溯源。
+地标顶点索引与高度、站点（body/leg 口径）、裁切面、姿势（名/角度/数据源）、
+内容指纹、溯源。
 
 数据来源（下载后不要改动，PROVENANCE.md 记哈希）：
     https://github.com/makehumancommunity/makehuman tag v1.3.0
-    base.obj ≈ 1.7MB；targets/measure/*.target 文本 `idx dx dy dz`（dm）。
+    base.obj ≈ 1.7MB；targets/measure/*.target 文本 `idx dx dy dz`（dm）；
+    rigs/{default.mhskel,default_weights.mhw} JSON（data/rigs/，v1.3.0）。
 """
 import argparse
 import hashlib
@@ -64,6 +70,127 @@ MEASURE_TARGETS = {
 DEFAULT_FEMALE = ""  # base.obj 本身 = universal female young average（实测 universal-female-* 为 0 增量 identity），无需女性 macro
 
 EPS = 1e-9
+
+
+# ---------------------------------------------------------------- 站直姿势（官方 rigs 蒙皮 clean-room LBS）
+
+_LEG_UPPER = ("upperleg01", "upperleg02")   # 大腿两段（髋枢轴，线性角 θ_t）
+_LEG_LOWER = ("lowerleg01", "lowerleg02")   # 小腿两段（膝上补角，净线性角 θ_c）
+_FOOT_PREFIX = "foot"                       # 脚 + toe*（踝反补 −θ_c，线性部分 = I）
+
+
+def load_rigs(src: Path):
+    """返回 (joints, weights)。mhskel joints：关节名→顶点索引组（引用 base.obj
+    **全量**顶点表——关节组顶点在 helper 几何组，不在 g body 组内，绝不能走
+    vmap 压缩表）；mhw weights：骨名→[[顶点索引, 权重]...]（同样全量索引，
+    约四成项挂 helper 顶点，消费侧按 vmap 过滤）。"""
+    skel = json.loads((src / "rigs" / "default.mhskel").read_text(encoding="utf-8"))
+    weights = json.loads((src / "rigs" / "default_weights.mhw").read_text(encoding="utf-8"))["weights"]
+    return skel["joints"], weights
+
+
+def pose_standing(verts, verts_dm, vmap, sole_raw, joints, weights, probe):
+    """A-pose → 站直（LBS，逐关节角度）。返回 (posed_verts, pose_angles,
+    thetas_deg, checks)。pose_angles：{base.obj 原始索引: 增量应旋转角} =
+    Σ w·(该骨线性角)——官方 measure 场增量随帧旋转用（方向旋转，平移无关）。
+
+    角度（每侧独立，符号由 atan2 自动定——探针同款公式，右腿为负/左腿为正）：
+      θ_t  = atan2(knee.x−hip.x,  knee.y−hip.y)  + π  大腿绕髋 → 大腿轴竖直
+      θ_ca = atan2(ank.x−knee.x,  ank.y−knee.y)  + π  小腿总转角（膝→踝竖直化）
+      θ_k  = θ_ca − θ_t                               小腿绕移动后膝的补角
+    臀无骨骼参与：臀带皮肤由 upperleg01 权重部分携带（「臀部控制着一部分
+    大腿」的蒙皮实现）。LBS 为旋转与恒等的凸组合，det 恒正、法线不翻。"""
+    def joint(name):
+        pts = [[verts_dm[i][0] * 10.0, verts_dm[i][1] * 10.0 - sole_raw, verts_dm[i][2] * 10.0]
+               for i in joints[name]]
+        return [sum(p[k] for p in pts) / len(pts) for k in range(3)]
+
+    def rot_z(p, piv, ang):
+        c, s = math.cos(ang), math.sin(ang)
+        dx, dy = p[0] - piv[0], p[1] - piv[1]
+        return [piv[0] + dx * c - dy * s, piv[1] + dx * s + dy * c, p[2]]
+
+    bone_xform: dict[str, tuple] = {}   # 骨名 -> (变换函数, 线性角)
+    thetas: dict[str, dict] = {}
+    checks: dict[str, dict] = {}
+
+    def _norm(a):
+        # atan2+π 落在 [0,2π)；L 侧外张使角度绕到 ~353°（≡−6.5°）。整周旋转对
+        # **位置**无损（周期性），但当**线性角**乘权重 w 后 353°×w ≠ −6.5°×w
+        # ——部分权重顶点（髋带 w≈0.5 → ~177°）的 measure 增量被翻转半个平面
+        # （hips+ 单侧内凹，2026-09-13 实发穿透全部守卫）。必须归一后再用。
+        return (a + math.pi) % (2.0 * math.pi) - math.pi
+
+    for S in "LR":
+        hip = joint(f"upperleg01.{S}____head")
+        knee = joint(f"lowerleg01.{S}____head")
+        ank = joint(f"foot.{S}____head")
+        t_t = _norm(math.atan2(knee[0] - hip[0], knee[1] - hip[1]) + math.pi)
+        t_ca = _norm(math.atan2(ank[0] - knee[0], ank[1] - knee[1]) + math.pi)
+        t_k = _norm(t_ca - t_t)
+        knee_m = rot_z(knee, hip, t_t)
+        ank_m = rot_z(rot_z(ank, hip, t_t), knee_m, t_k)   # 移动后踝（全链枢轴）
+
+        def m_upper(p, hip=hip, t=t_t):
+            return rot_z(p, hip, t)
+
+        def m_lower(p, hip=hip, knee_m=knee_m, t1=t_t, t2=t_k):
+            return rot_z(rot_z(p, hip, t1), knee_m, t2)
+
+        def m_foot(p, hip=hip, knee_m=knee_m, ank_m=ank_m, t1=t_t, t2=t_k, tc=t_ca):
+            return rot_z(m_lower(p, hip, knee_m, t1, t2), ank_m, -tc)
+
+        for nm in _LEG_UPPER:
+            bone_xform[f"{nm}.{S}"] = (m_upper, t_t)
+        for nm in _LEG_LOWER:
+            bone_xform[f"{nm}.{S}"] = (m_lower, t_ca)
+        for b in [f"{_FOOT_PREFIX}.{S}"] + [n for n in weights
+                                            if n.startswith("toe") and n.endswith(f".{S}")]:
+            bone_xform[b] = (m_foot, 0.0)
+        thetas[S] = {"t": t_t, "k": t_k, "ca": t_ca}
+        # 自检值：移动后膝/踝相对髋的 x 偏差（三点铅垂）
+        checks[S] = {"kneeDx": m_upper(knee)[0] - hip[0], "ankleDx": m_foot(ank)[0] - hip[0]}
+
+    # 逐顶点 LBS：p' = p + Σ w·(M_b(p) − p)（权重索引过 vmap，helper 项丢弃）
+    w_by_new: dict[int, list] = {}
+    pose_angles: dict[int, float] = {}
+    dropped = 0
+    for bone, (fn, lin) in bone_xform.items():
+        for entry in weights.get(bone, []):
+            i, w = int(entry[0]), float(entry[1])
+            j = vmap.get(i)
+            if j is None:
+                dropped += 1
+                continue
+            w_by_new.setdefault(j, []).append((w, fn))
+            pose_angles[i] = pose_angles.get(i, 0.0) + w * lin
+
+    out = [list(v) for v in verts]
+    for j, pairs in w_by_new.items():
+        p = verts[j]
+        q = list(p)
+        for w, fn in pairs:
+            m = fn(p)
+            q = [q[k] + w * (m[k] - p[k]) for k in range(3)]
+        out[j] = q
+
+    # 脚底重归一（姿势后 min y → 0，保帧契约）。脚链踝上反补后脚底平面回水平
+    # （线性部分恰为 I）；绑定脚底本有 0~0.4cm 自然坡（逐点分布姿势前后一致），
+    # 平整度用**左右脚最低点差**把关——脚底倾斜才会拉开，自然坡不会。
+    sole2 = min(v[1] for v in out)
+    out = [[v[0], v[1] - sole2, v[2]] for v in out]
+    feet = [v for v in out if v[1] < 8.0]
+    min_l = min(v[1] for v in feet if v[0] < 0.0)
+    min_r = min(v[1] for v in feet if v[0] > 0.0)
+
+    def _deg(a):  # 归一到 (−180,180]（atan2+π 天然落在 [0,360)）
+        return round((math.degrees(a) + 180.0) % 360.0 - 180.0, 3)
+    thetas_deg = {S: {k: _deg(v) for k, v in d.items()} for S, d in thetas.items()}
+    checks["soleLevel"] = round(abs(min_l - min_r), 3) if feet else None
+    checks["soleShift"] = round(sole2, 3)
+    probe["pose"] = {"thetasDeg": thetas_deg, "helperWeightDropped": dropped, "checks": checks}
+    return out, pose_angles, thetas_deg, checks
+
 
 
 # ---------------------------------------------------------------- 解析
@@ -439,11 +566,13 @@ def girth_at(verts, tris, y, leg_side=None):
 # ---------------------------------------------------------------- 主流程
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="MakeHuman CC0 数据 vendor（纯切割链：base.obj+targets → bodymesh 包）")
+    ap = argparse.ArgumentParser(description="MakeHuman CC0 数据 vendor（切割+站直姿势链：base.obj+rigs+targets → bodymesh 包）")
     ap.add_argument("--src", type=Path, default=_ROOT / "vendor" / "makehuman", help="原始数据目录")
     ap.add_argument("--out", type=Path, default=_ROOT / "webapp" / "frontend" / "public" / "bodymesh", help="产物目录")
     ap.add_argument("--cut-above-waist", type=float, default=15.0, help="精裁切面 = 腰上 N cm（裤顶=腰+13，默认 15 留 2cm 余量；上限受腋窝褶 ~0.75H 约束）")
     ap.add_argument("--female-target", default=DEFAULT_FEMALE, help="女性 macro target 文件名（默认恒等）")
+    ap.add_argument("--pose", choices=("standing", "apose"), default="standing",
+                    help="standing=官方 rigs 蒙皮 LBS 站直（默认）；apose=A-pose 原样（复现口径）")
     ap.add_argument("--probe", action="store_true", help="只出诊断不写产物")
     args = ap.parse_args(argv)
 
@@ -477,6 +606,36 @@ def main(argv=None) -> int:
     verts = apply_target(verts, female, 1.0)
     report["femaleMacro"] = {"name": args.female_target, "deltas": len(female), "dropped": len(female_raw) - len(female)}
 
+    # 2.5) 站直姿势（官方 rigs 蒙皮 clean-room LBS，逐关节角度；--pose apose 跳过）
+    pose_angles: dict[int, float] = {}
+    pose_meta: dict = {"name": args.pose}
+    if args.pose == "standing":
+        try:
+            joints, rig_weights = load_rigs(src)
+        except FileNotFoundError as e:
+            print(f"[ERR] --pose standing 需要 rigs 数据：{e.filename}（下载来源见脚本头注）", file=sys.stderr)
+            return 11
+        verts, pose_angles, thetas_deg, pose_checks = pose_standing(
+            verts, verts_dm, vmap, sole_raw, joints, rig_weights, probe)
+        pose_meta.update({"thetasDeg": thetas_deg,
+                          "rigFiles": ["rigs/default.mhskel", "rigs/default_weights.mhw"]})
+        for S in "LR":
+            if abs(pose_checks[S]["kneeDx"]) > 0.5 or abs(pose_checks[S]["ankleDx"]) > 0.5:
+                print(f"[ERR] 站直自检失败：{S} 膝/踝 x 偏差 {pose_checks[S]} > 0.5cm（三点不铅垂）", file=sys.stderr)
+                return 12
+            if not (4.0 <= abs(thetas_deg[S]["t"]) <= 12.0 and 4.0 <= abs(thetas_deg[S]["ca"]) <= 12.0):
+                print(f"[ERR] 站直自检失败：θ({S})={thetas_deg[S]} 超出 [4°,12°] 域", file=sys.stderr)
+                return 12
+        if pose_checks.get("soleLevel") is None or pose_checks["soleLevel"] > 0.1:
+            print(f"[ERR] 站直自检失败：左右脚最低点差 {pose_checks.get('soleLevel')}cm > 0.1（脚底倾斜）", file=sys.stderr)
+            return 12
+        # 线性角域守卫：pose_angles = Σw·θ 必为小幅角（|a| ≤ 2×max|θ_c| 即可；
+        # atan2+π 未归一的 ~353° 值乘权重会翻转增量方向——hips+ 单侧内凹实发）
+        a_max = max((abs(v) for v in pose_angles.values()), default=0.0)
+        if a_max > math.radians(25.0):
+            print(f"[ERR] 站直自检失败：pose_angles 最大 |a|={math.degrees(a_max):.1f}° > 25°（角度未归一？）", file=sys.stderr)
+            return 13
+
     # 3) 粗裁 0.73H + 最大连通域过滤（去臂/手；裁切面低于腋窝褶是前提——实测腋窝 ≈0.75H：
     #    0.74H 仍 3 连通域、0.76H 臂-躯干连通成 1 域无法过滤，0.73H 留 ~5cm 余量）
     rough = cut_below(verts, tris, 0.73 * height)
@@ -494,9 +653,11 @@ def main(argv=None) -> int:
     lm = detect_landmarks(sub_v, sub_t, probe)
     probe["landmarks"] = lm
 
-    # 5) 精裁 腰 + cut（自检 < 腋窝带）→ 再过滤 → 封盖 → 紧凑化
+    # 5) 精裁 腰 + cut（自检 < 粗裁面，留 0.5cm 余量——站直姿势把腰站抬 ~1cm
+    #    （裆下切向拖拽 + 脚底重归一，1cm 检测网格量化），原 1.0 防御余量不再
+    #    合身；功能约束 = 精裁面严格低于粗裁面，臂隔离即成立）→ 再过滤 → 封盖 → 紧凑化
     y_cut = lm["waist"] + args.cut_above_waist
-    if y_cut > 0.73 * height - 1.0:
+    if y_cut > 0.73 * height - 0.5:
         print(f"[ERR] 精裁面 {y_cut:.1f} 超过粗裁面 {0.73 * height:.1f}，臂未被隔离", file=sys.stderr)
         return 4
     cut_v, cut_t, keep_map, crossings = cut_below(verts, tris, y_cut)
@@ -537,7 +698,8 @@ def main(argv=None) -> int:
     probe["landmarkIdx"] = lm_idx
 
     # 7) 官方 12 场全部重映射（.target 索引 = base.obj 原始顶点号 → 紧凑切割网格；
-    #    无姿势旋转 → 增量仅 dm→cm ×10。被裁掉顶点的增量丢弃并计数）
+    #    增量 dm→cm ×10 后按逐顶点累积角 pose_angles 随帧旋转（upperleg*=θ_t、
+    #    lowerleg*=θ_c、脚骨 0）——官方场从绑定帧跟到站直帧。被裁掉顶点丢弃并计数）
     targets_out = []
     dropped_stats = {}
     for station, (incr, decr) in MEASURE_TARGETS.items():
@@ -550,7 +712,12 @@ def main(argv=None) -> int:
                 if j is None:
                     dropped += 1
                     continue
-                remapped[j] = (d[0] * 10.0, d[1] * 10.0, d[2] * 10.0)
+                dx, dy, dz = d[0] * 10.0, d[1] * 10.0, d[2] * 10.0
+                a = pose_angles.get(old_i, 0.0)
+                if a:
+                    c, s = math.cos(a), math.sin(a)
+                    dx, dy = dx * c - dy * s, dx * s + dy * c
+                remapped[j] = (dx, dy, dz)
             targets_out.append({"name": f"{station}{direction}", "file": fname, "deltas": remapped})
             dropped_stats[f"{station}{direction}"] = dropped
     probe["droppedTargetDeltas"] = dropped_stats
@@ -616,6 +783,7 @@ def main(argv=None) -> int:
         "landmarks": lm_idx,
         "landmarkHeights": {k: round(v, 3) for k, v in lm.items() if k != "height"},
         "cut": {"aboveWaistCm": args.cut_above_waist, "planeY": round(y_cut, 2)},
+        "pose": pose_meta,
         "stations": [{"name": s, "per": p, "y": round(station_y[s], 3)} for s, p in STATIONS],
         "provenance": {
             "repo": "makehumancommunity/makehuman",

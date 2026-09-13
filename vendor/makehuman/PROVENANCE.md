@@ -13,6 +13,8 @@
 |---|---|
 | `base.obj` | `8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c` |
 | `LICENSE.ASSETS.md` | `f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c` |
+| `rigs/default.mhskel` | `99f179bce0aa850b45d4191a1d0d234c5851f881c057439470ded3bddf729a24` |
+| `rigs/default_weights.mhw` | `0f3641d651ae3d00ad6b4ccee43142edb109d3bd909d27d9e4139ef1beed8625` |
 | `targets/macrodetails/caucasian-male-young.target` | `70e228ba7164737dae664454394536fc5935fa48d333c1a97d77e2dc6eacc5f5` |
 | `targets/macrodetails/universal-female-young-averagemuscle-averageweight.target` | `4ba5396ddabda448ece15650a566fbebfbb10239256ccb201e8f883429e12249` |
 | `targets/measure/measure-waist-circ-incr.target` | `4949212ec9a5e227b177a029ee42b0be3fd3b273a211bc91c6f4d4dbf0334856` |
@@ -29,13 +31,18 @@
 | `targets/measure/measure-ankle-circ-decr.target` | `0abb3c55b334b8508addf583a626f775ac45fa95eff773131dbd7ff48bf6d95d` |
 
 原文件在源仓库中的路径：`base.obj` → 顶点级基础网格导出；
-`targets/*` → `makehuman/data/targets/` 同名文件（v1.3.0 树）。
+`targets/*` → `makehuman/data/targets/` 同名文件（v1.3.0 树）；
+`rigs/*` → `makehuman/data/rigs/` 同名文件（骨架 `default.mhskel` 与蒙皮权重
+`default_weights.mhw`，JSON 内嵌 `license: "CC0"`——站直姿势 clean-room LBS 的
+数据源，权重顶点索引与 `base.obj` 全量顶点表严格对应；关节组顶点落在 helper
+几何组、约四成权重项挂在 body 组外顶点上，消费时按索引过滤）。
 
 ## 派生物
 
 `webapp/frontend/public/bodymesh/{base.bin, targets.json, LICENSE.ASSETS.md}`
-由 `python scripts/vendor_makehuman.py` 从本目录确定性派生（纯切割链：下半身
-裁切 + 去臂连通域、官方 12 场顶点索引重映射；口径权威
+由 `python scripts/vendor_makehuman.py` 从本目录确定性派生（切割+站直姿势链：
+官方 rigs 蒙皮 clean-room LBS 站直（大腿/小腿/脚逐关节角度）+ 下半身
+裁切 + 去臂连通域、官方 12 场顶点索引重映射与增量随帧旋转；口径权威
 `.doc/python工程设计.md` §10.11）。派生不改变许可（CC0）。
 
 ## 再生与校验

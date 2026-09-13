@@ -44,19 +44,21 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #    协议/回退阶梯/打包链详见 .doc/python工程设计.md §10.8）
 #   （前端已构建于 webapp/frontend/dist；改前端：cd webapp/frontend && npm run dev，
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
-#   3D 人台（2026-09-13 定型 = MakeHuman 下半身纯切割 target 滑杆试验场）：右栏 3D 主视图
+#   3D 人台（2026-09-13 定型 = MakeHuman 下半身切割+站直 target 滑杆试验场）：右栏 3D 主视图
 #   常驻（进系统即有人台），three 惰性分包；fitting3d/ = Fitting3DView + bodymesh/
-#   {bin,morph,types,slice}——loadBodyMesh 拉取 base.bin（vendor 纯切割链产物：A-pose
-#   零姿势修改、粗裁去臂、精裁腰+15、水密封盖；官方 12 measure 场〔腰/臀/大腿/膝/
-#   小腿/踝〕已按切割后索引重映射，targets.json 带 baseSha256 指纹缓存击穿 + vendor
-#   地标站），六部位双极滑杆（−1..+1）裸权重实时 morph（pos = base + Σwᵢ·Δᵢ）+ 站点围度
+#   {bin,morph,types,slice}——loadBodyMesh 拉取 base.bin（vendor 切割+站直姿势链产物：
+#   官方 rigs 骨架+蒙皮权重 clean-room LBS 站直〔大腿/小腿/脚逐关节角度，髋/膝/踝
+#   铅垂；--pose apose 退回 A-pose〕、粗裁去臂、精裁腰+15、水密封盖；官方 12 measure 场
+#   〔腰/臀/大腿/膝/小腿/踝〕已按切割后索引重映射+增量随帧旋转，targets.json 带
+#   baseSha256 指纹缓存击穿 + vendor 地标站），六部位双极滑杆（−1..+1）裸权重实时
+#   morph（pos = base + Σwᵢ·Δᵢ）+ 站点围度
 #   读数（站高 = vendor 地标检测值）；无围度闭环/对齐/钳位（试穿与自动调节链已
 #   退役，恢复 = 前端 revert 引擎零改动，演进史 .doc/决策日志.md §十一）；
 #   引擎侧 exporters/fitting.py build_fitting_payload + POST /api/draft/fitting 照旧
 #   闲置（无前端调用方）；人台数据 = vendor/makehuman/ CC0（PROVENANCE sha256，
 #   .gitattributes -text），运行时只消费 public/bodymesh/{base.bin,targets.json}
 #   两文件（raw.obj 全身链与 measure 拷贝已删，vendor 原件仍在 git 内）；
-#   Python 金标 test_vendor_bodymesh.py（水密/地标/场方向/外张守卫）+ 前端金标
+#   Python 金标 test_vendor_bodymesh.py（水密/地标/场方向/站直守卫）+ 前端金标
 #   cd webapp/frontend && npm test（bodymesh.test.ts 含真产物冒烟）；
 #   口径权威 .doc/python工程设计.md §10.11
 # LLM agent（agent/ 独立目录与 webapp/ 平级，2026-09-03 边界：ylpattern 纯引擎、
