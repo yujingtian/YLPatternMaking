@@ -1,14 +1,16 @@
-// bodymesh base.bin 链路最小金标（2026-09-13 下半身切割人台）：
+// bodymesh base.bin 链路最小金标（2026-09-13 下半身切割人台 + 身高 macro 场）：
 // parseBaseBin 布局契约（含尾部残留/索引越界防爆）+ morphPositions 稀疏
-// 叠加/恒等 + 真产物冒烟（public/bodymesh 现货 base.bin+targets.json）。
-// 布局与 scripts/vendor_makehuman.py 头注、tests/test_vendor_bodymesh.py
-// ::read_bin 三处同步；raw.obj 全身原生链（native.ts）同日退役，
-// 演进史见决策日志 §十一。
+// 叠加/恒等 + height.ts 预设换算纯函数 + 真产物冒烟（public/bodymesh 现货
+// base.bin+targets.json）。布局与 scripts/vendor_makehuman.py 头注、
+// tests/test_vendor_bodymesh.py ::read_bin 三处同步；raw.obj 全身原生链
+// （native.ts）同日退役，演进史见决策日志 §十一。
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { loadBodyMesh, parseBaseBin } from './bin'
 import { morphPositions } from './morph'
 import { readGirth } from './slice'
+import { heightCm, stationFactor, weightFor } from './height'
+import type { HeightInfo } from './height'
 import type { MeshTarget } from './types'
 
 const HERE = import.meta.dirname   // src/fitting3d/bodymesh
@@ -73,10 +75,22 @@ describe('bodymesh base.bin 链路', () => {
     const a = await loadBodyMeshFromDisk()
     expect(a.positions.length).toBeGreaterThan(3 * 4000)
     expect(a.targets.map((t) => t.name).sort()).toEqual(
-      ['ankle+', 'ankle-', 'calf+', 'calf-', 'hips+', 'hips-',
+      ['ankle+', 'ankle-', 'calf+', 'calf-', 'height+', 'height-', 'hips+', 'hips-',
         'knee+', 'knee-', 'thigh+', 'thigh-', 'waist+', 'waist-'])
     expect(Object.keys(a.stations).sort()).toEqual(
       ['ankle', 'calf', 'hips', 'knee', 'thigh', 'waist'])
+    // 身高场实测契约（预设换算基准）：基高域 + ΔH 双向 + 覆盖全网格
+    // （切缝/封盖合成顶点已按边端点插值补增量——顶环随身体同步升降）
+    const h = a.heightInfo
+    expect(h.baseCm).toBeGreaterThan(160)
+    expect(h.baseCm).toBeLessThan(180)
+    expect(h.plusCm).toBeGreaterThan(1)
+    expect(h.minusCm).toBeLessThan(-1)
+    for (const t of a.targets) {
+      if (t.name === 'height+' || t.name === 'height-') {
+        expect(t.idx.length).toBe(a.positions.length / 3)
+      }
+    }
     const g0 = a.stations.waist && readGirth(a.positions, a.indices, a.stations.waist.y, 'body')
     expect(g0).toBeGreaterThan(55)
     const pos1 = morphPositions(a, { 'waist+': 1 })
@@ -88,8 +102,57 @@ describe('bodymesh base.bin 链路', () => {
     const gc = a.stations.calf && readGirth(posc, a.indices, a.stations.calf.y, 'leg')
     expect(pc).toBeGreaterThan(25)
     expect(gc! - pc!).toBeGreaterThan(2)   // 官方 calf+ 自家站方向响应
+    // 身高场方向（切割网格）：height− 压低 / height+ 拉高 / 脚底锚地
+    const top0 = maxy(a.positions)
+    const posm = morphPositions(a, { 'height-': 1 })
+    expect(maxy(posm) - top0).toBeLessThan(-2)
+    expect(miny(posm)).toBeGreaterThan(-1)
+    const posp = morphPositions(a, { 'height+': 1 })
+    expect(maxy(posp) - top0).toBeGreaterThan(2)
+    expect(miny(posp)).toBeGreaterThan(-1)
   })
 })
+
+describe('height.ts 预设换算纯函数（测量驱动、约定无关）', () => {
+  // 2026-09-13 vendor 实测锚（meta.height）：base 167.36 / +72.02 / −36.69
+  const info: HeightInfo = { baseCm: 167.36, plusCm: 72.02, minusCm: -36.69 }
+
+  it('heightCm：w=0 恒等；正负两支独立（非反对称）', () => {
+    expect(heightCm(info, 0)).toBeCloseTo(167.36, 9)
+    expect(heightCm(info, 1)).toBeCloseTo(239.38, 1)
+    expect(heightCm(info, -1)).toBeCloseTo(130.67, 1)
+  })
+
+  it('weightFor ↔ heightCm 换算互逆；钳制进 [−1,1]', () => {
+    for (const cm of [155, 160, 165, 170, 150, 185, 162.3]) {
+      const w = weightFor(info, cm)
+      expect(w).toBeGreaterThanOrEqual(-1)
+      expect(w).toBeLessThanOrEqual(1)
+      expect(heightCm(info, w)).toBeCloseTo(cm, 6)
+    }
+    // 出域钳制（官方 macro 域 ±1 = 130.7~239.4cm）
+    expect(weightFor(info, 250)).toBe(1)
+    expect(weightFor(info, 100)).toBe(-1)
+  })
+
+  it('stationFactor：w=0 恒等 1；预设档因子（155→0.926 / 170→1.016）', () => {
+    expect(stationFactor(info, 0)).toBeCloseTo(1, 9)
+    expect(stationFactor(info, weightFor(info, 155))).toBeCloseTo(155 / 167.36, 4)
+    expect(stationFactor(info, weightFor(info, 170))).toBeCloseTo(170 / 167.36, 4)
+  })
+})
+
+function maxy(pos: Float32Array): number {
+  let m = -Infinity
+  for (let i = 1; i < pos.length; i += 3) m = Math.max(m, pos[i])
+  return m
+}
+
+function miny(pos: Float32Array): number {
+  let m = Infinity
+  for (let i = 1; i < pos.length; i += 3) m = Math.min(m, pos[i])
+  return m
+}
 
 // doLoad 走 fetch（浏览器）；冒烟从盘上等价读
 async function loadBodyMeshFromDisk() {
@@ -103,5 +166,10 @@ async function loadBodyMeshFromDisk() {
     targets: fields.map((f, k) => ({ ...f, name: meta.targets[k].name })),
     stations: stations as Awaited<ReturnType<typeof loadBodyMesh>>['stations'],
     height: meta.cut.planeY as number,
+    heightInfo: {
+      baseCm: meta.height.baseCm as number,
+      plusCm: meta.height.plusCmAtW1 as number,
+      minusCm: meta.height.minusCmAtW1 as number,
+    },
   }
 }

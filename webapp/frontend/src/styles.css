@@ -323,6 +323,8 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .f3d-slider .ant-slider { margin: 2px 0 8px; }
 .f3d-hint { font-size: 11px; color: #aaa; margin-top: 6px; }
+/* 预设体型芯片（身高快捷档） */
+.f3d-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* ---- 导出中心（勾选产物 -> 逐项串行下载） ---- */
 .ec-hint {

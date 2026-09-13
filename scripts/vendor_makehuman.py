@@ -12,30 +12,35 @@
 外缘包络零台阶）。逐关节角度：大腿绕髋 θ_t（髋→膝竖直化）、小腿绕移动后
 膝补 θ_k（净角 θ_c = 髋→踝竖直化）、脚绕移动后踝反补 −θ_c（脚底回水平）
 ——髋/膝/踝三点落铅垂线。`--pose apose` 可退回 A-pose 原样切割（复现口径）。
-形态调节仍由官方 12 个 measure target 在运行时叠加（原生场固有缺陷如
-thigh 膝上死区原样呈现）。
+形态调节由官方 12 个 measure target + 身高 macro ±（共 14 场）在运行时叠加
+（原生场固有缺陷如 thigh 膝上死区原样呈现；身高预设 = 按切割前实测 ΔH 换算
+权重，2026-09-13）。
 
 流程：解析 base.obj（只取 g body、dm→cm、+Z 前自检、脚底=0）→
 女性 macro 烘底（DEFAULT_FEMALE="" 恒等占位，保 --female-target 复现
 口径）→ **站直姿势（官方 rigs 蒙皮 LBS，逐关节角度；切割前最后一个
-全网格操作）** → 粗裁 0.73H + 最大连通域过滤（去臂/手；裁切面须低于
-腋窝褶 ~0.75H，否则臂-躯干连通无法过滤）→ 地标检测（姿势无关：裆 =
-2环→1环拓扑合并、臀/腰 = 围度切片极值、膝/踝 = 右腿围度局部极小、
-小腿肚 = 右腿围度局部极大）→ 精裁 腰+15cm → 封盖 → 紧凑化 →
-水密/欧拉自检 → 官方 12 场按裁切后索引重映射（.target 索引即 base.obj
-原始顶点号，经 vmap→keep_map→remap 三级映射到紧凑切割网格；增量
-dm→cm 后按逐顶点累积角随帧旋转——官方场从绑定帧跟到站直帧）。
+全网格操作）** → **身高场实测（切割前全身网格，w=±1 的 max y 响应与
+线性/脚底核验 → meta.height，预设体重量的换算基准）** → 粗裁 0.73H +
+最大连通域过滤（去臂/手；裁切面须低于腋窝褶 ~0.75H，否则臂-躯干连通
+无法过滤）→ 地标检测（姿势无关：裆 = 2环→1环拓扑合并、臀/腰 = 围度切片
+极值、膝/踝 = 右腿围度局部极小、小腿肚 = 右腿围度局部极大）→ 精裁
+腰+15cm → 封盖 → 紧凑化 → 水密/欧拉自检 → 官方 14 场按裁切后索引重映射
+（12 measure + 身高 macro ±；.target 索引即 base.obj 原始顶点号，经
+vmap→keep_map→remap 三级映射到紧凑切割网格；增量 dm→cm 后按逐顶点
+累积角随帧旋转——官方场从绑定帧跟到站直帧；切缝交点/封盖质心合成
+顶点按边端点插值/环均值补增量，防场跨切缝不连续撕顶缘）。
 
 base.bin 布局（little-endian）：
     <III> V F T；V×<3f> 顶点 cm（Y-up、脚底=0、+Z 前）；
     F×<3I> 三角 0-based；每 target：<I> n、n×<I> idx、3n×<f> d（cm）。
 targets.json：schema 2（无标定矩阵——闭环链已退役）：目标名/文件、
 地标顶点索引与高度、站点（body/leg 口径）、裁切面、姿势（名/角度/数据源）、
-内容指纹、溯源。
+身高实测（base/±cmAtW1）、内容指纹、溯源。
 
 数据来源（下载后不要改动，PROVENANCE.md 记哈希）：
     https://github.com/makehumancommunity/makehuman tag v1.3.0
     base.obj ≈ 1.7MB；targets/measure/*.target 文本 `idx dx dy dz`（dm）；
+    targets/macrodetails/height/female-young-averagemuscle-averageweight-{max,min}height.target；
     rigs/{default.mhskel,default_weights.mhw} JSON（data/rigs/，v1.3.0）。
 """
 import argparse
@@ -60,12 +65,19 @@ STATIONS = [
     ("ankle", "leg"),
 ]
 MEASURE_TARGETS = {
-    "waist": ("measure-waist-circ-incr.target", "measure-waist-circ-decr.target"),
-    "hips": ("measure-hips-circ-incr.target", "measure-hips-circ-decr.target"),
-    "thigh": ("measure-thigh-circ-incr.target", "measure-thigh-circ-decr.target"),
-    "knee": ("measure-knee-circ-incr.target", "measure-knee-circ-decr.target"),
-    "calf": ("measure-calf-circ-incr.target", "measure-calf-circ-decr.target"),
-    "ankle": ("measure-ankle-circ-incr.target", "measure-ankle-circ-decr.target"),
+    "waist": ("measure/measure-waist-circ-incr.target", "measure/measure-waist-circ-decr.target"),
+    "hips": ("measure/measure-hips-circ-incr.target", "measure/measure-hips-circ-decr.target"),
+    "thigh": ("measure/measure-thigh-circ-incr.target", "measure/measure-thigh-circ-decr.target"),
+    "knee": ("measure/measure-knee-circ-incr.target", "measure/measure-knee-circ-decr.target"),
+    "calf": ("measure/measure-calf-circ-incr.target", "measure/measure-calf-circ-decr.target"),
+    "ankle": ("measure/measure-ankle-circ-incr.target", "measure/measure-ankle-circ-decr.target"),
+}
+# 身高 macro（预设体型，2026-09-13）：整身拉长/压缩场。官方 macro 域极宽
+# （w=±1 实测 ΔH 约 +72/−37cm），预设权重一律按**切割前实测** ΔH 换算
+# （meta.height），不假设 MakeHuman macro 权重混合约定。
+HEIGHT_TARGETS = {
+    "height": ("macrodetails/height/female-young-averagemuscle-averageweight-maxheight.target",
+               "macrodetails/height/female-young-averagemuscle-averageweight-minheight.target"),
 }
 DEFAULT_FEMALE = ""  # base.obj 本身 = universal female young average（实测 universal-female-* 为 0 增量 identity），无需女性 macro
 
@@ -248,15 +260,60 @@ def apply_target(verts: list[list[float]], target: dict[int, tuple[float, float,
     return out
 
 
+def measure_height(verts, src, vmap, pose_angles, probe):
+    """身高场实测（切割前全身网格，头/脚顶点俱在）。返回 (H0, ΔH+, ΔH−)。
+
+    测量驱动、约定无关：不假设 MakeHuman macro 权重混合约定，w=±1 直接对
+    站直全身网格实测 max y 响应（增量 dm→cm、随 pose_angles 旋转——与步骤 7
+    重映射同式，保证测的就是前端将消费的那套增量）；另测 w=0.5 核验近线性
+    （max y 是顶点线性函数的逐点 max，凸分段线性、实测偏差应 <1cm）与脚底
+    漂移（官方以地面为基准，预期 ≈0）。"""
+    def apply_height_raw(relname, w):
+        raw = parse_target(src / "targets" / relname)
+        out = [list(v) for v in verts]
+        for i, d in raw.items():
+            j = vmap.get(i)
+            if j is None:
+                continue
+            dx, dy, dz = d[0] * 10.0, d[1] * 10.0, d[2] * 10.0
+            a = pose_angles.get(i, 0.0)
+            if a:
+                c, s = math.cos(a), math.sin(a)
+                dx, dy = dx * c - dy * s, dx * s + dy * c
+            out[j][0] += w * dx
+            out[j][1] += w * dy
+            out[j][2] += w * dz
+        return out
+
+    def top(v):
+        return max(p[1] for p in v)
+
+    h0 = top(verts)
+    res = {}
+    for tag, rel in (("plus", HEIGHT_TARGETS["height"][0]), ("minus", HEIGHT_TARGETS["height"][1])):
+        v1 = apply_height_raw(rel, 1.0)
+        v05 = apply_height_raw(rel, 0.5)
+        res[tag] = {
+            "cmAtW1": round(top(v1) - h0, 2),
+            "linearDevCm": round((top(v05) - h0) - 0.5 * (top(v1) - h0), 2),
+            "soleMinCm": round(min(p[1] for p in v1), 2),
+        }
+    probe["heightMeasure"] = {"baseCm": round(h0, 2), **res}
+    return h0, res["plus"]["cmAtW1"], res["minus"]["cmAtW1"]
+
+
 def cut_below(verts, tris, y_cut: float):
     """平面裁剪保留 y ≤ y_cut 部分。跨面三角形按边插值裁出下半多边形再三角化。
-    返回 (新顶点表[原顶点 + 交点], 新三角形, keep_map[原索引→新索引], cut_count)。"""
+    返回 (新顶点表[原顶点 + 交点], 新三角形, keep_map[原索引→新索引], cut_count,
+    ip_src[交点索引 → (低端点, 高端点, t)])——ip_src 供场重映射给切缝交点
+    按边端点插值增量（否则运行时场把交点下方顶点移走、切缝环原地不动）。"""
     n = len(verts)
     out_v = [list(v) for v in verts]
     keep = {i for i in range(n) if verts[i][1] <= y_cut}
     new_tris: list[tuple[int, int, int]] = []
     crossings = 0
     ip_cache: dict[tuple[int, int], int] = {}  # 无序边 → 交点索引（相邻三角形共享切缝顶点，否则边界环断裂、不水密）
+    ip_src: dict[int, tuple[int, int, float]] = {}
     def edge_ip(a: int, b: int) -> int:
         key = (a, b) if a < b else (b, a)
         if key in ip_cache:
@@ -269,6 +326,7 @@ def cut_below(verts, tris, y_cut: float):
             va[2] + t * (vb[2] - va[2]),
         ])
         ip_cache[key] = len(out_v) - 1
+        ip_src[ip_cache[key]] = (a, b, t)
         return ip_cache[key]
     for (a, b, c) in tris:
         above = [i for i in (a, b, c) if verts[i][1] > y_cut]
@@ -291,7 +349,7 @@ def cut_below(verts, tris, y_cut: float):
             for k in range(1, len(poly) - 1):
                 new_tris.append((poly[0], poly[k], poly[k + 1]))
     keep_map = {old: new for new, old in enumerate(range(n)) if old in keep}
-    return out_v, new_tris, keep_map, crossings
+    return out_v, new_tris, keep_map, crossings, ip_src
 
 
 def largest_component(tris):
@@ -348,18 +406,21 @@ def boundary_loops(tris):
 
 
 def cap_loops(verts, tris, loops):
-    """边界环质心扇形封盖。共享边反向规则：已有面含 a→b，盖面用 (b, a, c)。"""
+    """边界环质心扇形封盖。共享边反向规则：已有面含 a→b，盖面用 (b, a, c)。
+    返回 (verts, tris, cap_src[质心索引 → 环成员列表])——供场重映射取环均值。"""
     import statistics
+    cap_src: dict[int, list[int]] = {}
     for loop in loops:
         cx = statistics.fmean(verts[i][0] for i in loop)
         cy = statistics.fmean(verts[i][1] for i in loop)
         cz = statistics.fmean(verts[i][2] for i in loop)
         verts.append([cx, cy, cz])
         c = len(verts) - 1
+        cap_src[c] = list(loop)
         for k in range(len(loop)):
             a, b = loop[k], loop[(k + 1) % len(loop)]
             tris.append((b, a, c))
-    return verts, tris
+    return verts, tris, cap_src
 
 
 def compact(verts, tris):
@@ -636,10 +697,25 @@ def main(argv=None) -> int:
             print(f"[ERR] 站直自检失败：pose_angles 最大 |a|={math.degrees(a_max):.1f}° > 25°（角度未归一？）", file=sys.stderr)
             return 13
 
+    # 2.6) 身高场实测（切割前全身网格；预设体重量的换算基准写进 meta.height）
+    try:
+        h_base, h_plus, h_minus = measure_height(verts, src, vmap, pose_angles, probe)
+    except FileNotFoundError as e:
+        print(f"[ERR] 身高 macro 场缺席：{e.filename}（下载来源见脚本头注）", file=sys.stderr)
+        return 14
+    hm = probe["heightMeasure"]
+    if h_plus <= 1.0 or h_minus >= -1.0:
+        print(f"[ERR] 身高场实测异常 ΔH+={h_plus} ΔH−={h_minus}（场文件错？）", file=sys.stderr)
+        return 14
+    for tag in ("plus", "minus"):
+        if abs(hm[tag]["linearDevCm"]) > 1.0:
+            print(f"[WARN] 身高场 w=0.5 线性偏差 {hm[tag]['linearDevCm']}cm（{tag}）——预设换算按线性将略有偏差", file=sys.stderr)
+        if abs(hm[tag]["soleMinCm"]) > 2.0:
+            print(f"[WARN] 身高场 w=1 脚底漂移 {hm[tag]['soleMinCm']}cm（{tag}）——官方场应锚地面", file=sys.stderr)
+
     # 3) 粗裁 0.73H + 最大连通域过滤（去臂/手；裁切面低于腋窝褶是前提——实测腋窝 ≈0.75H：
     #    0.74H 仍 3 连通域、0.76H 臂-躯干连通成 1 域无法过滤，0.73H 留 ~5cm 余量）
-    rough = cut_below(verts, tris, 0.73 * height)
-    rough_v, rough_t = rough[0], rough[1]
+    rough_v, rough_t = cut_below(verts, tris, 0.73 * height)[:2]
     comp_t, comp_sizes = largest_component(rough_t)
     probe["componentsAfterRoughCut"] = comp_sizes
     if len(comp_sizes) != 3:
@@ -660,7 +736,7 @@ def main(argv=None) -> int:
     if y_cut > 0.73 * height - 0.5:
         print(f"[ERR] 精裁面 {y_cut:.1f} 超过粗裁面 {0.73 * height:.1f}，臂未被隔离", file=sys.stderr)
         return 4
-    cut_v, cut_t, keep_map, crossings = cut_below(verts, tris, y_cut)
+    cut_v, cut_t, keep_map, crossings, ip_src = cut_below(verts, tris, y_cut)
     comp_t, comp_sizes = largest_component(cut_t)
     probe["componentsAfterFinalCut"] = comp_sizes
     # 精裁面高于指尖(~0.54H)时小臂+手成对称孤岛是预期（largest_component 丢弃）——
@@ -673,8 +749,8 @@ def main(argv=None) -> int:
     if len(loops) != 1:
         print(f"[ERR] 边界环 {len(loops)} 个 ≠ 1", file=sys.stderr)
         return 6
-    cap_loops(cut_v, comp_t, loops)
-    tight_v, tight_t, remap = compact(cut_v, comp_t)
+    cap_v, cap_t, cap_src = cap_loops(cut_v, comp_t, loops)
+    tight_v, tight_t, remap = compact(cap_v, cap_t)
     ok, edges = check_watertight(tight_t)
     euler = len(tight_v) - edges + len(tight_t)
     probe["mesh"] = {"verts": len(tight_v), "tris": len(tight_t), "edges": edges, "watertight": ok, "euler": euler}
@@ -697,14 +773,24 @@ def main(argv=None) -> int:
         lm_idx[name] = nearest_vertex(tight_v, lm[name], side_axis=0 if side == "+" else None)
     probe["landmarkIdx"] = lm_idx
 
-    # 7) 官方 12 场全部重映射（.target 索引 = base.obj 原始顶点号 → 紧凑切割网格；
-    #    增量 dm→cm ×10 后按逐顶点累积角 pose_angles 随帧旋转（upperleg*=θ_t、
-    #    lowerleg*=θ_c、脚骨 0）——官方场从绑定帧跟到站直帧。被裁掉顶点丢弃并计数）
+    # 7) 官方 14 场全部重映射（12 measure + 身高 macro ±；.target 索引 = base.obj
+    #    原始顶点号 → 紧凑切割网格；增量 dm→cm ×10 后按逐顶点累积角 pose_angles
+    #    随帧旋转（upperleg*=θ_t、lowerleg*=θ_c、脚骨 0）——官方场从绑定帧跟到
+    #    站直帧。被裁掉顶点丢弃并计数。身高场同工序、无站点语义。
+    #    合成顶点补增量：切缝交点按切缝边两原始端点线性插值、封盖质心取环均值
+    #    ——不做这步，身高场把交点下方顶点整体压下/拉起而切缝环原地不动，
+    #    顶缘撕出数 cm 拉伸带（measure 场同缺陷，量级小未显形；2026-09-13 修）。
+    vmap_inv = {v: k for k, v in vmap.items()}
+    ip_src_tight = {remap[c]: (vmap_inv[a], vmap_inv[b], t)
+                    for c, (a, b, t) in ip_src.items() if c in remap}
+    cap_src_tight = {remap[c]: [remap[m] for m in loop if m in remap]
+                     for c, loop in cap_src.items() if c in remap}
+    probe["synthTargetVerts"] = {"cutSeam": len(ip_src_tight), "cap": len(cap_src_tight)}
     targets_out = []
     dropped_stats = {}
-    for station, (incr, decr) in MEASURE_TARGETS.items():
+    for station, (incr, decr) in {**MEASURE_TARGETS, **HEIGHT_TARGETS}.items():
         for direction, fname in (("+", incr), ("-", decr)):
-            raw = parse_target(src / "targets" / "measure" / fname)
+            raw = parse_target(src / "targets" / fname)
             remapped = {}
             dropped = 0
             for old_i, d in raw.items():
@@ -718,6 +804,25 @@ def main(argv=None) -> int:
                     c, s = math.cos(a), math.sin(a)
                     dx, dy = dx * c - dy * s, dx * s + dy * c
                 remapped[j] = (dx, dy, dz)
+            for j, (oa, ob, t) in ip_src_tight.items():
+                da, db = raw.get(oa), raw.get(ob)
+                if da is None and db is None:
+                    continue   # 两端都不在场影响域内（如踝场之于腰口）——合成顶点不动
+                if da is None:
+                    da = db   # 单端在场：退化取在场端（保守，误差 ≤ 场梯度×边长）
+                if db is None:
+                    db = da
+                dm = tuple(da[k] + t * (db[k] - da[k]) for k in range(3))
+                dx, dy, dz = dm[0] * 10.0, dm[1] * 10.0, dm[2] * 10.0
+                ang = pose_angles.get(oa, 0.0) + t * (pose_angles.get(ob, 0.0) - pose_angles.get(oa, 0.0))
+                if ang:
+                    c_, s_ = math.cos(ang), math.sin(ang)
+                    dx, dy = dx * c_ - dy * s_, dx * s_ + dy * c_
+                remapped[j] = (dx, dy, dz)
+            for j, members in cap_src_tight.items():
+                vals = [remapped[m] for m in members if m in remapped]
+                if vals:
+                    remapped[j] = tuple(sum(v[k] for v in vals) / len(vals) for k in range(3))
             targets_out.append({"name": f"{station}{direction}", "file": fname, "deltas": remapped})
             dropped_stats[f"{station}{direction}"] = dropped
     probe["droppedTargetDeltas"] = dropped_stats
@@ -784,6 +889,8 @@ def main(argv=None) -> int:
         "landmarkHeights": {k: round(v, 3) for k, v in lm.items() if k != "height"},
         "cut": {"aboveWaistCm": args.cut_above_waist, "planeY": round(y_cut, 2)},
         "pose": pose_meta,
+        # 身高场实测（预设体重的换算基准）：w 换算 target = base + (w≥0 ? w·plus : (−w)·minus)
+        "height": {"baseCm": round(h_base, 2), "plusCmAtW1": h_plus, "minusCmAtW1": h_minus},
         "stations": [{"name": s, "per": p, "y": round(station_y[s], 3)} for s, p in STATIONS],
         "provenance": {
             "repo": "makehumancommunity/makehuman",

@@ -1,22 +1,25 @@
 // base.bin 下半身资产（纯切割链 2026-09-13 定型）：scripts/vendor_makehuman.py
-// 产物，A-pose 零姿势修改、只切割（粗裁 0.73H 去臂 + 精裁腰+15 + 封盖水密）。
+// 产物，站直姿势 LBS + 切割（粗裁 0.73H 去臂 + 精裁腰+15 + 封盖水密）。
 // 布局（little-endian）：<III> V F T；V×<3f> 顶点 cm（Y-up、脚底=0、+Z 前）；
 // F×<3I> 三角 0-based；每场：<I> n、n×<I> idx、3n×<f> d（cm）。官方 12 个
-// measure 场（腰/臀/大腿/膝/小腿/踝）已按裁切后紧凑索引重映射
-// （vmap→keep_map→remap），增量即最终 cm 值。Python 金标
-// tests/test_vendor_bodymesh.py 同布局把守。
+// measure 场（腰/臀/大腿/膝/小腿/踝）+ 身高 macro ±（共 14 场）已按裁切后
+// 紧凑索引重映射（vmap→keep_map→remap；切缝/封盖合成顶点按边端点插值补增量），
+// 增量即最终 cm 值。Python 金标 tests/test_vendor_bodymesh.py 同布局把守。
 // targets.json（schema 2）附带：stations（vendor 地标检测值——比启发式站高
-// 准）与 baseSha256 内容指纹——base.bin 以 ?v=<sha8> 拉取，vendor 重跑后
-// 指纹必变即击穿浏览器缓存（2026-09-12「改了没变化」事故教训）。
+// 准）、height（身高场切割前实测，预设体重量的换算基准）与 baseSha256 内容
+// 指纹——base.bin 以 ?v=<sha8> 拉取，vendor 重跑后指纹必变即击穿浏览器缓存
+// （2026-09-12「改了没变化」事故教训）。
 import type { MeshTarget, TargetName } from './types'
+import type { HeightInfo } from './height'
 
 export interface BodyMeshAsset {
   positions: Float32Array   // cm，Y-up，脚底 y=0
   indices: Uint32Array      // 水密切割网格三角（0-based 紧凑索引）
-  targets: MeshTarget[]     // 12 个官方 measure 场（cm，索引已对齐本网格）
+  targets: MeshTarget[]     // 14 个官方场：12 measure + 身高 macro ±（cm，索引已对齐本网格）
   stations: Partial<Record<'waist' | 'hips' | 'thigh' | 'knee' | 'calf' | 'ankle',
     { y: number; per: 'body' | 'leg' }>>   // vendor 地标站（围度读数用）
   height: number            // 裁切面高（腰+15，取景定标）
+  heightInfo: HeightInfo    // 身高场实测（预设体重量的换算基准，height.ts）
 }
 
 export interface ParsedBin {
@@ -86,6 +89,14 @@ async function doLoad(): Promise<BodyMeshAsset> {
   }
   const names = meta.targets.map((t: { name: string }) => t.name)
   const targets: MeshTarget[] = fields.map((f, k) => ({ ...f, name: names[k] as TargetName }))
+  // 身高场实测（vendor 切割前全身网格 w=±1 响应）：预设体重的换算基准。
+  // 缺失即炸——bin/JSON 成对更新契约（height 链版本之前的旧产物不得静默可用）。
+  const mh = meta.height as
+    { baseCm: number; plusCmAtW1: number; minusCmAtW1: number } | undefined
+  if (!mh || [mh.baseCm, mh.plusCmAtW1, mh.minusCmAtW1].some((v) => typeof v !== 'number')) {
+    throw new Error('targets.json 缺 meta.height——vendor 产物未成对更新（重跑 scripts/vendor_makehuman.py）')
+  }
+  const heightInfo = { baseCm: mh.baseCm, plusCm: mh.plusCmAtW1, minusCm: mh.minusCmAtW1 }
   const stations: BodyMeshAsset['stations'] = {}
   const stationNames = ['waist', 'hips', 'thigh', 'knee', 'calf', 'ankle'] as const
   for (const s of meta.stations as { name: string; y: number; per: string }[]) {
@@ -93,5 +104,5 @@ async function doLoad(): Promise<BodyMeshAsset> {
       stations[s.name as (typeof stationNames)[number]] = { y: s.y, per: s.per as 'body' | 'leg' }
     }
   }
-  return { positions, indices, targets, stations, height: meta.cut.planeY }
+  return { positions, indices, targets, stations, height: meta.cut.planeY, heightInfo }
 }

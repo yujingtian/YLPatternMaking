@@ -16,6 +16,8 @@
 | `rigs/default.mhskel` | `99f179bce0aa850b45d4191a1d0d234c5851f881c057439470ded3bddf729a24` |
 | `rigs/default_weights.mhw` | `0f3641d651ae3d00ad6b4ccee43142edb109d3bd909d27d9e4139ef1beed8625` |
 | `targets/macrodetails/caucasian-male-young.target` | `70e228ba7164737dae664454394536fc5935fa48d333c1a97d77e2dc6eacc5f5` |
+| `targets/macrodetails/height/female-young-averagemuscle-averageweight-maxheight.target` | `3baacc70187410ebba2b62c56a53775266ab859b7844d47e658d36ee78493621` |
+| `targets/macrodetails/height/female-young-averagemuscle-averageweight-minheight.target` | `375857dff927f67da53786fc5ac0545c473f4959e3b326727b6b91f49ebdd2e3` |
 | `targets/macrodetails/universal-female-young-averagemuscle-averageweight.target` | `4ba5396ddabda448ece15650a566fbebfbb10239256ccb201e8f883429e12249` |
 | `targets/measure/measure-waist-circ-incr.target` | `4949212ec9a5e227b177a029ee42b0be3fd3b273a211bc91c6f4d4dbf0334856` |
 | `targets/measure/measure-waist-circ-decr.target` | `6a976bd7819fa037a290b381bb3e04dfd04220dddeac194c476472295d2baba8` |
@@ -31,7 +33,8 @@
 | `targets/measure/measure-ankle-circ-decr.target` | `0abb3c55b334b8508addf583a626f775ac45fa95eff773131dbd7ff48bf6d95d` |
 
 原文件在源仓库中的路径：`base.obj` → 顶点级基础网格导出；
-`targets/*` → `makehuman/data/targets/` 同名文件（v1.3.0 树）；
+`targets/**` → `makehuman/data/targets/` 同树同径（v1.3.0 树，子目录原样：
+`measure/` 围度场、`macrodetails/height/` 身高 macro 场）；
 `rigs/*` → `makehuman/data/rigs/` 同名文件（骨架 `default.mhskel` 与蒙皮权重
 `default_weights.mhw`，JSON 内嵌 `license: "CC0"`——站直姿势 clean-room LBS 的
 数据源，权重顶点索引与 `base.obj` 全量顶点表严格对应；关节组顶点落在 helper
@@ -42,7 +45,8 @@
 `webapp/frontend/public/bodymesh/{base.bin, targets.json, LICENSE.ASSETS.md}`
 由 `python scripts/vendor_makehuman.py` 从本目录确定性派生（切割+站直姿势链：
 官方 rigs 蒙皮 clean-room LBS 站直（大腿/小腿/脚逐关节角度）+ 下半身
-裁切 + 去臂连通域、官方 12 场顶点索引重映射与增量随帧旋转；口径权威
+裁切 + 去臂连通域、官方 14 场（12 measure + 身高 macro ±）顶点索引重映射
+与增量随帧旋转 + 切割前身高实测写 meta.height；口径权威
 `.doc/python工程设计.md` §10.11）。派生不改变许可（CC0）。
 
 ## 再生与校验

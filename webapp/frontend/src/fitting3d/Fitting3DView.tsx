@@ -1,11 +1,13 @@
 // 3D 人台视图：three 惰性分包加载（首屏零影响）；MakeHuman 官方 target
 // 滑杆试验场（2026-09-13 用户口径：**下半身**切割人台 + 用它的 targets 调节）。
-// 链路：loadBodyMesh（base.bin = 纯切割链产物：A-pose 零姿势修改、粗裁去臂、
-// 精裁腰+15、官方 12 场已按切割后索引重映射；targets.json 带 vendor 地标站）
-// → morphPositions(权重) → BufferGeometry 直显；六个部位滑杆双极（−1..+1，
-// 正推 site+ 场 / 负推 site− 场），拖动实时重 morph + 站点围度实时读数
-// （站高取 vendor 地标检测值，场会微移站高，极端权重下读数有轻微口径偏差，
-// 试验场可接受；原生场固有缺陷如 thigh 膝上死区属作者化行为，原样呈现）。
+// 链路：loadBodyMesh（base.bin = 切割+站直姿势链产物：粗裁去臂、精裁腰+15、
+// 官方 14 场 = 12 measure + 身高 macro ± 已按切割后索引重映射；targets.json
+// 带 vendor 地标站 + 身高实测）→ morphPositions(权重) → BufferGeometry 直显；
+// 六个部位滑杆双极（−1..+1，正推 site+ 场 / 负推 site− 场）+ 身高滑杆（cm 连续，
+// 预设芯片 155/160/165/170 快捷设值，weightFor 按**切割前实测 ΔH** 换算权重——
+// 测量驱动、不假设官方 macro 混合约定），拖动实时重 morph + 站点围度实时读数
+// （站高取 vendor 地标检测值 × 身高因子；场会微移站高，极端权重下读数有轻微
+// 口径偏差，试验场可接受；原生场固有缺陷如 thigh 膝上死区属作者化行为，原样呈现）。
 // 坐标口径：顶点 cm、Y-up、脚底 y=0（bin.ts 头注）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Empty, Slider, Spin } from 'antd'
@@ -19,6 +21,7 @@ import { loadBodyMesh } from './bodymesh/bin'
 import { readGirth } from './bodymesh/slice'
 import type { MeshWeights } from './bodymesh/morph'
 import { morphPositions } from './bodymesh/morph'
+import { heightCm, stationFactor, weightFor } from './bodymesh/height'
 
 type ThreeMod = typeof import('three')
 type OrbitControlsCtor = typeof import('three/examples/jsm/controls/OrbitControls.js').OrbitControls
@@ -34,6 +37,13 @@ const SITES: { key: Site; label: string }[] = [
   { key: 'ankle', label: '踝' },
 ]
 type Sliders = Record<Site, number>
+
+// 预设体型芯片（cm）：权重按 meta.height 实测 ΔH 换算（height.ts weightFor）
+const PRESET_CM = [155, 160, 165, 170] as const
+// 身高滑杆窗（cm）：官方 macro 域极宽（±1 实测跨 130.7~239.4cm，极端是卡通
+// 身高），滑杆钳在常人域 150~185 连续可调（可停任意身高如 162.3）；芯片值
+// 全部落在窗内，不受钳制影响
+const HEIGHT_SLIDER = { min: 150, max: 185, step: 0.1 }
 
 interface SceneCtx {
   THREE: ThreeMod
@@ -61,6 +71,8 @@ export default function Fitting3DView() {
   const [assetError, setAssetError] = useState<string | null>(null)
   const [sliders, setSliders] = useState<Sliders>(
     { waist: 0, hips: 0, thigh: 0, knee: 0, calf: 0, ankle: 0 })
+  // 身高场权重（−1..+1；与围度滑杆同构的双极权重，0 = 基础身高 ~167.4）
+  const [heightW, setHeightW] = useState(0)
   const [girths, setGirths] = useState<Record<Site, number | null>>(
     { waist: null, hips: null, thigh: null, knee: null, calf: null, ankle: null })
   const [showBody, setShowBody] = useState(true)
@@ -192,30 +204,35 @@ export default function Fitting3DView() {
     const mesh = meshRef.current
     const a = assetRef.current
     if (!ctx || !mesh || !a) return
-    // 双极值 -> 场权重：正推 site+、负推 site−（两场独立作者化，非反对称）
+    // 双极值 -> 场权重：正推 site+、负推 site−（两场独立作者化，非反对称）；
+    // 身高同构（height+/height- 全场，预设芯片只快捷设值不限制滑杆）
     const w: MeshWeights = {}
     for (const { key } of SITES) {
       const v = sliders[key]
       if (v > 0) w[`${key}+`] = v
       else if (v < 0) w[`${key}-`] = -v
     }
+    if (heightW > 0) w['height+'] = heightW
+    else if (heightW < 0) w['height-'] = -heightW
     const pos = morphPositions(a, w)
     const attr = mesh.geometry.getAttribute('position') as ThreeT.BufferAttribute
     ;(attr.array as Float32Array).set(pos)
     attr.needsUpdate = true
     mesh.geometry.computeVertexNormals()
     ctx.render()
+    // 站点围度：站高随身高因子缩放（身高场近似等比，比例近似口径）
+    const sf = stationFactor(a.heightInfo, heightW)
     const read: Record<Site, number | null> = {
       waist: null, hips: null, thigh: null, knee: null, calf: null, ankle: null }
     for (const { key } of SITES) {
       const st = stationOf.get(key)
       if (st) {
-        read[key] = readGirth(pos, a.indices, st.y, st.per)
+        read[key] = readGirth(pos, a.indices, st.y * sf, st.per)
       }
     }
     setGirths(read)
     // stationOf 随 asset 派生，asset 变化时本效应重跑取基线读数
-  }, [sliders, asset, stationOf])
+  }, [sliders, heightW, asset, stationOf])
 
   // ---- 显示开关（可见性直接改，不重建场景） ----
   useEffect(() => {
@@ -264,6 +281,10 @@ export default function Fitting3DView() {
 
   const loading = threeMod === null || (!asset && !assetError)
   const fmt = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`
+  // 当前身高（cm）：芯片高亮判据（换算回算精确，滑杆拖到同值同样命中）
+  const curHeightCm = asset ? heightCm(asset.heightInfo, heightW) : null
+  const presetActive = (cm: number) =>
+    curHeightCm !== null && Math.abs(curHeightCm - cm) < 0.05
 
   return (
     <div className="fitting3d">
@@ -290,6 +311,30 @@ export default function Fitting3DView() {
       </div>
       <div className="fitting3d-side">
         <div className="f3d-card">
+          <div className="f3d-card-title">预设体型</div>
+          <div className="f3d-presets">
+            {PRESET_CM.map((cm) => (
+              <Button key={cm} size="small"
+                type={presetActive(cm) ? 'primary' : 'default'}
+                disabled={!asset}
+                onClick={() =>
+                  setHeightW(weightFor(asset!.heightInfo, cm))}>
+                {cm}
+              </Button>
+            ))}
+            <Button size="small"
+              type={heightW === 0 ? 'primary' : 'default'}
+              disabled={!asset}
+              onClick={() => setHeightW(0)}>
+              默认
+            </Button>
+          </div>
+          <div className="f3d-hint">
+            芯片 = 快捷身高档（按实测 ΔH 换算权重）；身高连续可调见下方滑杆
+          </div>
+        </div>
+
+        <div className="f3d-card">
           <div className="f3d-card-title">
             形体滑杆（MakeHuman targets）
           </div>
@@ -312,14 +357,33 @@ export default function Fitting3DView() {
               />
             </div>
           ))}
+          <div className="f3d-slider">
+            <div className="f3d-slider-head">
+              <span>身高</span>
+              <span className="f3d-slider-val">
+                {curHeightCm !== null ? `${curHeightCm.toFixed(1)} cm` : ''}
+              </span>
+            </div>
+            <Slider
+              min={HEIGHT_SLIDER.min} max={HEIGHT_SLIDER.max}
+              step={HEIGHT_SLIDER.step}
+              value={curHeightCm ?? HEIGHT_SLIDER.min}
+              disabled={!asset}
+              onChange={(cm) =>
+                setHeightW(weightFor(asset!.heightInfo, cm))}
+            />
+          </div>
           <Button size="small" icon={<UndoOutlined />}
             disabled={!asset}
-            onClick={() => setSliders(
-              { waist: 0, hips: 0, thigh: 0, knee: 0, calf: 0, ankle: 0 })}>
+            onClick={() => {
+              setSliders(
+                { waist: 0, hips: 0, thigh: 0, knee: 0, calf: 0, ankle: 0 })
+              setHeightW(0)
+            }}>
             全部归零
           </Button>
           <div className="f3d-hint">
-            正/负 = 增/减场权重（w=1 为 MakeHuman 作者化上限）
+            正/负 = 增/减场权重（w=1 为 MakeHuman 作者化上限）；身高滑杆 cm 连续
           </div>
         </div>
 

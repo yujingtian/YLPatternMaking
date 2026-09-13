@@ -46,12 +46,15 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
 #   3D 人台（2026-09-13 定型 = MakeHuman 下半身切割+站直 target 滑杆试验场）：右栏 3D 主视图
 #   常驻（进系统即有人台），three 惰性分包；fitting3d/ = Fitting3DView + bodymesh/
-#   {bin,morph,types,slice}——loadBodyMesh 拉取 base.bin（vendor 切割+站直姿势链产物：
+#   {bin,morph,types,slice,height}——loadBodyMesh 拉取 base.bin（vendor 切割+站直姿势链产物：
 #   官方 rigs 骨架+蒙皮权重 clean-room LBS 站直〔大腿/小腿/脚逐关节角度，髋/膝/踝
-#   铅垂；--pose apose 退回 A-pose〕、粗裁去臂、精裁腰+15、水密封盖；官方 12 measure 场
-#   〔腰/臀/大腿/膝/小腿/踝〕已按切割后索引重映射+增量随帧旋转，targets.json 带
-#   baseSha256 指纹缓存击穿 + vendor 地标站），六部位双极滑杆（−1..+1）裸权重实时
-#   morph（pos = base + Σwᵢ·Δᵢ）+ 站点围度
+#   铅垂；--pose apose 退回 A-pose〕、粗裁去臂、精裁腰+15、水密封盖；官方 14 场 =
+#   12 measure〔腰/臀/大腿/膝/小腿/踝〕+ 身高 macro ±〔max/minheight，ΔH 切割前实测
+#   写 meta.height；切缝/封盖合成顶点按边端点插值补增量〕已按切割后索引重映射+
+#   增量随帧旋转，targets.json 带 baseSha256 指纹缓存击穿 + vendor 地标站），
+#   六部位双极滑杆（−1..+1）+ 预设体型芯片（155/160/165/170，weightFor 按 meta.height
+#   实测 ΔH 换算权重）+ 身高滑杆（cm 连续钳 150~185，可停任意身高）裸权重实时
+#   morph（pos = base + Σwᵢ·Δᵢ；围度站 y × 身高因子）+ 站点围度
 #   读数（站高 = vendor 地标检测值）；无围度闭环/对齐/钳位（试穿与自动调节链已
 #   退役，恢复 = 前端 revert 引擎零改动，演进史 .doc/决策日志.md §十一）；
 #   引擎侧 exporters/fitting.py build_fitting_payload + POST /api/draft/fitting 照旧
