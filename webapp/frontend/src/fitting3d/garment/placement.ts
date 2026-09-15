@@ -1,12 +1,12 @@
-// 人台支撑半径场 + 初始摆位（二期新写，替代旧 mannequin.ts 三管解析）。
-// R(y,θ) 表：对 morph 后网格逐水平行切片，取全部切片环在方向 θ 上的
-// 支撑距离（凸上界）——多环（两腿）与并集保守带自动取最大，与旧链
-// 「多管并集保守带」同口径；保证初始摆位不穿体、无腿间缝隙退化。
-// 摆位约定（沿用旧 seams.ts §10.11）：position = (r·sinθ, y, r·cosθ)，
-// θ=0 前中(+Z)、90°= wearer 右(+X)；as-drafted 片 = 左半，右半镜像
-// θ→−θ。y 先经 align.warp 从纸样高度映射到人台高度。
+// 支撑半径场 + 静态摆位（2026-09-15 重建一期：前片 L+R 一对）。
+// R(y,θ) 表：对网格逐水平行切片，取全部切片环在方向 θ 上的支撑距离
+// （凸上界）——多环（两腿）与并集保守带自动取最大；保证初始摆位不
+// 穿体、无腿间缝隙退化。重建一期场从撑型芯（core.ts）建，人台出圈。
+// 摆位约定：position = (r·sinθ, y, r·cosθ)，θ=0 前中(+Z)、90°=
+// wearer 右(+X)；as-drafted 前片 = 左半扇区 [−90°,0°]，右半镜像
+// θ→−θ。y = 纸样高（纸样系 identity，无 warp）。
 import { sliceLoops } from '../bodymesh/slice'
-import { FIELD_PRIOR, SOLVER_PRIOR } from './priors'
+import { FIELD_PRIOR, HANG_PRIOR } from './priors'
 
 export class BodyField {
   constructor(
@@ -78,52 +78,23 @@ export function buildBodyField(
   return new BodyField(table, rows, rowStep, thetaBins)
 }
 
-export type PieceKey = 'front' | 'back' | 'yoke' | 'pocket' | 'band'
+export type PieceKey = 'front'
 export type Side = 'L' | 'R'
 
-// band 行高映射：锚在腰站、按真实布高堆叠。warp 顶段外推 ~1.75×会把
-// 4cm 腰头映射成 ~7cm 高——band 是真实布片，行距=布长不吃 warp 拉伸；
-// 且钉到腰站上方的肋外扩区后，70.1 周长环 vs 更差的人台周长几何会逼出
-// 单侧屈曲翼（实测 band 顶行半径 22）。面板仍走 warp（站点对应）。
-export function bandWarp(
-  warp: (y: number) => number, y0: number,
-): (y: number) => number {
-  return (y) => warp(y0) + (y - y0)
-}
-
-// 单粒子摆位：纸样全局 2D (x,y) -> 3D。front/back 为 90° 扇区包裹
-// （旧 placePoint 原口径），yoke 沿用 back 扇区（机头本就是后片上段的
-// 裁片，cb→side 同向归一化；与 back 摆位差异由缝合约束动力学收敛），
-// band 为整圈（x∈[xMin,xMax] → θ 环绕一圈，起点 x=0 在后中 θ=180°，
-// 向左半圈推进——与 seams.ts 腰缝环序一致）。
-// pocket（前口袋袋贴，2026-09-15）走 front 扇区，但 t 必须用**前片**的
-// x 全程归一（全局系同域）：袋贴只占侧上角一小段 x，若按自身 bbox 归一
-// 会把它的窄条 x 拉伸铺满整个 90° 扇区（调用方传前片 xMin/xMax）。
-// back/yoke 的 x 朝向（2026-09-14 修）：后片 CB 在高 x、侧缝在低 x
-// （整版链序 waist 从 CB 角起算），L 半片须侧缝贴 −90°、CB 贴 180°——
-// 若按 t 正向映射（侧缝→180°、CB→270°）整片反包，cb 镜像对与侧缝对
-// 初始即差 30~35cm，闭合靠绕体/穿体拧转（用户截图的扭转错位根因），
-// 故 back/yoke 用 1−t 反向走扇区
+// 单顶点摆位：纸样全局 2D (x,y) -> 3D。front 为 90° 前扇区包裹（旧
+// placePoint 原口径）：t = (x−xMin)/(xMax−xMin) 归一，L 半片 θ 从
+// −90°（侧缝、wearer 左）线性推进到 0°（前中 +Z），R 半片镜像 θ→−θ。
+// 摆位半径 = 支撑场 + garmentGap（径向松量起步，口径见 priors）
 export function placePoint(
   key: PieceKey, side: Side, x: number, y: number,
-  xMin: number, xMax: number,
-  warp: (y: number) => number, field: BodyField,
+  xMin: number, xMax: number, field: BodyField,
 ): [number, number, number] {
+  void key   // 一期 PieceKey 仅 'front'，保留参数占位（后续重建加片用）
   const t = Math.max(0, Math.min(1, (x - xMin) / (xMax - xMin || 1)))
-  let th: number
-  if (key === 'front' || key === 'pocket') {
-    th = -Math.PI / 2 + (Math.PI / 2) * t
-  } else if (key === 'back' || key === 'yoke') {
-    th = Math.PI + (Math.PI / 2) * (1 - t)
-  } else {
-    th = Math.PI + 2 * Math.PI * t
-  }
-  if (side === 'R' && key !== 'band') th = -th
-  const yb = warp(y)
-  // 摆位半径 = 支撑场 + garmentGap（松量悬垂起步——贴皮起摆会让大量粒子
-  // 立即进入持续接触，接触噪声地板压过 settleSpeed 阈值，详见 priors）
-  const r = field.radiusAt(yb, th) + SOLVER_PRIOR.garmentGap
-  return [r * Math.sin(th), yb, r * Math.cos(th)]
+  let th = -Math.PI / 2 + (Math.PI / 2) * t
+  if (side === 'R') th = -th
+  const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
+  return [r * Math.sin(th), y, r * Math.cos(th)]
 }
 
 // 初始穿透统计（M0 验收）：粒子方向上的支撑半径 vs 当前径向距离，

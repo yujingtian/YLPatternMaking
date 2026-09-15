@@ -1,9 +1,10 @@
 // 裁片 -> 布料网格：payload 净边链（整版全局系 cm）弧长重采样成边界环
 // + 内部错排栅格点 + delaunator 三角化（质心在多边形外的三角形丢弃）。
-// 产出 PBD 所需的全部拓扑：距离约束（三角形全边）、弯曲约束（相邻
-// 三角形对点）、边界环元数据（边名/角色/边内弧长参数，缝合配对用）、
-// 2D 定位索引（结构线重心插值 / 参数热启动共用）。
-// 纯 2D：三维摆位见 seams.ts。
+// 产出裁片网格全套拓扑：三角形、距离约束（三角形全边）、弯曲约束
+// （相邻三角形对点）、边界环元数据（边名/角色/边内弧长参数）、2D 定位
+// 索引。约束/边界环字段为后续解算重建预留（2026-09-15 解算链已删，
+// 一期静态展示只消费 xy/tri）。
+// 纯 2D：三维摆位见 assemble.ts。
 import Delaunator from 'delaunator'
 import type { FittingEdge, FittingPiece } from '../../types'
 import { MESH_PRIOR } from './priors'
@@ -28,7 +29,7 @@ export interface ClothMesh {
   runs: EdgeRun[]              // 同名边聚合段（缝合/腰口 pin 用）
   dist: Float32Array           // M×3 平铺 [i, j, rest]
   bend: Float32Array           // K×3 平铺 [i, j, rest]
-  /** 覆盖 SOLVER_PRIOR.bendStiffness 的抗弯刚度（腰头硬挺用）；缺省全局值 */
+  /** 逐片抗弯刚度覆盖（解算链已删，约束字段为后续重建预留；缺省全局值） */
   bendK?: number
   /** 逐弯曲边刚度（丹宁裆/膝区域增硬用；与 bendK 同单位，优先级更高） */
   bendKArr?: Float32Array

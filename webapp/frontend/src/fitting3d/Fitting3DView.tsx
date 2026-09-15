@@ -9,13 +9,17 @@
 // （站高取 vendor 地标检测值 × 身高因子；场会微移站高，极端权重下读数有轻微
 // 口径偏差，试验场可接受；原生场固有缺陷如 thigh 膝上死区属作者化行为，原样呈现）。
 // 坐标口径：顶点 cm、Y-up、脚底 y=0（bin.ts 头注）。
-// 二期试穿链（2026-09-14 悬挂展示；同日晚解耦定型）：接收 fitting 快照
-// （useDraft.generateFitting），前后片+育克+直腰头布片缝合——解算在
-// **纸样系**进行（y=纸样高），碰撞体 = 纸样围度撑型芯（core.ts，
-// girth_finished 逐站取值 → 圆筒按构造成立、廓形=版型），**不消费人台
-// 几何**；显示层整体 X 偏移把整裤平移到人台旁侧悬挂（晾衣架观感；人台
-// 纯参照）。穿台显示口径与应变热力图退役（代码留档）。独立原则贯彻到
-// 解算：人台滑杆与裤子互不相干；合体度只经松量读数表达。
+// 衣片展示（2026-09-15 重建三期回落）：用户判定悬挂渲染下裁片形状
+// 异常，暂停撑型芯/扇区摆位/引力下垂整链（代码保留：core.ts /
+// buildFrontPair / drape.ts，形状验证通过后回归），先**平铺验证**——
+// 接收 fitting 快照（useDraft.generateFitting），全部裁片（前/后片、
+// 腰头、育克、袋贴）按纸样净样原形逐点等距变换行式平铺在人台旁侧
+// 地面上（garment/assemble.ts buildFlatLayout：成对片 L 原样 + R 前中
+// 镜像并排、腰头单片），逐片分色（garment/render.ts PIECE_COLORS +
+// 侧栏图例），与 2D 裁片 SVG 一比一对照，定位形状问题出在 payload
+// 边链/网格还是摆位/解算层；显示层 Group 平移到人台旁侧（人台纯
+// 参照）。payload schema v1 照旧（引擎零改动）。独立原则不变：
+// 人台滑杆与衣片互不相干。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Empty, Slider, Spin } from 'antd'
 import {
@@ -31,18 +35,9 @@ import type { MeshWeights } from './bodymesh/morph'
 import { morphPositions } from './bodymesh/morph'
 import { heightCm, stationFactor, weightFor } from './bodymesh/height'
 import type { FittingResult, Snapshot } from '../types'
-import { bodyLandmarksOf, buildWarp } from './garment/align'
-import { buildCore } from './garment/core'
-import { buildClothMesh } from './garment/mesh'
-import { buildBodyField } from './garment/placement'
-import { buildGarment, buildWaistRing } from './garment/seams'
-import type { Garment } from './garment/seams'
-import { HANG_PRIOR, SOLVER_PRIOR } from './garment/priors'
-import { easeRows, type EaseRow } from './garment/ease'
-import {
-  buildGarmentView, buildWaistRingMesh, type GarmentView,
-} from './garment/render'
-import { useGarment, type SolverStatus } from './garment/useGarment'
+import { buildFlatLayout } from './garment/assemble'
+import { FLAT_PRIOR } from './garment/priors'
+import { buildGarmentView, pieceColor, type GarmentView } from './garment/render'
 
 type ThreeMod = typeof import('three')
 type OrbitControlsCtor = typeof import('three/examples/jsm/controls/OrbitControls.js').OrbitControls
@@ -61,22 +56,19 @@ type Sliders = Record<Site, number>
 
 // 预设体型芯片（cm）：权重按 meta.height 实测 ΔH 换算（height.ts weightFor）
 const PRESET_CM = [155, 160, 165, 170] as const
-// 松量读数站名（payload FittingStationKey；crotch 分叉站不出现）
-const EASE_LABEL: Record<string, string> = {
-  waist: '腰', hip: '臀', thigh: '大腿', knee: '膝', hem: '脚口',
-}
-// 解算状态角标（悬挂：build→成形动画→settled，约 4~5s）
-const SOLVER_LABEL: Record<SolverStatus, string> = {
-  idle: '未悬挂',
-  building: '构建整裤…',
-  running: '悬挂成形…',
-  settled: '已悬挂',
-  frozen: '已暂停（发散兜底）',
-}
 // 身高滑杆窗（cm）：官方 macro 域极宽（±1 实测跨 130.7~239.4cm，极端是卡通
 // 身高），滑杆钳在常人域 150~185 连续可调（可停任意身高如 162.3）；芯片值
 // 全部落在窗内，不受钳制影响
 const HEIGHT_SLIDER = { min: 150, max: 185, step: 0.1 }
+
+// 平铺图例中文名（片 key -> 中文；色板在 garment/render.ts PIECE_COLORS）
+const CN_PIECE_NAMES: Record<string, string> = {
+  front_piece: '前片',
+  back_piece: '后片',
+  waistband: '腰头',
+  back_yoke: '后育克',
+  front_facing: '袋贴',
+}
 
 interface SceneCtx {
   THREE: ThreeMod
@@ -105,10 +97,9 @@ export default function Fitting3DView({
   const meshRef = useRef<ThreeT.Mesh | null>(null)
   const assetRef = useRef<BodyMeshAsset | null>(null)
   const garmentViewRef = useRef<GarmentView | null>(null)
-  const ringMeshRef = useRef<ThreeT.Mesh | null>(null)
   const [garmentError, setGarmentError] = useState<string | null>(null)
-  // 弯腰头回退提示（bandFallback 非空 = 视觉环带、无真实布片缝合）
-  const [curvedBand, setCurvedBand] = useState(false)
+  // 平铺图例片 key（payload 片序，随 fitting 快照更新；颜色查 render 层色板）
+  const [flatKeys, setFlatKeys] = useState<string[]>([])
   const autoTried = useRef(false)
   // 取景基准（mesh 身高 cm；初始机位/视角预设全由它定标，加载前 0）
   const heightRef = useRef(0)
@@ -124,14 +115,10 @@ export default function Fitting3DView({
   const [girths, setGirths] = useState<Record<Site, number | null>>(
     { waist: null, hips: null, thigh: null, knee: null, calf: null, ankle: null })
   // ---- M2/M3 状态 ----
-  // 人台显示三态：0 实体 / 1 半透明（看裤子内侧）/ 2 隐藏
+  // 人台显示三态：0 实体 / 1 半透明（看衣片内侧）/ 2 隐藏
   const [bodyView, setBodyView] = useState<0 | 1 | 2>(0)
-  // 松量读数（settled 时算一次；null=未算）
-  const [easeData, setEaseData] = useState<EaseRow[] | null>(null)
-  const garmentRef = useRef<Garment | null>(null)
-  const warpRef = useRef<((y: number) => number) | null>(null)
-  const lastPosRef = useRef<Float32Array | null>(null)
-  // 悬挂偏移（显示层）：裤筒 Group 平移到人台 +X 侧；相机取景按半偏移
+  // 旁挂组中心 X（显示层）：前片平铺 Group 的水平中心（组原点在 L 片
+  // 左缘，中心 = 组 x + 半宽）；相机取景按「人台 0 ↔ 组中心」的中点
   // 居中双主体。camShift 记上次平移量（幂等，防效应重跑叠加）
   const hangXRef = useRef(0)
   const camShiftRef = useRef(0)
@@ -306,68 +293,46 @@ export default function Fitting3DView({
     ctx.render()
   }, [bodyView, asset])
 
-  // ---- 衣服静态上屏（M0）：payload -> 撑型芯场 -> 初始摆位 ----
-  // 依赖 [fitting, asset]：asset 只为松量读数的人台侧 warp（解算本体在
-  // 纸样系、不消费人台几何——2026-09-14 解耦）。悬挂口径：初始摆位是
-  // 裙形（缝未闭），visible=false 只藏静态裙形；首帧起播放成形动画
-  // （解算逐帧流回），终态 = 圆筒悬挂。
+  // ---- 裁片上屏（重建三期回落：全裁片平铺验证）----
+  // payload -> 逐片网格 -> 全裁片行式平铺在人台旁侧地面、按片分色
+  // （与 2D 裁片 SVG 一比一，定位形状问题出在哪层）。依赖
+  // [fitting, asset]：消费 payload 全部片（引擎零改动）；asset 守卫
+  // 相机取景时序（人台先落位再让位）。悬挂链（撑型芯 + 扇区摆位 +
+  // 引力下垂）暂停接线，代码保留待验证后回归。
   useEffect(() => {
     const ctx = ctxRef.current
-    const mesh = meshRef.current
     const a = assetRef.current
-    if (!ctx || !mesh || !a || !fitting) return
+    if (!ctx || !a || !fitting) return
     const scene = ctx.scene   // 闭包捕获：卸载时更早声明的效应已清 ctxRef
     let gv: GarmentView | null = null
-    let ring: ThreeT.Mesh | null = null
     try {
       const data = fitting.data
-      const front = data.pieces.find((p) => p.key === 'front_piece')
-      const back = data.pieces.find((p) => p.key === 'back_piece')
-      if (!front || !back) throw new Error('fitting payload 缺前/后片')
-      const yoke = data.pieces.find((p) => p.key === 'back_yoke')
-      const pocket = data.pieces.find((p) => p.key === 'front_facing')
-      const meshes = {
-        front: buildClothMesh(front),
-        back: buildClothMesh(back),
-        ...(yoke ? { yoke: buildClothMesh(yoke) } : {}),
-        ...(pocket ? { pocket: buildClothMesh(pocket) } : {}),
+      if (data.pieces.length === 0) throw new Error('fitting payload 缺裁片')
+      const garment = buildFlatLayout(data)
+      setFlatKeys(data.pieces.map((p) => p.key))
+      const view = buildGarmentView(ctx.THREE, garment)
+      gv = view
+      // 旁挂：平铺组左缘 = 人台水平半宽 + 净空（基础网格量一次，morph
+      // 增量由 clearance 兜底）；组中心驱动取景让位
+      let bodyHalfW = 0
+      for (let i = 0; i < a.positions.length; i += 3) {
+        const ax = Math.abs(a.positions[i])
+        if (ax > bodyHalfW) bodyHalfW = ax
       }
-      // warp 仅服务松量读数的人台侧切片（身高/体型站高映射）
-      const warp = buildWarp(data.body.stations, bodyLandmarksOf(a))
-      const core = buildCore(data)
-      const field = buildBodyField(core.positions, core.indices)
-      const identity = (y: number): number => y
-      const garment = buildGarment(meshes, data, identity, field)
-      garmentRef.current = garment
-      warpRef.current = warp
-      setEaseData(null)
-      gv = buildGarmentView(ctx.THREE, garment)
-      // 悬挂偏移：裤筒整体平移到人台 +X 侧（显示层；worker 几何空间
-      // 不变）。净空 = 偏移 − 人台 maxR − 裤筒半径(maxR+gap) = clearance；
-      // 整裤抬 hemLift 让裤口离地（hem 站 y=0 恰落地会与地面格网共面打架）
-      const offsetX = 2 * field.maxRadius + SOLVER_PRIOR.garmentGap
-        + HANG_PRIOR.clearance
-      hangXRef.current = offsetX
-      gv.group.position.x = offsetX
-      gv.group.position.y = HANG_PRIOR.hemLift
-      gv.group.visible = false   // 初始摆位是裙形（缝未闭合），藏到松弛单帧
-      scene.add(gv.group)
-      garmentViewRef.current = gv
-      if (garment.bandFallback) {
-        // 视觉环带沿钉住的腰口弧逐点成环（贴合裤身顶口，不再平环悬空）
-        const rb = buildWaistRing(garment)
-        ring = buildWaistRingMesh(ctx.THREE, rb)
-        ring.position.x = offsetX
-        ring.position.y = HANG_PRIOR.hemLift
-        ring.visible = false
-        scene.add(ring)
+      let flatW = 0
+      for (let i = 0; i < garment.pos.length; i += 3) {
+        if (garment.pos[i] > flatW) flatW = garment.pos[i]
       }
-      ringMeshRef.current = ring
-      setCurvedBand(!!garment.bandFallback)
+      const offsetX = bodyHalfW + FLAT_PRIOR.clearance
+      view.group.position.x = offsetX
+      view.group.position.y = FLAT_PRIOR.lift
+      scene.add(view.group)
+      garmentViewRef.current = view
       setGarmentError(null)
+      hangXRef.current = offsetX + flatW / 2
       // 取景让位（幂等：按与上次中心的差量平移，保留用户自由视角）：
-      // 双主体（人台+裤子）中点为 offset/2
-      const half = offsetX / 2
+      // 双主体（人台+平铺组）中点 = 组中心/2
+      const half = hangXRef.current / 2
       const d = half - camShiftRef.current
       if (Math.abs(d) > 1e-6) {
         ctx.camera.position.x += d
@@ -377,21 +342,12 @@ export default function Fitting3DView({
       }
       ctx.render()
     } catch (e) {
-      console.error('[fitting3d] 衣服构建失败', e)
+      console.error('[fitting3d] 前片构建失败', e)
       setGarmentError(e instanceof Error ? e.message : String(e))
     }
     return () => {
       if (gv) { scene.remove(gv.group); gv.dispose() }
-      if (ring) {
-        scene.remove(ring)
-        ring.geometry.dispose()
-        ;(ring.material as ThreeT.MeshStandardMaterial).dispose()
-      }
       garmentViewRef.current = null
-      garmentRef.current = null
-      warpRef.current = null
-      ringMeshRef.current = null
-      setCurvedBand(false)
     }
   }, [fitting, asset])
 
@@ -404,38 +360,8 @@ export default function Fitting3DView({
     }
   }, [fitting, fittingBusy, onGenerateFitting])
 
-  // ---- M1 解算链：sim worker（纸样系撑型芯）帧直写 garment mesh ----
-  // init 只带 payload（2026-09-14 解耦：人台几何不出现在解算里）
-  const sim = useGarment(fitting)
-  useEffect(() => sim.onFrame((pos) => {
-    lastPosRef.current = pos
-    const gv = garmentViewRef.current
-    if (gv) {
-      gv.update(pos)
-      gv.group.visible = true   // 首帧揭幕，此后成形动画逐帧直写
-    }
-    const ring = ringMeshRef.current
-    if (ring) ring.visible = true
-    ctxRef.current?.render()
-  }), [sim.onFrame])
-
-  // ---- 松量读数（M2）：settled（悬挂单帧）时切片一次 ----
-  // 整裤侧在纸样系 st.y 切；人台侧经 warp 在人台高度切（纯显示参照）
-  useEffect(() => {
-    if (sim.status !== 'settled') return
-    const garment = garmentRef.current
-    const pos = lastPosRef.current
-    const warp = warpRef.current
-    const mesh = meshRef.current
-    const a = assetRef.current
-    if (!garment || !pos || !warp || !mesh || !a || !fitting) return
-    const attr = mesh.geometry.getAttribute('position') as ThreeT.BufferAttribute
-    setEaseData(easeRows(garment, pos, fitting.data.body.stations, warp,
-      attr.array as Float32Array, a.indices))
-  }, [sim.status])
-
   // ---- 视角预设（球面插值 ~300ms；OrbitControls 随时可继续自由拖） ----
-  // 机位 x 以悬挂偏移半量居中（人台+裤子双主体）
+  // 机位 x 以双主体中点居中（人台 0 ↔ 平铺组中心 hangXRef）
   const flyTo = (view: 'front' | 'side' | 'back' | 'iso') => {
     const ctx = ctxRef.current
     if (!ctx || heightRef.current <= 0) return
@@ -504,82 +430,37 @@ export default function Fitting3DView({
       </div>
       <div className="fitting3d-side">
         <div className="f3d-card">
-          <div className="f3d-card-title">悬挂</div>
+          <div className="f3d-card-title">裁片</div>
           <div className="f3d-row">
-            <span>{SOLVER_LABEL[sim.status]}</span>
-            {sim.status === 'settled' && sim.capped && (
-              <span className="f3d-hint">
-                （600 帧未静止，已取终态）
-              </span>
-            )}
-            <div>
-              <Button size="small" icon={<RedoOutlined />}
-                loading={fittingBusy}
-                onClick={() => onGenerateFitting()}>
-                重新悬挂
-              </Button>{' '}
-              <Button size="small"
-                disabled={sim.status === 'idle'}
-                onClick={() => sim.restart()}>
-                重置解算
-              </Button>
-            </div>
+            <span>全裁片平铺 · 按片分色</span>
+            <Button size="small" icon={<RedoOutlined />}
+              loading={fittingBusy}
+              onClick={() => onGenerateFitting()}>
+              重新生成
+            </Button>
           </div>
+          {flatKeys.length > 0 && (
+            <div className="f3d-legend">
+              {flatKeys.map((k) => (
+                <span key={k} className="f3d-legend-item">
+                  <span className="f3d-legend-dot" style={{
+                    background: `#${pieceColor(k).toString(16).padStart(6, '0')}`,
+                  }} />
+                  {CN_PIECE_NAMES[k] ?? k}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="f3d-hint">
-            裤子解算只用纸样围度（撑型芯），与人台滑杆互不相干
+            平铺 = 纸样净样原形（与 2D 裁片 SVG 一比一对照）；成对片
+            L+R 并排、腰头单片；悬挂渲染暂停，形状验证通过后回归
           </div>
-          {curvedBand && (
-            <div className="f3d-hint">
-              腰头现为视觉环带（沿腰口弧贴合）：弯腰头净样非矩形、口袋
-              挖削款腰口弧缺段，均无真实腰头布片缝合（直腰头无挖削才参与）
-            </div>
-          )}
-          {sim.seamErr && (
-            <div className="f3d-hint">
-              缝合误差 均值 {sim.seamErr.avg.toFixed(2)} / P95 {' '}
-              {sim.seamErr.p95.toFixed(2)} cm
-            </div>
-          )}
           {fittingStale && (
-            <div className="f3d-hint">参数已改，悬挂结果待更新</div>
+            <div className="f3d-hint">参数已改，展示待更新</div>
           )}
-          {(garmentError ?? sim.simError) && (
-            <div className="f3d-hint f3d-hint-err">
-              {garmentError ?? sim.simError}
-            </div>
+          {garmentError && (
+            <div className="f3d-hint f3d-hint-err">{garmentError}</div>
           )}
-        </div>
-
-        <div className="f3d-card">
-          <div className="f3d-card-title">松量读数</div>
-          {easeData ? (
-            <table className="f3d-ease">
-              <thead>
-                <tr>
-                  <th />
-                  <th>成衣</th><th>人台</th><th>松量</th><th>纸样</th>
-                </tr>
-              </thead>
-              <tbody>
-                {easeData.map((r) => (
-                  <tr key={r.key}>
-                    <td>{EASE_LABEL[r.key]}</td>
-                    <td>{r.sim === null ? '—' : r.sim.toFixed(1)}</td>
-                    <td>{r.body === null ? '—' : r.body.toFixed(1)}</td>
-                    <td>{r.ease === null ? '—'
-                      : `${r.ease > 0 ? '+' : ''}${r.ease.toFixed(1)}`}</td>
-                    <td>{r.pattern === null ? '—' : r.pattern.toFixed(1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="f3d-hint">悬挂就绪后自动切片测量（cm）</div>
-          )}
-          <div className="f3d-hint">
-            成衣=整裤切片围度（跨缝闭环）；松量=成衣−人台；纸样=引擎
-            girth_finished（设计目标）。正值松、负值绷
-          </div>
         </div>
 
         <div className="f3d-card">
@@ -675,7 +556,7 @@ export default function Fitting3DView({
               {['实体', '半透明', '隐藏'][bodyView]}
             </Button>
           </div>
-          <div className="f3d-hint">半透明人台可看裤子内侧</div>
+          <div className="f3d-hint">半透明人台可看衣片内侧</div>
         </div>
 
         <div className="f3d-card f3d-actions">

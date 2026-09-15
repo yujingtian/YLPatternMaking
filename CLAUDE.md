@@ -56,20 +56,22 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   实测 ΔH 换算权重）+ 身高滑杆（cm 连续钳 150~185，可停任意身高）裸权重实时
 #   morph（pos = base + Σwᵢ·Δᵢ；围度站 y × 身高因子）+ 站点围度
 #   读数（站高 = vendor 地标检测值）；无围度闭环/对齐/钳位（自动调体型闭环仍退
-#   役；裤子展示 2026-09-15 解耦定型悬挂：整裤（前后片+育克+直腰头/弯腰头
-#   视觉环带+口袋挖削款袋贴片）缝合后
-#   撑开悬挂人台旁侧 = garment/ 前端纯函数层 + sim worker（解算在纸样系、
-#   碰撞体 = 纸样围度撑型芯 core.ts——girth_finished 逐站成芯、裆站躯干圆 =
-#   max(臀, 2×腿) 毗围代理防掐腰，圆筒按构造
-#   成立、廓形=版型、人台完全出圈不参与解算；HANG_PRIOR.maxFrames 封顶
-#   兜底 + capped 上报，显示层 Group 平移人台旁 + hemLift 抬离地面；热力图退役留档），
-#   引擎 payload schema v1 增第 4 片
-#   back_yoke（back_yoke 开启时；无 yoke 向后兼容）与第 5 片 front_facing
-#   （front_pocket_facing 开启时，外边 1:1 复制前大片缝合），独立原则
-#   ——人台参数不改衣服、合体度只经松量读数表达，演进史 .doc/决策日志.md
+#   役；裤子展示 2026-09-15 重建（一期静态 → 二期引力下垂 → 同日三期回落
+#   全裁片平铺分色）：整裤缝合解算链已删（yoke 整裤 solver 不收敛，推倒
+#   逐步重建），当前展示 = 全部裁片行式平铺人台旁侧地面（assemble.
+#   buildFlatLayout 逐片一行、成对片 L 原样 + R 前中镜像并排、腰头单片，
+#   纸样 2D 逐点等距变换无弯折无解算，与 2D 裁片 SVG 一比一验证形状）+
+#   render.ts PIECE_COLORS 逐片分色（前蓝/后绿/腰头橙/育克紫/袋贴青）+
+#   侧栏图例；悬挂链〔core.ts 撑型芯 + buildFrontPair 前 90° 扇区摆位 +
+#   drape.ts 引力下垂/前中缝合〕暂停接线、代码保留待验证后回归；sim
+#   worker、seams/band/ease/heatmap/align/useGarment 等整裤链 2026-09-15
+#   删除，mesh/placement/render/priors 为重建地基，显示层 Group 平移
+#   人台旁 + FLAT_PRIOR.lift 抬离地面；引擎 payload schema v1 **零改动**
+#   （照旧含第 4 片 back_yoke、第 5 片 front_facing，前端只消费
+#   front_piece），独立原则——人台参数不改衣服，演进史 .doc/决策日志.md
 #   §十一）；
 #   引擎侧 exporters/fitting.py build_fitting_payload + POST /api/draft/fitting
-#   schema v1 增育克片（2026-09-14）、二期试穿复活消费；人台数据 = vendor/makehuman/ CC0（PROVENANCE sha256，
+#   schema v1 增育克片（2026-09-14）、重建一期消费（前端只取 front_piece）；人台数据 = vendor/makehuman/ CC0（PROVENANCE sha256，
 #   .gitattributes -text），运行时只消费 public/bodymesh/{base.bin,targets.json}
 #   两文件（raw.obj 全身链与 measure 拷贝已删，vendor 原件仍在 git 内）；
 #   Python 金标 test_vendor_bodymesh.py（水密/地标/场方向/站直守卫）+ 前端金标

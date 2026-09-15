@@ -1,15 +1,15 @@
-// 撑型芯金标（2026-09-14 解耦定型，v2 单一水密花生网格）：
+// 撑型芯金标（2026-09-14 解耦定型，v2 单一水密花生网格；2026-09-15
+// 重建一期起角色 = 静态摆位形态来源，整裤变体夹具随解算链删除）：
 //   腰臀段圆环 / 裆下花生整环（双瓣 + 腰谷，单一闭环非两管并置——
 //   管并置的相切刀口/交叠符号陷阱/留槽捷径三条死路见 core.ts 头注）；
 //   芯周长逐站锁定 girth_finished（圆 2πR−2π·skin / 花生整环 2g−2×2π·skin，
-//   布接触壳 core+skin 恰落纸样围度 = 「圆筒按构造成立」的数值口径）；
+//   摆位壳 core+skin 恰落纸样围度 = 「圆筒按构造成立」的数值口径）；
 //   瓣沿 ±x、腰谷在 ±z（前后中线）；支撑场裆上处处等值。
-// 夹具 = 引擎 payload 双 fixture（M1 默认 / yoke 整裤）。
+// 夹具 = 引擎 payload（fixture_fitting.json）。
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
-import { buildCore } from './core'
-import { SOLVER_PRIOR } from './priors'
+import { buildCore, CORE_SKIN } from './core'
 import { buildBodyField } from './placement'
 import { sliceLoops } from '../bodymesh/slice'
 
@@ -17,16 +17,11 @@ const HERE = import.meta.dirname   // src/fitting3d/garment
 
 const M1: FittingResult = JSON.parse(
   readFileSync(`${HERE}/fixture_fitting.json`, 'utf8'))
-const YOKE: FittingResult = JSON.parse(
-  readFileSync(`${HERE}/fixture_fitting_yoke.json`, 'utf8'))
-// 弯腰头+口袋挖削+袋贴（用户实测形态 2026-09-15，hip 100 / thigh 63.5）
-const POCKET: FittingResult = JSON.parse(
-  readFileSync(`${HERE}/fixture_fitting_curved_pocket.json`, 'utf8'))
 
 const st = (r: FittingResult, key: string) =>
   r.body.stations.find((s) => s.key === key)!
-const coreR = (g: number) => g / (2 * Math.PI) - SOLVER_PRIOR.collisionSkin
-const TWO_SKIN = 2 * Math.PI * SOLVER_PRIOR.collisionSkin
+const coreR = (g: number) => g / (2 * Math.PI) - CORE_SKIN
+const TWO_SKIN = 2 * Math.PI * CORE_SKIN
 
 // 站高切片环（水密单面网格点度恒 2，闭合稳定）
 const loopsAt = (r: FittingResult, y: number) => {
@@ -35,14 +30,12 @@ const loopsAt = (r: FittingResult, y: number) => {
 }
 
 describe('撑型芯：纸样围度逐站成芯（腰臀圆环 + 裆下花生整环）', () => {
-  it('双 fixture 可建；各站高恰一个闭环（花生也是单环拓扑）', () => {
-    for (const r of [M1, YOKE]) {
-      const core = buildCore(r)
-      expect(core.positions.length).toBeGreaterThan(0)
-      expect(core.indices.length % 3).toBe(0)
-      for (const key of ['waist', 'hip', 'knee', 'hem'] as const) {
-        expect(loopsAt(r, st(r, key).y)).toHaveLength(1)
-      }
+  it('可建；各站高恰一个闭环（花生也是单环拓扑）', () => {
+    const core = buildCore(M1)
+    expect(core.positions.length).toBeGreaterThan(0)
+    expect(core.indices.length % 3).toBe(0)
+    for (const key of ['waist', 'hip', 'knee', 'hem'] as const) {
+      expect(loopsAt(M1, st(M1, key).y)).toHaveLength(1)
     }
   })
 
@@ -90,13 +83,12 @@ describe('撑型芯：纸样围度逐站成芯（腰臀圆环 + 裆下花生整�
   })
 
   it('裆站不掐腰（v2.1）：臀→裆带芯周长 ≥ 臀周 −4，无蜂腰', () => {
-    // 用户实测（hip 100 / thigh 63.5）：旧值躯干圆在裆站取单腿半径，
-    // 周长 95.4(臀) → 69.2(裆+3) 掐腰后再弹回 111.4(花生) ——「大腿比
-    // 臀大」的结构放大器；v2.1 裆站躯干取 max(臀, 2×腿) 后单调过渡
-    const hip = st(POCKET, 'hip'), crotch = st(POCKET, 'crotch')
-    const hipG = loopsAt(POCKET, hip.y)[0].girth
+    // 裆站躯干圆取 max(臀, 2×腿)（M1：max(96, 2×58)=116）单调过渡到
+    // 花生——旧值取单腿半径会掐腰再弹回（「大腿比臀大」的结构放大器）
+    const hip = st(M1, 'hip'), crotch = st(M1, 'crotch')
+    const hipG = loopsAt(M1, hip.y)[0].girth
     for (let y = crotch.y + 4; y <= hip.y; y += 2) {
-      const g = loopsAt(POCKET, y)[0].girth
+      const g = loopsAt(M1, y)[0].girth
       expect(g).toBeGreaterThan(hipG - 4)
     }
   })

@@ -1,10 +1,11 @@
-// 纸样围度撑型芯（2026-09-14 用户定方向：裤子解算与人台彻底解耦，
-// 「内部是空的也要呈圆筒、不能叠」）：芯体只在 worker 解算空间当碰撞体，
-// 不渲染——显示上裤子内部仍是空的、悬挂在人台旁侧。围度逐站取 payload
-// stations 的 girth_finished（纸样成衣量），芯半径 = g/2π − collisionSkin，
-// 布面落在 core+skin 恰为纸样围度 → 圆筒按构造成立（想叠也叠不动），
-// 廓形 = 版型。工厂悬挂展示用撑型芯的同构。坐标系 = 纸样系（y=纸样高、
-// hem≈0 落地），与 payload/裁片网格同源，解算 warp=identity。
+// 纸样围度撑型芯（2026-09-14 用户定方向：裤子展示与人台彻底解耦，
+// 「内部是空的也要呈圆筒、不能叠」）：芯体不渲染——显示上裤子内部
+// 仍是空的、悬挂在人台旁侧。2026-09-15 重建一期起解算链已删，芯体
+// 从碰撞体转为**静态摆位的形态来源**（placement 的 R(y,θ) 场由它建）。
+// 围度逐站取 payload stations 的 girth_finished（纸样成衣量），芯半径
+// = g/2π − CORE_SKIN，摆位半径（场 + garmentGap）落在纸样围度附近 →
+// 圆筒按构造成立（想叠也叠不动），廓形 = 版型。坐标系 = 纸样系
+// （y=纸样高、hem≈0 落地），与 payload/裁片网格同源。
 //
 // 形状（v2，单一水密网格——一行一闭环、行间条带、两端封盖）：
 //   腰臀段 = 圆环（站间线性插值）；裆下 = 花生环（双瓣 + 腰谷），瓣弧
@@ -28,7 +29,6 @@
 //     反复把它钉在管内，内象限永远无布；
 //   · 细龙骨（r2.5）—— preRelax 拉链直接穿膛（碰撞间隔内一步可走 ~10cm）。
 import type { FittingResult, FittingStation } from '../../types'
-import { SOLVER_PRIOR } from './priors'
 
 export interface CoreMesh {
   positions: Float32Array   // cm，纸样系 Y-up（x 侧向、z 前向、y 纸样高）
@@ -42,9 +42,13 @@ const BOTTOM_MARGIN = 1.5    // 脚口下延伸（hem 行粒子防端面边界�
 const BLEND = 3              // 裆带半高：圆↔花生过渡 cm
 const EPS = 0.3              // 花生腰谷参数：waist ≈ 2rc·EPS（相对量）
 
+// 皮肤壳厚度（cm）：解算时代 collisionSkin=0.98 的标定值原样沿用为
+// 芯体口径常数——芯半径 = g/2π − skin，摆位壳 core+skin+gap 落纸样围度
+export const CORE_SKIN = 0.98
+
 // 纸样围度 -> 瓣半径：布接触壳在 core+skin，落点围度恰 = girth_finished
 const coreRadius = (g: number): number =>
-  g / (2 * Math.PI) - SOLVER_PRIOR.collisionSkin
+  g / (2 * Math.PI) - CORE_SKIN
 
 type Profile = [number, number][]   // [y, r] 按 y 升序
 
