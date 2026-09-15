@@ -78,13 +78,16 @@ const STITCH_GROUPS: Record<string, StitchGroupDef> = {
     },
   },
   // 袋贴+前片（晚九用户口径「将前口袋也平铺出来，然后和前片缝合，
-  // 形成一个整体」）：缝合依据 = facing 袋口净线（marks，任一条）↔
-  // front mouth 边——直/弯腰头两款 fixture 实测 marks[0] 与 mouth 逐点
-  // 重合 max 0；整版坐标即缝后位置（facing 外边 1:1 复制挖削前大片
-  // 轮廓，自动补齐月牙缺口，袋口净线即缝合线）。净样有重叠区（袋口
-  // 条带衬在裤身里侧）→ 组内按片序 stackStep 叠层防共面 z-fight
+  // 形成一个整体」；2026-09-16 叠层方向口径「前片在前口袋上面」）：
+  // 缝合依据 = facing 袋口净线（marks，任一条）↔ front mouth 边——
+  // 直/弯腰头两款 fixture 实测 marks[0] 与 mouth 逐点重合 max 0；整版
+  // 坐标即缝后位置（facing 外边 1:1 复制挖削前大片轮廓，自动补齐月牙
+  // 缺口，袋口净线即缝合线）。净样有重叠区（袋口条带）→ 组内按片序
+  // stackStep 叠层防共面 z-fight；**片序 facing 在前 = 前片叠在上层**
+  // ——外观视角前片是主体盖住袋贴条带（真裤袋贴衬在里侧，2026-09-16
+  // 用户口径：前片在前口袋上面）
   front_piece: {
-    members: ['front_piece', 'front_facing'],
+    members: ['front_facing', 'front_piece'],
     aligned: (get) => {
       const front = get('front_piece'), facing = get('front_facing')
       if (!front || !facing) return false

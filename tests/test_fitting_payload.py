@@ -213,6 +213,28 @@ def test_curved_waistband_marks_frame_local():
     assert wb["scalars"]["width"] == 4.0
 
 
+# ---------- 袋贴 marks 净样态（2026-09-16 缩水不同态修复） ----------
+
+def test_facing_marks_net_state_with_shrinkage():
+    """袋贴 marks 输出整版袋口净线（与 front mouth 边同源同态）：
+    专用缩水 10%/6% 下逐点重合 <1e-6。回归防线——piece.marks 随裁片
+    apply_shrinkage 同步缩放（2D 出图正确）与未缩水 net_edges 不同态，
+    直接消费曾把缝合依据线放大错位 0.93cm（用户尺寸单实测）。"""
+    p, _ = _payload(front_pocket=True, front_pocket_facing=True,
+                    front_pocket_shrinkage_warp=0.1,
+                    front_pocket_shrinkage_weft=0.06)
+    front = next(pc for pc in p["pieces"] if pc["key"] == "front_piece")
+    facing = next(pc for pc in p["pieces"] if pc["key"] == "front_facing")
+    mouth = [tuple(q) for e in front["edges"] if e["name"] == "mouth"
+             for q in e["pts"]]
+    assert mouth
+    assert len(facing["marks"]) >= 1
+    for mk in facing["marks"]:
+        for qx, qy in mk["pts"]:
+            d = min(math.hypot(qx - x, qy - y) for x, y in mouth)
+            assert d < 1e-6
+
+
 # ---------- 育克第 4 片（2026-09-14 业务装配链：后腰头↔育克↔后片） ----------
 
 def test_yoke_piece_structure():

@@ -36,7 +36,7 @@ from ..cutter import edge_length
 from ..draft import DraftContext
 from ..flows.back_piece_flow import build_back_piece
 from ..flows.front_piece_flow import build_front_piece
-from ..flows.front_pocket_flow import build_front_pocket
+from ..flows.front_pocket_flow import build_front_pocket, collect_facing_marks
 from ..flows.waistband_flow import build_waistband
 from ..flows.yoke_flow import build_yoke
 from ..geometry import CubicBezier, LineSegment, Point
@@ -88,10 +88,12 @@ def _pts_out(pts: list[Point], origin: Point | None,
     return [_to_global(p, origin, frame) for p in pts]
 
 
-def _piece_entry(piece, role_override: dict[str, str] | None = None) -> dict:
+def _piece_entry(piece, role_override: dict[str, str] | None = None,
+                 marks_main: list[list[Point]] | None = None) -> dict:
     """单个裁片序列化。frame="reflect_y"（前后片）/"rot180"（育克）反变换
     到全局坐标；frame="local"（腰头）保持原样。role_override 逐边名覆写
-    角色（yoke 开启时后片 top 由 top_chain 改判 seam）。"""
+    角色（yoke 开启时后片 top 由 top_chain 改判 seam）。marks_main 给出时
+    覆写 marks（整版全局系折线点列，原样输出不走局部反变换）。"""
     roles = dict(_EDGE_ROLES.get(piece.name, {}))
     if role_override:
         roles.update(role_override)
@@ -115,6 +117,12 @@ def _piece_entry(piece, role_override: dict[str, str] | None = None) -> dict:
     if piece.grain is not None:
         grain = _pts_out([piece.grain.a, piece.grain.b], origin, piece.frame)
 
+    if marks_main is not None:
+        marks_out = [{"pts": [[round(p.x, 6), round(p.y, 6)] for p in g]}
+                     for g in marks_main]
+    else:
+        marks_out = [{"pts": _pts_out(flatten_geom(g, FLATTEN_TOL), origin)}
+                     for g in piece.marks]
     return {
         "key": piece.name,
         "name": piece.label,
@@ -123,8 +131,7 @@ def _piece_entry(piece, role_override: dict[str, str] | None = None) -> dict:
         "frame": piece.frame,
         "bbox": [min(xs), min(ys), max(xs), max(ys)],
         "edges": edges,
-        "marks": [{"pts": _pts_out(flatten_geom(g, FLATTEN_TOL), origin)}
-                  for g in piece.marks],
+        "marks": marks_out,
         "notches": _pts_out(list(piece.notches), origin),
         "grain": grain,
     }
@@ -171,9 +178,19 @@ def build_fitting_payload(ctx: DraftContext, m: Measurements) -> dict:
     if has_yoke:
         pieces.append(_piece_entry(build_yoke(ctx)[0]))
     # 袋贴第 5 片（front_pocket_facing 开启且袋贴步骤已上版；挖削款前片
-    # 腰口弧缺段由袋贴补位缝合，见模块 docstring）
+    # 腰口弧缺段由袋贴补位缝合，见模块 docstring）。marks 覆写为**整版
+    # 袋口净线**（与 front_piece 的 mouth 边同源同态）：piece.marks 已随
+    # 裁片缩水变换（apply_shrinkage 同步缩放标记线，2D 裁片出图正确），
+    # 与未缩水的 net_edges 不同态——袋贴专用缩水款直接消费会把缝合依据
+    # 线放大 ~缩水量级（实测专用率 10%/6% 错位 0.93cm，前端拼合守卫拦下
+    # 退独立行）；整版净线即 mouth 边本体，任缩水口径恒重合
     if o.front_pocket_facing and "front.pocket_facing_waist_edge" in ctx.sheet:
-        pieces.append(_piece_entry(build_front_pocket(ctx)[0]))
+        facing = build_front_pocket(ctx)[0]
+        has_dart = o.front_pocket_dart_width > 0
+        pieces.append(_piece_entry(
+            facing,
+            marks_main=[flatten_geom(g, FLATTEN_TOL)
+                        for g in collect_facing_marks(ctx, has_dart)]))
 
     f_vertex = ctx.point("front.crotch_vertex")
     b_vertex = ctx.point("back.crotch_vertex")

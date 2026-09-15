@@ -94,7 +94,18 @@ export function useDraft(): DraftState {
   const [measurements, setMeasurements] = useState<Values>(
     saved.current?.measurements ?? {},
   )
-  const [options, setOptions] = useState<Values>(saved.current?.options ?? {})
+  // 产品层「标准牛仔裤」初始（2026-09-16 用户口径：牛仔裤前口袋挖削式
+  // + 袋贴是标配，质疑引擎默认关）：引擎 PatternOptions 默认保持最小
+  // 裸版（extract 探针链/金标锚定最小版型，2026-09-16 试改引擎默认因
+  // 探针守卫拒绝口袋特征 + 部分 extract 测量组合 facing 默认参数几何
+  // 越界而回滚），Web 初始在产品层显式开口袋族。存量 localStorage 缺
+  // 键 = 未曾表态，补默认；显式关过的用户键值 false 不受影响。
+  const [options, setOptions] = useState<Values>(() => {
+    const o: Values = { ...(saved.current?.options ?? {}) }
+    if (!('front_pocket' in o)) o.front_pocket = true
+    if (!('front_pocket_facing' in o)) o.front_pocket_facing = true
+    return o
+  })
   // 推板码表：normalize 兜底（旧存量无键 / 坏数据 -> null = 未配置）
   const [sizeRun, setSizeRunState] = useState<SizeRunSpec | null>(
     () => normalizeSizeRun(saved.current?.size_run).spec)

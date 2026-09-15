@@ -42,6 +42,9 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   （前端 npm run build:engine 打内容 hash zip + manifest 到 public/engine，predev/prebuild
 #    自动执行，改引擎代码后手动重跑；api.ts 引擎优先、失败透明回落 HTTP，DXF/下载仍走后端；
 #    协议/回退阶梯/打包链详见 .doc/python工程设计.md §10.8）
+#   口袋族默认口径（2026-09-16）：引擎 PatternOptions 默认最小裸版不动（extract 探针
+#   守卫拒绝口袋特征+部分测量组合默认参数几何越界，改引擎默认已试已回滚），Web 初始
+#   参数在产品层默认开 front_pocket/front_pocket_facing（useDraft 对 localStorage 缺键补 true）；
 #   （前端已构建于 webapp/frontend/dist；改前端：cd webapp/frontend && npm run dev，
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
 #   3D 人台（2026-09-13 定型 = MakeHuman 下半身切割+站直 target 滑杆试验场）：右栏 3D 主视图
@@ -76,7 +79,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   front_piece），独立原则——人台参数不改衣服，演进史 .doc/决策日志.md
 #   §十一）；
 #   引擎侧 exporters/fitting.py build_fitting_payload + POST /api/draft/fitting
-#   schema v1 增育克片（2026-09-14）、重建一期消费（前端只取 front_piece）；人台数据 = vendor/makehuman/ CC0（PROVENANCE sha256，
+#   schema v1 增育克片（2026-09-14）；三期平铺起前端消费全部片；人台数据 = vendor/makehuman/ CC0（PROVENANCE sha256，
 #   .gitattributes -text），运行时只消费 public/bodymesh/{base.bin,targets.json}
 #   两文件（raw.obj 全身链与 measure 拷贝已删，vendor 原件仍在 git 内）；
 #   Python 金标 test_vendor_bodymesh.py（水密/地标/场方向/站直守卫）+ 前端金标

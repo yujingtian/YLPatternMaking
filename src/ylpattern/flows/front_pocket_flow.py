@@ -188,10 +188,12 @@ def _collect_facing_inner(ctx: DraftContext) -> list[LineSegment | CubicBezier]:
     return geoms
 
 
-def _collect_facing_marks(ctx: DraftContext,
-                          has_dart: bool) -> list[LineSegment | CubicBezier]:
+def collect_facing_marks(ctx: DraftContext,
+                         has_dart: bool) -> list[LineSegment | CubicBezier]:
     """袋贴内部标记弧线（§1.1 必须保留，作画稿/钻孔标记）：
-    袋口主切削线（有省）/ 袋口净线（无省）+ 吃省撇削边（有省时标省位）。"""
+    袋口主切削线（有省）/ 袋口净线（无省）+ 吃省撇削边（有省时标省位）。
+    公共导出（原名 _collect_facing_marks）：exporters/fitting 复用同一
+    选择逻辑输出整版净线作 3D 缝合依据——两处口径必须同源。"""
     marks: list[LineSegment | CubicBezier] = []
     if "front.pocket_mouth" in ctx.sheet:               # bezier 模式有省切削线
         marks.append(ctx.curve("front.pocket_mouth"))
@@ -329,7 +331,7 @@ def build_front_facing(main_ctx: DraftContext) -> tuple[PatternPiece, DraftConte
     p1_name = "front.pocket_p1_transfer" if has_dart else "front.pocket_p1"
     notches_main = [main_ctx.point(p1_name), main_ctx.point("front.pocket_p2")]
     notch_dirs_main = _mouth_extension_dirs(main_ctx, has_dart)
-    marks_main = _collect_facing_marks(main_ctx, has_dart)
+    marks_main = collect_facing_marks(main_ctx, has_dart)
     return _finish_piece(main_ctx, edges_main, notches_main, marks_main, origin,
                          name="front_facing", label="前口袋袋贴裁片",
                          sa=o.front_pocket_facing_seam_allowances,

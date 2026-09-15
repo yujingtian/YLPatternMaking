@@ -223,8 +223,8 @@ describe('assemble：袋贴+前片缝合拼合（重建三期缝合步，2026-09
 
   it('拼合行：front+facing 同行、facing 不独立成行、back/腰头照旧', () => {
     expect(garment.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
-      'front_piece_L', 'front_facing_L',
-      'front_piece_R', 'front_facing_R',
+      'front_facing_L', 'front_piece_L',
+      'front_facing_R', 'front_piece_R',
       'back_piece_L', 'back_piece_R',
       'waistband_L',
     ])
@@ -274,14 +274,16 @@ describe('assemble：袋贴+前片缝合拼合（重建三期缝合步，2026-09
     }
   })
 
-  it('组内叠层：front y≡0、facing y≡stackStep（重叠区防共面）', () => {
+  it('组内叠层：facing y≡0、front y≡stackStep（前片在上盖住袋贴条带）', () => {
+    // 2026-09-16 用户口径「前片在前口袋上面」：facing 片序在前 = 下层，
+    // 前片叠上层（外观主体是前片，袋贴衬里侧）
     const front = partOf('front_piece', 'L')
     const facing = partOf('front_facing', 'L')
-    for (let i = 0; i < front.mesh.xy.length / 2; i++) {
-      expect(garment.pos[3 * (front.offset + i) + 1]).toBe(0)
-    }
     for (let i = 0; i < facing.mesh.xy.length / 2; i++) {
-      expect(garment.pos[3 * (facing.offset + i) + 1])
+      expect(garment.pos[3 * (facing.offset + i) + 1]).toBe(0)
+    }
+    for (let i = 0; i < front.mesh.xy.length / 2; i++) {
+      expect(garment.pos[3 * (front.offset + i) + 1])
         .toBeCloseTo(FLAT_PRIOR.stackStep, 6)
     }
   })
@@ -295,8 +297,8 @@ describe('assemble：贴合守卫（有省 yoke 退独立行、弯腰头袋贴�
   it('有省款 yoke 下边（省闭口净样）与 back top 错位 ~12cm → 守卫拦下退独立行', () => {
     // payload 数据前提：省闭口错位实测（决策日志晚八条目）
     expect(garment.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
-      'front_piece_L', 'front_facing_L',
-      'front_piece_R', 'front_facing_R',
+      'front_facing_L', 'front_piece_L',
+      'front_facing_R', 'front_piece_R',
       'back_piece_L', 'back_piece_R',
       'back_yoke_L', 'back_yoke_R',      // yoke 独立行（不与 back 拼合）
       'waistband_L',
@@ -309,9 +311,9 @@ describe('assemble：贴合守卫（有省 yoke 退独立行、弯腰头袋贴�
     const facing = garment.parts.find(
       (p) => p.key === 'front_facing' && p.side === 'L')!
     expect(facing).toBeDefined()
-    // front 在组内首片 y=0、facing 叠层（拼合成功才会同行）
-    expect(garment.pos[3 * front.offset + 1]).toBe(0)
-    expect(garment.pos[3 * facing.offset + 1])
+    // facing 片序在前 = 下层 y=0、前片叠上层（拼合成功才会同行）
+    expect(garment.pos[3 * facing.offset + 1]).toBe(0)
+    expect(garment.pos[3 * front.offset + 1])
       .toBeCloseTo(FLAT_PRIOR.stackStep, 6)
   })
 })
