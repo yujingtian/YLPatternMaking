@@ -57,16 +57,21 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   morph（pos = base + Σwᵢ·Δᵢ；围度站 y × 身高因子）+ 站点围度
 #   读数（站高 = vendor 地标检测值）；无围度闭环/对齐/钳位（自动调体型闭环仍退
 #   役；裤子展示 2026-09-15 重建（一期静态 → 二期引力下垂 → 同日三期回落
-#   全裁片平铺分色）：整裤缝合解算链已删（yoke 整裤 solver 不收敛，推倒
-#   逐步重建），当前展示 = 全部裁片行式平铺人台旁侧地面（assemble.
-#   buildFlatLayout 逐片一行、成对片 L 原样 + R 前中镜像并排、腰头单片，
-#   纸样 2D 逐点等距变换无弯折无解算，与 2D 裁片 SVG 一比一验证形状）+
-#   render.ts PIECE_COLORS 逐片分色（前蓝/后绿/腰头橙/育克紫/袋贴青）+
-#   侧栏图例；悬挂链〔core.ts 撑型芯 + buildFrontPair 前 90° 扇区摆位 +
-#   drape.ts 引力下垂/前中缝合〕暂停接线、代码保留待验证后回归；sim
-#   worker、seams/band/ease/heatmap/align/useGarment 等整裤链 2026-09-15
-#   删除，mesh/placement/render/priors 为重建地基，显示层 Group 平移
-#   人台旁 + FLAT_PRIOR.lift 抬离地面；引擎 payload schema v1 **零改动**
+#   全裁片平铺分色 + 机头后片/袋贴前片平面缝合）：整裤缝合解算链已删
+#   （yoke 整裤 solver 不收敛，推倒逐步重建），当前展示 = 全部裁片行式
+#   平铺人台旁侧地面（assemble.buildFlatLayout 逐片一行、成对片 L 原样 +
+#   R 镜像并排、腰头单片，纸样 2D 逐点等距变换无弯折无解算，与 2D 裁片
+#   SVG 一比一验证形状；STITCH_GROUPS 平面缝合拼合组〔带贴合守卫：缝合
+#   依据线重合 <0.5cm 才拼〕——机头(back_yoke)下口线与后片上边整版坐标
+#   重合拼成后身整体；袋贴(front_facing)袋口净线 marks 与前片 mouth 边
+#   重合，补齐袋口月牙缺口拼成前身整体；组内 0.2cm 叠层防共面；有省款
+#   yoke 省闭口错位被守卫拦下退独立行；整组 L/R 镜像）+ render.ts
+#   PIECE_COLORS 逐片分色（前蓝/后绿/腰头橙/育克紫/袋贴青）+ 侧栏图例；
+#   悬挂链〔core.ts 撑型芯 + buildFrontPair 前 90° 扇区摆位 + drape.ts
+#   引力下垂/前中缝合〕暂停接线、代码保留待验证后回归；sim worker、
+#   seams/band/ease/heatmap/align/useGarment 等整裤链 2026-09-15 删除，
+#   mesh/placement/render/priors 为重建地基，显示层 Group 平移人台旁 +
+#   FLAT_PRIOR.lift 抬离地面；引擎 payload schema v1 **零改动**
 #   （照旧含第 4 片 back_yoke、第 5 片 front_facing，前端只消费
 #   front_piece），独立原则——人台参数不改衣服，演进史 .doc/决策日志.md
 #   §十一）；

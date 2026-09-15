@@ -69,6 +69,11 @@ const CN_PIECE_NAMES: Record<string, string> = {
   back_yoke: '后育克',
   front_facing: '袋贴',
 }
+// 图例固定片序：payload 里没有的片灰显「未开启」（袋贴/育克是可选
+// 工艺开关，默认关——用户看不到该片时先看这里，参数面板开启后重新生成）
+const PIECE_LEGEND_ORDER = [
+  'front_piece', 'back_piece', 'waistband', 'back_yoke', 'front_facing',
+]
 
 interface SceneCtx {
   THREE: ThreeMod
@@ -441,19 +446,28 @@ export default function Fitting3DView({
           </div>
           {flatKeys.length > 0 && (
             <div className="f3d-legend">
-              {flatKeys.map((k) => (
-                <span key={k} className="f3d-legend-item">
-                  <span className="f3d-legend-dot" style={{
-                    background: `#${pieceColor(k).toString(16).padStart(6, '0')}`,
-                  }} />
-                  {CN_PIECE_NAMES[k] ?? k}
-                </span>
-              ))}
+              {PIECE_LEGEND_ORDER.map((k) => {
+                const on = flatKeys.includes(k)
+                return (
+                  <span key={k} className="f3d-legend-item"
+                    style={{ opacity: on ? 1 : 0.45 }}>
+                    <span className="f3d-legend-dot" style={{
+                      background: on
+                        ? `#${pieceColor(k).toString(16).padStart(6, '0')}`
+                        : '#c0c0c0',
+                    }} />
+                    {CN_PIECE_NAMES[k] ?? k}
+                    {!on && '（未开启）'}
+                  </span>
+                )
+              })}
             </div>
           )}
           <div className="f3d-hint">
             平铺 = 纸样净样原形（与 2D 裁片 SVG 一比一对照）；成对片
-            L+R 并排、腰头单片；悬挂渲染暂停，形状验证通过后回归
+            L+R 并排、腰头单片；灰显项 = 参数未开对应工艺（如袋贴需
+            前口袋绘制组里开启「挖削前口袋 + 袋贴」后重新生成）；悬挂
+            渲染暂停，形状验证通过后回归
           </div>
           {fittingStale && (
             <div className="f3d-hint">参数已改，展示待更新</div>

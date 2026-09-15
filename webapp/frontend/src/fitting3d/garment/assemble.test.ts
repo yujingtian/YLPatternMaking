@@ -135,6 +135,187 @@ describe('assemble：全裁片平铺装配（重建三期回落，现行）', ()
   })
 })
 
+describe('assemble：机头+后片缝合拼合（重建三期缝合步，2026-09-15 晚八）', () => {
+  const yokeResult: FittingResult = JSON.parse(
+    readFileSync(`${HERE}/fixture_fitting_yoke.json`, 'utf8'))
+  const garment = buildFlatLayout(yokeResult)
+  const partOf = (key: string, side: 'L' | 'R') =>
+    garment.parts.find((p) => p.key === key && p.side === side)!
+  const px = (part: ReturnType<typeof partOf>, i: number) =>
+    garment.pos[3 * (part.offset + i)]
+
+  it('拼合行：back+yoke 同行（L 侧 back,yoke / R 侧镜像）、yoke 不独立成行、腰头单片', () => {
+    expect(garment.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'front_piece_L', 'front_piece_R',
+      'back_piece_L', 'back_yoke_L',
+      'back_piece_R', 'back_yoke_R',
+      'waistband_L',
+    ])
+  })
+
+  it('缝合边重合：back top 边与 yoke bottom 边逐点贴合（L/R 两侧）', () => {
+    // 依据：两片在整版上共享机头下口线，payload 边链整版全局系坐标
+    // 逐点重合（fixture 实测 max 点距 0）+ 拼合组共享变换 → pos 重合；
+    // Float32 量化同输入同结果，留 1e-4 余量
+    for (const side of ['L', 'R'] as const) {
+      const bp = partOf('back_piece', side)
+      const yp = partOf('back_yoke', side)
+      const top = bp.mesh.runs.find((r) => r.name === 'top')
+      const bottom = yp.mesh.runs.find((r) => r.name === 'bottom')
+      expect(top).toBeDefined()
+      expect(bottom).toBeDefined()
+      let worst = 0
+      for (const bi of bottom!.indices) {
+        const x = px(yp, bi), z = garment.pos[3 * (yp.offset + bi) + 2]
+        let dMin = Infinity
+        for (const ti of top!.indices) {
+          const tx = px(bp, ti), tz = garment.pos[3 * (bp.offset + ti) + 2]
+          dMin = Math.min(dMin, Math.hypot(tx - x, tz - z))
+        }
+        worst = Math.max(worst, dMin)
+      }
+      expect(worst).toBeLessThan(1e-4)
+    }
+  })
+
+  it('拼合组整组镜像：R 侧 = L 侧关于组中线镜像（back/yoke 各自逐点）', () => {
+    let xMax = 0
+    for (const part of [partOf('back_piece', 'L'), partOf('back_yoke', 'L')]) {
+      for (let i = 0; i < part.mesh.xy.length / 2; i++) {
+        xMax = Math.max(xMax, px(part, i))
+      }
+    }
+    const W = xMax            // L 侧组从 0 归一起，W = L 侧拼合组宽
+    const mid = W + FLAT_PRIOR.gap / 2
+    for (const key of ['back_piece', 'back_yoke']) {
+      const l = partOf(key, 'L'), r = partOf(key, 'R')
+      for (let i = 0; i < l.mesh.xy.length / 2; i++) {
+        expect(px(r, i) - mid).toBeCloseTo(mid - px(l, i), 5)
+      }
+    }
+  })
+
+  it('拼合行高 = back+yoke 全局 y 并集（缝合成整体后的总高）', () => {
+    // fixture 手工演算：back bbox y∈[0, 96.196] + yoke y∈[95.236, 100.141]
+    // → 并集高 = 100.141（缝合的后身：脚口到育克上口）
+    const bl = partOf('back_piece', 'L')
+    let z0 = Infinity, z1 = -Infinity
+    for (let i = 0; i < bl.mesh.xy.length / 2; i++) {
+      z0 = Math.min(z0, garment.pos[3 * (bl.offset + i) + 2])
+      z1 = Math.max(z1, garment.pos[3 * (bl.offset + i) + 2])
+    }
+    const yl = partOf('back_yoke', 'L')
+    for (let i = 0; i < yl.mesh.xy.length / 2; i++) {
+      z1 = Math.max(z1, garment.pos[3 * (yl.offset + i) + 2])
+    }
+    expect(z1 - z0).toBeCloseTo(100.141, 3)
+  })
+})
+
+describe('assemble：袋贴+前片缝合拼合（重建三期缝合步，2026-09-15 晚九）', () => {
+  const pocketResult: FittingResult = JSON.parse(
+    readFileSync(`${HERE}/fixture_fitting_pocket.json`, 'utf8'))
+  const garment = buildFlatLayout(pocketResult)
+  const partOf = (key: string, side: 'L' | 'R') =>
+    garment.parts.find((p) => p.key === key && p.side === side)!
+  const px = (part: ReturnType<typeof partOf>, i: number) =>
+    garment.pos[3 * (part.offset + i)]
+
+  it('拼合行：front+facing 同行、facing 不独立成行、back/腰头照旧', () => {
+    expect(garment.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'front_piece_L', 'front_facing_L',
+      'front_piece_R', 'front_facing_R',
+      'back_piece_L', 'back_piece_R',
+      'waistband_L',
+    ])
+  })
+
+  it('缝合依据（数据前提）：facing 袋口净线 marks 与 front mouth 边逐点重合', () => {
+    // payload 层钉死拼合前提（整版坐标即缝后位置）；pos 层对齐由下一
+    // 条「组共享变换」断言传导
+    const front = pocketResult.pieces.find((p) => p.key === 'front_piece')!
+    const facing = pocketResult.pieces.find((p) => p.key === 'front_facing')!
+    const mouth = front.edges.filter((e) => e.name === 'mouth')
+      .flatMap((e) => e.pts)
+    expect(mouth.length).toBeGreaterThan(0)
+    const gap = facing.marks.some((mk) => {
+      let worst = 0
+      for (const p of mk.pts) {
+        let dMin = Infinity
+        for (const q of mouth) {
+          dMin = Math.min(dMin, Math.hypot(p[0] - q[0], p[1] - q[1]))
+        }
+        worst = Math.max(worst, dMin)
+      }
+      return worst < 0.5
+    })
+    expect(gap).toBe(true)
+  })
+
+  it('组共享变换：L/R 侧各片 pos 与全局 xy 的变换常数逐点恒定（整版对齐）', () => {
+    // L 侧：pos_x = x − Cx、pos_z = y − Cy + 行基；Cx/Cy 对组内两片
+    // 相等 = 按整版全局坐标对齐（缝合的本质）。R 侧镜像同理（翻号）
+    for (const side of ['L', 'R'] as const) {
+      const front = partOf('front_piece', side)
+      const facing = partOf('front_facing', side)
+      const sgn = side === 'L' ? 1 : -1
+      let cx = 0, cy = 0
+      for (const [k, part] of [['f', front], ['g', facing]] as const) {
+        void k
+        const n = part.mesh.xy.length / 2
+        for (let i = 0; i < n; i++) {
+          const x = part.mesh.xy[2 * i], y = part.mesh.xy[2 * i + 1]
+          const ax = sgn * px(part, i), az = garment.pos[3 * (part.offset + i) + 2]
+          if (i === 0 && part === front) { cx = x - ax; cy = y - az }
+          expect(x - ax).toBeCloseTo(cx, 5)
+          expect(y - az).toBeCloseTo(cy, 5)
+        }
+      }
+    }
+  })
+
+  it('组内叠层：front y≡0、facing y≡stackStep（重叠区防共面）', () => {
+    const front = partOf('front_piece', 'L')
+    const facing = partOf('front_facing', 'L')
+    for (let i = 0; i < front.mesh.xy.length / 2; i++) {
+      expect(garment.pos[3 * (front.offset + i) + 1]).toBe(0)
+    }
+    for (let i = 0; i < facing.mesh.xy.length / 2; i++) {
+      expect(garment.pos[3 * (facing.offset + i) + 1])
+        .toBeCloseTo(FLAT_PRIOR.stackStep, 6)
+    }
+  })
+})
+
+describe('assemble：贴合守卫（有省 yoke 退独立行、弯腰头袋贴照常拼合）', () => {
+  const curvedResult: FittingResult = JSON.parse(
+    readFileSync(`${HERE}/fixture_fitting_curved_pocket.json`, 'utf8'))
+  const garment = buildFlatLayout(curvedResult)
+
+  it('有省款 yoke 下边（省闭口净样）与 back top 错位 ~12cm → 守卫拦下退独立行', () => {
+    // payload 数据前提：省闭口错位实测（决策日志晚八条目）
+    expect(garment.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'front_piece_L', 'front_facing_L',
+      'front_piece_R', 'front_facing_R',
+      'back_piece_L', 'back_piece_R',
+      'back_yoke_L', 'back_yoke_R',      // yoke 独立行（不与 back 拼合）
+      'waistband_L',
+    ])
+  })
+
+  it('弯腰头款袋贴照常拼合（marks 袋口净线与 mouth 重合，组共享变换成立）', () => {
+    const front = garment.parts.find(
+      (p) => p.key === 'front_piece' && p.side === 'L')!
+    const facing = garment.parts.find(
+      (p) => p.key === 'front_facing' && p.side === 'L')!
+    expect(facing).toBeDefined()
+    // front 在组内首片 y=0、facing 叠层（拼合成功才会同行）
+    expect(garment.pos[3 * front.offset + 1]).toBe(0)
+    expect(garment.pos[3 * facing.offset + 1])
+      .toBeCloseTo(FLAT_PRIOR.stackStep, 6)
+  })
+})
+
 describe('assemble：前片 L+R 静态装配（重建一期，暂停接线）', () => {
   const front = buildClothMesh(result.pieces.find((p) => p.key === 'front_piece')!)
   const core = buildCore(result)
