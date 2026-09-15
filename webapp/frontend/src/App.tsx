@@ -174,7 +174,12 @@ function DraftApp() {
               dragging={dragging}
             />
           ) : (
-            <Fitting3DView />
+            <Fitting3DView
+              fitting={d.fitting}
+              fittingStale={d.fittingStale}
+              fittingBusy={d.fittingBusy}
+              onGenerateFitting={() => void d.generateFitting()}
+            />
           )}
         </section>
       </main>

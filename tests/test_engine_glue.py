@@ -58,6 +58,35 @@ def test_fitting_glue_equals_http():
         ["front_piece", "back_piece", "waistband"]
 
 
+def test_fitting_yoke_glue_equals_http():
+    """fitting 全等（back_yoke 开启）：育克第 4 片进双通道 payload。"""
+    req = {"measurements": ADJ_M,
+           "options": {"front_pocket": True, "back_yoke": True}}
+    http = client.post("/api/draft/fitting", json=req).json()
+    assert _glue("fitting", req) == http
+    assert http["ok"] is True
+    assert [pc["key"] for pc in http["pieces"]] == \
+        ["front_piece", "back_piece", "back_yoke", "waistband"]
+
+
+def test_fitting_facing_glue_equals_http():
+    """fitting 全等（前口袋袋贴开启）：front_facing 第 5 片进双通道
+    payload（挖削款前片 mouth 边 + 袋贴缝合角色）。"""
+    req = {"measurements": ADJ_M,
+           "options": {"front_pocket": True, "front_pocket_facing": True,
+                       "back_yoke": True}}
+    http = client.post("/api/draft/fitting", json=req).json()
+    assert _glue("fitting", req) == http
+    assert http["ok"] is True
+    assert [pc["key"] for pc in http["pieces"]] == \
+        ["front_piece", "back_piece", "back_yoke", "front_facing",
+         "waistband"]
+    facing = http["pieces"][3]
+    assert facing["origin"] is not None   # 全局反变换依赖（3D 摆位）
+    assert any(e["name"] == "mouth"
+               for e in http["pieces"][0]["edges"])
+
+
 def test_seed_glue_equals_http():
     """seed 全等：三预设形态 × 前后侧（纯函数，输出确定）。
     入参只带贴袋尺寸子集——seed 不走 _build，其余参数缺失/非法不影响。"""

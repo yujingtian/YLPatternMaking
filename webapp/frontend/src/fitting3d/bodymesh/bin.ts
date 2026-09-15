@@ -18,6 +18,10 @@ export interface BodyMeshAsset {
   targets: MeshTarget[]     // 14 个官方场：12 measure + 身高 macro ±（cm，索引已对齐本网格）
   stations: Partial<Record<'waist' | 'hips' | 'thigh' | 'knee' | 'calf' | 'ankle',
     { y: number; per: 'body' | 'leg' }>>   // vendor 地标站（围度读数用）
+  // vendor 地标高度 cm（targets.json landmarkHeights 原样透传；含 stations
+  // 没有的 crotch——二期试穿 y-warp 锚用，2026-09-13 additive）
+  landmarks: Partial<Record<'sole' | 'crotch' | 'waist' | 'hip' | 'knee'
+    | 'calf' | 'ankle', number>>
   height: number            // 裁切面高（腰+15，取景定标）
   heightInfo: HeightInfo    // 身高场实测（预设体重量的换算基准，height.ts）
 }
@@ -104,5 +108,14 @@ async function doLoad(): Promise<BodyMeshAsset> {
       stations[s.name as (typeof stationNames)[number]] = { y: s.y, per: s.per as 'body' | 'leg' }
     }
   }
-  return { positions, indices, targets, stations, height: meta.cut.planeY, heightInfo }
+  const lmRaw = (meta.landmarkHeights ?? {}) as Record<string, number>
+  const landmarks: BodyMeshAsset['landmarks'] = {}
+  const lmKeys = ['sole', 'crotch', 'waist', 'hip', 'knee', 'calf', 'ankle'] as const
+  for (const k of lmKeys) {
+    if (typeof lmRaw[k] === 'number') landmarks[k] = lmRaw[k]
+  }
+  return {
+    positions, indices, targets, stations, landmarks,
+    height: meta.cut.planeY, heightInfo,
+  }
 }

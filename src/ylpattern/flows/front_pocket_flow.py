@@ -270,9 +270,11 @@ def _finish_piece(main_ctx: DraftContext,
     marks = tuple(_to_local_geom(g, origin) for g in marks_main)
     # 4. 丝缕线（竖向 = 经向）
     grain = _vertical_grain(net_edges)
-    # 5. 净样裁片
+    # 5. 净样裁片（origin/frame 登记：3D 试穿 payload 反变换用，与前后片
+    # 同 reflect_y 口径；cutter 缩水/缝边链 with_shrunk/with_gross 保字段）
     piece = PatternPiece(name, label, net_edges, notches=notches,
-                         grain=grain, marks=marks)
+                         grain=grain, marks=marks,
+                         origin=origin, frame="reflect_y")
     # 6. 先缩水后缝边（缝份不叠加缩水，§2.1）；经向=局部 Y -> Y 吃 warp、X 吃 weft
     #    前口袋裁片专用缩水（None=回退全局 shrinkage_warp/weft）
     warp, weft = o.shrinkage_rates(o.front_pocket_shrinkage_warp,

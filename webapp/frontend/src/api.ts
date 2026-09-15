@@ -7,7 +7,7 @@ import { getEngine, isEngineFailure } from './engine/client'
 import type { AdjustPayload, EngineCmd } from './engine/protocol'
 import * as http from './apiHttp'
 import type {
-  AdjustResult, DraftPayload, PiecesResult, SeedPayload,
+  AdjustResult, DraftPayload, FittingResult, PiecesResult, SeedPayload,
   SeedResult, SheetResult,
 } from './types'
 
@@ -32,6 +32,7 @@ const TIMEOUTS: Record<EngineCmd, number> = {
   sheet: 30_000,
   pieces: 30_000,
   adjust: 60_000,
+  fitting: 30_000,
   seed: 5_000,           // 纯函数毫秒级
 }
 
@@ -61,6 +62,10 @@ export function postSheet(payload: DraftPayload): Promise<SheetResult> {
 
 export function postPieces(payload: DraftPayload): Promise<PiecesResult> {
   return route('pieces', payload, http.postPieces)
+}
+
+export function postFitting(payload: DraftPayload): Promise<FittingResult> {
+  return route('fitting', payload, http.postFitting)
 }
 
 export function postAdjust(payload: AdjustPayload): Promise<AdjustResult> {

@@ -211,3 +211,97 @@ def test_curved_waistband_marks_frame_local():
     wb = next(pc for pc in p["pieces"] if pc["key"] == "waistband")
     assert wb["frame"] == "local" and wb["origin"] is None
     assert wb["scalars"]["width"] == 4.0
+
+
+# ---------- 育克第 4 片（2026-09-14 业务装配链：后腰头↔育克↔后片） ----------
+
+def test_yoke_piece_structure():
+    """back_yoke 开启：pieces 固定序 [front, back, yoke, waistband]；育克
+    frame=rot180 + origin 非空；边名 (bottom, side, top, cb)；role 表
+    top=top_chain（顶替后片接腰头）、bottom/cb/side=seam。"""
+    p, _ = _payload(back_yoke=True)
+    assert [pc["key"] for pc in p["pieces"]] == \
+        ["front_piece", "back_piece", "back_yoke", "waistband"]
+    yoke = p["pieces"][2]
+    assert yoke["frame"] == "rot180"
+    assert yoke["origin"] is not None
+    assert tuple(e["name"] for e in yoke["edges"]) == \
+        ("bottom", "side", "top", "cb")
+    roles = {e["name"]: e["role"] for e in yoke["edges"]}
+    assert roles["top"] == "top_chain"
+    assert roles["bottom"] == "seam" and roles["cb"] == "seam"
+    assert roles["side"] == "seam"
+
+
+def test_yoke_back_top_role_seam():
+    """yoke 开启时后片上口边名 = top（机头下口线）且角色改判 seam
+    （缝合对象换成育克下口，不再直接接腰头）；无 waist 边。"""
+    p, _ = _payload(back_yoke=True)
+    back = next(pc for pc in p["pieces"] if pc["key"] == "back_piece")
+    names = [e["name"] for e in back["edges"]]
+    assert "top" in names and "waist" not in names
+    top = next(e for e in back["edges"] if e["name"] == "top")
+    assert top["role"] == "seam"
+    # 默认（无 yoke）后片 waist 仍 top_chain（向后兼容回归）
+    p0, _ = _payload()
+    back0 = next(pc for pc in p0["pieces"] if pc["key"] == "back_piece")
+    w0 = next(e for e in back0["edges"] if e["name"] == "waist")
+    assert w0["role"] == "top_chain"
+
+
+def test_yoke_bottom_matches_back_top():
+    """育克下口边与后片上口边是同一几何（机头下口线）：总长相等、
+    全局端点重合（P0/PN，1e-6 舍入 -> 容差 2e-6）。"""
+    p, ctx = _payload(back_yoke=True)
+    yoke = next(pc for pc in p["pieces"] if pc["key"] == "back_yoke")
+    back = next(pc for pc in p["pieces"] if pc["key"] == "back_piece")
+    yb = [e for e in yoke["edges"] if e["name"] == "bottom"]
+    bt = [e for e in back["edges"] if e["name"] == "top"]
+    assert sum(e["length"] for e in yb) == \
+        pytest.approx(sum(e["length"] for e in bt), abs=1e-6)
+    p0, pn = ctx.point("back.yoke_cb_point"), ctx.point("back.yoke_side_point")
+    first, last = yb[0]["pts"][0], yb[-1]["pts"][-1]
+    ends = {(round(first[0], 4), round(first[1], 4)),
+            (round(last[0], 4), round(last[1], 4))}
+    assert ends == {(round(p0.x, 4), round(p0.y, 4)),
+                    (round(pn.x, 4), round(pn.y, 4))}
+
+
+def test_yoke_curved_waistband_combo():
+    """弯腰头 + yoke：育克仍入 payload（上口=下腰头线），三片拓扑不变量
+    （链闭合/边长守恒由通用用例覆盖）。"""
+    p, _ = _payload(back_yoke=True, waistband_type="curved")
+    assert [pc["key"] for pc in p["pieces"]][-2] == "back_yoke"
+    yoke = next(pc for pc in p["pieces"] if pc["key"] == "back_yoke")
+    top = next(e for e in yoke["edges"] if e["name"] == "top")
+    assert top["role"] == "top_chain"
+
+
+def test_front_facing_piece_structure():
+    """front_pocket+facing 开启：袋贴第 5 片（yoke 之后、腰头之前）；
+    外边 1:1 复制前大片——waist 并入腰口链 top_chain、side 缝合 seam、
+    inner 接袋布 free；origin/frame 登记全局反变换（3D 摆位依赖，
+    2026-09-15 修：漏登记会被前端当局部系原样消费）。"""
+    p, _ = _payload(back_yoke=True, front_pocket=True,
+                    front_pocket_facing=True)
+    assert [pc["key"] for pc in p["pieces"]] == \
+        ["front_piece", "back_piece", "back_yoke", "front_facing",
+         "waistband"]
+    facing = p["pieces"][3]
+    assert facing["frame"] == "reflect_y"
+    assert facing["origin"] is not None
+    roles = {e["name"]: e["role"] for e in facing["edges"]}
+    assert set(roles) == {"side", "inner", "waist"}
+    assert roles["waist"] == "top_chain"
+    assert roles["side"] == "seam"
+    assert roles["inner"] == "free"
+
+
+def test_front_mouth_carve_with_pocket():
+    """前口袋主切口：前片净边出现 mouth 边（free = 口袋开口），
+    腰口弧 top_chain 只剩 CF→P1 段（腰口侧段由袋贴接管）。"""
+    p, _ = _payload(front_pocket=True, front_pocket_facing=True)
+    front = next(pc for pc in p["pieces"] if pc["key"] == "front_piece")
+    mouth = next(e for e in front["edges"] if e["name"] == "mouth")
+    assert mouth["role"] == "free"
+    assert mouth["length"] > 10          # 袋口母线量级（非退化）

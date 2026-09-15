@@ -1,5 +1,5 @@
 import type {
-  AdjustResult, DraftPayload, IssueDetail, PiecesResult,
+  AdjustResult, DraftPayload, FittingResult, IssueDetail, PiecesResult,
   Schema, SeedPayload, SeedResult, SheetResult, Values,
 } from './types'
 import type { ExtractResponse } from './types'
@@ -31,6 +31,16 @@ export async function postSheet(payload: DraftPayload): Promise<SheetResult> {
 
 export async function postPieces(payload: DraftPayload): Promise<PiecesResult> {
   return handle(await fetch('/api/draft/pieces', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }))
+}
+
+// 3D 试穿 payload（§10.11）：前后片净样边链（整版全局坐标）+ 站点 +
+// 腰头标量；2026-09-13 二期复活（前端消费恢复，引擎端点原样闲置）
+export async function postFitting(payload: DraftPayload): Promise<FittingResult> {
+  return handle(await fetch('/api/draft/fitting', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

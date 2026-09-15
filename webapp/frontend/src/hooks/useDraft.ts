@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
-  DraftPayload, DownloadKind, IssueDetail, PiecesResult,
+  DraftPayload, DownloadKind, FittingResult, IssueDetail, PiecesResult,
   Schema, SeedPayload, SeedResult, SheetResult, Snapshot, SizeRunSpec, Values,
 } from '../types'
 import {
-  download as downloadFile, fetchSchema, postPieces, postSeed,
+  download as downloadFile, fetchSchema, postFitting, postPieces, postSeed,
   postSheet,
 } from '../api'
 import { normalizeSizeRun } from '../sizeRun'
@@ -48,6 +48,9 @@ export interface DraftState {
   // 补算后直接消费结果，不依赖 state 重渲染取数（2026-09-11 交互重构）
   generateSheet: () => Promise<Snapshot<SheetResult> | null>
   generatePieces: () => Promise<Snapshot<PiecesResult> | null>
+  // 3D 悬挂展示 payload 生成（2026-09-13 复活、09-14 改悬挂消费）：
+  // 自互斥（进行中丢弃新请求），与两步生成同构的版本竞态语义
+  generateFitting: () => Promise<Snapshot<FittingResult> | null>
   // 按需补算（2D 进高级编辑/导出时才补）：
   // 快照缺失或 stale 才重跑，新鲜直接复用；读 ref 规避闭包旧值
   ensureSheet: () => Promise<Snapshot<SheetResult> | null>
@@ -63,14 +66,17 @@ export interface DraftState {
   adjustInfo: { param: string; ts: number } | null
   sheet: Snapshot<SheetResult> | null
   pieces: Snapshot<PiecesResult> | null
+  fitting: Snapshot<FittingResult> | null
   sheetReady: boolean
   sheetStale: boolean
   piecesReady: boolean
   piecesStale: boolean
+  fittingStale: boolean
   errors: IssueDetail[]
   warnings: DraftWarning[]
   sheetBusy: boolean
   piecesBusy: boolean
+  fittingBusy: boolean
   dlBusy: DownloadKind | null
   // 本地引擎状态（Pyodide worker）：loading 加载中 / ready 本地计算 /
   // http 走服务端（?engine=off、加载失败降级或 worker 反复崩溃）
@@ -109,6 +115,7 @@ export function useDraft(): DraftState {
   optsRef.current = options
   const [sheet, setSheet] = useState<Snapshot<SheetResult> | null>(null)
   const [pieces, setPieces] = useState<Snapshot<PiecesResult> | null>(null)
+  const [fitting, setFitting] = useState<Snapshot<FittingResult> | null>(null)
   // 快照镜像：ensure* 的"已新鲜即复用"判定读 ref（回调闭包不滞后）
   const sheetRef = useRef<Snapshot<SheetResult> | null>(null)
   sheetRef.current = sheet
@@ -122,6 +129,9 @@ export function useDraft(): DraftState {
   const [piecesBusy, setPiecesBusy] = useState(false)
   const piecesBusyRef = useRef(false)
   piecesBusyRef.current = piecesBusy
+  const [fittingBusy, setFittingBusy] = useState(false)
+  const fittingBusyRef = useRef(false)
+  fittingBusyRef.current = fittingBusy
   const [dlBusy, setDlBusy] = useState<DownloadKind | null>(null)
   const [lastDrag, setLastDrag] = useState<{ param: string; prevValue: number } | null>(null)
   const [adjustInfo, setAdjustInfo] = useState<{ param: string; ts: number } | null>(null)
@@ -179,6 +189,7 @@ export function useDraft(): DraftState {
 
   const sheetStale = sheet !== null && sheet.version !== version
   const piecesStale = pieces !== null && pieces.version !== version
+  const fittingStale = fitting !== null && fitting.version !== version
 
   // 拖拽回写：显式载荷（base + 新参数值）直接重生成整版——闭包里捕获的
   // measurements/options 必然滞后于高频拖拽，参数面板与整版以 base 为准。
@@ -288,6 +299,36 @@ export function useDraft(): DraftState {
     }
   }, [])
 
+  // 3D 悬挂 payload：与两步生成同构的版本竞态语义；自互斥（重挂/
+  // 参数连调高频触发，进行中直接丢弃新请求——调用层 debounce 补发最后
+  // 一拍）。不与 sheet/pieces 互斥：互为独立产物，参数变化各自标 stale
+  const generateFitting = useCallback(async () => {
+    if (fittingBusyRef.current) return null
+    fittingBusyRef.current = true
+    const ver = versionRef.current
+    const payload = { measurements: measRef.current, options: optsRef.current }
+    setFittingBusy(true)
+    setErrors([])
+    try {
+      const res = await postFitting(payload)
+      const snap = { data: res, version: ver }
+      setFitting(snap)
+      setWarnings(res.warnings.map((w) => ({ param: w.param, message: w.message })))
+      return snap
+    } catch (e) {
+      const err = e as Error & { detail?: IssueDetail[] }
+      if (err.detail) {
+        setErrors(err.detail)
+      } else {
+        setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
+      }
+      return null
+    } finally {
+      fittingBusyRef.current = false
+      setFittingBusy(false)
+    }
+  }, [])
+
   // 按需补算：新鲜（快照存在且 version 一致）直接复用，否则重跑对应
   // 生成动作；generate* 内部已同步 ref，ensurePieces 紧随 ensureSheet
   // 的门控（先画后裁）天然通过。供高级编辑进入与导出中心复用
@@ -359,14 +400,15 @@ export function useDraft(): DraftState {
     schema, measurements, options, sizeRun,
     setMeasurement, setOption, setSizeRun, loadValues,
     seedShape,
-    generateSheet, generatePieces, ensureSheet, ensurePieces,
+    generateSheet, generatePieces, generateFitting, ensureSheet, ensurePieces,
     download,
     applyAdjust, beginDrag, undoLastDrag, lastDrag, adjustInfo,
-    sheet, pieces,
+    sheet, pieces, fitting,
     sheetReady: sheet !== null, sheetStale,
     piecesReady: pieces !== null, piecesStale,
+    fittingStale,
     errors, warnings,
-    sheetBusy, piecesBusy, dlBusy,
+    sheetBusy, piecesBusy, fittingBusy, dlBusy,
     engineState,
   }
 }

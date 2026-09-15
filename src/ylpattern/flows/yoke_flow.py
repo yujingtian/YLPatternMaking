@@ -513,7 +513,8 @@ def build_yoke(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContext]:
     grain = LineSegment(Point(cx, y0 + margin), Point(cx, y1 - margin))
 
     piece = PatternPiece("back_yoke", "后育克裁片", tuple(local_edges),
-                         notches=local_notches, grain=grain)
+                         notches=local_notches, grain=grain,
+                         origin=origin, frame="rot180")
 
     # 裁切三段：缩水 -> 缝边（缝份不叠加缩水，§5）
     # 经向=局部 Y（后片裤长向）-> Y 吃 warp、X 吃 weft（同腰头 WIDTH 映射：

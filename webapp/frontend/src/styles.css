@@ -323,8 +323,20 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .f3d-slider .ant-slider { margin: 2px 0 8px; }
 .f3d-hint { font-size: 11px; color: #aaa; margin-top: 6px; }
+/* 试穿卡错误行（衣服构建失败原因，如后机头拦截） */
+.f3d-hint-err { color: #c0392b; }
 /* 预设体型芯片（身高快捷档） */
 .f3d-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 松量读数表（settled 后整裤切片 vs 人台切片 vs 纸样目标） */
+.f3d-ease {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+.f3d-ease th, .f3d-ease td {
+  text-align: right; padding: 2px 4px; font-weight: normal;
+  color: #555; font-variant-numeric: tabular-nums;
+}
+.f3d-ease th:first-child, .f3d-ease td:first-child { text-align: left; }
+.f3d-ease thead th { color: #aaa; font-size: 11px; }
 
 /* ---- 导出中心（勾选产物 -> 逐项串行下载） ---- */
 .ec-hint {

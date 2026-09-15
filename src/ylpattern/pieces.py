@@ -72,6 +72,8 @@ class PatternPiece:
     frame: str = "reflect_y"                      # 局部系约定："reflect_y" =
                                                 #   local=(x−origin.x, origin.y−y)
                                                 #   （X 不翻 Y 翻，前后片口径）；
+                                                #   "rot180" = local=(origin.x−x,
+                                                #   origin.y−y)（180° 旋转，育克口径）；
                                                 #   "local" = 旋转局部系（腰头），
                                                 #   反变换不可逆推、只随标量导出
 
