@@ -1,10 +1,15 @@
 // garment three 装配：parts -> Group（每片一 Mesh，按片 key 分色材质
 // ——2026-09-15 三期平铺：全裁片同色无法区分，逐片色板 PIECE_COLORS）。
-// 重建一期（2026-09-15）为静态展示：无解算帧回填通道保留（后续重建
-// 直接复用），应变热力图/视觉环带随解算链删除。
+// 重建一期（2026-09-15）为静态展示：解算帧回填通道保留（update 直写
+// 全粒子位 + 法线重算），应变热力图/视觉环带随解算链删除。
+// 2026-09-16 四期前身缝合立起：悬挂展示宿主不渲染，前片/袋贴双 rider
+// 贴层（rider.ts 绑定宿主三角形，每帧 rideRider 回填）；本文件增补
+// buildRiderView 与 buildGarmentView 同材质口径（分色/DoubleSide）。
 // three 模块由调用方注入（Fitting3DView 惰性分包口径）。
 import type * as ThreeT from 'three'
 import type { Garment } from './assemble'
+import type { RiderBind } from './rider'
+import { rideRider } from './rider'
 
 type ThreeMod = typeof import('three')
 
@@ -90,6 +95,65 @@ export function buildGarmentView(
     dispose: () => {
       for (const { mesh } of meshes) mesh.geometry.dispose()
       for (const mat of mats) mat.dispose()
+    },
+  }
+}
+
+// ---- 贴层视图（四期前身缝合立起）：被载片（前片/袋贴）随宿主解算位
+// 逐帧回填。每 slot（L/R）一 Mesh，key 用 payload 片 key 对色；袋贴
+// slot 传负 radialOffset 衬里侧（前片盖袋口条带）。宿主本身不渲染。 ----
+export interface RiderViewSlot {
+  side: string            // 'L' | 'R'（展示命名；不参与几何）
+  hostOffset: number      // 该 side 宿主 part 在解算数组的粒子偏移
+  radialOffset: number    // 径向偏移 cm（负内偏；0 = 贴宿主面）
+}
+
+export interface RiderView {
+  group: ThreeT.Group
+  /** 宿主解算位 -> 双 side 贴层回填 + 法线重算（建视图后先调一次出初摆位） */
+  update: (hostPos: Float32Array) => void
+  dispose: () => void
+}
+
+export function buildRiderView(
+  THREE: ThreeMod, key: string, bind: RiderBind, slots: RiderViewSlot[],
+): RiderView {
+  const group = new THREE.Group()
+  group.name = `rider-${key}`
+  const n = bind.mesh.xy.length / 2
+  const mat = new THREE.MeshStandardMaterial({
+    color: pieceColor(key), roughness: 0.9, metalness: 0.0,
+    side: THREE.DoubleSide,
+    transparent: true, opacity: 0.92,
+  })
+  const entries: { mesh: ThreeT.Mesh; attr: ThreeT.BufferAttribute; slot: RiderViewSlot }[] = []
+  const idx: number[] = []
+  for (let t = 0; t < bind.mesh.tri.length; t++) idx.push(bind.mesh.tri[t])
+  for (const slot of slots) {
+    const geo = new THREE.BufferGeometry()
+    const attr = new THREE.BufferAttribute(new Float32Array(3 * n), 3)
+    geo.setAttribute('position', attr)
+    geo.setIndex(idx)
+    geo.computeVertexNormals()
+    const mesh = new THREE.Mesh(geo, mat)
+    mesh.name = `rider-${key}-${slot.side}`
+    group.add(mesh)
+    entries.push({ mesh, attr, slot })
+  }
+  const update = (hostPos: Float32Array) => {
+    for (const { attr, slot } of entries) {
+      rideRider(bind, hostPos, slot.hostOffset, attr.array as Float32Array, slot.radialOffset)
+      attr.needsUpdate = true
+      // slot.mesh 同 entries 内一一对应；法线重算
+    }
+    for (const { mesh } of entries) mesh.geometry.computeVertexNormals()
+  }
+  return {
+    group,
+    update,
+    dispose: () => {
+      for (const { mesh } of entries) mesh.geometry.dispose()
+      mat.dispose()
     },
   }
 }

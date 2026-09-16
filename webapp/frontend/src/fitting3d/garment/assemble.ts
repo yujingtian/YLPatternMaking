@@ -1,9 +1,11 @@
 // 静态装配（3D 展示重建，2026-09-15）：整裤缝合解算链已删，只装配
 // 裁片平铺。payload schema v1 照旧发全片（引擎零改动）。两种摆位：
-//   · buildFlatLayout（三期回落，现行接线）——全裁片平铺验证：payload
-//     每片一行（成对片 L 原样 + R 镜像并排、腰头单片），缝合拼合组
-//     （机头+后片、袋贴+前片）按整版全局坐标对齐同行摆放，逐点等距
-//     变换铺地面，与 2D 裁片 SVG 一比一，定位形状问题出在哪层；
+//   · buildFlatLayout（三期回落 → 2026-09-16 四期起 = 非前身裁片的平铺
+//     验证通道：前身组经 panel.ts 并集合成后走悬挂链立起旁挂，exclude
+//     参数把前身组移出平铺；其余片照旧）——payload 每片一行（成对片
+//     L 原样 + R 镜像并排、腰头单片），缝合拼合组（机头+后片、袋贴+
+//     前片）按整版全局坐标对齐同行摆放，逐点等距变换铺地面，与 2D
+//     裁片 SVG 一比一，定位形状问题出在哪层；
 //   · buildFrontPair（一期扇区摆位，暂停接线）——撑型芯场前 90° 扇区
 //     悬挂链（+ drape）代码保留，形状验证通过后回归。
 // 坐标系 = 纸样系（y=纸样高、hem≈0 落地）；显示层 Group 平移到人台
@@ -90,12 +92,20 @@ const STITCH_GROUPS: Record<string, StitchGroupDef> = {
     members: ['front_facing', 'front_piece'],
     aligned: (get) => {
       const front = get('front_piece'), facing = get('front_facing')
-      if (!front || !facing) return false
-      const mouth = edgePts(front, 'mouth')
-      return mouth.length > 0
-        && facing.marks.some((mk) => seamGap(mk.pts, mouth) < STITCH_GAP)
+      return !!front && !!facing && frontFacingAligned(front, facing)
     },
   },
+}
+
+// 袋贴↔前片贴合守卫（平铺拼合组与 panel.ts 前身并集合成共用同一口径）：
+// facing 袋口净线（marks，任一条）与前片 mouth 边逐点重合 < STITCH_GAP
+// ——直/弯腰头两款 fixture 实测 marks[0] 与 mouth 逐点重合 max 0
+export function frontFacingAligned(
+  front: FittingPiece, facing: FittingPiece,
+): boolean {
+  const mouth = edgePts(front, 'mouth')
+  return mouth.length > 0
+    && facing.marks.some((mk) => seamGap(mk.pts, mouth) < STITCH_GAP)
 }
 
 // 全裁片平铺装配（三期回落，2026-09-15 用户口径「把所有裁片都平铺
@@ -110,19 +120,27 @@ const STITCH_GROUPS: Record<string, StitchGroupDef> = {
 // 若与 2D 裁片 SVG 不符 → payload 边链/网格层问题（mesh.ts 上游）；
 // 相符而悬挂不符 → 摆位/解算层问题。颜色区分在 render 层
 // （PIECE_COLORS 按片 key 取色）。
-export function buildFlatLayout(payload: FittingResult): Garment {
+export function buildFlatLayout(
+  payload: FittingResult, exclude?: ReadonlySet<string>,
+): Garment {
   // 行构建：payload 片序遍历，拼合组首片建行、其余片并入（consumed
-  // 防重复建行；守卫不贴合或成员缺片自动退化为单片行）
+  // 防重复建行；守卫不贴合或成员缺片自动退化为单片行）。exclude =
+  // 离开平铺的片（2026-09-16 四期：前身组立起旁挂后不再平铺）——
+  // 排除锚片且守卫通过时**整组**离开（缝合整体要么全平铺要么全立起）；
+  // 守卫不通过则组员照旧独立行平铺（panel 退化兜底：袋贴留平铺验证）
   const byKey = new Map(payload.pieces.map((p) => [p.key, p]))
   const consumed = new Set<string>()
   const rows: { meshes: { key: string; mesh: ClothMesh }[] }[] = []
   for (const piece of payload.pieces) {
     if (consumed.has(piece.key)) continue
     const def = STITCH_GROUPS[piece.key]
-    const group = def?.aligned((k) => byKey.get(k))
-      && def.members.every((k) => byKey.has(k))
-      ? def.members
-      : [piece.key]
+    const aligned = !!def?.aligned((k) => byKey.get(k))
+      && def!.members.every((k) => byKey.has(k))
+    if (exclude?.has(piece.key)) {
+      if (aligned) for (const k of def!.members) consumed.add(k)
+      continue
+    }
+    const group = aligned ? def!.members : [piece.key]
     for (const k of group) {
       if (k !== piece.key) consumed.add(k)
     }

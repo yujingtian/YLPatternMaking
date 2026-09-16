@@ -1,13 +1,16 @@
-// 引力下垂解算（2026-09-15 重建二期，用户口径「裤子的下垂要符合地球
-// 引力」+ 同日拍板「前片先将前中缝合在一起」）：主线程轻量 verlet——
-// 距离/弯曲约束（mesh.ts 预留的 dist/bend 数组）+ **前中缝合对**（L/R
-// rise 链镜像配对 rest=0——两片共享同一网格，顶点号天然一一对齐）+
-// 撑型芯径向场碰撞 + 腰口全向 pin，无跨片装配缝合/无 worker/无 BVH。
-// 前片从初始摆位（assemble.buildFrontPair）被引力拉垂到芯上，裆下布
-// 沉进两腿之间的腰谷成自然悬垂（替代一期静态直出的裆前中折槽，根因
-// 录 §10.11「形态残留沿革」）。口径继承已删整裤链的教训（git d784de1
-// + 决策日志 2026-09-14~15）：勿去碰撞（腿间塌片）、勿去腰口 pin（无
-// 支点整片坠落）；摩擦防周向滑转；发散兜底恢复好帧。
+// 引力下垂解算（2026-09-15 重建二期「下垂要符合地球引力」；2026-09-16
+// 五期前身自由垂）：主线程轻量 verlet——距离/弯曲约束（mesh.ts 预留的
+// dist/bend 数组）+ **前中缝合对**（L/R rise 链镜像配对 rest=0——两片
+// 共享同一网格，顶点号天然一一对齐）+ 腰口 pinY 悬挂 + 地面碰撞。
+// **自由垂口径（2026-09-16 用户口径「如果拿着前片上部不可能是这个
+// 造型」+「裆尖缝合交点要往内拉、在裆下」）**：前身悬挂不再用撑型芯
+// 撑开（field 传 null）——芯撑出的前凸筒不是真实提着前片的形态；无撑
+// 自由垂下前中缝竖直下垂、前浪凹弧（布不可拉伸）自然把裆尖内收到
+// 裆下，布沿缝两侧垂落、下摆过长得地铺地（地面 y≥0 推回 + 摩擦）。
+// 旧口径「勿去碰撞（腿间塌片）」是整裤包腿成形的要求（决策日志
+// 2026-09-14），前身半身布垂成对折门帘正是预期形态，勿混。芯/场仍
+// 用于初摆位半径与取景包络（buildFrontPair / Fitting3DView），只是
+// 不进碰撞。摩擦防地面切向滑转；发散兜底恢复好帧。
 import type { Garment } from './assemble'
 import { CORE_SKIN } from './core'
 import type { BodyField } from './placement'
@@ -23,7 +26,7 @@ export interface DrapeSim {
   pinYTarget: Float32Array // 与 pinYIdx 对齐（仅 y 分量）
   seamIdx: Uint32Array    // 2S 前中缝合粒子对（L/R rise 链同号顶点，rest=0）
   parts: { offset: number; mesh: Garment['parts'][number]['mesh'] }[]
-  field: BodyField
+  field: BodyField | null   // null = 自由垂（无撑型芯径向碰撞，仅地面）
   stepCount: number
   settledFrames: number
   settled: boolean
@@ -47,7 +50,7 @@ export interface DrapeSim {
 // 前中缝合对 = rise 链（前裆弯，腰口端→裆点）L/R 同号顶点配对——真裤
 // 前中缝只到裆点（inseam 是前后片缝，留给后续加后片），fly 连裁款 rise
 // 链缺失则跳过缝合（前中敞口属连裁门襟固有形态）
-export function buildDrape(garment: Garment, field: BodyField): DrapeSim {
+export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim {
   const pinIdx: number[] = []
   const pinYIdx: number[] = []
   for (const part of garment.parts) {
@@ -116,10 +119,12 @@ function projectPins(sim: DrapeSim): void {
   }
 }
 
-// 撑型芯径向场碰撞：r < 场(y,θ)+skin 则径向推出；接触时 prev 向 pos
-// 混合摩擦（无摩擦 = 芯面周向滑转不锚，旧链 0.5 地板 ~9 永不收敛）
+// 撑型芯径向场碰撞（自由垂口径下不调用——field null）：r < 场(y,θ)+skin
+// 则径向推出；接触时 prev 向 pos 混合摩擦（无摩擦 = 芯面周向滑转不锚，
+// 旧链 0.5 地板 ~9 永不收敛）
 function collide(sim: DrapeSim): void {
   const { pos, prev, field } = sim
+  if (!field) return
   const fr = DRAPE_PRIOR.friction
   for (let i3 = 0; i3 < pos.length; i3 += 3) {
     const x = pos[i3], y = pos[i3 + 1], z = pos[i3 + 2]
@@ -132,6 +137,22 @@ function collide(sim: DrapeSim): void {
       pos[i3 + 2] = z * k
       prev[i3] += (pos[i3] - prev[i3]) * fr
       prev[i3 + 1] += (pos[i3 + 1] - prev[i3 + 1]) * fr
+      prev[i3 + 2] += (pos[i3 + 2] - prev[i3 + 2]) * fr
+    }
+  }
+}
+
+// 地面碰撞（自由垂主约束）：y < 0 推回地面；法向速度清零（prev.y 同钉）
+// + 切向摩擦（prev xz 向 pos 混合——无摩擦布在地上持续滑转不锚）。
+// 悬挂高 = 纸样腰高，布全长超过它则下摆拖地铺地（真实提着前片的形态）
+function collideGround(sim: DrapeSim): void {
+  const { pos, prev } = sim
+  const fr = DRAPE_PRIOR.friction
+  for (let i3 = 0; i3 < pos.length; i3 += 3) {
+    if (pos[i3 + 1] < 0) {
+      pos[i3 + 1] = 0
+      prev[i3 + 1] = 0
+      prev[i3] += (pos[i3] - prev[i3]) * fr
       prev[i3 + 2] += (pos[i3 + 2] - prev[i3 + 2]) * fr
     }
   }
@@ -199,6 +220,7 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
       projectPins(sim)
     }
     collide(sim)
+    collideGround(sim)
     for (let i3 = 0; i3 < pos.length; i3 += 3) {
       vel[i3] = (pos[i3] - prev[i3]) / dtSub
       vel[i3 + 1] = (pos[i3 + 1] - prev[i3 + 1]) / dtSub

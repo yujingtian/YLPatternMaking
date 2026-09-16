@@ -318,6 +318,56 @@ describe('assemble：贴合守卫（有省 yoke 退独立行、弯腰头袋贴�
   })
 })
 
+describe('assemble：buildFlatLayout exclude（四期前身缝合立起）', () => {
+  const pocketResult: FittingResult = JSON.parse(
+    readFileSync(`${HERE}/fixture_fitting_pocket.json`, 'utf8'))
+
+  it('exclude 前身组（锚+组员）→ 整组离开平铺，余片照旧', () => {
+    const g = buildFlatLayout(pocketResult,
+      new Set(['front_piece', 'front_facing']))
+    expect(g.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'back_piece_L', 'back_piece_R', 'waistband_L',
+    ])
+  })
+
+  it('只 exclude 锚、守卫通过 → 组员随锚整组离开（缝合整体口径）', () => {
+    const g = buildFlatLayout(pocketResult, new Set(['front_piece']))
+    expect(g.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'back_piece_L', 'back_piece_R', 'waistband_L',
+    ])
+  })
+
+  it('无袋贴款 exclude 前片 → 前片独立离开、无组员可带走', () => {
+    const g = buildFlatLayout(result, new Set(['front_piece']))
+    expect(g.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'back_piece_L', 'back_piece_R', 'waistband_L',
+    ])
+  })
+
+  it('守卫破坏 + exclude 锚 → 组员照旧独立行平铺（panel 退化兜底）', () => {
+    const broken: FittingResult = {
+      ...pocketResult,
+      pieces: pocketResult.pieces.map((p) => p.key === 'front_facing'
+        ? {
+          ...p,
+          edges: p.edges.map((e) => ({
+            ...e, pts: e.pts.map(([x, y]) => [x + 5, y] as [number, number]),
+          })),
+          marks: p.marks.map((mk) => ({
+            ...mk, pts: mk.pts.map(([x, y]) => [x + 5, y] as [number, number]),
+          })),
+        }
+        : p),
+    }
+    const g = buildFlatLayout(broken, new Set(['front_piece']))
+    // 行序 = payload 片序（front_facing 片序在 back 之后）
+    expect(g.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'back_piece_L', 'back_piece_R',
+      'front_facing_L', 'front_facing_R', 'waistband_L',
+    ])
+  })
+})
+
 describe('assemble：前片 L+R 静态装配（重建一期，暂停接线）', () => {
   const front = buildClothMesh(result.pieces.find((p) => p.key === 'front_piece')!)
   const core = buildCore(result)
