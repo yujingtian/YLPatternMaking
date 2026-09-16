@@ -72,7 +72,9 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   撑型芯（锚纸样围度）→ placement 前/后 90° 扇区摆位（前 θ∈[−90°,0°]
 #   / 后 θ∈[−180°,−90°]，L/R 共享宿主网格，buildHangPair 泛化）→
 #   drape.ts verlet 自由垂（前中 rise 链/后中 cb 链同号缝合对 + 腰口
-#   pinY 悬挂 + 地面碰撞，无撑型芯——芯撑出的前凸筒不是真实提着前片
+#   整圈全向钉直挂〔2026-09-16「拉直」：摆位侧腰口弧长重参数化使中缝
+#   腰角精确落中面——「钉与缝同意」，Y-only 环滑塌对折门帘退役〕+
+#   地面碰撞，无撑型芯——芯撑出的前凸筒不是真实提着前片
 #   的形态；芯/场只供初摆位半径与取景包络。rAF 一帧一步 settle 停）；
 #   宿主不渲染，前片/
 #   袋贴/后片/育克本体 = rider.ts 贴层（buildClothMesh 各自三角化 → bindRider 每

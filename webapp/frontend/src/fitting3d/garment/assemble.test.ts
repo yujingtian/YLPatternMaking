@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
 import { buildFlatLayout, buildHangPair } from './assemble'
+import { buildBackPanel, buildFrontPanel } from './panel'
 import { buildCore, CORE_SKIN } from './core'
 import { buildClothMesh } from './mesh'
 import { buildBodyField, penetrationStats } from './placement'
@@ -521,4 +522,51 @@ describe('assemble：buildFlatLayout exclude 后身组（六期后身缝合立�
       'waistband_L',
     ])
   })
+})
+
+describe('assemble：腰口弧长重参数化（六期拉直）', () => {
+  // 顶链按腰口弧长分数铺满扇区：中缝腰角（顶链 s=0 端）精确落中面
+  // （front θ=0 / back θ=−180°，均匀 x→θ 映射的固有偏心实测 −3.9/
+  // −5.8cm 根治）、侧缝腰角（s=1 端）精确落 ±90°、θ 沿链单调——
+  // drape 整圈全向钉的「钉与缝同意」前提。夹具 = 前身并集（pocket）
+  // / 后身并集（yoke）双宿主
+  const cases = [
+    { key: 'front' as const, fixture: 'fixture_fitting_pocket.json',
+      build: buildFrontPanel, centerTh: 0 },
+    { key: 'back' as const, fixture: 'fixture_fitting_yoke.json',
+      build: buildBackPanel, centerTh: -Math.PI },
+  ]
+  for (const c of cases) {
+    it(`${c.key}：中缝腰角落中面、侧缝腰角落 ±90°、θ 沿链单调铺满扇区`, () => {
+      const payload: FittingResult = JSON.parse(
+        readFileSync(`${HERE}/${c.fixture}`, 'utf8'))
+      const core = buildCore(payload)
+      const field = buildBodyField(core.positions, core.indices)
+      const g = buildHangPair(c.key, c.build(payload).host, field)
+      const top = g.parts[0].mesh.runs.find((r) => r.role === 'top_chain')!
+      const thOf = (side: 'L' | 'R', i: number): number => {
+        const off = side === 'L' ? g.parts[0].offset : g.parts[1].offset
+        return Math.atan2(g.pos[3 * (off + i)], g.pos[3 * (off + i) + 2])
+      }
+      // 首端（s=0）= 中缝腰角：精确落中面（front 0° / back −180°）
+      const first = top.indices[0]
+      expect(Math.abs(g.pos[3 * (g.parts[0].offset + first)])).toBeLessThan(0.01)
+      const th0 = thOf('L', first)
+      expect(Math.abs(Math.atan2(Math.sin(th0 - c.centerTh),
+        Math.cos(th0 - c.centerTh)))).toBeLessThan(0.01)
+      // 末端（s=1）= 侧缝腰角：精确落 −90°
+      const lastI = top.indices[top.indices.length - 1]
+      const thL = thOf('L', lastI)
+      expect(Math.abs(Math.atan2(Math.sin(thL + Math.PI / 2),
+        Math.cos(thL + Math.PI / 2)))).toBeLessThan(0.01)
+      expect(g.pos[3 * (g.parts[0].offset + lastI)]).toBeLessThan(0)   // L 侧 −X
+      // θ 沿链单调（front 0→−90 递减 / back −180→−90 递增）铺满 90°
+      const step = c.key === 'front' ? -1 : 1
+      for (let k = 1; k < top.indices.length; k++) {
+        const prev = thOf('L', top.indices[k - 1])
+        const cur = thOf('L', top.indices[k])
+        expect((cur - prev) * step).toBeGreaterThanOrEqual(-1e-6)
+      }
+    })
+  }
 })

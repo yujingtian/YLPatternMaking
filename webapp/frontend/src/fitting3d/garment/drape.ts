@@ -1,16 +1,17 @@
 // 引力下垂解算（2026-09-15 重建二期「下垂要符合地球引力」；2026-09-16
-// 五期前身自由垂）：主线程轻量 verlet——距离/弯曲约束（mesh.ts 预留的
-// dist/bend 数组）+ **前中缝合对**（L/R rise 链镜像配对 rest=0——两片
-// 共享同一网格，顶点号天然一一对齐）+ 腰口 pinY 悬挂 + 地面碰撞。
-// **自由垂口径（2026-09-16 用户口径「如果拿着前片上部不可能是这个
-// 造型」+「裆尖缝合交点要往内拉、在裆下」）**：前身悬挂不再用撑型芯
-// 撑开（field 传 null）——芯撑出的前凸筒不是真实提着前片的形态；无撑
-// 自由垂下前中缝竖直下垂、前浪凹弧（布不可拉伸）自然把裆尖内收到
-// 裆下，布沿缝两侧垂落、下摆过长得地铺地（地面 y≥0 推回 + 摩擦）。
-// 旧口径「勿去碰撞（腿间塌片）」是整裤包腿成形的要求（决策日志
-// 2026-09-14），前身半身布垂成对折门帘正是预期形态，勿混。芯/场仍
-// 用于初摆位半径与取景包络（buildFrontPair / Fitting3DView），只是
-// 不进碰撞。摩擦防地面切向滑转；发散兜底恢复好帧。
+// 五期前身自由垂；同日六期「拉直」整圈钉直挂）：主线程轻量 verlet——
+// 距离/弯曲约束（mesh.ts 预留的 dist/bend 数组）+ **中缝对**（L/R
+// rise|cb 链镜像配对 rest=0——两片共享同一网格，顶点号天然一一对齐）
+// + 腰口整圈全向钉悬挂 + 地面碰撞。**自由垂口径（无撑型芯）**：悬挂
+// 不用撑型芯撑开（field 传 null）——芯撑出的前凸筒不是真实提着前片的
+// 形态；布条自腰口顶缘竖直垂下、下摆过长得地铺地（地面 y≥0 推回 +
+// 摩擦）。形态沿革：二~五期 Y-only 腰口自由垂下「布塌成对折门帘」曾
+// 是预期形态，2026-09-16 用户报障「前中和后中往里折、要拉直」后由
+// 整圈全向钉（三轮，见 buildDrape 头注）取代——中缝保持在前中/后中
+// 竖直、顶缘按摆位弧全撑。旧口径「勿去碰撞（腿间塌片）」是整裤包腿
+// 成形的要求（决策日志 2026-09-14），勿混。芯/场仍用于初摆位半径与
+// 取景包络（buildHangPair / Fitting3DView），只是不进碰撞。摩擦防地
+// 面切向滑转；发散兜底恢复好帧。
 import type { Garment } from './assemble'
 import { CORE_SKIN } from './core'
 import type { BodyField } from './placement'
@@ -20,10 +21,8 @@ export interface DrapeSim {
   pos: Float32Array       // 全粒子当前位置（解算本体；garment.pos 是初摆位）
   prev: Float32Array      // 上一子步位置（verlet）
   vel: Float32Array
-  pinIdx: Uint32Array     // 腰口粒子（top_chain 边 + 两端非缝合角点）
+  pinIdx: Uint32Array     // 腰口整圈粒子（top_chain 边全量 + 终点角，六期直挂口径）
   pinTarget: Float32Array // 3×pin 目标位（初始摆位处，全向硬钉 = 悬挂支点）
-  pinYIdx: Uint32Array    // 只钉 Y 的角点（缝合链端点——全向钉会与缝合对拔河）
-  pinYTarget: Float32Array // 与 pinYIdx 对齐（仅 y 分量）
   seamIdx: Uint32Array    // 2S 中缝粒子对（L/R rise|cb 链同号顶点，rest=0）
   parts: { offset: number; mesh: Garment['parts'][number]['mesh'] }[]
   field: BodyField | null   // null = 自由垂（无撑型芯径向碰撞，仅地面）
@@ -37,16 +36,22 @@ export interface DrapeSim {
   lastGood: Float32Array
 }
 
-// 悬挂支点 = 腰口整圈**只钉 Y**（高度恒守、环向/径向可滑）+ **双角全向
-// 锚**（L/R 侧角各一）。演进（2026-09-15 顶部折角两轮）：
-// 一轮全向钉把腰口锁成刚性折线——角点急坠（侧角 −2.1cm）补钉后顶缘
-// 仍是「图案角 + 侧缘陡落」的尖状凸起（用户截图复验）、前中角被锁在
-// 均匀映射偏心位与前中缝合拔河出顶中缺口；二轮改 Y-only：布自重自然
-// 圆化顶缘、前中缝合把顶缘滑到正中闭合。**单锚不收敛实测**（600 帧封
-// 顶：单点锚不住环向滑移模态、无锚半边持续蠕动）——双角锚各定住半边
-// 的刚体滑移，顶缘中段仍可滑可曲。角点口径（边界环重采样：每边含起
-// 点采样、不含终点，共享角点 = 下一条边的首采样）：终点角须并入 Y 钉
-// 集（不钉则急坠）。
+// 悬挂支点 = 腰口整圈**全向钉**（2026-09-16 六期「拉直」口径：真实
+// 「提着整个腰口」——顶缘按摆位弧撑住、布条自顶缘竖直垂下，中缝不再
+// 塌向轴心），无例外。演进（三轮）：
+// 一轮（2026-09-15 顶部折角）全向钉把腰口锁成刚性折线——角点急坠
+// （侧角 −2.1cm）补钉后顶缘仍是「图案角 + 侧缘陡落」的尖状凸起（用户
+// 截图复验仍在）、前中角被锁在均匀映射偏心位（实测 −3.9cm ≈ 17°）与
+// 前中缝合拔河出顶中缺口；二轮改 Y-only + 双角锚（单锚实测不收敛：锚
+// 不住环向滑移模态）——布自重圆化顶缘、前中缝把顶缘滑到正中闭合，但
+// **环向可滑 = 布自重把整圈腰口滑向轴心**：中缝跟着荡离前中/后中（前
+// 中缝外伸 16.6→5.7cm）、整幅布塌成对折门帘（2026-09-16 用户报障
+// 「前中和后中往里折、要拉直」）；三轮（现行）= 整圈全向钉：摆位侧经
+// assemble 腰口弧长重参数化中缝腰角精确落中面（L/R 镜像重合）——一轮
+// 拔河的根源是映射偏心而非钉本身，重参数化后「钉与缝同意」按构造成立
+// （无需二轮的角点例外，实测缝对 avg/p95 = 0），顶缘全撑 = 直挂。
+// 角点口径（边界环重采样：每边含起点采样、不含终点，共享角点
+// = 下一条边的首采样）：终点角须并入钉集（不钉则急坠）。
 // 前中缝合对 = rise 链（前裆弯，腰口端→裆点）L/R 同号顶点配对——真裤
 // 前中缝只到裆点（inseam 是前后片缝，留给后续加后片），fly 连裁款 rise
 // 链缺失则跳过缝合（前中敞口属连裁门襟固有形态）；后身（2026-09-16
@@ -54,29 +59,24 @@ export interface DrapeSim {
 // 到腰）L/R 同号配对
 export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim {
   const pinIdx: number[] = []
-  const pinYIdx: number[] = []
   for (const part of garment.parts) {
     const top = part.mesh.runs.find((r) => r.role === 'top_chain')
     if (!top) throw new Error('裁片缺 top_chain（腰口）边——下垂 pin 无支点')
     const loopLen = part.mesh.loop.length
     const last = top.indices[top.indices.length - 1]
-    for (const i of top.indices) pinYIdx.push(part.offset + i)
-    // 终点角（下一条边首采样）：全向锚（防半边环向蠕动）+ 并入 Y 集
+    // 整圈全向钉（六期直挂）：前提 = buildHangPair 腰口弧长重参数化把
+    // 中缝腰角精确摆在镜像位（L/R 重合在中面）——钉与缝天然同意，无需
+    // 旧二轮的角点例外；实测缝对 avg/p95 = 0
+    for (const i of top.indices) pinIdx.push(part.offset + i)
+    // 终点角（下一条边首采样）：全向锚（防侧角急坠，实测 −2.1cm）
     const nextNb = (last + 1) % loopLen
-    if (!top.indices.includes(nextNb)) {
-      pinYIdx.push(part.offset + nextNb)
-      pinIdx.push(part.offset + nextNb)
-    }
+    if (!top.indices.includes(nextNb)) pinIdx.push(part.offset + nextNb)
   }
   const pinTarget = new Float32Array(3 * pinIdx.length)
   for (let k = 0; k < pinIdx.length; k++) {
     pinTarget[3 * k] = garment.pos[3 * pinIdx[k]]
     pinTarget[3 * k + 1] = garment.pos[3 * pinIdx[k] + 1]
     pinTarget[3 * k + 2] = garment.pos[3 * pinIdx[k] + 2]
-  }
-  const pinYTarget = new Float32Array(pinYIdx.length)
-  for (let k = 0; k < pinYIdx.length; k++) {
-    pinYTarget[k] = garment.pos[3 * pinYIdx[k] + 1]
   }
   // 中缝对（前中 rise / 后中 cb）：L/R 共享网格，同号顶点 (0+i, n+i) 镜像对
   const seamIdx: number[] = []
@@ -97,8 +97,6 @@ export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim 
     vel: new Float32Array(pos.length),
     pinIdx: new Uint32Array(pinIdx),
     pinTarget,
-    pinYIdx: new Uint32Array(pinYIdx),
-    pinYTarget,
     seamIdx: new Uint32Array(seamIdx),
     parts: garment.parts.map((p) => ({ offset: p.offset, mesh: p.mesh })),
     field,
@@ -109,16 +107,12 @@ export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim 
 }
 
 function projectPins(sim: DrapeSim): void {
-  const { pos, pinIdx, pinTarget, pinYIdx, pinYTarget } = sim
+  const { pos, pinIdx, pinTarget } = sim
   for (let k = 0; k < pinIdx.length; k++) {
     const i3 = 3 * pinIdx[k]
     pos[i3] = pinTarget[3 * k]
     pos[i3 + 1] = pinTarget[3 * k + 1]
     pos[i3 + 2] = pinTarget[3 * k + 2]
-  }
-  // Y-only 钉（前中角）：只锁高度
-  for (let k = 0; k < pinYIdx.length; k++) {
-    pos[3 * pinYIdx[k] + 1] = pinYTarget[k]
   }
 }
 

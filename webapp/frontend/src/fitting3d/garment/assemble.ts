@@ -15,7 +15,7 @@ import type { ClothMesh } from './mesh'
 import { buildClothMesh } from './mesh'
 import type { BodyField, PieceKey, Side } from './placement'
 import { placePoint } from './placement'
-import { FLAT_PRIOR } from './priors'
+import { FLAT_PRIOR, HANG_PRIOR } from './priors'
 
 export interface GarmentPart {
   key: string             // payload 片 key（front_piece/back_piece/...）
@@ -238,6 +238,48 @@ export function buildHangPair(
       pos[3 * (part.offset + i)] = px
       pos[3 * (part.offset + i) + 1] = py
       pos[3 * (part.offset + i) + 2] = pz
+    }
+  }
+  // 腰口弧长重参数化（2026-09-16 六期「拉直」）：均匀 x→θ 映射固有
+  // 偏心——腰口两端点不落扇区边界（中缝腰角实测偏心 ~3.9cm ≈ 17°），
+  // 整圈全向钉悬挂（drape）下顶缘会留顶中缺口/鞍。顶链顶点改按**腰口
+  // 弧长分数** s∈[0,1]（s=0 = 中缝腰角端）均匀铺满扇区：中缝腰角精确
+  // 落 0°/−180°、侧缝腰角精确落 ±90°；y/半径口径不变（y = 纸样高、
+  // r = 场(y,θ)+gap），R 侧照旧 θ→−θ 镜像（保双侧镜像对称金标）。
+  // 片身其余顶点照旧 x 映射（初摆位近似，解算自松弛）
+  const top = mesh.runs.find((r) => r.role === 'top_chain')
+  const seamRun = mesh.runs.find(
+    (r) => r.name === 'rise' || r.name === 'cb')
+  if (top && top.indices.length > 1) {
+    // run 方向对齐：order[0] = 中缝腰角（中缝链腰口端顶点；无中缝款
+    // 〔fly 连裁〕回退链首）
+    const seamTop = seamRun
+      ? seamRun.indices[seamRun.indices.length - 1] : null
+    const order = seamTop !== null
+      && seamTop === top.indices[top.indices.length - 1]
+      ? [...top.indices].reverse() : [...top.indices]
+    const arc: number[] = [0]
+    for (let k = 1; k < order.length; k++) {
+      const a = order[k - 1], b = order[k]
+      arc.push(arc[k - 1] + Math.hypot(
+        mesh.xy[2 * b] - mesh.xy[2 * a], mesh.xy[2 * b + 1] - mesh.xy[2 * a + 1]))
+    }
+    const total = arc[order.length - 1] || 1
+    for (let k = 0; k < order.length; k++) {
+      const i = order[k]
+      const f = arc[k] / total
+      // f=0 中缝腰角 → 扇区中心端（front 0° / back −180°）、f=1 → 侧缝 −90°
+      const thL = key === 'back'
+        ? -Math.PI + f * (Math.PI / 2)
+        : -f * (Math.PI / 2)
+      const y = mesh.xy[2 * i + 1]
+      for (const part of parts) {
+        const th = part.side === 'R' ? -thL : thL
+        const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
+        pos[3 * (part.offset + i)] = r * Math.sin(th)
+        pos[3 * (part.offset + i) + 1] = y
+        pos[3 * (part.offset + i) + 2] = r * Math.cos(th)
+      }
     }
   }
   return { parts, pos, total: 2 * n }
