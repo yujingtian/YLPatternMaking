@@ -24,7 +24,7 @@ export interface DrapeSim {
   pinTarget: Float32Array // 3×pin 目标位（初始摆位处，全向硬钉 = 悬挂支点）
   pinYIdx: Uint32Array    // 只钉 Y 的角点（缝合链端点——全向钉会与缝合对拔河）
   pinYTarget: Float32Array // 与 pinYIdx 对齐（仅 y 分量）
-  seamIdx: Uint32Array    // 2S 前中缝合粒子对（L/R rise 链同号顶点，rest=0）
+  seamIdx: Uint32Array    // 2S 中缝粒子对（L/R rise|cb 链同号顶点，rest=0）
   parts: { offset: number; mesh: Garment['parts'][number]['mesh'] }[]
   field: BodyField | null   // null = 自由垂（无撑型芯径向碰撞，仅地面）
   stepCount: number
@@ -49,13 +49,15 @@ export interface DrapeSim {
 // 集（不钉则急坠）。
 // 前中缝合对 = rise 链（前裆弯，腰口端→裆点）L/R 同号顶点配对——真裤
 // 前中缝只到裆点（inseam 是前后片缝，留给后续加后片），fly 连裁款 rise
-// 链缺失则跳过缝合（前中敞口属连裁门襟固有形态）
+// 链缺失则跳过缝合（前中敞口属连裁门襟固有形态）；后身（2026-09-16
+// 六期）同款 = cb 链（后浪，裆尖→腰口，育克拼入时经 panel.ts 聚合贯通
+// 到腰）L/R 同号配对
 export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim {
   const pinIdx: number[] = []
   const pinYIdx: number[] = []
   for (const part of garment.parts) {
     const top = part.mesh.runs.find((r) => r.role === 'top_chain')
-    if (!top) throw new Error('前片缺 top_chain（腰口）边——下垂 pin 无支点')
+    if (!top) throw new Error('裁片缺 top_chain（腰口）边——下垂 pin 无支点')
     const loopLen = part.mesh.loop.length
     const last = top.indices[top.indices.length - 1]
     for (const i of top.indices) pinYIdx.push(part.offset + i)
@@ -76,13 +78,14 @@ export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim 
   for (let k = 0; k < pinYIdx.length; k++) {
     pinYTarget[k] = garment.pos[3 * pinYIdx[k] + 1]
   }
-  // 前中缝合对：L/R 共享网格，rise 同号顶点 (0+i, n+i) 镜像对
+  // 中缝对（前中 rise / 后中 cb）：L/R 共享网格，同号顶点 (0+i, n+i) 镜像对
   const seamIdx: number[] = []
   if (garment.parts.length >= 2) {
-    const rise = garment.parts[0].mesh.runs.find((r) => r.name === 'rise')
-    if (rise) {
+    const seamRun = garment.parts[0].mesh.runs.find(
+      (r) => r.name === 'rise' || r.name === 'cb')
+    if (seamRun) {
       const [pl, pr] = garment.parts
-      for (const i of rise.indices) {
+      for (const i of seamRun.indices) {
         seamIdx.push(pl.offset + i, pr.offset + i)
       }
     }
@@ -204,7 +207,7 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
           pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
         }
       }
-      // 前中缝合对（跨片，rest=0、刚度 1）：双向各移一半
+      // 中缝对（前中 rise/后中 cb，跨片，rest=0、刚度 1）：双向各移一半
       const { seamIdx } = sim
       for (let c = 0; c < seamIdx.length; c += 2) {
         const a = 3 * seamIdx[c], b = 3 * seamIdx[c + 1]
@@ -261,7 +264,7 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
   return sim.settled ? 'settled' : 'running'
 }
 
-// 前中缝合误差统计（金标用）：全部缝合对点距 avg / P95。读 sim.pos
+// 中缝（前中 rise/后中 cb）缝合误差统计（金标用）：全部缝合对点距 avg / P95。读 sim.pos
 // 当前解算位——garment.pos 是初始摆位，别解构它
 export function seamStats(sim: DrapeSim): { avg: number; p95: number } {
   const { pos, seamIdx } = sim

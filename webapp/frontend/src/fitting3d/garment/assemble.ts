@@ -6,14 +6,14 @@
 //     L 原样 + R 镜像并排、腰头单片），缝合拼合组（机头+后片、袋贴+
 //     前片）按整版全局坐标对齐同行摆放，逐点等距变换铺地面，与 2D
 //     裁片 SVG 一比一，定位形状问题出在哪层；
-//   · buildFrontPair（一期扇区摆位，暂停接线）——撑型芯场前 90° 扇区
-//     悬挂链（+ drape）代码保留，形状验证通过后回归。
+//   · buildHangPair（扇区摆位，四期起随前身缝合立起回归接线；前身/
+//     后身悬挂链共用）——撑型芯场前/后 90° 扇区悬挂（+ drape）。
 // 坐标系 = 纸样系（y=纸样高、hem≈0 落地）；显示层 Group 平移到人台
 // 旁侧（Fitting3DView），本层不感知人台。
 import type { FittingPiece, FittingResult } from '../../types'
 import type { ClothMesh } from './mesh'
 import { buildClothMesh } from './mesh'
-import type { BodyField, Side } from './placement'
+import type { BodyField, PieceKey, Side } from './placement'
 import { placePoint } from './placement'
 import { FLAT_PRIOR } from './priors'
 
@@ -75,8 +75,7 @@ const STITCH_GROUPS: Record<string, StitchGroupDef> = {
     members: ['back_piece', 'back_yoke'],
     aligned: (get) => {
       const back = get('back_piece'), yoke = get('back_yoke')
-      return !!back && !!yoke
-        && seamGap(edgePts(back, 'top'), edgePts(yoke, 'bottom')) < STITCH_GAP
+      return !!back && !!yoke && backYokeAligned(back, yoke)
     },
   },
   // 袋贴+前片（晚九用户口径「将前口袋也平铺出来，然后和前片缝合，
@@ -106,6 +105,19 @@ export function frontFacingAligned(
   const mouth = edgePts(front, 'mouth')
   return mouth.length > 0
     && facing.marks.some((mk) => seamGap(mk.pts, mouth) < STITCH_GAP)
+}
+
+// 机头↔后片贴合守卫（平铺拼合组与 panel.ts 后身并集合成共用同一口径）：
+// back 上边 top（机头下口线）与 yoke 下边 bottom（整版同一净线）逐点
+// 重合 < STITCH_GAP——无省款 fixture 实测逐点重合 max 0；有省款 yoke
+// 下边是省闭口净样、与整版下口线错位 ~12cm（真实缝前状态：后片省未收）
+// → 守卫拦下
+export function backYokeAligned(
+  back: FittingPiece, yoke: FittingPiece,
+): boolean {
+  const top = edgePts(back, 'top')
+  return top.length > 0
+    && seamGap(top, edgePts(yoke, 'bottom')) < STITCH_GAP
 }
 
 // 全裁片平铺装配（三期回落，2026-09-15 用户口径「把所有裁片都平铺
@@ -201,26 +213,27 @@ export function buildFlatLayout(
   return { parts, pos, total: off }
 }
 
-// 前片一对静态装配（一期扇区摆位，暂停接线）：front × {L, R}，逐顶点
-// 摆位到撑型芯场前扇区
-export function buildFrontPair(
-  front: ClothMesh, field: BodyField,
+// 悬挂一对静态装配（扇区摆位；前身/后身悬挂链共用——一期前片口径
+// 2026-09-16 后身缝合起泛化）：同一宿主网格 × {L, R}，逐顶点摆位到
+// 撑型芯场扇区（front 前扇区 [−90°,0°] / back 后扇区 [−180°,−90°]）
+export function buildHangPair(
+  key: PieceKey, mesh: ClothMesh, field: BodyField,
 ): Garment {
-  const n = front.xy.length / 2
+  const n = mesh.xy.length / 2
   let xMin = Infinity, xMax = -Infinity
-  for (let i = 0; i < front.xy.length; i += 2) {
-    xMin = Math.min(xMin, front.xy[i])
-    xMax = Math.max(xMax, front.xy[i])
+  for (let i = 0; i < mesh.xy.length; i += 2) {
+    xMin = Math.min(xMin, mesh.xy[i])
+    xMax = Math.max(xMax, mesh.xy[i])
   }
   const parts: GarmentPart[] = [
-    { key: 'front', side: 'L', mesh: front, offset: 0 },
-    { key: 'front', side: 'R', mesh: front, offset: n },
+    { key, side: 'L', mesh, offset: 0 },
+    { key, side: 'R', mesh, offset: n },
   ]
   const pos = new Float32Array(3 * 2 * n)
   for (const part of parts) {
     for (let i = 0; i < n; i++) {
       const [px, py, pz] = placePoint(
-        'front', part.side, front.xy[2 * i], front.xy[2 * i + 1],
+        key, part.side, mesh.xy[2 * i], mesh.xy[2 * i + 1],
         xMin, xMax, field)
       pos[3 * (part.offset + i)] = px
       pos[3 * (part.offset + i) + 1] = py

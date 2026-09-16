@@ -1,7 +1,7 @@
 // 裁片网格与摆位金标（2026-09-15 重建一期口径：整裤缝合/解算链已删，
 // 只测单片地基）：布料网格拓扑（三角化面积比 ≥99%、最小角 >15°、边界
-// 环聚合段）；支撑半径场（双线性、θ 环绕、y 夹取）；placePoint 前扇区
-// 摆位与镜像；穿透统计口径。
+// 环聚合段）；支撑半径场（双线性、θ 环绕、y 夹取）；placePoint 前/后
+// 扇区摆位与镜像；穿透统计口径。
 // 夹具 = 引擎 payload（fixture_fitting.json 默认直腰头，引擎
 // build_fitting_payload 直出 + 补 ok/warnings）。
 import { readFileSync } from 'node:fs'
@@ -134,6 +134,28 @@ describe('placement：支撑半径场与摆位', () => {
     expect(fR[0]).toBeCloseTo(-fL[0], 9)
     expect(fR[2]).toBeCloseTo(fL[2], 9)
     expect(fR[1]).toBeCloseTo(fL[1], 9)
+  })
+
+  it('placePoint：back 90° 后扇区（侧缝 −90° → 后中 −180°）、右半镜像', () => {
+    const rows = 2, bins = 16, rowStep = 100
+    const f = new BodyField(new Float32Array(rows * bins).fill(10),
+      rows, rowStep, bins)
+    const gap = HANG_PRIOR.garmentGap
+    // back t=0 → θ=−π/2（侧缝，与 front 同角——穿着拓扑侧缝相邻）
+    const bL = placePoint('back', 'L', 0, 50, 0, 100, f)
+    expect(bL[0]).toBeCloseTo(-(10 + gap), 9)
+    expect(bL[2]).toBeCloseTo(0, 9)
+    expect(bL[1]).toBeCloseTo(50, 9)
+    // back t=1 → θ=−π（后中 −Z，与前中 +Z 相对）
+    const bCb = placePoint('back', 'L', 100, 50, 0, 100, f)
+    expect(bCb[2]).toBeCloseTo(-(10 + gap), 9)
+    expect(bCb[0]).toBeCloseTo(0, 9)
+    // 镜像：R 侧 θ 取反（+90° → +180°）→ x 翻号、z 同号
+    const bR = placePoint('back', 'R', 0, 50, 0, 100, f)
+    expect(bR[0]).toBeCloseTo(-bL[0], 9)
+    expect(bR[2]).toBeCloseTo(bL[2], 9)
+    const bRCb = placePoint('back', 'R', 100, 50, 0, 100, f)
+    expect(bRCb[2]).toBeCloseTo(bCb[2], 9)   // 两半后中同在 −Z 闭合
   })
 
   it('penetrationStats：同心圆零穿透、内陷计数/深度', () => {

@@ -6,11 +6,19 @@
 // （并集完备，rider 贴层无兜底）；三角化面积比 ≥99%（garment.test
 // 同口径防自交/漏采）；宿主面积 > 前片（月牙区并入）。退化：无口袋
 // fixture / facing 平移破坏守卫 → hasFacing=false 纯前片宿主。
-// 夹具 = fixture_fitting_pocket.json（引擎直出，4 片含袋贴）。
+// 后身并集净样金标（2026-09-16 六期后身缝合立起）：back_piece +
+// back_yoke 沿机头下口线缝合。验收：机头下口线内部化（runs 无
+// bottom）；back.cb（裆尖→P0）与 yoke cb 反向段（P0→O）聚合成整条
+// 后浪（长度 = 两链和，drape 后中缝合对沿它配对）；yoke 腰口 top 顶替
+// top_chain；覆盖性/面积比同前身口径。退化：无育克 fixture（信息性
+// warning）/ 有省款守卫拦下（curved fixture）→ hasYoke=false 纯后片。
+// 夹具 = fixture_fitting_pocket.json（4 片含袋贴）/ fixture_fitting_
+// yoke.json（4 片含育克，无省贴合）/ fixture_fitting_curved_pocket.json
+// （有省款）。
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
-import { buildFrontPanel } from './panel'
+import { buildBackPanel, buildFrontPanel } from './panel'
 import { buildClothMesh, type ClothMesh } from './mesh'
 
 const HERE = import.meta.dirname   // src/fitting3d/garment
@@ -19,6 +27,10 @@ const pocket: FittingResult = JSON.parse(
   readFileSync(`${HERE}/fixture_fitting_pocket.json`, 'utf8'))
 const plain: FittingResult = JSON.parse(
   readFileSync(`${HERE}/fixture_fitting.json`, 'utf8'))
+const yokeFix: FittingResult = JSON.parse(
+  readFileSync(`${HERE}/fixture_fitting_yoke.json`, 'utf8'))
+const curved: FittingResult = JSON.parse(
+  readFileSync(`${HERE}/fixture_fitting_curved_pocket.json`, 'utf8'))
 
 const frontPiece = pocket.pieces.find((p) => p.key === 'front_piece')!
 const facingPiece = pocket.pieces.find((p) => p.key === 'front_facing')!
@@ -141,5 +153,101 @@ describe('panel：前身并集净样（前片+袋贴沿 mouth 缝合）', () => 
     expect(r.hasFacing).toBe(false)
     expect(r.warnings.length).toBe(1)
     expect(r.warnings[0]).toContain('不贴合')
+  })
+})
+
+describe('panel：后身并集净样（后片+育克沿机头下口线缝合）', () => {
+  const panel = buildBackPanel(yokeFix)
+  const backPiece = yokeFix.pieces.find((p) => p.key === 'back_piece')!
+  const yokePiece = yokeFix.pieces.find((p) => p.key === 'back_yoke')!
+  const backMesh = buildClothMesh(backPiece)
+  const yokeMesh = buildClothMesh(yokePiece)
+
+  it('守卫通过拼入育克：hasYoke=true、无 warnings', () => {
+    expect(panel.hasYoke).toBe(true)
+    expect(panel.warnings).toEqual([])
+  })
+
+  it('机头下口线内部化为缝线：runs 无 bottom；cb/top/side/hem/inseam 齐备', () => {
+    const names = panel.host.runs.map((r) => r.name)
+    expect(names).not.toContain('bottom')
+    for (const n of ['cb', 'top', 'side', 'hem', 'inseam']) {
+      expect(names).toContain(n)
+    }
+    expect(panel.host.runs.find((r) => r.role === 'top_chain')!.name)
+      .toBe('top')
+  })
+
+  it('后浪贯通：back.cb（裆尖→P0）与 yoke cb 反向段（P0→O）聚合成单一 cb run，长度 = 两链和', () => {
+    // fixture 手工演算：back cb 两段 14.66+10.34 + yoke cb 4.00 = 29.00
+    const cbRuns = panel.host.runs.filter((r) => r.name === 'cb')
+    expect(cbRuns.length).toBe(1)
+    const backCbLen = backPiece.edges
+      .filter((e) => e.name === 'cb').reduce((s, e) => s + e.length, 0)
+    const yokeCbLen = yokePiece.edges
+      .filter((e) => e.name === 'cb').reduce((s, e) => s + e.length, 0)
+    expect(cbRuns[0].length).toBeCloseTo(backCbLen + yokeCbLen, 5)
+    expect(cbRuns[0].length).toBeCloseTo(29.0, 2)
+    // 链首 = 裆尖（cb 边链起点，全局系 x 最大端）——drape 后中缝合对
+    // 从裆尖配到腰口
+    const first = cbRuns[0].indices[0]
+    expect(panel.host.xy[2 * first]).toBeCloseTo(67.6, 1)
+  })
+
+  it('育克腰口顶替 top_chain：top run 长度 = yoke top 总长', () => {
+    const yokeTopLen = yokePiece.edges
+      .filter((e) => e.name === 'top').reduce((s, e) => s + e.length, 0)
+    const topRun = panel.host.runs.find((r) => r.name === 'top')!
+    expect(topRun.length).toBeCloseTo(yokeTopLen, 5)
+  })
+
+  it('覆盖性（定义性验收）：后片/育克全部顶点 locate 非空或贴宿主边界（<0.1cm）', () => {
+    const host = panel.host
+    const distToLoop = (x: number, y: number): number => {
+      let dMin = Infinity
+      const L = host.loop.length
+      for (let s = 0; s < L; s++) {
+        const a = host.loop[s], b = host.loop[(s + 1) % L]
+        const ax = host.xy[2 * a], ay = host.xy[2 * a + 1]
+        const bx = host.xy[2 * b], by = host.xy[2 * b + 1]
+        const dx = bx - ax, dy = by - ay
+        const len2 = dx * dx + dy * dy
+        const t = len2 > 1e-12
+          ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2))
+          : 0
+        dMin = Math.min(dMin, Math.hypot(x - (ax + dx * t), y - (ay + dy * t)))
+      }
+      return dMin
+    }
+    for (const m of [backMesh, yokeMesh]) {
+      for (let i = 0; i < m.xy.length / 2; i++) {
+        const x = m.xy[2 * i], y = m.xy[2 * i + 1]
+        const loc = host.locate(x, y)
+        if (loc === null) {
+          expect(distToLoop(x, y), `顶点 ${i} (${x}, ${y}) 既不可 locate 也不贴边界`)
+            .toBeLessThan(0.1)
+        }
+      }
+    }
+  })
+
+  it('三角化面积比 ≥99%（防自交/漏采）、宿主面积 > 后片（育克区并入）', () => {
+    expect(triArea(panel.host) / shoelace(panel.host)).toBeGreaterThan(0.99)
+    expect(shoelace(panel.host)).toBeGreaterThan(shoelace(backMesh))
+  })
+
+  it('退化：无育克 fixture（back_yoke 未开）→ 纯后片宿主（信息性 warning）', () => {
+    const p = buildBackPanel(plain)
+    expect(p.hasYoke).toBe(false)
+    expect(p.warnings.length).toBe(1)
+    const plainBack = plain.pieces.find((x) => x.key === 'back_piece')!
+    expect(p.host.xy.length).toBe(buildClothMesh(plainBack).xy.length)
+  })
+
+  it('退化：有省款（yoke 省闭口净样与整版下口线错位）守卫拦下 → 纯后片宿主', () => {
+    const p = buildBackPanel(curved)
+    expect(p.hasYoke).toBe(false)
+    expect(p.warnings.length).toBe(1)
+    expect(p.warnings[0]).toContain('不贴合')
   })
 })

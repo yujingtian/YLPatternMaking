@@ -59,22 +59,29 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   实测 ΔH 换算权重）+ 身高滑杆（cm 连续钳 150~185，可停任意身高）裸权重实时
 #   morph（pos = base + Σwᵢ·Δᵢ；围度站 y × 身高因子）+ 站点围度
 #   读数（站高 = vendor 地标检测值）；无围度闭环/对齐/钳位（自动调体型闭环仍退
-#   役；裤子展示 2026-09-16 五期（前身缝合自由垂）：前片+袋贴沿 mouth 缝
+#   役；裤子展示 2026-09-16 六期（前后身缝合自由垂）：前片+袋贴沿 mouth 缝
 #   合的**并集宿主**（garment/panel.ts 边手术：front 边链 mouth 段原位
 #   替换为 facing 月牙边，mouth 内部化为缝线；袋贴腰口子段命名 waist
 #   与 front.waist 同名相邻、mesh runs 自动聚合——悬挂 pin 覆盖整个前
-#   身腰口；守卫失败退化纯前片+袋贴留平铺）走悬挂链立体展示：core.ts
-#   撑型芯（锚纸样围度）→ placement 前 90° 扇区摆位（L/R 共享宿主网
-#   格）→ drape.ts verlet 自由垂（前中 rise 链同号缝合对 + 腰口
+#   身腰口；守卫失败退化纯前片+袋贴留平铺）+ 后片+育克沿机头下口线缝
+#   合的**后身并集宿主**（buildBackPanel 边手术：back 边链 top 段丢弃
+#   内部化为缝线，yoke 余边反向闭环接入——cb 反向段与 back.cb 同名相
+#   邻聚合成**整条后浪**（裆尖→腰口贯通育克）、yoke 腰口 top 顶替
+#   top_chain；有省款省闭口错位守卫拦下退化纯后片+育克留平铺）各走悬
+#   挂链立体展示：core.ts
+#   撑型芯（锚纸样围度）→ placement 前/后 90° 扇区摆位（前 θ∈[−90°,0°]
+#   / 后 θ∈[−180°,−90°]，L/R 共享宿主网格，buildHangPair 泛化）→
+#   drape.ts verlet 自由垂（前中 rise 链/后中 cb 链同号缝合对 + 腰口
 #   pinY 悬挂 + 地面碰撞，无撑型芯——芯撑出的前凸筒不是真实提着前片
 #   的形态；芯/场只供初摆位半径与取景包络。rAF 一帧一步 settle 停）；
 #   宿主不渲染，前片/
-#   袋贴本体 = rider.ts 贴层（buildClothMesh 各自三角化 → bindRider 每
+#   袋贴/后片/育克本体 = rider.ts 贴层（buildClothMesh 各自三角化 → bindRider 每
 #   顶点重心绑宿主三角形，每帧 rideRider 回填；locate 缺口兜底 = 宿主
 #   边界环最近段插值，Delaunay 凹弧处实测 facing 11 顶点、弓高亚毫米；
-#   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面）；前身筒旁挂人
-#   台 +X 侧不套轴（独立原则：芯锚纸样围度与人台滑杆互不相干）；其余
-#   裁片照旧平铺验证通道（assemble.buildFlatLayout exclude 前身组——
+#   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面；后片/育克径向
+#   0 相邻非叠层）；前身筒旁挂人
+#   台 +X 侧、后身筒并排其右不套轴（独立原则：芯锚纸样围度与人台滑杆互不相干）；其余
+#   裁片照旧平铺验证通道（assemble.buildFlatLayout exclude 前后身组——
 #   排除锚且守卫通过时整组离开；STITCH_GROUPS 平面缝合拼合组照旧：
 #   机头(back_yoke)+后片、袋贴+前片，贴合守卫 <0.5cm，有省款 yoke 省
 #   闭口错位退独立行）+ render.ts PIECE_COLORS 逐片分色（前蓝/后绿/

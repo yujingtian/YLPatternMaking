@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
-import { buildFlatLayout, buildFrontPair } from './assemble'
+import { buildFlatLayout, buildHangPair } from './assemble'
 import { buildCore, CORE_SKIN } from './core'
 import { buildClothMesh } from './mesh'
 import { buildBodyField, penetrationStats } from './placement'
@@ -368,11 +368,11 @@ describe('assemble：buildFlatLayout exclude（四期前身缝合立起）', () 
   })
 })
 
-describe('assemble：前片 L+R 静态装配（重建一期，暂停接线）', () => {
+describe('assemble：前片 L+R 静态装配（一期扇区摆位，四期起悬挂链接线）', () => {
   const front = buildClothMesh(result.pieces.find((p) => p.key === 'front_piece')!)
   const core = buildCore(result)
   const field = buildBodyField(core.positions, core.indices)
-  const garment = buildFrontPair(front, field)
+  const garment = buildHangPair('front', front, field)
 
   it('两片共享网格、offset 顺排、总数 = 2×前片顶点', () => {
     expect(garment.parts.map((p) => `${p.key}_${p.side}`))
@@ -423,5 +423,102 @@ describe('assemble：前片 L+R 静态装配（重建一期，暂停接线）', 
     const pen = penetrationStats(garment.pos, field, CORE_SKIN)
     expect(pen.count).toBe(0)
     expect(pen.worst).toBe(0)
+  })
+})
+
+describe('assemble：后片 L+R 扇区摆位（六期后身缝合，后扇区）', () => {
+  const yokeResult: FittingResult = JSON.parse(
+    readFileSync(`${HERE}/fixture_fitting_yoke.json`, 'utf8'))
+  const back = buildClothMesh(yokeResult.pieces.find((p) => p.key === 'back_piece')!)
+  const core = buildCore(yokeResult)
+  const field = buildBodyField(core.positions, core.indices)
+  const garment = buildHangPair('back', back, field)
+
+  it('两片共享网格、key=back、总数 = 2×后片顶点、无 NaN', () => {
+    expect(garment.parts.map((p) => `${p.key}_${p.side}`))
+      .toEqual(['back_L', 'back_R'])
+    expect(garment.parts[0].mesh).toBe(back)
+    expect(garment.parts[1].offset).toBe(back.xy.length / 2)
+    expect(garment.total).toBe(back.xy.length)
+    for (let i = 0; i < garment.pos.length; i++) {
+      expect(Number.isFinite(garment.pos[i])).toBe(true)
+    }
+  })
+
+  it('后扇区角度域：L 全部 θ∈[−180°,−90°]、R 镜像 [90°,180°]', () => {
+    // 侧缝端 θ=±90°（与前身扇区同角、穿着拓扑侧缝相邻）、后中端
+    // θ=±180°（cb 缝对在此闭合，与前中 θ=0 相对）
+    for (let i = 0; i < garment.total; i++) {
+      const x = garment.pos[3 * i], z = garment.pos[3 * i + 2]
+      const th = Math.atan2(x, z)
+      if (i < garment.parts[1].offset) {
+        expect(th).toBeLessThanOrEqual(-Math.PI / 2 + 1e-9)
+        expect(th).toBeGreaterThanOrEqual(-Math.PI - 1e-9)
+      } else {
+        expect(th).toBeGreaterThanOrEqual(Math.PI / 2 - 1e-9)
+        expect(th).toBeLessThanOrEqual(Math.PI + 1e-9)
+      }
+    }
+  })
+
+  it('镜像对称：L/R 同网格逐顶点 x 翻号、y 同值、z 差 <0.1cm', () => {
+    // θ-bin 量化伪差口径同前片用例（撑型芯场花生瓣特征，x 取中位数）
+    const N = back.xy.length / 2
+    const xs: number[] = []
+    for (let i = 0; i < N; i++) {
+      const l = 3 * i, r = 3 * (garment.parts[1].offset + i)
+      expect(garment.pos[l + 1]).toBeCloseTo(garment.pos[r + 1], 6)
+      expect(Math.abs(garment.pos[l + 2] - garment.pos[r + 2]))
+        .toBeLessThan(0.1)
+      xs.push(Math.abs(garment.pos[l] + garment.pos[r]))
+    }
+    xs.sort((a, b) => a - b)
+    expect(xs[Math.floor(xs.length / 2)]).toBeLessThan(0.1)
+  })
+
+  it('穿透零：摆位半径 = 场 + garmentGap，按构造不穿芯', () => {
+    const pen = penetrationStats(garment.pos, field, CORE_SKIN)
+    expect(pen.count).toBe(0)
+    expect(pen.worst).toBe(0)
+  })
+})
+
+describe('assemble：buildFlatLayout exclude 后身组（六期后身缝合立起）', () => {
+  const yokeResult: FittingResult = JSON.parse(
+    readFileSync(`${HERE}/fixture_fitting_yoke.json`, 'utf8'))
+
+  it('exclude 后身组（锚+组员）→ 整组离开平铺，余片照旧', () => {
+    const g = buildFlatLayout(yokeResult,
+      new Set(['front_piece', 'back_piece', 'back_yoke']))
+    expect(g.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'waistband_L',
+    ])
+  })
+
+  it('只 exclude 锚 back_piece、守卫通过（无省贴合）→ 育克随锚整组离开', () => {
+    const g = buildFlatLayout(yokeResult, new Set(['back_piece']))
+    expect(g.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'front_piece_L', 'front_piece_R', 'waistband_L',
+    ])
+  })
+
+  it('守卫破坏 + exclude 锚 → 育克照旧独立行平铺（panel 退化兜底）', () => {
+    const broken: FittingResult = {
+      ...yokeResult,
+      pieces: yokeResult.pieces.map((p) => p.key === 'back_yoke'
+        ? {
+          ...p,
+          edges: p.edges.map((e) => ({
+            ...e, pts: e.pts.map(([x, y]) => [x + 5, y] as [number, number]),
+          })),
+        }
+        : p),
+    }
+    const g = buildFlatLayout(broken, new Set(['back_piece']))
+    expect(g.parts.map((p) => `${p.key}_${p.side}`)).toEqual([
+      'front_piece_L', 'front_piece_R',
+      'back_yoke_L', 'back_yoke_R',      // 育克独立行（不与 back 拼合）
+      'waistband_L',
+    ])
   })
 })
