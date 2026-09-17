@@ -229,6 +229,30 @@ export function buildClothMesh(piece: FittingPiece): ClothMesh {
   }
 }
 
+// 同名多条 run 按链序拼成一条逻辑链（2026-09-17 八期整裤缝合）：runs
+// 数组序 ≠ 链序——back 宿主 side 两条 run（育克侧段在数组末尾、后片
+// 侧缝在数组前部）。按 run 首采样纸样 y 降序排序 = 腰口端优先（side
+// 链方向约定腰口端起），indices 顺拼、arc 在前段总长上续接。单条原样
+// 返回，零条返回 null；>2 条 warn 后硬拼（当前款型不会出现）
+export function mergeRuns(runs: EdgeRun[], xy: Float64Array): EdgeRun | null {
+  if (runs.length === 0) return null
+  if (runs.length === 1) return runs[0]
+  if (runs.length > 2) {
+    console.warn(`[mesh] mergeRuns：'${runs[0].name}' 有 ${runs.length} 条 run（预期 ≤2），按首采样 y 降序硬拼`)
+  }
+  const sorted = [...runs].sort(
+    (a, b) => xy[2 * b.indices[0] + 1] - xy[2 * a.indices[0] + 1])
+  const out: EdgeRun = { ...sorted[0], indices: [], arc: [], length: 0 }
+  for (const run of sorted) {
+    for (let k = 0; k < run.indices.length; k++) {
+      out.indices.push(run.indices[k])
+      out.arc.push(out.length + run.arc[k])
+    }
+    out.length += run.length
+  }
+  return out
+}
+
 // 弧长参数 -> 段内顶点号（线性插值取最近顶点；配对两端对齐用）
 export function runIndexAt(run: EdgeRun, t: number): number {
   const target = Math.max(0, Math.min(1, t)) * run.length
