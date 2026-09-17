@@ -12,9 +12,13 @@
 //     LEG_GAP_MIN 线性张开到 LEG_GAP_TAPER 以下 LEG_GAP_HALF（fork 以上
 //     钳 LEG_GAP_MIN）——**裆下两腿真分离**，腿间空隙给内缝焊线与裆
 //     交叉点安身（真裤两腿间有缝空隙，内缝线悬在其中）
-//   · 躯干管：fork+LEG_OVERLAP → 腰+8，圆环，半径 = rFork→rHip→rWaist
-//     插值——fork 带（裆交叉口袋）只有腿管截面，躯干环不出现（否则
-//     裆尖摆位困进管内）
+//   · 躯干管：fork+TORSO_BOTTOM(2) → 腰+8；底部 CROTCH_FILLET(8) 带 =
+//     **裆圆角**（截面 z 向压缩成椭圆、x 保持全宽，zScale 从底行
+//     CROTCH_ZMIN(0.28) smoothstep 到全圆）——真身形骨盆底耻骨/会阴区
+//     前后收拢、左右髋仍宽；无圆角的平底圆柱会把前中布撑到全半径壁再
+//     收回裆点 = 裆上生硬尖帐篷（八期当日用户报障「裆部前后片生硬
+//     凸起」，前中缝终态 z 3→16→12 实测）。fork..fork+2 带（裆交叉
+//     口袋）只有腿管截面，躯干环不出现（否则裆尖摆位困进管内）
 //   · 芯只经 buildBodyField 消费（场表 + 行截面环），多环行取方向支撑
 //     最大；碰撞用行截面多边形（drape collide）——径向场是星形实心，
 //     腿间空隙表示不了
@@ -50,10 +54,15 @@ const BOTTOM_MARGIN = 1.5    // 脚口下延伸（hem 行粒子防端面边界�
 export const LEG_GAP_MIN = 0.8   // cm：fork 处腿轴间隙半宽（防双管相切刀口）
 export const LEG_GAP_HALF = 2.6  // cm：腿间完全张开后的间隙半宽（总 5.2）
 export const LEG_GAP_TAPER = 12  // cm：间隙从 fork 向下张开的锥高
-const LEG_OVERLAP = 4            // cm：腿管上延过 fork 的高度（躯干管底 =
-                                 // fork + 本值）——fork 带截面只有两条分离
-                                 // 腿管，裆交叉点/内缝顶有真口袋（八期：
-                                 // 躯干管下探到 fork 会把裆尖摆位困进管内）
+export const CROTCH_FILLET = 6   // cm：躯干管底裆圆角带高（z 向压缩过渡；
+                                 // 到臀站为止——臀环恢复全圆，场等值口径不变）
+export const CROTCH_ZMIN = 0.28  // 圆角带底行的 z 半径比例（耻骨区高度）
+const TORSO_BOTTOM = 2           // cm：躯干管底 = fork + 本值——fork 带
+                                 // （裆交叉口袋）只有上延腿管，躯干环不出
+                                 // 现在 fork 行（会把裆尖摆位困进管内）；
+                                 // 腿管上延 LEG_OVERLAP 兼供圆角带下段的
+                                 // 大腿支撑与场表连续
+const LEG_OVERLAP = 4            // cm：腿管上延过 fork 的高度
 
 // 皮肤壳厚度（cm）：解算时代 collisionSkin=0.98 的标定值原样沿用为
 // 芯体口径常数——芯半径 = g/2π − skin，摆位壳 core+skin+gap 落纸样围度
@@ -166,6 +175,16 @@ const rowsBetween = (y0: number, y1: number): number[] => {
   return Array.from({ length: n }, (_, r) => y0 + ((y1 - y0) * r) / (n - 1))
 }
 
+// 椭圆环（z 半轴 b ≤ x 半轴 a）——裆圆角带的压缩截面
+function ellipseRing(a: number, b: number): { xs: number[]; zs: number[] } {
+  const xs: number[] = [], zs: number[] = []
+  for (let s = 0; s < SEG; s++) {
+    const th = (s / SEG) * 2 * Math.PI
+    xs.push(a * Math.sin(th)); zs.push(b * Math.cos(th))
+  }
+  return { xs, zs }
+}
+
 export function buildCore(payload: FittingResult): CoreMesh {
   const waist = stationOf(payload, 'waist')
   const hip = stationOf(payload, 'hip')
@@ -194,10 +213,24 @@ export function buildCore(payload: FittingResult): CoreMesh {
 
   const positions: number[] = []
   const indices: number[] = []
-  // 躯干管（fork + LEG_OVERLAP → 腰+8，轴上圆环）：fork 带（裆交叉
-  // 口袋）留给上延的腿管——躯干环出现在 fork 行会把裆尖摆位困进管内
-  tube(rowsBetween(crotch.y + LEG_OVERLAP, waist.y + TOP_MARGIN).map((y) => {
-    const ring = circleRing(radiusAt(torso, y))
+  // 躯干管（fork + TORSO_BOTTOM → 腰+8）：fork..fork+TORSO_BOTTOM 带留给
+  // 上延腿管（裆交叉口袋），其上 CROTCH_FILLET 带 = **裆圆角**——截面
+  // 前后（z 向）压缩成椭圆、左右（x 向）保持全宽，越靠裆越扁：真身形
+  // 骨盆底耻骨/会阴区 z 只有 ~4-8 而左右髋仍宽；无圆角的平底圆柱会把
+  // 前中布撑到全半径壁上再收回裆点 = 裆上生硬尖帐篷（用户报障「裆部
+  // 前后片生硬凸起」，前中缝终态 z 3→16→12 实测）。zScale 平滑插值
+  // smoothstep；摆位半径走场表自动跟随卷进裆
+  const yBotT = crotch.y + TORSO_BOTTOM
+  tube(rowsBetween(yBotT, waist.y + TOP_MARGIN).map((y) => {
+    const r = radiusAt(torso, y)
+    if (y < yBotT + CROTCH_FILLET) {
+      const u = Math.max(0, Math.min(1, (y - yBotT) / CROTCH_FILLET))
+      const s = u * u * (3 - 2 * u)   // smoothstep
+      const zScale = CROTCH_ZMIN + (1 - CROTCH_ZMIN) * s
+      const ring = ellipseRing(r, r * zScale)
+      return { y, xs: ring.xs, zs: ring.zs }
+    }
+    const ring = circleRing(r)
     return { y, xs: ring.xs, zs: ring.zs }
   }), [0, 0], positions, indices)
   // 腿管 ×2（hem−1.5 → fork + LEG_OVERLAP，轴 ±(r+gapHalf)，左右镜像；

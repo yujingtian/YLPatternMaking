@@ -94,14 +94,47 @@ describe('撑型芯：v3 两腿分离三实体（躯干管 + 左右腿管）', (
     }
   })
 
-  it('裆站不掐腰（v2.1 口径延续）：臀→裆带躯干环周长 ≥ 臀周 −4，无蜂腰', () => {
-    // 裆站躯干圆取 max(臀, 2×腿)（M1：max(96, 2×58)=116）——旧值取单腿
-    // 半径会掐腰再弹回（「大腿比臀大」的结构放大器）
+  it('裆圆角带：底行前后收拢成扁椭圆、左右保持髋宽；臀站恢复全圆', () => {
+    // 用户报障「裆部前后片生硬凸起」的芯侧根因 = 平底全半径圆柱，圆角
+    // 带前后（z）收拢（真身形耻骨/会阴区 z 小、左右髋仍宽）。用切片环
+    // 取最大环（躯干环——该行腿管上延段也在，不能裸采顶点）
+    const crotch = st(M1, 'crotch')
+    const ringAt = (y: number) => {
+      const loops = loopsAt(M1, y)
+      return loops.reduce((m, l) => (l.girth > m.girth ? l : m))
+    }
+    const bot = ringAt(crotch.y + 2.5)
+    const zHalf = (Math.max(...bot.pts.map((p) => p.z))
+      - Math.min(...bot.pts.map((p) => p.z))) / 2
+    const xHalf = (Math.max(...bot.pts.map((p) => p.x))
+      - Math.min(...bot.pts.map((p) => p.x))) / 2
+    expect(zHalf).toBeLessThan(0.4 * xHalf)        // 前后收拢（扁椭圆）
+    expect(xHalf).toBeGreaterThan(coreR(96) - 1)   // 左右不掐（髋宽保留）
+    // 臀站恢复全圆（圆角带到臀为止）：x/z 半宽比 ≈ 1
+    const hipRing = ringAt(st(M1, 'hip').y)
+    const hz = (Math.max(...hipRing.pts.map((p) => p.z))
+      - Math.min(...hipRing.pts.map((p) => p.z))) / 2
+    const hx = (Math.max(...hipRing.pts.map((p) => p.x))
+      - Math.min(...hipRing.pts.map((p) => p.x))) / 2
+    expect(Math.abs(hz / hx - 1)).toBeLessThan(0.02)
+  })
+
+  it('裆站左右不掐腰（v2.1 口径的圆角带版）：臀→裆带侧向宽度 ≥ 臀宽 −4', () => {
+    // 装站躯干圆取 max(臀, 2×腿)（M1：max(96, 2×58)=116）——侧向（x）
+    // 不掐；前后（z）在圆角带收拢属设计（上用例）
     const hip = st(M1, 'hip'), crotch = st(M1, 'crotch')
-    const hipG = loopsAt(M1, hip.y)[0].girth
+    const core = buildCore(M1)
+    const halfWAt = (yq: number): number => {
+      let m = 0
+      for (let i = 1; i < core.positions.length; i += 3) {
+        if (Math.abs(core.positions[i] - yq) > 0.6) continue
+        m = Math.max(m, Math.abs(core.positions[i - 1]))
+      }
+      return m
+    }
+    const hipW = halfWAt(hip.y)
     for (let y = crotch.y + 4; y <= hip.y; y += 2) {
-      const g = loopsAt(M1, y)[0].girth
-      expect(g).toBeGreaterThan(hipG - 4)
+      expect(halfWAt(y)).toBeGreaterThan(hipW - 4)
     }
   })
 })
