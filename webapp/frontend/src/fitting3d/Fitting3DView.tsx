@@ -317,14 +317,14 @@ export default function Fitting3DView({
     ctx.render()
   }, [bodyView, asset])
 
-  // ---- 裁片上屏（八期整裤缝合：单 sim 四 part + 芯碰撞 + 其余平铺）----
+  // ---- 裁片上屏（八期整裤缝合：单 sim 四 part 自由垂 + 其余平铺）----
   // 前身组 = 前片+袋贴沿 mouth 缝合的并集宿主（panel.ts，守卫失败退化
   // 纯前片 + 袋贴留平铺）；后身组 = 后片+育克沿机头下口线缝合的并集宿主
   // （有省款守卫拦下退化纯后片）。八期把两筒合并为**一条完整整裤**单
   // sim：buildFullPair 四 part 摆位（腰圆 360° 整圈弧长重参数化 + 侧缝
   // 语义竖直 + 腿局部圆环绕管 + 内缝落腿内侧线）→ seams.buildSeamSet
   // 四族缝合对（前中/后中镜像 + 侧缝/内缝弧长 + 四裆尖焊拢汇集裆交叉
-  // 点）→ drape 芯碰撞解算（v3 两腿分离芯截面碰撞，裤腿圆整两腿分开）。
+  // 点）→ drape 自由垂（腰部圆形撑开、其余真实物理垂挂）。
   // 腰圆整圈钉挂 + sideHold 刚度带暂代腰头（本期不含腰头）。前片/袋贴/
   // 后片/育克作为贴层（rider.ts 绑定宿主三角形）逐帧回填渲染，宿主不
   // 渲染，袋贴径向内偏衬里侧。其余裁片照旧平铺（exclude 前后身组）。
@@ -364,14 +364,19 @@ export default function Fitting3DView({
       const view = buildGarmentView(ctx.THREE, garment)
       gv = view
       // 整裤悬挂链（同步构建，无 async 竞态窗口）：v3 两腿分离芯建场，
-      // forkY 取 payload body.points 裆尖 y，单 sim 开芯碰撞
+      // forkY 取 payload body.points 裆尖 y。摆位用场（腰圆半径 + 初始
+      // 形态），解算**自由垂**（field 传 null，2026-09-17 用户口径「只
+      // 保留腰部圆形撑开，其他地方真实物理垂挂」）——腰口整圈全向钉
+      // = 圆形撑环，其下布自重下垂出自然褶皱（腿筒前后压扁贴拢 = 真
+      // 挂裤观感；无布-布碰撞，两腿相贴处可能轻微互穿），sideHold 带
+      // = 腰头代形
       const core = buildCore(data)
       const field = buildBodyField(core.positions, core.indices)
       const pair = buildFullPair(panel.host, backPanel.host, field, {
         front: data.body.points.front_crotch_vertex[1],
         back: data.body.points.back_crotch_vertex[1],
       }, buildLegAxis(data))
-      const sim = buildDrape(pair, field, HANG_PRIOR.hangLift)
+      const sim = buildDrape(pair, null)
       const hostN = panel.host.xy.length / 2
       const backHostN = backPanel.host.xy.length / 2
       // 贴层视图：前片（径向 0 = 解算位所见）/ 袋贴（内偏衬里侧）；

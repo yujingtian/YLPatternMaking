@@ -68,11 +68,13 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   侧缝边落腿外侧线；fork 向上 forkBlend(8) 过渡〕+ 侧缝腰角前后共点 snap + hangLift(8) 抬升）→
 #   seams.buildSeamSet 四族缝合对（前中 rise/后中 cb 镜像族 + 侧缝/内缝跨宿主弧长族〔吃势均匀吸收〕+ 四裆尖
 #   tip 补焊零 rest 闭环自动坍缩裆交叉点；back 宿主 side 双 run 先 mesh.mergeRuns 合链）→ drape verlet
-#   解算**开撑型芯碰撞**（用户拍板：整裤包腿必须有碰撞体；芯 v3 两腿分离三实体〔躯干管 + 左右分离腿管、
-#   裆下腿间真间隙 LEG_GAP_HALF 2.6——花生腰谷在径向场下是实心桥内缝焊不上 + 径向场表示不了腿间空隙，
-#   两教训录决策日志八期条〕；碰撞 = placement 行截面环 SliceRing 最近边界 + skin·外法线推出；腰口整圈
-#   全向钉 + sideHold(10) 腰头代形刚度带〔本期不含腰头〕；实测四族缝 rise/cb/inseam/tip avg=p95=0、side
-#   0.026/0.176、99~174 帧真收敛、下摆离地 3~4cm 不拖地）；rAF 一帧一步 settle 停；宿主不渲染，前片/袋贴/
+#   解算**自由垂**（2026-09-17（五）用户口径「只保留腰部圆形撑开，其他地方真实物理垂挂」：
+#   drape 传 field=null——腰口整圈全向钉 = 圆形撑环 + sideHold(10) 腰头代形刚度带〔本期不含腰头〕，
+#   其下布自重褶皱垂挂、腿筒前后压扁〔真挂裤观感；无布-布碰撞，两腿相贴处可能轻微互穿〕；
+#   芯碰撞机制保留〔传 field 即生效：v3 两腿分离三实体 + 行截面环 SliceRing 最近边界+skin·外法线
+#   推出——花生腰谷径向场实心桥/径向场表示不了腿间空隙两教训见决策日志八期条〕，当前口径不用；
+#   实测四族缝 rise/cb/inseam/tip avg=p95=0、side 0.026/0.176，600 帧内真收敛、下摆离地不拖地
+#   〔hangLift 12〕）；rAF 一帧一步 settle 停；宿主不渲染，前片/袋贴/
 #   后片/育克本体 = rider.ts 贴层（bindRider 重心绑宿主三角形逐帧回填、locate 缺口兜底 = 边界环最近段插值；
 #   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面、后片/育克径向 0 相邻非叠层）；整裤单组旁挂人台 +X 侧
 #   不套轴（独立原则：芯锚纸样围度与人台滑杆互不相干）；其余裁片照旧平铺验证通道（assemble.buildFlatLayout

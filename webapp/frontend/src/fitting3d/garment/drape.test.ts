@@ -1,7 +1,8 @@
 // 整裤缝合解算金标（2026-09-17 八期）：buildFullPair 四 part 摆位 +
 // seams.buildSeamSet 全族缝合对（前中/后中镜像 + 侧缝/内缝弧长 + 裆尖
-// 补焊）+ 撑型芯碰撞（用户拍板：整裤包腿必须有碰撞体），从初始摆位
-// 解算至静止。验收口径：
+// 补焊）+ **自由垂**（同日用户口径「只保留腰部圆形撑开，其他地方真实
+// 物理垂挂」——腰口整圈钉 = 圆形撑环、其下自重褶皱垂挂；芯碰撞版当
+// 日早段已完成又被本口径取代，见决策日志），从初始摆位解算至静止。验收口径：
 // · 600 帧内真 settle（capped=false 非封顶）、无 NaN、发散兜底未触发
 // · 腰口整圈钉恒守初始位（360° 腰圆支点 = 用户口径①「侧缝缝合形成
 //   腰圆」的钉侧验收）
@@ -22,10 +23,10 @@ import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
 import { buildFullPair, type Garment } from './assemble'
 import { buildCore, buildLegAxis } from './core'
-import { buildBodyField, pointInRings, type BodyField } from './placement'
+import { buildBodyField, pointInRings } from './placement'
 import { buildDrape, seamStatsByGroup, stepDrape, type DrapeSim } from './drape'
 import { buildBackPanel, buildFrontPanel } from './panel'
-import { DRAPE_PRIOR, HANG_PRIOR } from './priors'
+import { DRAPE_PRIOR } from './priors'
 
 const HERE = import.meta.dirname   // src/fitting3d/garment
 
@@ -47,9 +48,11 @@ const minY = (pos: Float32Array): number => {
 }
 
 // 整裤通用口径（三夹具 + 退化款共用；degradedSide = 有省退化款放宽
-// side 族阈值——back 宿主缺育克矮 ~4cm，腰口端锚定的 side 缝对固有开口）
+// side 族阈值——back 宿主缺育克矮 ~4cm，腰口端锚定的 side 缝对固有开口；
+// field 可空 = 自由垂口径〔腰部圆形撑开 + 真实物理垂挂，2026-09-17〕，
+// 穿透查验只在有场时跑）
 function assertFullPants(
-  sim: DrapeSim, placed: Garment, field: BodyField,
+  sim: DrapeSim, placed: Garment,
   opts?: { degradedSide?: boolean },
 ): void {
   expect(sim.capped).toBe(false)   // 真静止，非封顶兜底
@@ -119,17 +122,21 @@ function assertFullPants(
   // 不拖地（hangLift 重定标后离地余量；地面碰撞安全网）
   expect(minY(sim.pos)).toBeGreaterThan(1)
   // 终态纸样空间穿透零（截面环口径：两腿分离芯的腿间空隙是合法布位，
-  // 旧径向查验会把内侧线布误判穿透——pos 减 yLift 回摆位空间再查环内）
-  let penCount = 0
-  for (let i3 = 0; i3 < sim.pos.length; i3 += 3) {
-    if (pointInRings(sim.pos[i3], sim.pos[i3 + 2],
-      field.loopsAt(sim.pos[i3 + 1] - sim.yLift))) penCount++
+  // 旧径向查验会把内侧线布误判穿透——pos 减 yLift 回摆位空间再查环内；
+  // 门控跟 sim.field 走：自由垂口径 sim 无碰撞体自然跳过〔摆位用的场
+  // 不参与解算，不能拿来查〕）
+  if (sim.field) {
+    let penCount = 0
+    for (let i3 = 0; i3 < sim.pos.length; i3 += 3) {
+      if (pointInRings(sim.pos[i3], sim.pos[i3 + 2],
+        sim.field.loopsAt(sim.pos[i3 + 1] - sim.yLift))) penCount++
+    }
+    expect(penCount).toBe(0)
   }
-  expect(penCount).toBe(0)
 }
 
 const buildPant = (payload: FittingResult): {
-  sim: DrapeSim, placed: Garment, field: BodyField
+  sim: DrapeSim, placed: Garment
 } => {
   const frontPanel = buildFrontPanel(payload)
   const backPanel = buildBackPanel(payload)
@@ -139,17 +146,19 @@ const buildPant = (payload: FittingResult): {
     front: payload.body.points.front_crotch_vertex[1],
     back: payload.body.points.back_crotch_vertex[1],
   }, buildLegAxis(payload))
-  const sim = buildDrape(placed, field, HANG_PRIOR.hangLift)
-  return { sim, placed, field }
+  // 自由垂（2026-09-17 用户口径「只保留腰部圆形撑开，其他地方真实
+  // 物理垂挂」）：field 只供摆位（腰圆半径 + 初始形态），解算传 null
+  const sim = buildDrape(placed, null)
+  return { sim, placed }
 }
 
 describe('drape：整裤缝合芯碰撞解算（八期）——基础款', () => {
   it('600 帧内真收敛、整圈钉恒守、四族缝达标、裆汇集、不拖地、穿透零',
     { timeout: 300000 }, () => {
-      const { sim, placed, field } = buildPant(load('fixture_fitting.json'))
+      const { sim, placed } = buildPant(load('fixture_fitting.json'))
       const st = runToSettle(sim)
       expect(st).toBe('settled')
-      assertFullPants(sim, placed, field)
+      assertFullPants(sim, placed)
     })
 })
 
@@ -157,10 +166,10 @@ describe('drape：整裤缝合芯碰撞解算（八期）——袋贴款（前�
   it('袋贴月牙带并入宿主后整裤全部口径照旧', { timeout: 300000 }, () => {
     const payload = load('fixture_fitting_pocket.json')
     expect(buildFrontPanel(payload).hasFacing).toBe(true)   // 前置：并集成功
-    const { sim, placed, field } = buildPant(payload)
+    const { sim, placed } = buildPant(payload)
     const st = runToSettle(sim)
     expect(st).toBe('settled')
-    assertFullPants(sim, placed, field)
+    assertFullPants(sim, placed)
   })
 })
 
@@ -169,10 +178,10 @@ describe('drape：整裤缝合芯碰撞解算（八期）——育克款（后�
     { timeout: 300000 }, () => {
       const payload = load('fixture_fitting_yoke.json')
       expect(buildBackPanel(payload).hasYoke).toBe(true)    // 前置：并集成功
-      const { sim, placed, field } = buildPant(payload)
+      const { sim, placed } = buildPant(payload)
       const st = runToSettle(sim)
       expect(st).toBe('settled')
-      assertFullPants(sim, placed, field)
+      assertFullPants(sim, placed)
     })
 })
 
@@ -183,9 +192,9 @@ describe('drape：整裤缝合芯碰撞解算（八期）——有省款退化�
   it('退化纯后片宿主整裤成立（side 退化开口，其余口径照常）', { timeout: 300000 }, () => {
     const payload = load('fixture_fitting_curved_pocket.json')
     expect(buildBackPanel(payload).hasYoke).toBe(false)     // 前置：守卫拦下
-    const { sim, placed, field } = buildPant(payload)
+    const { sim, placed } = buildPant(payload)
     const st = runToSettle(sim)
     expect(st).toBe('settled')
-    assertFullPants(sim, placed, field, { degradedSide: true })
+    assertFullPants(sim, placed, { degradedSide: true })
   })
 })
