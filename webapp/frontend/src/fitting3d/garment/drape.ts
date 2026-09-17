@@ -38,6 +38,8 @@ export interface DrapeSim {
   holdTarget: Float32Array
   parts: { offset: number; mesh: Garment['parts'][number]['mesh'] }[]
   field: BodyField | null   // null = 自由垂（无撑型芯径向碰撞，仅地面）
+  collideAboveY: number    // 碰撞生效的纸样 y 下限（-∞ = 全程；混合形态：
+                            // 躯干段撑开、腿段自由垂——(九) 山脊修复）
   stepCount: number
   settledFrames: number
   settled: boolean
@@ -71,6 +73,7 @@ export interface DrapeSim {
 // 到腰）L/R 同号配对
 export function buildDrape(
   garment: Garment, field: BodyField | null, yLift = 0,
+  collideAboveY = -Infinity,
 ): DrapeSim {
   const pinIdx: number[] = []
   // 腰头在（九期）：**腰口区全钉**——身片腰口环整圈（「腰部圆形撑开」
@@ -82,6 +85,7 @@ export function buildDrape(
   // 无腰头 = 旧口径：身片腰口整圈钉 + sideHold 带
   const bandPart = garment.parts.find((p) => p.key === 'waistband')
   for (const part of garment.parts) {
+    stampSeamFlatten(part)
     // 有腰头（九期）：身片腰口环照旧整圈钉（「腰部圆形撑开」的全义
     // ——整个腰口区保持圆；早期只钉带顶时自由垂挂的对折趋势把前中/
     // 后中往里拖 1.2cm、只加钉带底时缝对与身片网格 GS 冲突平衡留
@@ -177,6 +181,7 @@ export function buildDrape(
     holdTarget,
     parts: garment.parts.map((p) => ({ offset: p.offset, mesh: p.mesh })),
     field,
+    collideAboveY,
     stepCount: 0, settledFrames: 0, settled: false, capped: false,
     frozen: false, avgSpeed: 0, failStreak: 0,
     lastGood: new Float32Array(pos),
@@ -191,6 +196,61 @@ function projectPins(sim: DrapeSim): void {
     pos[i3 + 1] = pinTarget[3 * k + 1]
     pos[i3 + 2] = pinTarget[3 * k + 2]
   }
+}
+
+// 缝口摊平窗 + 腰臀过渡带（2026-09-17（八）缝口刀锋卷边、（九）腰臀
+// 段山脊/前后片叠合——两窗共用 seamFlattenStiffness 覆写 bendKArr）：
+// 自由垂挂前后片近乎平行贴合，侧缝/内缝 = 180° 对折的刀锋卷边——
+// 距 side/inseam 链纸样距离 < seamFlattenSpan 的弯曲约束，刚度升到
+// seamFlattenStiffness，折痕摊开成缓坡（「向两边拉直」的物理实现：
+// 全局 bend 0.45 实测无效——重力压平镜头截面缝尖不动，必须局部作用
+// 在折边上）。stamp 一次幂等（bendKArr 已在则跳过）
+function stampSeamFlatten(
+  part: { mesh: Garment['parts'][number]['mesh'] },
+): void {
+  const mesh = part.mesh
+  if (mesh.bendKArr || mesh.bend.length === 0) return
+  const seamRuns = mesh.runs.filter(
+    (r) => r.name === 'side' || r.name === 'inseam')
+  if (seamRuns.length === 0) return
+  const span = DRAPE_PRIOR.seamFlattenSpan
+  // 缝链 2D 点集（预抽，逐约束中点查最近距）
+  const pts: number[] = []
+  for (const run of seamRuns) {
+    for (const i of run.indices) {
+      pts.push(mesh.xy[2 * i], mesh.xy[2 * i + 1])
+    }
+  }
+  const nearSeam = (x: number, y: number): boolean => {
+    for (let k = 0; k < pts.length; k += 2) {
+      if (Math.hypot(pts[k] - x, pts[k + 1] - y) < span) return true
+    }
+    return false
+  }
+  // 腰臀过渡带（（九）山脊修复）：腰缝以下 waistTransitionSpan 内提刚度
+  // ——钉圆的腰口往下布塌得太快（后片腰下即塌平的 D 形不对称），折角
+  // 挤在缝口成脊；过渡带让截面缓慢张开。腰缝 y = top_chain 最高采样
+  const top = mesh.runs.find((r) => r.role === 'top_chain')
+  let topY = -Infinity
+  if (top) {
+    for (const i of top.indices) {
+      topY = Math.max(topY, mesh.xy[2 * i + 1])
+    }
+  }
+  const transSpan = DRAPE_PRIOR.waistTransitionSpan
+  const inTransition = (y: number): boolean =>
+    topY > -Infinity && y >= topY - transSpan
+  const arr = new Float32Array(mesh.bend.length / 3)
+  arr.fill(DRAPE_PRIOR.bendStiffness)
+  for (let c = 0; c < mesh.bend.length; c += 3) {
+    const i = mesh.bend[c], j = mesh.bend[c + 1]
+    const mx = (mesh.xy[2 * i] + mesh.xy[2 * j]) / 2
+    const my = (mesh.xy[2 * i + 1] + mesh.xy[2 * j + 1]) / 2
+    if (nearSeam(mx, my) || inTransition(my)) {
+      arr[c / 3] = DRAPE_PRIOR.seamFlattenStiffness
+    }
+  }
+  mesh.bendKArr = arr
 }
 
 // 裆尖短时硬钉投影（crotchHold fallback 旋钮，默认 0 不投影）
@@ -216,7 +276,9 @@ function collide(sim: DrapeSim): void {
   const fr = DRAPE_PRIOR.friction
   for (let i3 = 0; i3 < pos.length; i3 += 3) {
     const x = pos[i3], z = pos[i3 + 2]
-    const rings = field.loopsAt(pos[i3 + 1] - sim.yLift)
+    const patY = pos[i3 + 1] - sim.yLift
+    if (patY < sim.collideAboveY) continue   // 腿段自由垂（混合形态）
+    const rings = field.loopsAt(patY)
     if (rings.length === 0) continue
     // 最近边界（跨全部环，quick reject：质心包围圆 + skin 余量）。
     // 性能口径：Math.hypot 慢一个量级，用 sqrt
@@ -322,14 +384,16 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
           pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
           pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
         }
-        // 弯曲约束（内边对点，刚度 0.3）
+        // 弯曲约束（内边对点；全局 0.3 / 缝口摊平窗覆写）
+        const bendK = part.mesh.bendKArr
         for (let c = 0; c < bend.length; c += 3) {
           const a = 3 * (off + bend[c]), b = 3 * (off + bend[c + 1])
           const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
           const dz = pos[b + 2] - pos[a + 2]
           const d = Math.hypot(dx, dy, dz)
           if (d < 1e-9) continue
-          const k = ((d - bend[c + 2]) / d) * 0.5 * p.bendStiffness
+          const k = ((d - bend[c + 2]) / d) * 0.5
+            * (bendK ? bendK[c / 3] : p.bendStiffness)
           pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
           pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
         }

@@ -68,7 +68,8 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   侧缝边落腿外侧线；fork 向上 forkBlend(8) 过渡〕+ 侧缝腰角前后共点 snap + hangLift(8) 抬升）→
 #   seams.buildSeamSet 四族缝合对（前中 rise/后中 cb 镜像族 + 侧缝/内缝跨宿主弧长族〔吃势均匀吸收〕+ 四裆尖
 #   tip 补焊零 rest 闭环自动坍缩裆交叉点；back 宿主 side 双 run 先 mesh.mergeRuns 合链）→ drape verlet
-#   解算**自由垂**（2026-09-17（五）用户口径「只保留腰部圆形撑开，其他地方真实物理垂挂」：
+#   解算**全域自由垂**（（十一）现行「腰头一圈+下面真实物理悬挂」；（九）混合形态〔腰臀芯碰撞 collideAboveY〕
+#   留 drape 备用——其 D 形不对称诊断系度量 bug，山脊=缝尖折痕，由宽摊平窗 span 5 处理；（五）原口径：
 #   drape 传 field=null——腰口整圈全向钉 = 圆形撑环 + sideHold(10) 腰头代形刚度带〔本期不含腰头〕，
 #   其下布自重褶皱垂挂、腿筒前后压扁〔真挂裤观感；无布-布碰撞，两腿相贴处可能轻微互穿〕；
 #   芯碰撞机制保留〔传 field 即生效：v3 两腿分离三实体 + 行截面环 SliceRing 最近边界+skin·外法线

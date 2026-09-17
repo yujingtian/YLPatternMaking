@@ -382,6 +382,11 @@ export default function Fitting3DView({
         front: data.body.points.front_crotch_vertex[1],
         back: data.body.points.back_crotch_vertex[1],
       }, buildLegAxis(data), bandMesh)
+      // 全域自由垂（2026-09-17（十一）用户口径「腰头一圈 + 下面真实物理
+      // 悬挂 + 侧缝不出山脊」）：撤（九）腰臀段芯碰撞——正确度量证实
+      // 自由垂截面前后基本对称（前 +11.2/后 −9.8，此前 D 形是度量 bug），
+      // 山脊=缝尖折痕本身，靠加宽缝头摊平窗把折痕移离缝身；（九）的
+      // collideAboveY 机制保留在 drape（传 field+下限即混合形态，备用）
       const sim = buildDrape(pair, null)
       const hostN = panel.host.xy.length / 2
       const backHostN = backPanel.host.xy.length / 2

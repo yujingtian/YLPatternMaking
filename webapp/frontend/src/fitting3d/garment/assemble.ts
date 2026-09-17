@@ -436,6 +436,39 @@ export function buildFullPair(
       pos[i3 + 1] = yAvg
       pos[i3 + 2] = r * Math.cos(th)
     }
+    // 高差渐变（（十）腰头侧缝不平整）：角点两侧 waistBlendSpan 弧内的
+    // 顶链顶点 y 向 snap 高度渐变——只平均角点会在缝口两侧留台阶，腰头
+    // 底边跟出折点。order[last] = 侧缝腰角端，弧距 = total − arc[k]
+    for (const p of [parts[iF], parts[iB]]) {
+      const top = p.mesh.runs.find((rr) => rr.role === 'top_chain')!
+      const seam = p.mesh.runs.find((rr) => rr.name === 'rise' || rr.name === 'cb')
+      const seamTop = seam ? seam.indices[seam.indices.length - 1] : null
+      const order = seamTop !== null
+        && seamTop === top.indices[top.indices.length - 1]
+        ? [...top.indices].reverse() : [...top.indices]
+      const arcs: number[] = [0]
+      for (let k = 1; k < order.length; k++) {
+        arcs.push(arcs[k - 1] + Math.hypot(
+          p.mesh.xy[2 * order[k]] - p.mesh.xy[2 * order[k - 1]],
+          p.mesh.xy[2 * order[k] + 1] - p.mesh.xy[2 * order[k - 1] + 1]))
+      }
+      const total = arcs[arcs.length - 1] || 1
+      const span = HANG_PRIOR.waistBlendSpan
+      for (let k = 0; k < order.length; k++) {
+        const fromCorner = total - arcs[k]
+        if (fromCorner > span) continue
+        const w = 1 - fromCorner / (span || 1)
+        const i3 = 3 * (p.offset + order[k])
+        const yNew = pos[i3 + 1] * (1 - w) + yAvg * w
+        // 半径随 y 同步重算（场半径沿高度变化——y 调低不更新 r 会陷进
+        // 碰撞壳 ~0.07cm，钉与 collide 打架，有省款金标实测）
+        const th = Math.atan2(pos[i3], pos[i3 + 2])
+        const r = field.radiusAt(yNew, th) + HANG_PRIOR.garmentGap
+        pos[i3] = r * Math.sin(th)
+        pos[i3 + 1] = yNew
+        pos[i3 + 2] = r * Math.cos(th)
+      }
+    }
   }
   // ---- 4) 内缝语义摆位 = 腿内侧线（cAt−rAt−skin−gap，钳 ≥0.3 不越
   // 中线）：前后宿主相邻共线（同一公式），内缝焊对初始间隙 ≈0；L/R 腿

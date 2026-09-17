@@ -57,7 +57,7 @@ export const LEG_GAP_TAPER = 12  // cm：间隙从 fork 向下张开的锥高
 export const CROTCH_FILLET = 6   // cm：躯干管底裆圆角带高（z 向压缩过渡；
                                  // 到臀站为止——臀环恢复全圆，场等值口径不变）
 export const CROTCH_ZMIN = 0.28  // 圆角带底行的 z 半径比例（耻骨区高度）
-const TORSO_BOTTOM = 2           // cm：躯干管底 = fork + 本值——fork 带
+export const TORSO_BOTTOM = 2    // cm：躯干管底 = fork + 本值——fork 带
                                  // （裆交叉口袋）只有上延腿管，躯干环不出
                                  // 现在 fork 行（会把裆尖摆位困进管内）；
                                  // 腿管上延 LEG_OVERLAP 兼供圆角带下段的

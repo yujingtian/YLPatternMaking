@@ -145,8 +145,10 @@ function assertFullPants(
   // 门控跟 sim.field 走：自由垂口径 sim 无碰撞体自然跳过〔摆位用的场
   // 不参与解算，不能拿来查〕）
   if (sim.field) {
+    // 只查碰撞段（腿段自由垂、摊平布本就穿过腿管环位——混合形态口径）
     let penCount = 0
     for (let i3 = 0; i3 < sim.pos.length; i3 += 3) {
+      if (sim.pos[i3 + 1] - sim.yLift < sim.collideAboveY) continue
       if (pointInRings(sim.pos[i3], sim.pos[i3 + 2],
         sim.field.loopsAt(sim.pos[i3 + 1] - sim.yLift))) penCount++
     }
@@ -165,9 +167,9 @@ const buildPant = (payload: FittingResult): {
     front: payload.body.points.front_crotch_vertex[1],
     back: payload.body.points.back_crotch_vertex[1],
   }, buildLegAxis(payload), buildWaistbandMesh(payload))
-  // 自由垂（2026-09-17 用户口径「只保留腰部圆形撑开，其他地方真实
-  // 物理垂挂」；九期起「腰部圆形撑开」= 腰头带顶整圈钉挂）：field 只供
-  // 摆位（腰圆半径 + 初始形态），解算传 null
+  // 全域自由垂（（十一）用户口径「腰头一圈+下面真实物理悬挂」；（九）
+  // 混合形态机制保留在 drape 备用——正确度量证实自由垂截面前后基本
+  // 对称，山脊=缝尖折痕，由加宽的缝头摊平窗处理）
   const sim = buildDrape(placed, null)
   return { sim, placed }
 }
