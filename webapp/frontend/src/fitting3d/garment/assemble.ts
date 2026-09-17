@@ -11,8 +11,8 @@
 // 坐标系 = 纸样系（y=纸样高、hem≈0 落地）；显示层 Group 平移到人台
 // 旁侧（Fitting3DView），本层不感知人台。
 import type { FittingPiece, FittingResult } from '../../types'
-import type { ClothMesh } from './mesh'
-import { buildClothMesh } from './mesh'
+import type { ClothMesh, EdgeRun } from './mesh'
+import { buildClothMesh, mergeRuns } from './mesh'
 import type { BodyField, PieceKey, Side } from './placement'
 import { placePoint } from './placement'
 import { FLAT_PRIOR, HANG_PRIOR } from './priors'
@@ -311,4 +311,210 @@ export function buildHangPair(
   // 上方场查询仍用纸样 y（抬升前），本行放在所有摆位之后
   for (let i = 1; i < pos.length; i += 3) pos[i] += HANG_PRIOR.hangLift
   return { parts, pos, total: 2 * n }
+}
+
+// 链折线按 y 插值取 x（腿区逐高度参考）：从链首扫描首个跨 y 段线性插值，
+// 范围外端点 clamp。side（腰口→脚口）/inseam（脚口→裆尖）链 y 近单调，
+// 首个跨段即所求
+function chainXAt(chain: EdgeRun, xy: Float64Array, y: number): number {
+  const idx = chain.indices
+  for (let k = 0; k < idx.length - 1; k++) {
+    const y0 = xy[2 * idx[k] + 1], y1 = xy[2 * idx[k + 1] + 1]
+    if ((y0 - y) * (y1 - y) <= 0 && Math.abs(y1 - y0) > 1e-12) {
+      const t = (y - y0) / (y1 - y0)
+      return xy[2 * idx[k]] + (xy[2 * idx[k + 1]] - xy[2 * idx[k]]) * t
+    }
+  }
+  return y <= xy[2 * idx[0] + 1]
+    ? xy[2 * idx[0]] : xy[2 * (idx[idx.length - 1])]
+}
+
+// 整裤四 part 悬挂摆位（2026-09-17 八期整裤缝合）：前宿主 ×2（fL/fR）+
+// 后宿主 ×2（bL/bR）合并一张 Garment（offset 依次 0, nF, 2nF, 2nF+nB），
+// 配 seams.ts buildSeamSet 四族缝合对 + drape 单 sim 解算。摆位五步
+// （顺序执行、后者覆盖先）——「钉与缝同意」的整裤版，让全部缝合对初始
+// 间隙 ≈0（或小常量），动力学只做小松弛（摆位先行，不用旧链 preRelax
+// 大 Gap 收拢）：
+// 1) 片身基础映射：躯干段（y ≥ fork，fork = 各宿主裆尖 y，payload
+//    body.points）照旧全局 x→θ（placePoint，六期已验证）；腿段（y <
+//    fork）逐高度局部归一 t=(x−xi)/(xo−xi)（xi/xo = 该高度 inseam 链/
+//    side 合链 x，chainXAt 折线插值）——内边界精确落前/后中 pinch 线、
+//    外边界落 ±90°，hem 内外角自然归位（牛仔裤侧缝/内缝撇势弯曲由逐
+//    高度取链 x 吸收，全局 x 均匀映射只对直边成立）
+// 2) 腰圆 360° 整圈弧长重参数化（六期 per-host 逻辑扩角度表）：fL
+//    −f·90° / fR +f·90° / bL −180°+f·90° / bR 180°−f·90°（f = 腰口
+//    弧长分数，0=中缝腰角、1=侧缝腰角）——侧腰角前后宿主共点 ±90°、
+//    中缝腰角镜像共点 0°/180°，**腰圆初始已闭**（八期口径①「侧缝缝合
+//    形成腰圆」的摆位侧前提）
+// 3) 侧缝语义摆位 θ=±90° 竖直（六期逻辑逐字继承）——前/后宿主同线，
+//    side 缝对（seams 弧长族，首对锚腰口端）初始间隙 ≈0
+// 4) 内缝语义摆位（新）：front 宿主 inseam 链整条 θ=0（前中 pinch 线 =
+//    芯花生环 +z 腰谷）、back 宿主 θ=−180°（−z 腰谷），r = 场+gap、
+//    y 原样；L/R part 查询同角精确重合于中面。两线初始间隙 ≈
+//    2(ρ_pinch+skin+gap) ≈15cm 全链均匀——常量温和闭拢、无拓扑穿越
+//    （八期口径②「内缝缝合形成裤筒」；四裆尖经 tip 补焊零 rest 闭环
+//    自动汇集裆交叉点=口径③）
+// 5) hangLift 统一抬升（碰撞模式重定标：布撑芯上不下坠，hem≈纸样 y
+//    +lift；drape.collide 场查询按 yLift 回纸样空间，两处一致）
+export function buildFullPair(
+  front: ClothMesh, back: ClothMesh, field: BodyField,
+  forkY: { front: number; back: number },
+): Garment {
+  const nF = front.xy.length / 2
+  const nB = back.xy.length / 2
+  const parts: GarmentPart[] = [
+    { key: 'front', side: 'L', mesh: front, offset: 0 },
+    { key: 'front', side: 'R', mesh: front, offset: nF },
+    { key: 'back', side: 'L', mesh: back, offset: 2 * nF },
+    { key: 'back', side: 'R', mesh: back, offset: 2 * nF + nB },
+  ]
+  const pos = new Float32Array(3 * (2 * nF + 2 * nB))
+  // ---- 1) 片身基础映射（躯干全局 x→θ / 腿区逐高度局部归一）----
+  for (const part of parts) {
+    const mesh = part.mesh
+    let xMin = Infinity, xMax = -Infinity
+    for (let i = 0; i < mesh.xy.length; i += 2) {
+      xMin = Math.min(xMin, mesh.xy[i])
+      xMax = Math.max(xMax, mesh.xy[i])
+    }
+    const inner = mesh.runs.find((r) => r.name === 'inseam') ?? null
+    const outer = mergeRuns(mesh.runs.filter((r) => r.name === 'side'), mesh.xy)
+    const fork = part.key === 'back' ? forkY.back : forkY.front
+    // 腿区权重：forkBlend>0 时线性混合（备用旋钮），=0 硬切换
+    const legW = (y: number): number => {
+      if (!HANG_PRIOR.legReparam || !inner || !outer) return 0
+      const blend = HANG_PRIOR.forkBlend
+      return blend > 0
+        ? Math.max(0, Math.min(1, (fork + blend - y) / (2 * blend)))
+        : (y < fork ? 1 : 0)
+    }
+    for (let i = 0; i < mesh.xy.length / 2; i++) {
+      const x = mesh.xy[2 * i], y = mesh.xy[2 * i + 1]
+      const legPos = (): [number, number, number] => {
+        const xi = chainXAt(inner!, mesh.xy, y)
+        const xo = chainXAt(outer!, mesh.xy, y)
+        const t = Math.max(0, Math.min(1, (x - xi) / ((xo - xi) || 1)))
+        const thL = part.key === 'back'
+          ? -Math.PI + (Math.PI / 2) * t
+          : -t * (Math.PI / 2)
+        const th = part.side === 'R' ? -thL : thL
+        const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
+        return [r * Math.sin(th), y, r * Math.cos(th)]
+      }
+      const w = legW(y)
+      const i3 = 3 * (part.offset + i)
+      if (w >= 1) {
+        const [px, py, pz] = legPos()
+        pos[i3] = px; pos[i3 + 1] = py; pos[i3 + 2] = pz
+      } else {
+        const [px, py, pz] = placePoint(
+          part.key, part.side, x, y, xMin, xMax, field)
+        if (w > 0) {
+          const [lx, , lz] = legPos()
+          pos[i3] = px + (lx - px) * w
+          pos[i3 + 1] = py
+          pos[i3 + 2] = pz + (lz - pz) * w
+        } else {
+          pos[i3] = px; pos[i3 + 1] = py; pos[i3 + 2] = pz
+        }
+      }
+    }
+  }
+  // ---- 2) 腰圆 360° 整圈弧长重参数化（per part；order[0]=中缝腰角）----
+  for (const part of parts) {
+    const mesh = part.mesh
+    const top = mesh.runs.find((r) => r.role === 'top_chain')
+    const seamRun = mesh.runs.find(
+      (r) => r.name === 'rise' || r.name === 'cb')
+    if (!top || top.indices.length <= 1) continue
+    const seamTop = seamRun
+      ? seamRun.indices[seamRun.indices.length - 1] : null
+    const order = seamTop !== null
+      && seamTop === top.indices[top.indices.length - 1]
+      ? [...top.indices].reverse() : [...top.indices]
+    const arc: number[] = [0]
+    for (let k = 1; k < order.length; k++) {
+      const a = order[k - 1], b = order[k]
+      arc.push(arc[k - 1] + Math.hypot(
+        mesh.xy[2 * b] - mesh.xy[2 * a], mesh.xy[2 * b + 1] - mesh.xy[2 * a + 1]))
+    }
+    const total = arc[order.length - 1] || 1
+    for (let k = 0; k < order.length; k++) {
+      const i = order[k]
+      const f = arc[k] / total
+      // f=0 中缝腰角落中面（front 0° / back −180°）、f=1 侧缝腰角落 ±90°
+      const thL = part.key === 'back'
+        ? -Math.PI + f * (Math.PI / 2)
+        : -f * (Math.PI / 2)
+      const th = part.side === 'R' ? -thL : thL
+      const y = mesh.xy[2 * i + 1]
+      const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
+      const i3 = 3 * (part.offset + i)
+      pos[i3] = r * Math.sin(th)
+      pos[i3 + 1] = y
+      pos[i3 + 2] = r * Math.cos(th)
+    }
+  }
+  // 侧缝腰角前后共点 snap（八期）：前后腰口线在纸样上是曲线、侧腰角 y
+  // 有起翘差（fixture 实测 front 97.7 / back 98.1，~0.4cm），各自摆位后
+  // 两角不重合——它们既在钉集（top 终点角 + sideHold 带首点）又是 side
+  // 缝对首对，不 snap 则钉与缝永久拔河（缝对 0.4cm 永不合）。前后两角
+  // 统一摆到平均 y（θ=±90°、r = 场(平均 y)+gap）——「钉与缝同意」的
+  // 腰圆闭合收尾；R 侧独立平均自动保 L/R 镜像（各 part 摆位本身镜像）
+  for (const [iF, iB] of [[0, 2], [1, 3]] as const) {
+    const cornerOf = (p: GarmentPart): { v: number; y: number } => {
+      const top = p.mesh.runs.find((r) => r.role === 'top_chain')!
+      const seam = p.mesh.runs.find((r) => r.name === 'rise' || r.name === 'cb')
+      const seamTop = seam ? seam.indices[seam.indices.length - 1] : null
+      const reversed = seamTop === top.indices[top.indices.length - 1]
+      const v = reversed ? top.indices[0] : top.indices[top.indices.length - 1]
+      return { v, y: p.mesh.xy[2 * v + 1] }
+    }
+    const fC = cornerOf(parts[iF]), bC = cornerOf(parts[iB])
+    const th = parts[iF].side === 'L' ? -Math.PI / 2 : Math.PI / 2
+    const yAvg = (fC.y + bC.y) / 2
+    const r = field.radiusAt(yAvg, th) + HANG_PRIOR.garmentGap
+    for (const [p, c] of [[parts[iF], fC], [parts[iB], bC]] as const) {
+      const i3 = 3 * (p.offset + c.v)
+      pos[i3] = r * Math.sin(th)
+      pos[i3 + 1] = yAvg
+      pos[i3 + 2] = r * Math.cos(th)
+    }
+  }
+  // ---- 3) 侧缝语义摆位 θ=±90° 竖直（六期逐字继承，'side' 全 run 覆盖；
+  // 后宿主育克侧段与后片侧缝各自成 run，mergeRuns 合链后的同一顶点集）----
+  for (const part of parts) {
+    for (const run of part.mesh.runs) {
+      if (run.name !== 'side') continue
+      for (const i of run.indices) {
+        const y = part.mesh.xy[2 * i + 1]
+        const th = part.side === 'L' ? -Math.PI / 2 : Math.PI / 2
+        const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
+        const i3 = 3 * (part.offset + i)
+        pos[i3] = r * Math.sin(th)
+        pos[i3 + 1] = y
+        pos[i3 + 2] = r * Math.cos(th)
+      }
+    }
+  }
+  // ---- 4) 内缝语义摆位（场查询统一用 L 角：L/R 精确重合于中面，消除
+  // θ-bin 量化对 ±180° 的镜像差）----
+  for (const part of parts) {
+    for (const run of part.mesh.runs) {
+      if (run.name !== 'inseam') continue
+      const thL = part.key === 'back' ? -Math.PI : 0
+      for (const i of run.indices) {
+        const y = part.mesh.xy[2 * i + 1]
+        const r = field.radiusAt(y, thL) + HANG_PRIOR.garmentGap
+        const i3 = 3 * (part.offset + i)
+        pos[i3] = r * Math.sin(thL)
+        pos[i3 + 1] = y
+        pos[i3 + 2] = r * Math.cos(thL)
+      }
+    }
+  }
+  // ---- 5) hangLift 统一抬升（最后施加，含全部钉目标；上方场查询均用
+  // 纸样 y，drape collide 按 yLift 回减保持一致）----
+  for (let i = 1; i < pos.length; i += 3) pos[i] += HANG_PRIOR.hangLift
+  return { parts, pos, total: 2 * nF + 2 * nB }
 }

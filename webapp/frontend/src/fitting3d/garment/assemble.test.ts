@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
-import { buildFlatLayout, buildHangPair } from './assemble'
+import { buildFlatLayout, buildFullPair, buildHangPair } from './assemble'
 import type { Garment } from './assemble'
 import { buildBackPanel, buildFrontPanel } from './panel'
 import { buildCore, CORE_SKIN } from './core'
@@ -631,6 +631,176 @@ describe('assemble：侧缝边语义摆位 + 悬挂整体抬升（2026-09-17 顶
       let minY = Infinity
       for (let i = 1; i < g.pos.length; i += 3) minY = Math.min(minY, g.pos[i])
       expect(minY).toBeGreaterThanOrEqual(HANG_PRIOR.hangLift - 1e-3)
+    })
+  }
+})
+
+describe('assemble：buildFullPair 整裤四 part 摆位（八期整裤缝合）', () => {
+  // 摆位先行验收：合并四 part（fL/fR/bL/bR）、腰圆 360° 整圈初始已闭
+  // （侧腰角前后宿主共点 ±90°）、内缝语义摆位 pinch 线、腿区逐高度
+  // 局部归一角度域、side 语义摆位 + 镜像对称 + 纸样空间穿透零。夹具 =
+  // pocket（前并集含袋贴 / 后纯片）+ yoke（后并集含育克 / 前纯片）双款
+  // 覆盖；forkY 取 payload body.points 裡尖 y。
+  const cases = [
+    { name: 'pocket', fixture: 'fixture_fitting_pocket.json' },
+    { name: 'yoke', fixture: 'fixture_fitting_yoke.json' },
+  ]
+  for (const c of cases) {
+    const payload: FittingResult = JSON.parse(
+      readFileSync(`${HERE}/${c.fixture}`, 'utf8'))
+    const frontPanel = buildFrontPanel(payload)
+    const backPanel = buildBackPanel(payload)
+    const core = buildCore(payload)
+    const field = buildBodyField(core.positions, core.indices)
+    const g = buildFullPair(frontPanel.host, backPanel.host, field, {
+      front: payload.body.points.front_crotch_vertex[1],
+      back: payload.body.points.back_crotch_vertex[1],
+    })
+    const nF = frontPanel.host.xy.length / 2
+    const nB = backPanel.host.xy.length / 2
+    const part = (key: 'front' | 'back', side: 'L' | 'R') =>
+      g.parts.find((p) => p.key === key && p.side === side)!
+    const at = (p: ReturnType<typeof part>, i: number) => 3 * (p.offset + i)
+    const thOf = (p: ReturnType<typeof part>, i: number) =>
+      Math.atan2(g.pos[at(p, i)], g.pos[at(p, i) + 2])
+
+    it(`${c.name}：四 part 结构 [fL,fR,bL,bR]、offset 顺排、总数对账、无 NaN`, () => {
+      expect(g.parts.map((p) => `${p.key}_${p.side}`))
+        .toEqual(['front_L', 'front_R', 'back_L', 'back_R'])
+      expect(part('front', 'L').offset).toBe(0)
+      expect(part('front', 'R').offset).toBe(nF)
+      expect(part('back', 'L').offset).toBe(2 * nF)
+      expect(part('back', 'R').offset).toBe(2 * nF + nB)
+      expect(g.total).toBe(2 * nF + 2 * nB)
+      expect(g.pos.length).toBe(3 * g.total)
+      for (let i = 0; i < g.pos.length; i++) {
+        expect(Number.isFinite(g.pos[i])).toBe(true)
+      }
+    })
+
+    it(`${c.name}：腰圆整圈——四段顶链中缝腰角精确落中面、侧缝腰角落 ±90° 且前后宿主共点`, () => {
+      // 「钉与缝同意」整裤版：fL/bL 侧腰角三维共点（front/back top 链
+      // 的 side 腰角端；θ=±90°、r=场+gap、前后腰口线等高——五条水平线
+      // 等高的整版口径在 3D 摆位的直接验收）
+      const topOf = (p: ReturnType<typeof part>) =>
+        p.mesh.runs.find((r) => r.role === 'top_chain')!
+      const seamRunOf = (p: ReturnType<typeof part>) =>
+        p.mesh.runs.find((r) => r.name === 'rise' || r.name === 'cb')
+      // order[0] = 中缝腰角（与 buildFullPair Step2 同判定：seamTop ==
+      // top 末采样则 order 反转、否则原序），另一端 = 侧缝腰角
+      const centerIdx = (p: ReturnType<typeof part>): number => {
+        const top = topOf(p)
+        const seam = seamRunOf(p)
+        const seamTop = seam ? seam.indices[seam.indices.length - 1] : null
+        return seamTop === top.indices[top.indices.length - 1]
+          ? top.indices[top.indices.length - 1] : top.indices[0]
+      }
+      const sideIdx = (p: ReturnType<typeof part>): number => {
+        const top = topOf(p)
+        return centerIdx(p) === top.indices[0]
+          ? top.indices[top.indices.length - 1] : top.indices[0]
+      }
+      for (const [key, midTh] of [['front', 0], ['back', -Math.PI]] as const) {
+        for (const side of ['L', 'R'] as const) {
+          const p = part(key, side)
+          const i = centerIdx(p)
+          expect(Math.abs(g.pos[at(p, i)])).toBeLessThan(1e-3)
+          const th = thOf(p, i)
+          expect(Math.abs(Math.atan2(Math.sin(th - midTh),
+            Math.cos(th - midTh)))).toBeLessThan(0.01)
+          expect(g.pos[at(p, i) + 2] * (key === 'front' ? 1 : -1))
+            .toBeGreaterThan(0)
+        }
+      }
+      const fC = at(part('front', 'L'), sideIdx(part('front', 'L')))
+      const bC = at(part('back', 'L'), sideIdx(part('back', 'L')))
+      expect(Math.hypot(
+        g.pos[fC] - g.pos[bC],
+        g.pos[fC + 1] - g.pos[bC + 1],
+        g.pos[fC + 2] - g.pos[bC + 2])).toBeLessThan(1e-3)
+      expect(Math.abs(g.pos[fC + 2])).toBeLessThan(1e-3)   // ±90°：z≈0
+      expect(g.pos[fC]).toBeLessThan(0)                    // L 侧 −X
+    })
+
+    it(`${c.name}：内缝语义摆位——front inseam 整链 θ=0（+Z）、back θ=−180°（−Z）、y=纸样高+lift`, () => {
+      for (const [key, zSgn] of [['front', 1], ['back', -1]] as const) {
+        for (const side of ['L', 'R'] as const) {
+          const p = part(key, side)
+          const run = p.mesh.runs.find((r) => r.name === 'inseam')!
+          expect(run.indices.length).toBeGreaterThan(0)
+          for (const i of run.indices) {
+            const i3 = at(p, i)
+            expect(Math.abs(g.pos[i3])).toBeLessThan(1e-3)
+            expect(g.pos[i3 + 2] * zSgn).toBeGreaterThan(0)
+            expect(g.pos[i3 + 1])
+              .toBeCloseTo(p.mesh.xy[2 * i + 1] + HANG_PRIOR.hangLift, 4)
+          }
+        }
+      }
+    })
+
+    it(`${c.name}：腿区逐高度归一——fork 以下角度域、R 镜像；hem 内角贴 pinch 线`, () => {
+      const forks = {
+        front: payload.body.points.front_crotch_vertex[1],
+        back: payload.body.points.back_crotch_vertex[1],
+      }
+      for (const p of g.parts) {
+        const mesh = p.mesh
+        const fork = forks[p.key as 'front' | 'back']
+        for (let i = 0; i < mesh.xy.length / 2; i++) {
+          if (mesh.xy[2 * i + 1] >= fork) continue
+          let th = thOf(p, i)
+          // R 侧归一到 [0, 2π)：内缝语义摆位 L/R 统一用 L 角（θ=−180°
+          // 而非 +180°，消除镜像量化差），atan2 落 −π 需回绕
+          if (p.side === 'R' && th < 0) th += 2 * Math.PI
+          if (p.side === 'L') {
+            const lo = p.key === 'back' ? -Math.PI : -Math.PI / 2
+            const hi = p.key === 'back' ? -Math.PI / 2 : 0
+            expect(th).toBeGreaterThanOrEqual(lo - 1e-6)
+            expect(th).toBeLessThanOrEqual(hi + 1e-6)
+          } else {
+            const lo = p.key === 'back' ? Math.PI / 2 : 0
+            const hi = p.key === 'back' ? Math.PI : Math.PI / 2
+            expect(th).toBeGreaterThanOrEqual(lo - 1e-6)
+            expect(th).toBeLessThanOrEqual(hi + 1e-6)
+          }
+        }
+      }
+      // hem 边 = side 端 → inseam 端：末采样是 inseam 端角（θ=0 精确，
+      // 由内缝语义摆位覆盖）的前一步，一个 seam 步长（~1cm / hem 半径
+      // ~8cm ≈ 0.13 rad）内贴 pinch 线；首采样被 side 语义摆位覆盖
+      const hemF = part('front', 'L').mesh.runs.find((r) => r.name === 'hem')!
+      const last = hemF.indices[hemF.indices.length - 1]
+      const i3 = at(part('front', 'L'), last)
+      expect(Math.abs(Math.atan2(g.pos[i3], g.pos[i3 + 2])))
+        .toBeLessThan(0.15)
+    })
+
+    it(`${c.name}：side 语义摆位 + 镜像对称 + 纸样空间穿透零`, () => {
+      for (const p of g.parts) {
+        for (const run of p.mesh.runs) {
+          if (run.name !== 'side') continue
+          for (const i of run.indices) {
+            const i3 = at(p, i)
+            expect(Math.abs(g.pos[i3 + 2])).toBeLessThan(1e-3)
+            expect(g.pos[i3] * (p.side === 'L' ? -1 : 1)).toBeGreaterThan(0)
+          }
+        }
+      }
+      for (const key of ['front', 'back'] as const) {
+        const mesh = part(key, 'L').mesh
+        const xs: number[] = []
+        for (let i = 0; i < mesh.xy.length / 2; i++) {
+          const l = at(part(key, 'L'), i), r = at(part(key, 'R'), i)
+          expect(g.pos[l + 1]).toBeCloseTo(g.pos[r + 1], 6)
+          xs.push(Math.abs(g.pos[l] + g.pos[r]))
+        }
+        xs.sort((a, b) => a - b)
+        expect(xs[Math.floor(xs.length / 2)]).toBeLessThan(0.1)
+      }
+      const pen = penetrationStats(patternSpacePos(g), field, CORE_SKIN)
+      expect(pen.count).toBe(0)
+      expect(pen.worst).toBe(0)
     })
   }
 })
