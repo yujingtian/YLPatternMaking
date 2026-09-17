@@ -1,15 +1,18 @@
-// 撑型芯金标（2026-09-14 解耦定型，v2 单一水密花生网格；2026-09-15
-// 重建一期起角色 = 静态摆位形态来源，整裤变体夹具随解算链删除）：
-//   腰臀段圆环 / 裆下花生整环（双瓣 + 腰谷，单一闭环非两管并置——
-//   管并置的相切刀口/交叠符号陷阱/留槽捷径三条死路见 core.ts 头注）；
-//   芯周长逐站锁定 girth_finished（圆 2πR−2π·skin / 花生整环 2g−2×2π·skin，
-//   摆位壳 core+skin 恰落纸样围度 = 「圆筒按构造成立」的数值口径）；
-//   瓣沿 ±x、腰谷在 ±z（前后中线）；支撑场裆上处处等值。
+// 撑型芯金标（v3，2026-09-17 八期整裤缝合：**两腿分离三实体**——躯干管
+// + 左右腿管，各实体独立水密）：躯干管（fork→腰+8 圆环）；腿管（hem−1.5
+// →fork 圆环，轴 ±(r+gapHalf)，gapHalf 从 fork LEG_GAP_MIN 张开到
+// LEG_GAP_TAPER 以下 LEG_GAP_HALF）——**裆下两腿真分离**，腿间空隙给内缝
+// 焊线与裆交叉点安身。腿管周长逐站锁定 girth_finished − 2π·skin（摆位壳
+// core+skin 恰落纸样围度 = 「圆筒按构造成立」的数值口径）。
+// v2 花生整环（裆下双瓣+腰谷单环）2026-09-17 证伪退役：径向碰撞场下
+// 腰谷仍是实心桥（星形实心），前/后内缝边隔桥相望焊不上、绕腿瓣外侧
+// 闭拢把裤腿拖成侧挂门帘（实测 inseam 终态 θ≈±90°、r≈腿瓣外）——详见
+// core.ts 头注与决策日志八期条目。
 // 夹具 = 引擎 payload（fixture_fitting.json）。
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
-import { buildCore, CORE_SKIN } from './core'
+import { buildCore, buildLegAxis, CORE_SKIN, LEG_GAP_HALF, LEG_GAP_MIN } from './core'
 import { buildBodyField } from './placement'
 import { sliceLoops } from '../bodymesh/slice'
 
@@ -29,46 +32,55 @@ const loopsAt = (r: FittingResult, y: number) => {
   return sliceLoops(core.positions, core.indices, y).filter((l) => l.closed)
 }
 
-describe('撑型芯：纸样围度逐站成芯（腰臀圆环 + 裆下花生整环）', () => {
-  it('可建；各站高恰一个闭环（花生也是单环拓扑）', () => {
+describe('撑型芯：v3 两腿分离三实体（躯干管 + 左右腿管）', () => {
+  it('可建；waist/hip 行恰 1 环（躯干）、knee/hem 行恰 2 环（左右腿管）', () => {
     const core = buildCore(M1)
     expect(core.positions.length).toBeGreaterThan(0)
     expect(core.indices.length % 3).toBe(0)
-    for (const key of ['waist', 'hip', 'knee', 'hem'] as const) {
+    for (const key of ['waist', 'hip'] as const) {
       expect(loopsAt(M1, st(M1, key).y)).toHaveLength(1)
     }
+    for (const key of ['knee', 'hem'] as const) {
+      expect(loopsAt(M1, st(M1, key).y)).toHaveLength(2)
+    }
+    // fork 行（= front 裆尖 y 78）也恰 2 环：腿管上延过 fork，裆交叉
+    // 口袋留给分离腿管（躯干环不出现在 fork 带）
+    expect(loopsAt(M1, st(M1, 'crotch').y)).toHaveLength(2)
   })
 
-  it('站高芯周 ≈ 纸样围度 − skin 壳（圆 2π·skin / 花生 2×2π·skin）', () => {
-    // M1 手工演算（skin 0.98）：hip 96 → 芯围 96−6.16=89.8；
-    // knee 46 → 花生整环 2×46−12.3=79.7（多边形周长比真值低 ~0.3%）
-    const hip = loopsAt(M1, st(M1, 'hip').y)[0]
-    expect(Math.abs(hip.girth
-      - (st(M1, 'hip').girth_finished! - TWO_SKIN))).toBeLessThan(0.8)
-    const knee = loopsAt(M1, st(M1, 'knee').y)[0]
-    expect(Math.abs(knee.girth
-      - (2 * st(M1, 'knee').girth_finished! - 2 * TWO_SKIN)))
-      .toBeLessThan(0.8)
-  })
-
-  it('花生瓣沿 ±x、腰谷在 ±z：膝站宽 ≈ 双瓣并排、深 ≈ 单瓣直径', () => {
-    const y = st(M1, 'knee').y
-    const core = buildCore(M1)
-    const xs: number[] = [], zs: number[] = []
-    for (let i = 1; i < core.positions.length; i += 3) {
-      if (Math.abs(core.positions[i] - y) < 1.05) {
-        xs.push(core.positions[i - 1]); zs.push(core.positions[i + 1])
+  it('腿管周长逐站锁定：每环 ≈ girth_finished − 2π·skin（左右对称）', () => {
+    // M1 手工演算（skin 0.98）：knee 46 → 每腿 46−6.16=39.8；hem 34 →
+    // 27.8（多边形周长比真值低 ~0.15%）
+    for (const key of ['knee', 'hem'] as const) {
+      const loops = loopsAt(M1, st(M1, key).y)
+      const [l, r] = [...loops].sort((a, b) => a.cx - b.cx)
+      expect(Math.abs(l.cx + r.cx)).toBeLessThan(1e-6)   // 左右镜像
+      for (const loop of [l, r]) {
+        expect(Math.abs(loop.girth
+          - (st(M1, key).girth_finished! - TWO_SKIN))).toBeLessThan(0.4)
       }
     }
-    const w = Math.max(...xs) - Math.min(...xs)
-    const d = Math.max(...zs) - Math.min(...zs)
-    // 双圆腿并排：宽 ≈ 2×腿直径、深 ≈ 1×腿直径（腰谷只浅于瓣顶、不塌到轴）
-    expect(w).toBeGreaterThan(2 * coreR(st(M1, 'knee').girth_finished!) - 0.6)
-    expect(Math.abs(d - w / 2)).toBeLessThan(2)
-    // 腰谷不塌到轴：x≈0 处（腰谷点）的 |z| > 1cm（两腿间实心连接）
-    const waistZ = zs.filter((_, k) => Math.abs(xs[k]) < 1).map(Math.abs)
-    expect(waistZ.length).toBeGreaterThan(0)
-    expect(Math.min(...waistZ)).toBeGreaterThan(1)
+  })
+
+  it('腿间隙：fork 处 ≈ 2×LEG_GAP_MIN、张开后 ≈ 2×LEG_GAP_HALF（腿内侧留白）', () => {
+    const axis = buildLegAxis(M1)
+    const fork = st(M1, 'crotch').y
+    // fork−1（锥形刚起）：间隙 = 2×(GAP_MIN + (GAP_HALF−GAP_MIN)/12)
+    const gapNear = 2 * (axis.cAt(fork - 1) - axis.rAt(fork - 1))
+    expect(gapNear).toBeGreaterThan(2 * LEG_GAP_MIN - 0.05)
+    expect(gapNear).toBeLessThan(2 * LEG_GAP_MIN + 0.35)
+    // knee（锥形完成区）：间隙 = 2×GAP_HALF
+    const yK = st(M1, 'knee').y
+    const gapFar = 2 * (axis.cAt(yK) - axis.rAt(yK))
+    expect(Math.abs(gapFar - 2 * LEG_GAP_HALF)).toBeLessThan(1e-9)
+    // 芯网格实测：knee 行两环内沿距 ≈ gapFar（多边形离散 ±0.1）
+    const loops = loopsAt(M1, yK)
+    const [l, r] = [...loops].sort((a, b) => a.cx - b.cx)
+    let inner = Infinity
+    for (const p of l.pts) for (const q of r.pts) {
+      inner = Math.min(inner, Math.hypot(p.x - q.x, p.z - q.z))
+    }
+    expect(Math.abs(inner - gapFar)).toBeLessThan(0.15)
   })
 
   it('支撑场：裆上圆环处处等值（±0.15cm），臀站 ≈ coreR(hip)', () => {
@@ -82,9 +94,9 @@ describe('撑型芯：纸样围度逐站成芯（腰臀圆环 + 裆下花生整�
     }
   })
 
-  it('裆站不掐腰（v2.1）：臀→裆带芯周长 ≥ 臀周 −4，无蜂腰', () => {
-    // 裆站躯干圆取 max(臀, 2×腿)（M1：max(96, 2×58)=116）单调过渡到
-    // 花生——旧值取单腿半径会掐腰再弹回（「大腿比臀大」的结构放大器）
+  it('裆站不掐腰（v2.1 口径延续）：臀→裆带躯干环周长 ≥ 臀周 −4，无蜂腰', () => {
+    // 裆站躯干圆取 max(臀, 2×腿)（M1：max(96, 2×58)=116）——旧值取单腿
+    // 半径会掐腰再弹回（「大腿比臀大」的结构放大器）
     const hip = st(M1, 'hip'), crotch = st(M1, 'crotch')
     const hipG = loopsAt(M1, hip.y)[0].girth
     for (let y = crotch.y + 4; y <= hip.y; y += 2) {

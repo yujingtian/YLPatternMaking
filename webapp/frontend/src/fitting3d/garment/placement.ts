@@ -10,12 +10,22 @@
 import { sliceLoops } from '../bodymesh/slice'
 import { FIELD_PRIOR, HANG_PRIOR } from './priors'
 
+// 行截面环（八期碰撞用）：行 y 处网格切片的闭环点列 + 质心/包围半径
+// （quick reject）。躯干行 1 环、腿行 2 环（左右腿管）
+export interface SliceRing {
+  pts: Float64Array    // 2P 平铺 [x0,z0,...]（闭合，尾接首）
+  cx: number           // 质心 x（环归属判据同 bodymesh/slice）
+  cz: number           // 质心 z（外法线定向）
+  r: number            // 质心包围半径（quick reject）
+}
+
 export class BodyField {
   constructor(
     readonly table: Float32Array,   // rows × thetaBins
     readonly rows: number,
     readonly rowStep: number,
     readonly thetaBins: number,
+    readonly slices: SliceRing[][] = [],   // 行 → 截面环（碰撞截面；缺省空=纯场表用）
   ) {}
 
   /** 全表最大支撑半径（悬挂展示算裤筒旁置偏移用：人台 +X 侧占位上界） */
@@ -25,6 +35,12 @@ export class BodyField {
       if (this.table[i] > m) m = this.table[i]
     }
     return m
+  }
+
+  /** 行截面环（y 夹取到表域；无截面行返回空数组） */
+  loopsAt(y: number): SliceRing[] {
+    const r = Math.max(0, Math.min(this.rows - 1, Math.round(y / this.rowStep)))
+    return this.slices[r] ?? []
   }
 
   radiusAt(y: number, th: number): number {
@@ -46,8 +62,10 @@ export class BodyField {
   }
 }
 
-// 从（morph 后）人台网格建场：逐行切片，全部环的点做方向支撑最大值。
-// 一次性 ~几十 ms（240 行 × 8618 三角 + 支撑填表），只在建衣/重穿时跑
+// 从（morph 后）人台网格建场：逐行切片，全部环的点做方向支撑最大值
+// （场表 = 摆位半径口径），同时留存行截面环（drape 截面碰撞口径——
+// 两腿分离芯的腿间空隙只有截面/表面碰撞能留白，径向场是星形实心）。
+// 一次性 ~几十 ms，只在建衣/重穿时跑
 export function buildBodyField(
   positions: Float32Array, indices: Uint32Array,
 ): BodyField {
@@ -58,6 +76,7 @@ export function buildBodyField(
   }
   const rows = Math.max(2, Math.floor(maxY / rowStep) + 1)
   const table = new Float32Array(rows * thetaBins)
+  const slices: SliceRing[][] = []
   // 方向单位向量预表（bin 中心）
   const sinT = new Float32Array(thetaBins), cosT = new Float32Array(thetaBins)
   for (let b = 0; b < thetaBins; b++) {
@@ -68,7 +87,23 @@ export function buildBodyField(
   for (let r = 0; r < rows; r++) {
     const y = r * rowStep
     const base = r * thetaBins
+    const rings: SliceRing[] = []
     for (const loop of sliceLoops(positions, indices, y)) {
+      if (!loop.closed) continue          // 撕裂兜底：碎片环不进碰撞
+      const pts = new Float64Array(2 * loop.pts.length)
+      let cz = 0
+      for (let k = 0; k < loop.pts.length; k++) {
+        pts[2 * k] = loop.pts[k].x
+        pts[2 * k + 1] = loop.pts[k].z
+        cz += loop.pts[k].z
+      }
+      cz /= loop.pts.length
+      let rMax = 0
+      for (let k = 0; k < loop.pts.length; k++) {
+        rMax = Math.max(rMax, Math.hypot(
+          pts[2 * k] - loop.cx, pts[2 * k + 1] - cz))
+      }
+      rings.push({ pts, cx: loop.cx, cz, r: rMax })
       for (const p of loop.pts) {
         for (let b = 0; b < thetaBins; b++) {
           const v = p.x * sinT[b] + p.z * cosT[b]
@@ -76,12 +111,32 @@ export function buildBodyField(
         }
       }
     }
+    slices.push(rings)
   }
-  return new BodyField(table, rows, rowStep, thetaBins)
+  return new BodyField(table, rows, rowStep, thetaBins, slices)
 }
 
 export type PieceKey = 'front' | 'back'
 export type Side = 'L' | 'R'
+
+// 点在截面环组内（射线法，取向无关；任一环内即并集内）——drape 碰撞
+// 与金标穿透查验共用
+export function pointInRings(x: number, z: number, rings: SliceRing[]): boolean {
+  for (const ring of rings) {
+    const n = ring.pts.length / 2
+    let inside = false
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = ring.pts[2 * i], zi = ring.pts[2 * i + 1]
+      const xj = ring.pts[2 * j], zj = ring.pts[2 * j + 1]
+      if ((zi > z) !== (zj > z)
+        && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) {
+        inside = !inside
+      }
+    }
+    if (inside) return true
+  }
+  return false
+}
 
 // 单顶点摆位：纸样全局 2D (x,y) -> 3D。90° 扇区包裹（t = (x−xMin)/
 // (xMax−xMin) 归一，两片 x 域同构：xMin = 侧缝、xMax = 中缝端）：

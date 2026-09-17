@@ -13,6 +13,8 @@
 import type { FittingPiece, FittingResult } from '../../types'
 import type { ClothMesh, EdgeRun } from './mesh'
 import { buildClothMesh, mergeRuns } from './mesh'
+import { CORE_SKIN, type LegAxis } from './core'
+import { pointInRings } from './placement'
 import type { BodyField, PieceKey, Side } from './placement'
 import { placePoint } from './placement'
 import { FLAT_PRIOR, HANG_PRIOR } from './priors'
@@ -333,32 +335,33 @@ function chainXAt(chain: EdgeRun, xy: Float64Array, y: number): number {
 // 后宿主 ×2（bL/bR）合并一张 Garment（offset 依次 0, nF, 2nF, 2nF+nB），
 // 配 seams.ts buildSeamSet 四族缝合对 + drape 单 sim 解算。摆位五步
 // （顺序执行、后者覆盖先）——「钉与缝同意」的整裤版，让全部缝合对初始
-// 间隙 ≈0（或小常量），动力学只做小松弛（摆位先行，不用旧链 preRelax
-// 大 Gap 收拢）：
-// 1) 片身基础映射：躯干段（y ≥ fork，fork = 各宿主裆尖 y，payload
-//    body.points）照旧全局 x→θ（placePoint，六期已验证）；腿段（y <
-//    fork）逐高度局部归一 t=(x−xi)/(xo−xi)（xi/xo = 该高度 inseam 链/
-//    side 合链 x，chainXAt 折线插值）——内边界精确落前/后中 pinch 线、
-//    外边界落 ±90°，hem 内外角自然归位（牛仔裤侧缝/内缝撇势弯曲由逐
-//    高度取链 x 吸收，全局 x 均匀映射只对直边成立）
+// 间隙 ≈0，动力学只做小松弛（摆位先行，不用旧链 preRelax 大 Gap 收拢）：
+// 1) 片身基础映射：躯干段（fork + forkBlend 以上）照旧全局 x→θ
+//    （placePoint，六期已验证）；腿段**腿局部圆环绕管**——逐高度局部
+//    归一 t=(x−xi)/(xo−xi)（xi/xo = 该高度 inseam 链/side 合链 x，
+//    chainXAt 折线插值），φ = t·π 从腿内侧（φ=0）经前/后（±z）到腿
+//    外侧（φ=π），绕腿轴（±cAt(y)）铺半径 rAt(y)+skin+gap——内缝边
+//    落腿内侧线、侧缝边落腿外侧线，hem 内外角自然归位；fork 向上
+//    forkBlend 线性过渡（裆角布从躯干前面顺滑收进腿间）
 // 2) 腰圆 360° 整圈弧长重参数化（六期 per-host 逻辑扩角度表）：fL
 //    −f·90° / fR +f·90° / bL −180°+f·90° / bR 180°−f·90°（f = 腰口
 //    弧长分数，0=中缝腰角、1=侧缝腰角）——侧腰角前后宿主共点 ±90°、
 //    中缝腰角镜像共点 0°/180°，**腰圆初始已闭**（八期口径①「侧缝缝合
 //    形成腰圆」的摆位侧前提）
-// 3) 侧缝语义摆位 θ=±90° 竖直（六期逻辑逐字继承）——前/后宿主同线，
-//    side 缝对（seams 弧长族，首对锚腰口端）初始间隙 ≈0
-// 4) 内缝语义摆位（新）：front 宿主 inseam 链整条 θ=0（前中 pinch 线 =
-//    芯花生环 +z 腰谷）、back 宿主 θ=−180°（−z 腰谷），r = 场+gap、
-//    y 原样；L/R part 查询同角精确重合于中面。两线初始间隙 ≈
-//    2(ρ_pinch+skin+gap) ≈15cm 全链均匀——常量温和闭拢、无拓扑穿越
-//    （八期口径②「内缝缝合形成裤筒」；四裆尖经 tip 补焊零 rest 闭环
-//    自动汇集裆交叉点=口径③）
+// 3) 侧缝语义摆位竖直线（六期 θ=±90° 逻辑的腿局部版）：躯干行照旧
+//    径向场 ±90°、腿行 = 腿外侧线（cAt+rAt+skin+gap），fork 带内线性
+//    过渡——前/后宿主同线，side 缝对（seams 弧长族，首对锚腰口端）
+//    初始间隙 ≈0
+// 4) 内缝语义摆位 = 腿内侧线（cAt−rAt−skin−gap，钳 ≥0.3 不越中线）：
+//    前后宿主**相邻共线**——内缝焊对初始间隙 ≈0（腿管两半在此合拢成
+//    筒，八期口径②），L/R 腿内侧线隔腿间隙相望不交叉；四裆尖经 tip
+//    补焊零 rest 闭环汇集裆交叉点=口径③（叉口在 fork 下方的腿间隙里）
 // 5) hangLift 统一抬升（碰撞模式重定标：布撑芯上不下坠，hem≈纸样 y
-//    +lift；drape.collide 场查询按 yLift 回纸样空间，两处一致）
+//    +lift；drape collide 截面环查询按 yLift 回纸样空间，两处一致）
 export function buildFullPair(
   front: ClothMesh, back: ClothMesh, field: BodyField,
   forkY: { front: number; back: number },
+  axis: LegAxis,
 ): Garment {
   const nF = front.xy.length / 2
   const nB = back.xy.length / 2
@@ -369,7 +372,7 @@ export function buildFullPair(
     { key: 'back', side: 'R', mesh: back, offset: 2 * nF + nB },
   ]
   const pos = new Float32Array(3 * (2 * nF + 2 * nB))
-  // ---- 1) 片身基础映射（躯干全局 x→θ / 腿区逐高度局部归一）----
+  // ---- 1) 片身基础映射（躯干全局 x→θ / 腿区腿局部圆环绕管）----
   for (const part of parts) {
     const mesh = part.mesh
     let xMin = Infinity, xMax = -Infinity
@@ -380,40 +383,49 @@ export function buildFullPair(
     const inner = mesh.runs.find((r) => r.name === 'inseam') ?? null
     const outer = mergeRuns(mesh.runs.filter((r) => r.name === 'side'), mesh.xy)
     const fork = part.key === 'back' ? forkY.back : forkY.front
-    // 腿区权重：forkBlend>0 时线性混合（备用旋钮），=0 硬切换
+    // 腿区权重：fork 以下 1、fork+forkBlend 以上 0，带内线性过渡
     const legW = (y: number): number => {
-      if (!HANG_PRIOR.legReparam || !inner || !outer) return 0
+      if (!HANG_PRIOR.legReparam) return 0
       const blend = HANG_PRIOR.forkBlend
-      return blend > 0
-        ? Math.max(0, Math.min(1, (fork + blend - y) / (2 * blend)))
-        : (y < fork ? 1 : 0)
+      if (blend <= 0) return y < fork ? 1 : 0
+      return Math.max(0, Math.min(1, (fork + blend - y) / blend))
     }
+    const canLeg = !!inner && !!outer
     for (let i = 0; i < mesh.xy.length / 2; i++) {
       const x = mesh.xy[2 * i], y = mesh.xy[2 * i + 1]
+      // 腿局部圆环：φ 从腿内侧（0）经前/后到腿外侧（π）
       const legPos = (): [number, number, number] => {
+        const sgn = part.side === 'R' ? 1 : -1
+        const r = axis.rAt(y) + CORE_SKIN + HANG_PRIOR.garmentGap
+        const cx = sgn * axis.cAt(y)
         const xi = chainXAt(inner!, mesh.xy, y)
         const xo = chainXAt(outer!, mesh.xy, y)
         const t = Math.max(0, Math.min(1, (x - xi) / ((xo - xi) || 1)))
-        const thL = part.key === 'back'
-          ? -Math.PI + (Math.PI / 2) * t
-          : -t * (Math.PI / 2)
-        const th = part.side === 'R' ? -thL : thL
-        const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
-        return [r * Math.sin(th), y, r * Math.cos(th)]
+        const phi = t * Math.PI
+        const ux = -sgn * Math.cos(phi)
+        const uz = (part.key === 'back' ? -1 : 1) * Math.sin(phi)
+        let px = cx + r * ux
+        if (px * sgn < 0.3) px = sgn * 0.3   // 内侧线不越中线（裆汇集处）
+        return [px, y, r * uz]
       }
-      const w = legW(y)
+      const w = canLeg ? legW(y) : 0
       const i3 = 3 * (part.offset + i)
       if (w >= 1) {
         const [px, py, pz] = legPos()
         pos[i3] = px; pos[i3 + 1] = py; pos[i3 + 2] = pz
       } else {
         const [px, py, pz] = placePoint(
-          part.key, part.side, x, y, xMin, xMax, field)
+          part.key as PieceKey, part.side, x, y, xMin, xMax, field)
         if (w > 0) {
           const [lx, , lz] = legPos()
-          pos[i3] = px + (lx - px) * w
-          pos[i3 + 1] = py
-          pos[i3 + 2] = pz + (lz - pz) * w
+          let mx = px + (lx - px) * w
+          let mz = pz + (lz - pz) * w
+          // 混合弦线可能穿芯（躯干径向位与腿局部位连线过实心）：落环内
+          // 回退径向摆位（径向场+gap 按构造在全体外）——保证初摆位零穿透
+          if (pointInRings(mx, mz, field.loopsAt(y))) {
+            mx = px; mz = pz
+          }
+          pos[i3] = mx; pos[i3 + 1] = py; pos[i3 + 2] = mz
         } else {
           pos[i3] = px; pos[i3 + 1] = py; pos[i3 + 2] = pz
         }
@@ -455,19 +467,46 @@ export function buildFullPair(
       pos[i3 + 2] = r * Math.cos(th)
     }
   }
+  // ---- 3) 侧缝语义摆位竖直线（六期 θ=±90° 的腿局部版）：躯干行照旧
+  // 径向场 ±90°、腿行 = 腿外侧线（cAt+rAt+skin+gap），fork 过渡带内线性
+  // 混合（带内两口径在 fork 处差 ~0.8cm，硬切会留台阶）。'side' 全 run
+  // 覆盖（后宿主育克侧段与后片侧缝各自成 run，同一顶点集）----
+  for (const part of parts) {
+    const fork = part.key === 'back' ? forkY.back : forkY.front
+    const legW = (y: number): number => {
+      const blend = HANG_PRIOR.forkBlend
+      if (blend <= 0) return y < fork ? 1 : 0
+      return Math.max(0, Math.min(1, (fork + blend - y) / blend))
+    }
+    for (const run of part.mesh.runs) {
+      if (run.name !== 'side') continue
+      for (const i of run.indices) {
+        const y = part.mesh.xy[2 * i + 1]
+        const sgn = part.side === 'L' ? -1 : 1
+        const th = part.side === 'L' ? -Math.PI / 2 : Math.PI / 2
+        const radial = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
+        const lateral = axis.cAt(y) + axis.rAt(y)
+          + CORE_SKIN + HANG_PRIOR.garmentGap
+        const r = radial + (lateral - radial) * legW(y)
+        const i3 = 3 * (part.offset + i)
+        pos[i3] = sgn * r
+        pos[i3 + 1] = y
+        pos[i3 + 2] = 0
+      }
+    }
+  }
   // 侧缝腰角前后共点 snap（八期）：前后腰口线在纸样上是曲线、侧腰角 y
-  // 有起翘差（fixture 实测 front 97.7 / back 98.1，~0.4cm），各自摆位后
-  // 两角不重合——它们既在钉集（top 终点角 + sideHold 带首点）又是 side
-  // 缝对首对，不 snap 则钉与缝永久拔河（缝对 0.4cm 永不合）。前后两角
-  // 统一摆到平均 y（θ=±90°、r = 场(平均 y)+gap）——「钉与缝同意」的
-  // 腰圆闭合收尾；R 侧独立平均自动保 L/R 镜像（各 part 摆位本身镜像）
+  // 有起翘差（fixture 实测 front 97.7 / back 98.1，~0.4cm；退化款差更大），
+  // 各自摆位后两角不重合——它们在钉集（sideHold 带首点）又是 side 缝对
+  // 首对，不 snap 则钉与缝永久拔河。**角点本体 = side 合链首采样**（边
+  // 界重采样共享角点规则；top run 末端只是角点前一步，写它没用）。前后
+  // 两角统一摆到平均 y（θ=±90°、r = 场(平均 y)+gap）——「钉与缝同意」
+  // 的腰圆闭合收尾；R 侧独立平均自动保 L/R 镜像（各 part 摆位本身镜像）
   for (const [iF, iB] of [[0, 2], [1, 3]] as const) {
     const cornerOf = (p: GarmentPart): { v: number; y: number } => {
-      const top = p.mesh.runs.find((r) => r.role === 'top_chain')!
-      const seam = p.mesh.runs.find((r) => r.name === 'rise' || r.name === 'cb')
-      const seamTop = seam ? seam.indices[seam.indices.length - 1] : null
-      const reversed = seamTop === top.indices[top.indices.length - 1]
-      const v = reversed ? top.indices[0] : top.indices[top.indices.length - 1]
+      const chain = mergeRuns(
+        p.mesh.runs.filter((r) => r.name === 'side'), p.mesh.xy)!
+      const v = chain.indices[0]
       return { v, y: p.mesh.xy[2 * v + 1] }
     }
     const fC = cornerOf(parts[iF]), bC = cornerOf(parts[iB])
@@ -481,35 +520,21 @@ export function buildFullPair(
       pos[i3 + 2] = r * Math.cos(th)
     }
   }
-  // ---- 3) 侧缝语义摆位 θ=±90° 竖直（六期逐字继承，'side' 全 run 覆盖；
-  // 后宿主育克侧段与后片侧缝各自成 run，mergeRuns 合链后的同一顶点集）----
-  for (const part of parts) {
-    for (const run of part.mesh.runs) {
-      if (run.name !== 'side') continue
-      for (const i of run.indices) {
-        const y = part.mesh.xy[2 * i + 1]
-        const th = part.side === 'L' ? -Math.PI / 2 : Math.PI / 2
-        const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
-        const i3 = 3 * (part.offset + i)
-        pos[i3] = r * Math.sin(th)
-        pos[i3 + 1] = y
-        pos[i3 + 2] = r * Math.cos(th)
-      }
-    }
-  }
-  // ---- 4) 内缝语义摆位（场查询统一用 L 角：L/R 精确重合于中面，消除
-  // θ-bin 量化对 ±180° 的镜像差）----
+  // ---- 4) 内缝语义摆位 = 腿内侧线（cAt−rAt−skin−gap，钳 ≥0.3 不越
+  // 中线）：前后宿主相邻共线（同一公式），内缝焊对初始间隙 ≈0；L/R 腿
+  // 内侧线隔腿间隙相望（近裆处收敛到 ±0.3——四裆尖 tip 补焊在此汇集）----
   for (const part of parts) {
     for (const run of part.mesh.runs) {
       if (run.name !== 'inseam') continue
-      const thL = part.key === 'back' ? -Math.PI : 0
+      const sgn = part.side === 'L' ? -1 : 1
       for (const i of run.indices) {
         const y = part.mesh.xy[2 * i + 1]
-        const r = field.radiusAt(y, thL) + HANG_PRIOR.garmentGap
+        const medial = Math.max(
+          axis.cAt(y) - (axis.rAt(y) + CORE_SKIN + HANG_PRIOR.garmentGap), 0.3)
         const i3 = 3 * (part.offset + i)
-        pos[i3] = r * Math.sin(thL)
+        pos[i3] = sgn * medial
         pos[i3 + 1] = y
-        pos[i3 + 2] = r * Math.cos(thL)
+        pos[i3 + 2] = 0
       }
     }
   }

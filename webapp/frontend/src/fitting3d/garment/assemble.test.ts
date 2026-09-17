@@ -14,9 +14,9 @@ import type { FittingResult } from '../../types'
 import { buildFlatLayout, buildFullPair, buildHangPair } from './assemble'
 import type { Garment } from './assemble'
 import { buildBackPanel, buildFrontPanel } from './panel'
-import { buildCore, CORE_SKIN } from './core'
+import { buildCore, buildLegAxis, CORE_SKIN } from './core'
 import { buildClothMesh } from './mesh'
-import { buildBodyField, penetrationStats } from './placement'
+import { buildBodyField, penetrationStats, pointInRings } from './placement'
 import { FLAT_PRIOR, HANG_PRIOR } from './priors'
 
 const HERE = import.meta.dirname   // src/fitting3d/garment
@@ -652,10 +652,11 @@ describe('assemble：buildFullPair 整裤四 part 摆位（八期整裤缝合）
     const backPanel = buildBackPanel(payload)
     const core = buildCore(payload)
     const field = buildBodyField(core.positions, core.indices)
+    const axis = buildLegAxis(payload)
     const g = buildFullPair(frontPanel.host, backPanel.host, field, {
       front: payload.body.points.front_crotch_vertex[1],
       back: payload.body.points.back_crotch_vertex[1],
-    })
+    }, axis)
     const nF = frontPanel.host.xy.length / 2
     const nB = backPanel.host.xy.length / 2
     const part = (key: 'front' | 'back', side: 'L' | 'R') =>
@@ -695,11 +696,6 @@ describe('assemble：buildFullPair 整裤四 part 摆位（八期整裤缝合）
         return seamTop === top.indices[top.indices.length - 1]
           ? top.indices[top.indices.length - 1] : top.indices[0]
       }
-      const sideIdx = (p: ReturnType<typeof part>): number => {
-        const top = topOf(p)
-        return centerIdx(p) === top.indices[0]
-          ? top.indices[top.indices.length - 1] : top.indices[0]
-      }
       for (const [key, midTh] of [['front', 0], ['back', -Math.PI]] as const) {
         for (const side of ['L', 'R'] as const) {
           const p = part(key, side)
@@ -712,8 +708,16 @@ describe('assemble：buildFullPair 整裤四 part 摆位（八期整裤缝合）
             .toBeGreaterThan(0)
         }
       }
-      const fC = at(part('front', 'L'), sideIdx(part('front', 'L')))
-      const bC = at(part('back', 'L'), sideIdx(part('back', 'L')))
+      // 侧腰角本体 = side 合链首采样（与 buildFullPair snap/mergeRuns 同
+      // 口径：首采样 y 最高的 run 的首点；top run 末端只是角点前一步）
+      const sideCorner = (p: ReturnType<typeof part>): number => {
+        const runs = p.mesh.runs.filter((r) => r.name === 'side')
+        const top = runs.reduce((a, b) =>
+          p.mesh.xy[2 * b.indices[0] + 1] > p.mesh.xy[2 * a.indices[0] + 1] ? b : a)
+        return top.indices[0]
+      }
+      const fC = at(part('front', 'L'), sideCorner(part('front', 'L')))
+      const bC = at(part('back', 'L'), sideCorner(part('back', 'L')))
       expect(Math.hypot(
         g.pos[fC] - g.pos[bC],
         g.pos[fC + 1] - g.pos[bC + 1],
@@ -722,58 +726,59 @@ describe('assemble：buildFullPair 整裤四 part 摆位（八期整裤缝合）
       expect(g.pos[fC]).toBeLessThan(0)                    // L 侧 −X
     })
 
-    it(`${c.name}：内缝语义摆位——front inseam 整链 θ=0（+Z）、back θ=−180°（−Z）、y=纸样高+lift`, () => {
-      for (const [key, zSgn] of [['front', 1], ['back', -1]] as const) {
-        for (const side of ['L', 'R'] as const) {
-          const p = part(key, side)
-          const run = p.mesh.runs.find((r) => r.name === 'inseam')!
-          expect(run.indices.length).toBeGreaterThan(0)
-          for (const i of run.indices) {
-            const i3 = at(p, i)
-            expect(Math.abs(g.pos[i3])).toBeLessThan(1e-3)
-            expect(g.pos[i3 + 2] * zSgn).toBeGreaterThan(0)
-            expect(g.pos[i3 + 1])
-              .toBeCloseTo(p.mesh.xy[2 * i + 1] + HANG_PRIOR.hangLift, 4)
-          }
+    it(`${c.name}：内缝语义摆位 = 腿内侧线——z=0 中面上、|x|=腿内侧距（≥0.3 不越中线）、y=纸样高+lift`, () => {
+      for (const p of g.parts) {
+        const run = p.mesh.runs.find((r) => r.name === 'inseam')!
+        expect(run.indices.length).toBeGreaterThan(0)
+        const sgn = p.side === 'L' ? -1 : 1
+        for (const i of run.indices) {
+          const i3 = at(p, i)
+          const yPat = p.mesh.xy[2 * i + 1]
+          const medial = Math.max(
+            axis.cAt(yPat) - (axis.rAt(yPat) + CORE_SKIN + HANG_PRIOR.garmentGap), 0.3)
+          expect(Math.abs(g.pos[i3 + 2])).toBeLessThan(1e-3)   // 腿内侧线在中面
+          expect(g.pos[i3] * sgn).toBeGreaterThanOrEqual(0.3 - 1e-6)
+          expect(Math.abs(Math.abs(g.pos[i3]) - medial)).toBeLessThan(1e-3)
+          expect(g.pos[i3 + 1])
+            .toBeCloseTo(yPat + HANG_PRIOR.hangLift, 4)
         }
       }
     })
 
-    it(`${c.name}：腿区逐高度归一——fork 以下角度域、R 镜像；hem 内角贴 pinch 线`, () => {
+    it(`${c.name}：腿区腿局部圆环——fork 以下顶点距腿轴 ≈ rAt+skin+gap；hem 内角落腿内侧线`, () => {
       const forks = {
         front: payload.body.points.front_crotch_vertex[1],
         back: payload.body.points.back_crotch_vertex[1],
       }
+      let checked = 0
       for (const p of g.parts) {
         const mesh = p.mesh
         const fork = forks[p.key as 'front' | 'back']
+        const sgn = p.side === 'L' ? -1 : 1
         for (let i = 0; i < mesh.xy.length / 2; i++) {
-          if (mesh.xy[2 * i + 1] >= fork) continue
-          let th = thOf(p, i)
-          // R 侧归一到 [0, 2π)：内缝语义摆位 L/R 统一用 L 角（θ=−180°
-          // 而非 +180°，消除镜像量化差），atan2 落 −π 需回绕
-          if (p.side === 'R' && th < 0) th += 2 * Math.PI
-          if (p.side === 'L') {
-            const lo = p.key === 'back' ? -Math.PI : -Math.PI / 2
-            const hi = p.key === 'back' ? -Math.PI / 2 : 0
-            expect(th).toBeGreaterThanOrEqual(lo - 1e-6)
-            expect(th).toBeLessThanOrEqual(hi + 1e-6)
-          } else {
-            const lo = p.key === 'back' ? Math.PI / 2 : 0
-            const hi = p.key === 'back' ? Math.PI : Math.PI / 2
-            expect(th).toBeGreaterThanOrEqual(lo - 1e-6)
-            expect(th).toBeLessThanOrEqual(hi + 1e-6)
-          }
+          const yPat = mesh.xy[2 * i + 1]
+          if (yPat >= fork) continue
+          const i3 = at(p, i)
+          const x = g.pos[i3] - 0, z = g.pos[i3 + 2]
+          // 近裆钳位带（x·sgn = 0.3）不在此断言（内侧线收敛区）
+          if (x * sgn <= 0.31) continue
+          const d = Math.hypot(x - sgn * axis.cAt(yPat), z)
+          expect(Math.abs(d - (axis.rAt(yPat) + CORE_SKIN + HANG_PRIOR.garmentGap)))
+            .toBeLessThan(0.05)
+          checked++
         }
       }
-      // hem 边 = side 端 → inseam 端：末采样是 inseam 端角（θ=0 精确，
-      // 由内缝语义摆位覆盖）的前一步，一个 seam 步长（~1cm / hem 半径
-      // ~8cm ≈ 0.13 rad）内贴 pinch 线；首采样被 side 语义摆位覆盖
-      const hemF = part('front', 'L').mesh.runs.find((r) => r.name === 'hem')!
+      expect(checked).toBeGreaterThan(200)   // 真跑了腿区（非全被钳位跳过）
+      // hem 内角（inseam 端）落腿内侧线：末采样是内角（φ=0 精确、由
+      // 内缝语义摆位覆盖）沿 hem 一个边界步长的邻点（φ≈0.25 → |x| 偏
+      // ~0.4、z=r·sinφ≈1.8），只断言 x 侧、容差 2cm
+      const hemF = part('front', 'R').mesh.runs.find((r) => r.name === 'hem')!
       const last = hemF.indices[hemF.indices.length - 1]
-      const i3 = at(part('front', 'L'), last)
-      expect(Math.abs(Math.atan2(g.pos[i3], g.pos[i3 + 2])))
-        .toBeLessThan(0.15)
+      const i3 = at(part('front', 'R'), last)
+      const yHem = part('front', 'R').mesh.xy[2 * last + 1]
+      const medial = Math.max(
+        axis.cAt(yHem) - (axis.rAt(yHem) + CORE_SKIN + HANG_PRIOR.garmentGap), 0.3)
+      expect(Math.abs(Math.abs(g.pos[i3]) - medial)).toBeLessThan(2.0)
     })
 
     it(`${c.name}：side 语义摆位 + 镜像对称 + 纸样空间穿透零`, () => {
@@ -798,9 +803,14 @@ describe('assemble：buildFullPair 整裤四 part 摆位（八期整裤缝合）
         xs.sort((a, b) => a - b)
         expect(xs[Math.floor(xs.length / 2)]).toBeLessThan(0.1)
       }
-      const pen = penetrationStats(patternSpacePos(g), field, CORE_SKIN)
-      expect(pen.count).toBe(0)
-      expect(pen.worst).toBe(0)
+      // 穿透零（截面环口径：腿内侧线在腿间隙里是合法布位，径向口径
+      // 会误判——两腿分离芯只有截面/表面碰撞能表达腿间空隙）
+      let penCount = 0
+      for (let i3 = 0; i3 < g.pos.length; i3 += 3) {
+        if (pointInRings(g.pos[i3], g.pos[i3 + 2],
+          field.loopsAt(g.pos[i3 + 1] - HANG_PRIOR.hangLift))) penCount++
+      }
+      expect(penCount).toBe(0)
     })
   }
 })

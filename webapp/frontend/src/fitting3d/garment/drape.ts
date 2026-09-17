@@ -1,23 +1,27 @@
 // 引力下垂解算（2026-09-15 重建二期「下垂要符合地球引力」；2026-09-16
-// 五期前身自由垂；同日六期「拉直」整圈钉直挂）：主线程轻量 verlet——
-// 距离/弯曲约束（mesh.ts 预留的 dist/bend 数组）+ **中缝对**（L/R
-// rise|cb 链镜像配对 rest=0——两片共享同一网格，顶点号天然一一对齐）
-// + 腰口整圈全向钉悬挂 + 地面碰撞。**自由垂口径（无撑型芯）**：悬挂
-// 不用撑型芯撑开（field 传 null）——芯撑出的前凸筒不是真实提着前片的
-// 形态；布条自腰口顶缘竖直垂下。2026-09-17 起悬挂整体抬 hangLift
-// （assemble buildHangPair），布全长超挂高的余量不再触地堆布，下摆
-// 离地 3~4cm，地面碰撞（y≥0 推回 + 摩擦）降级为安全网。形态沿革：
-// 二~五期 Y-only 腰口自由垂下「布塌成对折门帘」曾
-// 是预期形态，2026-09-16 用户报障「前中和后中往里折、要拉直」后由
-// 整圈全向钉（三轮，见 buildDrape 头注）取代——中缝保持在前中/后中
-// 竖直、顶缘按摆位弧全撑。旧口径「勿去碰撞（腿间塌片）」是整裤包腿
-// 成形的要求（决策日志 2026-09-14），勿混。芯/场仍用于初摆位半径与
-// 取景包络（buildHangPair / Fitting3DView），只是不进碰撞。摩擦防地
-// 面切向滑转；发散兜底恢复好帧。
+// 五期前身自由垂；同日六期「拉直」整圈钉直挂；2026-09-17 八期整裤缝合
+// 现行）：主线程轻量 verlet——距离/弯曲约束（mesh.ts 的 dist/bend 数组）
+// + **全族缝合对**（seams.ts buildSeamSet：前中 rise/后中 cb 镜像族 +
+// 侧缝/内缝跨宿主弧长族 + 四裆尖 tip 补焊，全 rest=0 同一求解）+ 腰口
+// 整圈全向钉直挂（四 part 360° 腰圆支点）+ **撑型芯径向碰撞（八期开）**
+// + 地面碰撞（y≥0 推回 + 摩擦，安全网）。
+// 八期口径（用户拍板）：①整裤包腿必须有碰撞体（2026-09-14 教训的正名
+// ——无碰撞裤腿对折塌陷、两腿布面互穿），芯锚纸样围度与人台无关（独立
+// 原则），布面碰撞壳 = 场 + CORE_SKIN 恰落纸样围度；②本期不含腰头，
+// 腰圆由整圈钉挂撑形、sideHold 刚度带暂代腰头撑圆；③摆位先行——
+// buildFullPair 让全部缝对初始间隙 ≈0（或 15cm 内缝常量温和闭拢），
+// 动力学只做小松弛，不用旧链 preRelax 收拢战争。collide 场查询按
+// sim.yLift 回纸样空间（摆位侧场查询用纸样 y，两处一致）。
+// 形态沿革：二~五期 Y-only 腰口自由垂下「布塌成对折门帘」曾是预期
+// 形态，2026-09-16 用户报障「前中和后中往里折、要拉直」后由整圈全向钉
+// （三轮，见 buildDrape 头注）取代——中缝保持在前中/后中竖直、顶缘按
+// 摆位弧全撑。五期「自由垂不用芯碰撞」是单筒口径，随八期整裤退役。
 import type { Garment } from './assemble'
 import { CORE_SKIN } from './core'
 import type { BodyField } from './placement'
+import { pointInRings } from './placement'
 import { DRAPE_PRIOR, HANG_PRIOR } from './priors'
+import { buildSeamSet, type SeamGroup } from './seams'
 
 export interface DrapeSim {
   pos: Float32Array       // 全粒子当前位置（解算本体；garment.pos 是初摆位）
@@ -25,7 +29,12 @@ export interface DrapeSim {
   vel: Float32Array
   pinIdx: Uint32Array     // 腰口整圈粒子（top_chain 边全量 + 终点角，六期直挂口径）
   pinTarget: Float32Array // 3×pin 目标位（初始摆位处，全向硬钉 = 悬挂支点）
-  seamIdx: Uint32Array    // 2S 中缝粒子对（L/R rise|cb 链同号顶点，rest=0）
+  seamIdx: Uint32Array    // 2S 全族缝合对（八期 buildSeamSet：rise/cb 镜像
+                          // + side/inseam 弧长 + tip 补焊，全 rest=0 同一求解）
+  seamGroups: SeamGroup[] // 分族切片（金标分族统计用）
+  yLift: number           // 摆位整体抬升（collide 场查询按此回纸样空间）
+  holdIdx: Uint32Array    // 裆尖短时硬钉粒子（crotchHold>0 fallback 旋钮用）
+  holdTarget: Float32Array
   parts: { offset: number; mesh: Garment['parts'][number]['mesh'] }[]
   field: BodyField | null   // null = 自由垂（无撑型芯径向碰撞，仅地面）
   stepCount: number
@@ -59,7 +68,9 @@ export interface DrapeSim {
 // 链缺失则跳过缝合（前中敞口属连裁门襟固有形态）；后身（2026-09-16
 // 六期）同款 = cb 链（后浪，裆尖→腰口，育克拼入时经 panel.ts 聚合贯通
 // 到腰）L/R 同号配对
-export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim {
+export function buildDrape(
+  garment: Garment, field: BodyField | null, yLift = 0,
+): DrapeSim {
   const pinIdx: number[] = []
   for (const part of garment.parts) {
     const top = part.mesh.runs.find((r) => r.role === 'top_chain')
@@ -97,17 +108,27 @@ export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim 
     pinTarget[3 * k + 1] = garment.pos[3 * pinIdx[k] + 1]
     pinTarget[3 * k + 2] = garment.pos[3 * pinIdx[k] + 2]
   }
-  // 中缝对（前中 rise / 后中 cb）：L/R 共享网格，同号顶点 (0+i, n+i) 镜像对
-  const seamIdx: number[] = []
-  if (garment.parts.length >= 2) {
-    const seamRun = garment.parts[0].mesh.runs.find(
-      (r) => r.name === 'rise' || r.name === 'cb')
-    if (seamRun) {
-      const [pl, pr] = garment.parts
-      for (const i of seamRun.indices) {
-        seamIdx.push(pl.offset + i, pr.offset + i)
+  // 全族缝合对（八期 buildSeamSet）：六期「parts[0] 单一 rise|cb 链同号
+  // 配对」的泛化——rise/cb 镜像族同机制、side/inseam 跨宿主弧长配对、
+  // 四裆尖 tip 补焊，全族 rest=0 进同一扁平数组（求解循环零改动）
+  const seam = buildSeamSet(garment)
+  // 裆尖短时硬钉（crotchHold fallback 旋钮，默认 0 关；先例旧链 60 硬
+  // 释放）：tipL/tipR 两对共四顶点钉初始位 crotchHold 帧后硬释放交还缝合
+  const holdIdx: number[] = []
+  if (DRAPE_PRIOR.crotchHold > 0) {
+    for (const g of seam.groups) {
+      if (g.name !== 'tipL' && g.name !== 'tipR') continue
+      for (let p = 0; p < g.pairCount; p++) {
+        holdIdx.push(seam.pairs[2 * (g.pairOffset + p)],
+          seam.pairs[2 * (g.pairOffset + p) + 1])
       }
     }
+  }
+  const holdTarget = new Float32Array(3 * holdIdx.length)
+  for (let k = 0; k < holdIdx.length; k++) {
+    holdTarget[3 * k] = garment.pos[3 * holdIdx[k]]
+    holdTarget[3 * k + 1] = garment.pos[3 * holdIdx[k] + 1]
+    holdTarget[3 * k + 2] = garment.pos[3 * holdIdx[k] + 2]
   }
   const pos = new Float32Array(garment.pos)
   return {
@@ -116,7 +137,11 @@ export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim 
     vel: new Float32Array(pos.length),
     pinIdx: new Uint32Array(pinIdx),
     pinTarget,
-    seamIdx: new Uint32Array(seamIdx),
+    seamIdx: seam.pairs,
+    seamGroups: seam.groups,
+    yLift,
+    holdIdx: new Uint32Array(holdIdx),
+    holdTarget,
     parts: garment.parts.map((p) => ({ offset: p.offset, mesh: p.mesh })),
     field,
     stepCount: 0, settledFrames: 0, settled: false, capped: false,
@@ -135,26 +160,81 @@ function projectPins(sim: DrapeSim): void {
   }
 }
 
-// 撑型芯径向场碰撞（自由垂口径下不调用——field null）：r < 场(y,θ)+skin
-// 则径向推出；接触时 prev 向 pos 混合摩擦（无摩擦 = 芯面周向滑转不锚，
-// 旧链 0.5 地板 ~9 永不收敛）
+// 裆尖短时硬钉投影（crotchHold fallback 旋钮，默认 0 不投影）
+function projectHold(sim: DrapeSim): void {
+  const { pos, holdIdx, holdTarget } = sim
+  for (let k = 0; k < holdIdx.length; k++) {
+    const i3 = 3 * holdIdx[k]
+    pos[i3] = holdTarget[3 * k]
+    pos[i3 + 1] = holdTarget[3 * k + 1]
+    pos[i3 + 2] = holdTarget[3 * k + 2]
+  }
+}
+
+// 撑型芯截面碰撞（八期）：y'（pos.y − yLift 回纸样空间）行的截面环内
+// 或皮肤壳内（到最近边界 < skin）→ 推到最近边界 + skin·外法线；接触
+// 时 prev 向 pos 混合摩擦（无摩擦 = 芯面周向滑转不锚，旧链 0.5 地板
+// ~9 永不收敛）。截面多边形口径取代旧径向推——两腿分离芯的腿间空隙
+// 径向场表示不了（星形实心），只有截面/表面碰撞能留白（旧链 BVH 同因）；
+// 腿管间隙按环独立判内，无 v1「双管交叠符号判陷阱」
 function collide(sim: DrapeSim): void {
   const { pos, prev, field } = sim
   if (!field) return
   const fr = DRAPE_PRIOR.friction
   for (let i3 = 0; i3 < pos.length; i3 += 3) {
-    const x = pos[i3], y = pos[i3 + 1], z = pos[i3 + 2]
-    const r = Math.hypot(x, z)
-    if (r < 1e-9) continue
-    const s = field.radiusAt(y, Math.atan2(x, z)) + CORE_SKIN
-    if (r < s) {
-      const k = s / r
-      pos[i3] = x * k
-      pos[i3 + 2] = z * k
-      prev[i3] += (pos[i3] - prev[i3]) * fr
-      prev[i3 + 1] += (pos[i3 + 1] - prev[i3 + 1]) * fr
-      prev[i3 + 2] += (pos[i3 + 2] - prev[i3 + 2]) * fr
+    const x = pos[i3], z = pos[i3 + 2]
+    const rings = field.loopsAt(pos[i3 + 1] - sim.yLift)
+    if (rings.length === 0) continue
+    // 最近边界（跨全部环，quick reject：质心包围圆 + skin 余量）。
+    // 性能口径：Math.hypot 慢一个量级，用 sqrt
+    let bd = Infinity, bx = 0, bz = 0, bnx = 0, bnz = 0
+    for (const ring of rings) {
+      const dxc = x - ring.cx, dzc = z - ring.cz
+      const rr = ring.r + CORE_SKIN
+      if (dxc * dxc + dzc * dzc > rr * rr) continue
+      const n = ring.pts.length / 2
+      for (let s = 0; s < n; s++) {
+        const a2 = 2 * s, b2 = 2 * ((s + 1) % n)
+        const ax = ring.pts[a2], az = ring.pts[a2 + 1]
+        const ex = ring.pts[b2] - ax, ez = ring.pts[b2 + 1] - az
+        const l2 = ex * ex + ez * ez
+        const t = l2 > 1e-12
+          ? Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / l2)) : 0
+        const px = ax + ex * t, pz = az + ez * t
+        const dxp = x - px, dzp = z - pz
+        const d2 = dxp * dxp + dzp * dzp
+        if (d2 < bd * bd) {
+          bd = Math.sqrt(d2); bx = px; bz = pz
+          // 外法线 = 段垂线，背离环质心
+          const len = Math.sqrt(l2) || 1
+          let nx = -ez / len, nz = ex / len
+          if (nx * (ring.cx - px) + nz * (ring.cz - pz) > 0) {
+            nx = -nx; nz = -nz
+          }
+          bnx = nx; bnz = nz
+        }
+      }
     }
+    if (bd === Infinity) continue
+    if (bd >= CORE_SKIN) {
+      // 远离边界：只在某环包围圆内（可能深穿）才做射线判内兜底——正常
+      // 挂相布在壳外起步，此分支零命中（v1 细龙骨穿膛教训的守门）
+      let maybe = false
+      for (const ring of rings) {
+        const dxc = x - ring.cx, dzc = z - ring.cz
+        if (dxc * dxc + dzc * dzc < ring.r * ring.r) { maybe = true; break }
+      }
+      if (!maybe || !pointInRings(x, z, rings)) continue
+    }
+    // 统一推出目标 = 最近边界 + skin·外法线：边界外侧近壳粒子与环内
+    // 粒子同向处理（内侧粒子若按「边界->粒子」方向推会越推越深自陷）
+    const tx = bx + bnx * CORE_SKIN
+    const tz = bz + bnz * CORE_SKIN
+    pos[i3] = tx
+    pos[i3 + 2] = tz
+    prev[i3] += (pos[i3] - prev[i3]) * fr
+    prev[i3 + 1] += (pos[i3 + 1] - prev[i3 + 1]) * fr
+    prev[i3 + 2] += (pos[i3 + 2] - prev[i3 + 2]) * fr
   }
 }
 
@@ -221,7 +301,8 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
           pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
         }
       }
-      // 中缝对（前中 rise/后中 cb，跨片，rest=0、刚度 1）：双向各移一半
+      // 全族缝合对（八期：rise/cb 镜像 + side/inseam 弧长 + tip 补焊，
+      // 跨片 rest=0、刚度 1）：双向各移一半——求解循环对全族一视同仁
       const { seamIdx } = sim
       for (let c = 0; c < seamIdx.length; c += 2) {
         const a = 3 * seamIdx[c], b = 3 * seamIdx[c + 1]
@@ -235,6 +316,8 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
         pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
       }
       projectPins(sim)
+      // 裆尖短时硬钉（crotchHold 帧后硬释放交还缝合约束；默认 0 关）
+      if (sim.stepCount < DRAPE_PRIOR.crotchHold) projectHold(sim)
     }
     collide(sim)
     collideGround(sim)
@@ -278,7 +361,7 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
   return sim.settled ? 'settled' : 'running'
 }
 
-// 中缝（前中 rise/后中 cb）缝合误差统计（金标用）：全部缝合对点距 avg / P95。读 sim.pos
+// 全族缝合误差统计（金标用）：全部缝合对点距 avg / P95。读 sim.pos
 // 当前解算位——garment.pos 是初始摆位，别解构它
 export function seamStats(sim: DrapeSim): { avg: number; p95: number } {
   const { pos, seamIdx } = sim
@@ -293,4 +376,27 @@ export function seamStats(sim: DrapeSim): { avg: number; p95: number } {
   const avg = ds.reduce((s, d) => s + d, 0) / ds.length
   const p95 = ds[Math.min(ds.length - 1, Math.floor(ds.length * 0.95))]
   return { avg, p95 }
+}
+
+// 分族缝合误差统计（八期金标：rise/cb/sideL/sideR/inseamL/inseamR/tip
+// 各族单独 avg/P95——各族几何性质不同，阈值分开钉）
+export function seamStatsByGroup(
+  sim: DrapeSim,
+): Record<string, { avg: number; p95: number }> {
+  const out: Record<string, { avg: number; p95: number }> = {}
+  for (const g of sim.seamGroups) {
+    const ds: number[] = []
+    for (let p = 0; p < g.pairCount; p++) {
+      const a = 3 * sim.seamIdx[2 * (g.pairOffset + p)]
+      const b = 3 * sim.seamIdx[2 * (g.pairOffset + p) + 1]
+      ds.push(Math.hypot(sim.pos[b] - sim.pos[a],
+        sim.pos[b + 1] - sim.pos[a + 1], sim.pos[b + 2] - sim.pos[a + 2]))
+    }
+    ds.sort((x, y) => x - y)
+    out[g.name] = {
+      avg: ds.reduce((s, d) => s + d, 0) / ds.length,
+      p95: ds[Math.min(ds.length - 1, Math.floor(ds.length * 0.95))],
+    }
+  }
+  return out
 }

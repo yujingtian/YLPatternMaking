@@ -146,8 +146,16 @@ export function buildBackPanel(payload: FittingResult): BackPanel {
   if (!back) throw new Error('payload 缺 back_piece——后身并集无从合成')
   const yoke = payload.pieces.find((p) => p.key === 'back_yoke')
 
+  // 退化宿主边角色修正：有育克款引擎把 back 的 top 边（机头下口线）角色
+  // 覆写为 seam（本该由育克腰口顶替 top_chain）；守卫拦下育克后该边
+  // 语义回归腰口（八期：buildFullPair/drape 都按 top_chain 找腰口钉挂）
   const degenerate = (reason: string | null): BackPanel => ({
-    host: buildClothMesh(back),
+    host: buildClothMesh({
+      ...back,
+      edges: back.edges.map((e) =>
+        e.name === 'top' && e.role === 'seam'
+          ? { ...e, role: 'top_chain' as const } : e),
+    }),
     hasYoke: false,
     warnings: reason ? [reason] : [],
   })

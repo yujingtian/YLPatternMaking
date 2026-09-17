@@ -1,33 +1,41 @@
 // 纸样围度撑型芯（2026-09-14 用户定方向：裤子展示与人台彻底解耦，
 // 「内部是空的也要呈圆筒、不能叠」）：芯体不渲染——显示上裤子内部
-// 仍是空的、悬挂在人台旁侧。2026-09-15 重建一期起解算链已删，芯体
-// 从碰撞体转为**静态摆位的形态来源**（placement 的 R(y,θ) 场由它建）。
-// 围度逐站取 payload stations 的 girth_finished（纸样成衣量），芯半径
-// = g/2π − CORE_SKIN，摆位半径（场 + garmentGap）落在纸样围度附近 →
-// 圆筒按构造成立（想叠也叠不动），廓形 = 版型。坐标系 = 纸样系
-// （y=纸样高、hem≈0 落地），与 payload/裁片网格同源。
+// 仍是空的、悬挂在人台旁侧。围度逐站取 payload stations 的
+// girth_finished（纸样成衣量），芯半径 = g/2π − CORE_SKIN，摆位半径
+// （芯面 + skin + garmentGap）落在纸样围度附近 → 圆筒按构造成立，
+// 廓形 = 版型。坐标系 = 纸样系（y=纸样高、hem≈0 落地）。
 //
-// 形状（v2，单一水密网格——一行一闭环、行间条带、两端封盖）：
-//   腰臀段 = 圆环（站间线性插值）；裆下 = 花生环（双瓣 + 腰谷），瓣弧
-//   周长锁定 2×腿站 girth；裆带 ±BLEND 圆↔花生混合。花生 = 相切双圆
-//   轮廓（ρ=2rc|cosθ|）的平滑版（|cosθ| → sqrt(cos²θ+ε²) 归一）+ 整环
-//   缩放补周长。腿间以腰谷相连 = 两腿沿前/后中线捏拢（真悬挂裤观感），
-//   内缝闭合在瓣内侧、侧缝在瓣外侧，拓扑同真裤。
+// 形状（v3，2026-09-17 八期整裤缝合：**三实体**——躯干管 + 左右分离
+// 腿管，一个 positions/indices 数组拼装，各实体独立水密）：
+//   · 腿管 ×2：hem−1.5 → fork+LEG_OVERLAP，圆环，半径 = 腿剖面（裆→
+//     thigh→膝→hem），轴 |x| = r(y)+gapHalf(y)，gapHalf 从 fork 处
+//     LEG_GAP_MIN 线性张开到 LEG_GAP_TAPER 以下 LEG_GAP_HALF（fork 以上
+//     钳 LEG_GAP_MIN）——**裆下两腿真分离**，腿间空隙给内缝焊线与裆
+//     交叉点安身（真裤两腿间有缝空隙，内缝线悬在其中）
+//   · 躯干管：fork+LEG_OVERLAP → 腰+8，圆环，半径 = rFork→rHip→rWaist
+//     插值——fork 带（裆交叉口袋）只有腿管截面，躯干环不出现（否则
+//     裆尖摆位困进管内）
+//   · 芯只经 buildBodyField 消费（场表 + 行截面环），多环行取方向支撑
+//     最大；碰撞用行截面多边形（drape collide）——径向场是星形实心，
+//     腿间空隙表示不了
 //
-// 裆站躯干半径（v2.1，2026-09-15 修「大腿比臀大」掐腰）：叉口处的布量
-// 是连续的——毗围 ≈ max(臀围, 2×腿围)（crotch 站无围度、thigh 缺省回退
-// 臀围）。旧值直接拿单腿 rc 当躯干圆半径，臀站→裆站周长从 ~2π·rHip 掐
-// 到 2π·rThigh（用户 100/63.5：91.8→69.2），臀部塌成蜂腰再猛扩到花生
-// 瓣，放大成「大腿比臀大」的观感；修正后臀→裆单调过渡到双瓣。
+// v2 花生环（裆下双瓣+腰谷单一水密环）2026-09-17 证伪退役：径向碰撞场
+// 下花生腰谷仍是实心桥（槽底半径 ≥ 槽深），前内缝边(+z 谷)与后内缝边
+// (−z 谷)隔桥相望焊不上、只能绕腿瓣外侧闭拢——实测整条裤腿被拖成侧挂
+// 门帘（inseam 终态 θ≈±90°、r≈腿瓣外）。留档：花生的「内缝闭合在瓣
+// 内侧」设想只在不碰撞或表面碰撞下成立。
 //
 // v1 三件套（圆筒+双管+龙骨）的实测死路（勿回头）：
 //   · 管间留槽（d=max r 常数）——内缝缝合走捷径穿槽（不可拉伸布穿槽比
 //     绕管省 10cm+），整幅布堆进两腿之间、外侧裸管 =「侧缝内凹/叠腿」
-//     机制本体；
-//   · 双管相切 —— 切线刀口两侧壳交替投影 = 裆部抖动泵（均速 7~16）；
-//   · 双管交叠 —— 符号判陷阱：粒子「在 L 管外」即「在 R 管内」，碰撞
-//     反复把它钉在管内，内象限永远无布；
-//   · 细龙骨（r2.5）—— preRelax 拉链直接穿膛（碰撞间隔内一步可走 ~10cm）。
+//     机制本体（八期对策：侧缝语义摆位 + sideHold 钉，侧缝钉死在腿外
+//     侧线，布无从抄近道）；
+//   · 双管相切 —— 切线刀口两侧壳交替投影 = 裆部抖动泵（八期对策：
+//     fork 处保 GAP_MIN 真间隙 + 截面碰撞按环独立判内，无交替投影）；
+//   · 双管交叠 —— 符号判陷阱：粒子「在 L 管外」即「在 R 管内」（八期
+//     对策：腿管不交叠，截面碰撞只看所在环）；
+//   · 细龙骨（r2.5）—— preRelax 拉链直接穿膛（碰撞间隔内一步可走
+//     ~10cm）。
 import type { FittingResult, FittingStation } from '../../types'
 
 export interface CoreMesh {
@@ -35,18 +43,23 @@ export interface CoreMesh {
   indices: Uint32Array      // 三角（0-based）
 }
 
-const SEG = 64               // 环向分段（花生两瓣各半）
+const SEG = 64               // 环向分段
 const ROW = 2                // 纵向行距 cm
 const TOP_MARGIN = 8         // 腰上延伸（band 上沿 + 余量）
 const BOTTOM_MARGIN = 1.5    // 脚口下延伸（hem 行粒子防端面边界抖动）
-const BLEND = 3              // 裆带半高：圆↔花生过渡 cm
-const EPS = 0.3              // 花生腰谷参数：waist ≈ 2rc·EPS（相对量）
+export const LEG_GAP_MIN = 0.8   // cm：fork 处腿轴间隙半宽（防双管相切刀口）
+export const LEG_GAP_HALF = 2.6  // cm：腿间完全张开后的间隙半宽（总 5.2）
+export const LEG_GAP_TAPER = 12  // cm：间隙从 fork 向下张开的锥高
+const LEG_OVERLAP = 4            // cm：腿管上延过 fork 的高度（躯干管底 =
+                                 // fork + 本值）——fork 带截面只有两条分离
+                                 // 腿管，裆交叉点/内缝顶有真口袋（八期：
+                                 // 躯干管下探到 fork 会把裆尖摆位困进管内）
 
 // 皮肤壳厚度（cm）：解算时代 collisionSkin=0.98 的标定值原样沿用为
 // 芯体口径常数——芯半径 = g/2π − skin，摆位壳 core+skin+gap 落纸样围度
 export const CORE_SKIN = 0.98
 
-// 纸样围度 -> 瓣半径：布接触壳在 core+skin，落点围度恰 = girth_finished
+// 纸样围度 -> 芯半径：布接触壳在 core+skin，落点围度恰 = girth_finished
 const coreRadius = (g: number): number =>
   g / (2 * Math.PI) - CORE_SKIN
 
@@ -61,42 +74,6 @@ function radiusAt(profile: Profile, y: number): number {
     }
   }
   return profile[profile.length - 1][1]
-}
-
-// 环周长（极坐标折线数值积分；SEG 段求和）
-function ringPerimeter(xs: number[], zs: number[]): number {
-  let p = 0
-  for (let s = 0; s < xs.length; s++) {
-    const t = (s + 1) % xs.length
-    p += Math.hypot(xs[t] - xs[s], zs[t] - zs[s])
-  }
-  return p
-}
-
-// 花生基形（未缩放）：点 = (ρ·sinθ, ρ·cosθ)（与筒链同向绕序，法线朝外），
-// ρ0(θ) = 2rc·sqrt(sin²θ+ε²)/sqrt(1+ε²) —— 瓣沿 ±x（sinθ 峰）、腰谷在
-// ±z（前后中线）。ε→0 退化为相切双圆（周长 4πrc）；ε>0 腰谷平滑。
-function peanutRaw(rc: number, out: { xs: number[]; zs: number[] }): void {
-  out.xs.length = 0; out.zs.length = 0
-  const norm = Math.sqrt(1 + EPS * EPS)
-  for (let s = 0; s < SEG; s++) {
-    const th = (s / SEG) * 2 * Math.PI
-    const rho = (2 * rc / norm)
-      * Math.sqrt(Math.sin(th) * Math.sin(th) + EPS * EPS)
-    out.xs.push(rho * Math.sin(th))
-    out.zs.push(rho * Math.cos(th))
-  }
-}
-
-// 一行闭环点：花生（缩放到周长 = 2×瓣目标 2πrc）
-function peanutRing(rc: number): { xs: number[]; zs: number[] } {
-  const ring = { xs: [] as number[], zs: [] as number[] }
-  peanutRaw(rc, ring)
-  const k = (4 * Math.PI * rc) / ringPerimeter(ring.xs, ring.zs)
-  for (let s = 0; s < SEG; s++) {
-    ring.xs[s] *= k; ring.zs[s] *= k
-  }
-  return ring
 }
 
 function circleRing(r: number): { xs: number[]; zs: number[] } {
@@ -114,6 +91,81 @@ function stationOf(payload: FittingResult, key: FittingStation['key']):
   return payload.body.stations.find((s) => s.key === key)
 }
 
+// 腿轴几何（八期：buildFullPair 腿局部摆位与 drape 无关，只喂摆位侧）
+export interface LegAxis {
+  rAt(y: number): number    // 腿管芯半径（不含 skin）
+  cAt(y: number): number    // 腿轴 |x| = r(y) + gapHalf(y)
+  forkY: number             // 裆站 y（腿管顶 = 躯干管底）
+}
+
+export function buildLegAxis(payload: FittingResult): LegAxis {
+  const crotch = stationOf(payload, 'crotch')
+  const hip = stationOf(payload, 'hip')
+  const thigh = stationOf(payload, 'thigh')
+  const knee = stationOf(payload, 'knee')
+  const hem = stationOf(payload, 'hem')
+  if (!crotch || !hip || !knee || !hem) {
+    throw new Error('腿轴缺站点（crotch/hip/knee/hem）——payload 不完整')
+  }
+  const hipG = hip.girth_finished ?? 0
+  const leg: Profile = ([
+    [crotch.y, coreRadius(thigh?.girth_finished ?? hipG)],
+    ...(thigh && thigh.y < crotch.y - 1e-9
+      ? ([[thigh.y, coreRadius(thigh.girth_finished!)]] as Profile) : []),
+    [knee.y, coreRadius(knee.girth_finished ?? 0)],
+    [hem.y, coreRadius(hem.girth_finished ?? 0)],
+  ] as Profile).sort((a, b) => a[0] - b[0])
+  return {
+    rAt: (y) => radiusAt(leg, y),
+    cAt: (y) => radiusAt(leg, y) + LEG_GAP_MIN
+      + (LEG_GAP_HALF - LEG_GAP_MIN)
+        * Math.max(0, Math.min(1, (crotch.y - y) / LEG_GAP_TAPER)),
+    forkY: crotch.y,
+  }
+}
+
+// 圆管实体（逐行圆环 + 行间条带 + 两端封盖，法线朝外——collide 内外判
+// 用，反了会把盖外粒子反推进管内，v1 实测穿透 16cm 的根因）。cx = 轴心
+// x（腿管 ±c，躯干 0）
+function tube(
+  rings: { y: number; xs: number[]; zs: number[] }[],
+  capCx: [number, number],   // [底盖轴心 x, 顶盖轴心 x]（腿管锥形轴两端不同）
+  positions: number[], indices: number[],
+): void {
+  const base = positions.length / 3
+  const rows = rings.length
+  for (const ring of rings) {
+    for (let s = 0; s < SEG; s++) {
+      positions.push(ring.xs[s], ring.y, ring.zs[s])
+    }
+  }
+  for (let r = 0; r + 1 < rows; r++) {
+    for (let s = 0; s < SEG; s++) {
+      const a = base + r * SEG + s
+      const b = base + r * SEG + ((s + 1) % SEG)
+      const c = base + (r + 1) * SEG + ((s + 1) % SEG)
+      const d = base + (r + 1) * SEG + s
+      indices.push(a, b, c, a, c, d)
+    }
+  }
+  // 端面封盖：顶盖朝上、底盖朝下（中心在管轴上）
+  for (const [row, up] of [[rows - 1, true], [0, false]] as const) {
+    const center = positions.length / 3
+    positions.push(up ? capCx[1] : capCx[0], rings[row].y, 0)
+    for (let s = 0; s < SEG; s++) {
+      const a = base + row * SEG + s
+      const b = base + row * SEG + ((s + 1) % SEG)
+      if (up) indices.push(center, a, b)
+      else indices.push(center, b, a)
+    }
+  }
+}
+
+const rowsBetween = (y0: number, y1: number): number[] => {
+  const n = Math.max(3, Math.ceil((y1 - y0) / ROW) + 1)
+  return Array.from({ length: n }, (_, r) => y0 + ((y1 - y0) * r) / (n - 1))
+}
+
 export function buildCore(payload: FittingResult): CoreMesh {
   const waist = stationOf(payload, 'waist')
   const hip = stationOf(payload, 'hip')
@@ -127,12 +179,9 @@ export function buildCore(payload: FittingResult): CoreMesh {
   const hipG = hip.girth_finished ?? waist.girth_finished ?? 0
   const rWaist = coreRadius(waist.girth_finished ?? hipG)
   const rHip = coreRadius(hipG)
-  const rThigh = coreRadius(
-    thigh?.girth_finished ?? hipG ?? waist.girth_finished ?? 0)
-  const rKnee = coreRadius(knee.girth_finished ?? 0)
-  const rHem = coreRadius(hem.girth_finished ?? 0)
   // 裆站躯干圆半径：毗围代理 = max(臀, 2×腿)（thigh 缺省退化臀围，
-  // 不掐腰）。见模块头注 v2.1
+  // 不掐腰——v2.1 口径延续）。腿管外沿 = 2rThigh + GAP_MIN ≈ rFork−0.2，
+  // fork 处近乎连续无台阶
   const rFork = coreRadius(
     thigh?.girth_finished ? Math.max(hipG, 2 * thigh.girth_finished) : hipG)
 
@@ -142,60 +191,30 @@ export function buildCore(payload: FittingResult): CoreMesh {
     [waist.y, rWaist],
     [waist.y + TOP_MARGIN, rWaist],
   ] as Profile).sort((a, b) => a[0] - b[0])
-  const leg: Profile = ([
-    [crotch.y, rThigh],
-    ...(thigh && thigh.y < crotch.y - 1e-9
-      ? ([[thigh.y, rThigh]] as Profile) : []),
-    [knee.y, rKnee],
-    [hem.y, rHem],
-  ] as Profile).sort((a, b) => a[0] - b[0])
 
-  // 逐行环：裆下花生 / 裆上圆 / 裡带混合，周长插值后整体缩放锁定
-  const yBot = hem.y - BOTTOM_MARGIN
-  const yTop = waist.y + TOP_MARGIN
-  const rows = Math.max(3, Math.ceil((yTop - yBot) / ROW) + 1)
   const positions: number[] = []
   const indices: number[] = []
-  for (let r = 0; r < rows; r++) {
-    const y = yBot + ((yTop - yBot) * r) / (rows - 1)
-    // 裆下 t=1（花生）、裆上 t=0（圆）、±BLEND 带内混合
-    const t = Math.max(0, Math.min(1, (crotch.y + BLEND - y) / (2 * BLEND)))
-    const circ = circleRing(radiusAt(torso, y))
-    const pea = peanutRing(radiusAt(leg, y))
-    const xs: number[] = [], zs: number[] = []
-    for (let s = 0; s < SEG; s++) {
-      xs.push((1 - t) * circ.xs[s] + t * pea.xs[s])
-      zs.push((1 - t) * circ.zs[s] + t * pea.zs[s])
-    }
-    // 周长目标：圆 2πR → 花生 4πrc 线性插值（裆带过渡带不苛求精确）
-    const rTor = radiusAt(torso, y), rLeg = radiusAt(leg, y)
-    const target = (1 - t) * 2 * Math.PI * rTor + t * 4 * Math.PI * rLeg
-    const k = target / ringPerimeter(xs, zs)
-    for (let s = 0; s < SEG; s++) {
-      positions.push(k * xs[s], y, k * zs[s])
-    }
-  }
-  for (let r = 0; r + 1 < rows; r++) {
-    for (let s = 0; s < SEG; s++) {
-      const a = r * SEG + s
-      const b = r * SEG + ((s + 1) % SEG)
-      const c = (r + 1) * SEG + ((s + 1) % SEG)
-      const d = (r + 1) * SEG + s
-      indices.push(a, b, c, a, c, d)
-    }
-  }
-  // 端面封盖（法线朝外：collide 内外判用面法线，反了会把盖外粒子反推进
-  // 管内——v1 实测穿透 16cm 的根因）。底盖中心 (0, yBot)、顶盖 (0, yTop)
-  for (const [row, up] of [[rows - 1, true], [0, false]] as const) {
-    const y = yBot + ((yTop - yBot) * row) / (rows - 1)
-    const center = positions.length / 3
-    positions.push(0, y, 0)
-    for (let s = 0; s < SEG; s++) {
-      const a = row * SEG + s
-      const b = row * SEG + ((s + 1) % SEG)
-      if (up) indices.push(center, a, b)
-      else indices.push(center, b, a)
-    }
+  // 躯干管（fork + LEG_OVERLAP → 腰+8，轴上圆环）：fork 带（裆交叉
+  // 口袋）留给上延的腿管——躯干环出现在 fork 行会把裆尖摆位困进管内
+  tube(rowsBetween(crotch.y + LEG_OVERLAP, waist.y + TOP_MARGIN).map((y) => {
+    const ring = circleRing(radiusAt(torso, y))
+    return { y, xs: ring.xs, zs: ring.zs }
+  }), [0, 0], positions, indices)
+  // 腿管 ×2（hem−1.5 → fork + LEG_OVERLAP，轴 ±(r+gapHalf)，左右镜像；
+  // fork 以上 gapHalf 钳在 LEG_GAP_MIN——上延段保持分离不并管）
+  const axis = buildLegAxis(payload)
+  for (const sgn of [-1, 1] as const) {
+    const yBot = hem.y - BOTTOM_MARGIN
+    const yTop = crotch.y + LEG_OVERLAP
+    tube(rowsBetween(yBot, yTop).map((y) => {
+      const r = axis.rAt(y), c = axis.cAt(y)
+      const ring = circleRing(r)
+      return {
+        y,
+        xs: ring.xs.map((x) => sgn * c + x),
+        zs: ring.zs,
+      }
+    }), [sgn * axis.cAt(yBot), sgn * axis.cAt(yTop)], positions, indices)
   }
   return {
     positions: new Float32Array(positions),
