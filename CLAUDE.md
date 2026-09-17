@@ -59,42 +59,28 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   实测 ΔH 换算权重）+ 身高滑杆（cm 连续钳 150~185，可停任意身高）裸权重实时
 #   morph（pos = base + Σwᵢ·Δᵢ；围度站 y × 身高因子）+ 站点围度
 #   读数（站高 = vendor 地标检测值）；无围度闭环/对齐/钳位（自动调体型闭环仍退
-#   役；裤子展示 2026-09-16 六期（前后身缝合自由垂）：前片+袋贴沿 mouth 缝
-#   合的**并集宿主**（garment/panel.ts 边手术：front 边链 mouth 段原位
-#   替换为 facing 月牙边，mouth 内部化为缝线；袋贴腰口子段命名 waist
-#   与 front.waist 同名相邻、mesh runs 自动聚合——悬挂 pin 覆盖整个前
-#   身腰口；守卫失败退化纯前片+袋贴留平铺）+ 后片+育克沿机头下口线缝
-#   合的**后身并集宿主**（buildBackPanel 边手术：back 边链 top 段丢弃
-#   内部化为缝线，yoke 余边反向闭环接入——cb 反向段与 back.cb 同名相
-#   邻聚合成**整条后浪**（裆尖→腰口贯通育克）、yoke 腰口 top 顶替
-#   top_chain；有省款省闭口错位守卫拦下退化纯后片+育克留平铺）各走悬
-#   挂链立体展示：core.ts
-#   撑型芯（锚纸样围度）→ placement 前/后 90° 扇区摆位（前 θ∈[−90°,0°]
-#   / 后 θ∈[−180°,−90°]，L/R 共享宿主网格，buildHangPair 泛化）→
-#   drape.ts verlet 自由垂（前中 rise 链/后中 cb 链同号缝合对 + 腰口
-#   整圈全向钉直挂〔2026-09-16「拉直」：摆位侧腰口弧长重参数化使中缝
-#   腰角精确落中面——「钉与缝同意」，Y-only 环滑塌对折门帘退役〕+
-#   侧缝边语义摆位 θ=±90° 竖直 + 侧缝顶部 sideHold(10cm) 腰头刚度带钉
-#   〔2026-09-17「顶部〔腰头缝合线〕圆弧不折」：x 均匀映射对弯曲侧缝
-#   在腰口角下留 ~14° 折角 + 自由边内摆最深 ~25° 双根因，拍板两筒
-#   并排撑圆〕+ 地面碰撞（hangLift(12cm) 整体抬升后下摆离地 3~4cm
-#   不拖地，碰撞降级安全网），无撑型芯——芯撑出的前凸筒不是真实提
-#   着前片的形态；芯/场只供初摆位半径与取景包络。rAF 一帧一步
-#   settle 停）；
-#   宿主不渲染，前片/
-#   袋贴/后片/育克本体 = rider.ts 贴层（buildClothMesh 各自三角化 → bindRider 每
-#   顶点重心绑宿主三角形，每帧 rideRider 回填；locate 缺口兜底 = 宿主
-#   边界环最近段插值，Delaunay 凹弧处实测 facing 11 顶点、弓高亚毫米；
-#   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面；后片/育克径向
-#   0 相邻非叠层）；前身筒旁挂人
-#   台 +X 侧、后身筒并排其右不套轴（独立原则：芯锚纸样围度与人台滑杆互不相干）；其余
-#   裁片照旧平铺验证通道（assemble.buildFlatLayout exclude 前后身组——
-#   排除锚且守卫通过时整组离开；STITCH_GROUPS 平面缝合拼合组照旧：
-#   机头(back_yoke)+后片、袋贴+前片，贴合守卫 <0.5cm，有省款 yoke 省
-#   闭口错位退独立行）+ render.ts PIECE_COLORS 逐片分色（前蓝/后绿/
-#   腰头橙/育克紫/袋贴青）+ 侧栏图例；sim worker、seams/band/ease/
-#   heatmap/align/useGarment 等整裤链 2026-09-15 删除；引擎 payload
-#   schema v1 **零改动**（照旧含第 4 片 back_yoke、第 5 片
+#   役；裤子展示 2026-09-17 八期整裤缝合（单 sim 四 part + 芯碰撞）：前片+袋贴并集宿主
+#   （garment/panel.ts 边手术：front 边链 mouth 段原位替换为 facing 月牙边、袋贴腰口子段命名 waist 同名
+#   相邻聚合；守卫失败退化纯前片+袋贴留平铺）+ 后片+育克后身并集宿主（buildBackPanel：back top 段丢弃
+#   内部化、yoke 余边反向闭环——cb 反向段与 back.cb 同名相邻聚合成整条后浪贯通育克；有省款守卫拦下退化、
+#   退化时 top 边角色升回 top_chain 供钉挂）合并为一条完整整裤：assemble.buildFullPair 四 part 摆位（腰圆
+#   360° 整圈弧长重参数化四段拼闭 + 侧缝语义竖直 + 腿局部圆环绕管〔内缝边落腿内侧线前后宿主相邻共线、
+#   侧缝边落腿外侧线；fork 向上 forkBlend(8) 过渡〕+ 侧缝腰角前后共点 snap + hangLift(8) 抬升）→
+#   seams.buildSeamSet 四族缝合对（前中 rise/后中 cb 镜像族 + 侧缝/内缝跨宿主弧长族〔吃势均匀吸收〕+ 四裆尖
+#   tip 补焊零 rest 闭环自动坍缩裆交叉点；back 宿主 side 双 run 先 mesh.mergeRuns 合链）→ drape verlet
+#   解算**开撑型芯碰撞**（用户拍板：整裤包腿必须有碰撞体；芯 v3 两腿分离三实体〔躯干管 + 左右分离腿管、
+#   裆下腿间真间隙 LEG_GAP_HALF 2.6——花生腰谷在径向场下是实心桥内缝焊不上 + 径向场表示不了腿间空隙，
+#   两教训录决策日志八期条〕；碰撞 = placement 行截面环 SliceRing 最近边界 + skin·外法线推出；腰口整圈
+#   全向钉 + sideHold(10) 腰头代形刚度带〔本期不含腰头〕；实测四族缝 rise/cb/inseam/tip avg=p95=0、side
+#   0.026/0.176、99~174 帧真收敛、下摆离地 3~4cm 不拖地）；rAF 一帧一步 settle 停；宿主不渲染，前片/袋贴/
+#   后片/育克本体 = rider.ts 贴层（bindRider 重心绑宿主三角形逐帧回填、locate 缺口兜底 = 边界环最近段插值；
+#   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面、后片/育克径向 0 相邻非叠层）；整裤单组旁挂人台 +X 侧
+#   不套轴（独立原则：芯锚纸样围度与人台滑杆互不相干）；其余裁片照旧平铺验证通道（assemble.buildFlatLayout
+#   exclude 前后身组——排除锚且守卫通过时整组离开；STITCH_GROUPS 平面缝合拼合组照旧：机头(back_yoke)+后片、
+#   袋贴+前片，贴合守卫 <0.5cm，有省款 yoke 省闭口错位退独立行）+ render.ts PIECE_COLORS 逐片分色（前蓝/后绿/
+#   腰头橙/育克紫/袋贴青）+ 侧栏图例；band/ease/heatmap/align/useGarment 等旧整裤解算链 2026-09-15 删除
+#   （seams.ts 八期重写为纯拓扑配对函数，非复活）；
+#   引擎 payload schema v1 **零改动**（照旧含第 4 片 back_yoke、第 5 片
 #   front_facing），独立原则——人台参数不改衣服，演进史 .doc/决策日志.md
 #   §十一）；
 #   引擎侧 exporters/fitting.py build_fitting_payload + POST /api/draft/fitting
