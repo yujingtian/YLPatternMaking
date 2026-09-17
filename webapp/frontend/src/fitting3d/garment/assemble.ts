@@ -6,8 +6,9 @@
 //     L 原样 + R 镜像并排、腰头单片），缝合拼合组（机头+后片、袋贴+
 //     前片）按整版全局坐标对齐同行摆放，逐点等距变换铺地面，与 2D
 //     裁片 SVG 一比一，定位形状问题出在哪层；
-//   · buildHangPair（扇区摆位，四期起随前身缝合立起回归接线；前身/
-//     后身悬挂链共用）——撑型芯场前/后 90° 扇区悬挂（+ drape）。
+//   · buildFullPair（八期整裤缝合，2026-09-17）：前后身并集宿主合并
+//     四 part 悬挂摆位（+ seams/drape 单 sim 解算；六期双筒 buildHangPair
+//     随整裤合并退役）。
 // 坐标系 = 纸样系（y=纸样高、hem≈0 落地）；显示层 Group 平移到人台
 // 旁侧（Fitting3DView），本层不感知人台。
 import type { FittingPiece, FittingResult } from '../../types'
@@ -213,106 +214,6 @@ export function buildFlatLayout(
     z += b.h + FLAT_PRIOR.rowGap
   }
   return { parts, pos, total: off }
-}
-
-// 悬挂一对静态装配（扇区摆位；前身/后身悬挂链共用——一期前片口径
-// 2026-09-16 后身缝合起泛化）：同一宿主网格 × {L, R}，逐顶点摆位到
-// 撑型芯场扇区（front 前扇区 [−90°,0°] / back 后扇区 [−180°,−90°]）
-export function buildHangPair(
-  key: PieceKey, mesh: ClothMesh, field: BodyField,
-): Garment {
-  const n = mesh.xy.length / 2
-  let xMin = Infinity, xMax = -Infinity
-  for (let i = 0; i < mesh.xy.length; i += 2) {
-    xMin = Math.min(xMin, mesh.xy[i])
-    xMax = Math.max(xMax, mesh.xy[i])
-  }
-  const parts: GarmentPart[] = [
-    { key, side: 'L', mesh, offset: 0 },
-    { key, side: 'R', mesh, offset: n },
-  ]
-  const pos = new Float32Array(3 * 2 * n)
-  for (const part of parts) {
-    for (let i = 0; i < n; i++) {
-      const [px, py, pz] = placePoint(
-        key, part.side, mesh.xy[2 * i], mesh.xy[2 * i + 1],
-        xMin, xMax, field)
-      pos[3 * (part.offset + i)] = px
-      pos[3 * (part.offset + i) + 1] = py
-      pos[3 * (part.offset + i) + 2] = pz
-    }
-  }
-  // 腰口弧长重参数化（2026-09-16 六期「拉直」）：均匀 x→θ 映射固有
-  // 偏心——腰口两端点不落扇区边界（中缝腰角实测偏心 ~3.9cm ≈ 17°），
-  // 整圈全向钉悬挂（drape）下顶缘会留顶中缺口/鞍。顶链顶点改按**腰口
-  // 弧长分数** s∈[0,1]（s=0 = 中缝腰角端）均匀铺满扇区：中缝腰角精确
-  // 落 0°/−180°、侧缝腰角精确落 ±90°；y/半径口径不变（y = 纸样高、
-  // r = 场(y,θ)+gap），R 侧照旧 θ→−θ 镜像（保双侧镜像对称金标）。
-  // 片身其余顶点照旧 x 映射（初摆位近似，解算自松弛）
-  const top = mesh.runs.find((r) => r.role === 'top_chain')
-  const seamRun = mesh.runs.find(
-    (r) => r.name === 'rise' || r.name === 'cb')
-  if (top && top.indices.length > 1) {
-    // run 方向对齐：order[0] = 中缝腰角（中缝链腰口端顶点；无中缝款
-    // 〔fly 连裁〕回退链首）
-    const seamTop = seamRun
-      ? seamRun.indices[seamRun.indices.length - 1] : null
-    const order = seamTop !== null
-      && seamTop === top.indices[top.indices.length - 1]
-      ? [...top.indices].reverse() : [...top.indices]
-    const arc: number[] = [0]
-    for (let k = 1; k < order.length; k++) {
-      const a = order[k - 1], b = order[k]
-      arc.push(arc[k - 1] + Math.hypot(
-        mesh.xy[2 * b] - mesh.xy[2 * a], mesh.xy[2 * b + 1] - mesh.xy[2 * a + 1]))
-    }
-    const total = arc[order.length - 1] || 1
-    for (let k = 0; k < order.length; k++) {
-      const i = order[k]
-      const f = arc[k] / total
-      // f=0 中缝腰角 → 扇区中心端（front 0° / back −180°）、f=1 → 侧缝 −90°
-      const thL = key === 'back'
-        ? -Math.PI + f * (Math.PI / 2)
-        : -f * (Math.PI / 2)
-      const y = mesh.xy[2 * i + 1]
-      for (const part of parts) {
-        const th = part.side === 'R' ? -thL : thL
-        const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
-        pos[3 * (part.offset + i)] = r * Math.sin(th)
-        pos[3 * (part.offset + i) + 1] = y
-        pos[3 * (part.offset + i) + 2] = r * Math.cos(th)
-      }
-    }
-  }
-  // 侧缝边语义摆位（2026-09-17 用户口径「顶部侧缝边不要折、拼合后顶部
-  // 〔腰头缝合线〕是圆弧」，AskUserQuestion 拍板保持两筒并排撑圆）：
-  // 均匀 x→θ 映射对弯曲侧缝（牛仔裤腰口撇势内收）把腰口段侧缝摆到
-  // θ≈−76°，与顶链重参数化的侧缝腰角（精确 ±90°）在腰口角正下方留
-  // ~14° 楔形折角——摆位侧根因。侧缝边在穿着语义上是体侧竖直线（纸样
-  // 里的弯曲由绕体 wrapping 吸收——与腰口弧长重参数化同因：x 均匀映射
-  // 只对直线边成立），整条改摆 θ=±90° 竖直（R 镜像 +90°）、r = 场+gap、
-  // y = 纸样高原样。'side' 名 run 全覆盖（后宿主育克侧段与后片侧缝同为
-  // side 名，可能各自成 run）；配 drape 侧缝边顶部 sideHold 全向钉撑住
-  // 顶部圆弧（腰头刚度带）
-  for (const run of mesh.runs) {
-    if (run.name !== 'side') continue
-    for (const i of run.indices) {
-      const y = mesh.xy[2 * i + 1]
-      for (const part of parts) {
-        const th = part.side === 'L' ? -Math.PI / 2 : Math.PI / 2
-        const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
-        pos[3 * (part.offset + i)] = r * Math.sin(th)
-        pos[3 * (part.offset + i) + 1] = y
-        pos[3 * (part.offset + i) + 2] = r * Math.cos(th)
-      }
-    }
-  }
-  // 悬挂整体抬升（2026-09-17 用户口径「不要让裤子拖地」）：布全长 >
-  // 腰口挂高（实测余量 ~8-10cm），不抬则下摆触地堆布。全 pos y +=
-  // hangLift（含顶链/侧缝摆位后的钉目标——钉在抬升后的挂相上）；
-  // 上方场查询仍用纸样 y（抬升前），本行放在所有摆位之后
-  for (let i = 1; i < pos.length; i += 3) pos[i] += HANG_PRIOR.hangLift
-  return { parts, pos, total: 2 * n }
 }
 
 // 链折线按 y 插值取 x（腿区逐高度参考）：从链首扫描首个跨 y 段线性插值，

@@ -1,6 +1,6 @@
 // 前身整体并集净样（2026-09-16 四期前身缝合立起）：front_piece +
 // front_facing 沿袋口净线 mouth 缝合成一张净样面板，喂 buildClothMesh
-// 得悬挂解算宿主（drape/buildHangPair 吃宿主；前片与袋贴本体走
+// 得悬挂解算宿主（drape/buildFullPair 吃宿主；前片与袋贴本体走
 // rider.ts 贴层渲染）。几何真相（fixture 实测）：前片开口袋后腰口被
 // 挖短（waist 止于 mouth 首点 M0），mouth 弧以上到原始轮廓的月牙区已
 // 在前片净样之外；facing 外边 1:1 复制挖削**前**前大片轮廓，mouth 两

@@ -77,7 +77,7 @@ export function buildDrape(
     if (!top) throw new Error('裁片缺 top_chain（腰口）边——下垂 pin 无支点')
     const loopLen = part.mesh.loop.length
     const last = top.indices[top.indices.length - 1]
-    // 整圈全向钉（六期直挂）：前提 = buildHangPair 腰口弧长重参数化把
+    // 整圈全向钉（六期直挂）：前提 = buildFullPair 腰口弧长重参数化把
     // 中缝腰角精确摆在镜像位（L/R 重合在中面）——钉与缝天然同意，无需
     // 旧二轮的角点例外；实测缝对 avg/p95 = 0
     for (const i of top.indices) pinIdx.push(part.offset + i)

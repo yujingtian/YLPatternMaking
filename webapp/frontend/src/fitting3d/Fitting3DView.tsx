@@ -43,8 +43,8 @@ import type { MeshWeights } from './bodymesh/morph'
 import { morphPositions } from './bodymesh/morph'
 import { heightCm, stationFactor, weightFor } from './bodymesh/height'
 import type { FittingResult, Snapshot } from '../types'
-import { buildFlatLayout, buildHangPair } from './garment/assemble'
-import { buildCore } from './garment/core'
+import { buildFlatLayout, buildFullPair } from './garment/assemble'
+import { buildCore, buildLegAxis } from './garment/core'
 import { buildBodyField } from './garment/placement'
 import { buildDrape, stepDrape } from './garment/drape'
 import { buildClothMesh } from './garment/mesh'
@@ -317,20 +317,18 @@ export default function Fitting3DView({
     ctx.render()
   }, [bodyView, asset])
 
-  // ---- 裁片上屏（六期：前后身缝合自由垂 + 其余平铺）----
+  // ---- 裁片上屏（八期整裤缝合：单 sim 四 part + 芯碰撞 + 其余平铺）----
   // 前身组 = 前片+袋贴沿 mouth 缝合的并集宿主（panel.ts，守卫失败退化
-  // 纯前片 + 袋贴留平铺），走悬挂链：前 90° 扇区摆位（L/R 共享宿主网
-  // 格，芯/场只供摆位半径）→ verlet 引力**自由垂**（drape.ts：前中
-  // rise 缝合对 + 腰口整圈全向钉直挂 + 地面碰撞，无芯碰撞——真实提
-  // 着整个腰口的形态：顶缘按摆位弧全撑、中缝竖直在前中/后中不塌轴、
-  // 布自顶缘垂落）；前片/袋贴
-  // 作为贴层（rider.ts 绑定宿主三角形）逐帧回填渲染，宿主本身不渲染，
-  // 袋贴径向内偏衬里侧。后身组（2026-09-16 六期）= 后片+育克沿机头
-  // 下口线缝合的并集宿主（buildBackPanel，有省款守卫拦下育克留平铺）
-  // 同款悬挂：后 90° 扇区摆位 + 后中 cb 缝合对自由垂，后片/育克贴层
-  // 径向 0（相邻非叠层），筒并排在前身筒右侧。其余裁片照旧平铺
-  // （buildFlatLayout exclude 前后身组）。依赖 [fitting, asset]：asset
-  // 守卫相机取景时序（人台先落位再让位）。
+  // 纯前片 + 袋贴留平铺）；后身组 = 后片+育克沿机头下口线缝合的并集宿主
+  // （有省款守卫拦下退化纯后片）。八期把两筒合并为**一条完整整裤**单
+  // sim：buildFullPair 四 part 摆位（腰圆 360° 整圈弧长重参数化 + 侧缝
+  // 语义竖直 + 腿局部圆环绕管 + 内缝落腿内侧线）→ seams.buildSeamSet
+  // 四族缝合对（前中/后中镜像 + 侧缝/内缝弧长 + 四裆尖焊拢汇集裆交叉
+  // 点）→ drape 芯碰撞解算（v3 两腿分离芯截面碰撞，裤腿圆整两腿分开）。
+  // 腰圆整圈钉挂 + sideHold 刚度带暂代腰头（本期不含腰头）。前片/袋贴/
+  // 后片/育克作为贴层（rider.ts 绑定宿主三角形）逐帧回填渲染，宿主不
+  // 渲染，袋贴径向内偏衬里侧。其余裁片照旧平铺（exclude 前后身组）。
+  // 依赖 [fitting, asset]：asset 守卫相机取景时序（人台先落位再让位）。
   useEffect(() => {
     const ctx = ctxRef.current
     const a = assetRef.current
@@ -352,33 +350,32 @@ export default function Fitting3DView({
         if (ax > bodyHalfW) bodyHalfW = ax
       }
       // 前身并集宿主（无袋贴/守卫失败退化纯前片，warning 上屏提示）
-      // + 后身并集宿主（六期：后片+育克沿机头下口线缝合；无育克 = 纯
-      // 后片、有省款守卫拦下育克留平铺，同前身退化口径）
+      // + 后身并集宿主（后片+育克沿机头下口线缝合；无育克 = 纯后片、
+      // 有省款守卫拦下育克留平铺，同前身退化口径）
       const panel = buildFrontPanel(data)
       const backPanel = buildBackPanel(data)
       setPanelHint([...panel.warnings, ...backPanel.warnings][0] ?? null)
       const hangExclude = new Set<string>(['front_piece', 'back_piece'])
       if (panel.hasFacing) hangExclude.add('front_facing')
       if (backPanel.hasYoke) hangExclude.add('back_yoke')
-      // 其余裁片平铺（前身组离开平铺行；退化时袋贴自动留平铺）
+      // 其余裁片平铺（前后身组离开平铺行；退化时袋贴/育克自动留平铺）
       const garment = buildFlatLayout(data, hangExclude)
       setFlatKeys(data.pieces.map((p) => p.key))
       const view = buildGarmentView(ctx.THREE, garment)
       gv = view
-      // 悬挂链（同步构建，无 async 竞态窗口）：芯/场仅用于初摆位半径与
-      // 取景包络；sim 自由垂（无芯碰撞——芯撑出的前凸筒不是真实提着
-      // 前片的形态，drape 头注五期口径），前中缝竖直下垂、裆尖内收裆下
+      // 整裤悬挂链（同步构建，无 async 竞态窗口）：v3 两腿分离芯建场，
+      // forkY 取 payload body.points 裆尖 y，单 sim 开芯碰撞
       const core = buildCore(data)
       const field = buildBodyField(core.positions, core.indices)
-      const pair = buildHangPair('front', panel.host, field)
-      const sim = buildDrape(pair, null)
+      const pair = buildFullPair(panel.host, backPanel.host, field, {
+        front: data.body.points.front_crotch_vertex[1],
+        back: data.body.points.back_crotch_vertex[1],
+      }, buildLegAxis(data))
+      const sim = buildDrape(pair, field, HANG_PRIOR.hangLift)
       const hostN = panel.host.xy.length / 2
-      // 后身悬挂链同款（后 90° 扇区摆位 + 后中 cb 缝合对自由垂——drape
-      // 泛化 rise|cb 吃同一条链，前后两 sim 独立解算互不相干）
-      const backPair = buildHangPair('back', backPanel.host, field)
-      const backSim = buildDrape(backPair, null)
       const backHostN = backPanel.host.xy.length / 2
-      // 贴层视图：前片（径向 0 = 解算位所见）/ 袋贴（内偏衬里侧）
+      // 贴层视图：前片（径向 0 = 解算位所见）/ 袋贴（内偏衬里侧）；
+      // 前宿主 offsets {L:0, R:nF}，后宿主 {L:2nF, R:2nF+nB}
       const frontMesh = buildClothMesh(
         data.pieces.find((p) => p.key === 'front_piece')!)
       hv = buildRiderView(ctx.THREE, 'front_piece', bindRider(frontMesh, panel.host), [
@@ -400,40 +397,39 @@ export default function Fitting3DView({
         data.pieces.find((p) => p.key === 'back_piece')!)
       bv = buildRiderView(ctx.THREE, 'back_piece',
         bindRider(backMesh, backPanel.host), [
-          { side: 'L', hostOffset: 0, radialOffset: 0 },
-          { side: 'R', hostOffset: backHostN, radialOffset: 0 },
+          { side: 'L', hostOffset: 2 * hostN, radialOffset: 0 },
+          { side: 'R', hostOffset: 2 * hostN + backHostN, radialOffset: 0 },
         ])
       if (backPanel.hasYoke) {
         const yokeMesh = buildClothMesh(
           data.pieces.find((p) => p.key === 'back_yoke')!)
         byv = buildRiderView(ctx.THREE, 'back_yoke',
           bindRider(yokeMesh, backPanel.host), [
-            { side: 'L', hostOffset: 0, radialOffset: 0 },
-            { side: 'R', hostOffset: backHostN, radialOffset: 0 },
+            { side: 'L', hostOffset: 2 * hostN, radialOffset: 0 },
+            { side: 'R', hostOffset: 2 * hostN + backHostN, radialOffset: 0 },
           ])
       }
-      // 旁挂（独立原则：芯锚纸样围度与人台无关，筒不套人台轴）：
-      // 前身筒外沿 = 人台半宽 + 净空；平铺组再让位到筒右侧
+      // 旁挂（独立原则：芯锚纸样围度与人台无关，整裤不套人台轴）：
+      // 整裤外沿 = 人台半宽 + 净空；平铺组再让位到整裤右侧。
+      // sim 空间已含 hangLift（下摆离地 3~4cm），显示层不再抬
       const envelopeR = field.maxRadius + HANG_PRIOR.garmentGap
       const hangX = bodyHalfW + HANG_PRIOR.clearance + envelopeR
-      // 后身筒并排在前身筒右侧（同净空）；平铺组再让位到后身筒右侧
-      const backX = hangX + 2 * envelopeR + HANG_PRIOR.clearance
-      hv.group.position.set(hangX, HANG_PRIOR.hemLift, 0)
-      hfv?.group.position.set(hangX, HANG_PRIOR.hemLift, 0)
-      bv.group.position.set(backX, HANG_PRIOR.hemLift, 0)
-      byv?.group.position.set(backX, HANG_PRIOR.hemLift, 0)
+      hv.group.position.set(hangX, 0, 0)
+      hfv?.group.position.set(hangX, 0, 0)
+      bv.group.position.set(hangX, 0, 0)
+      byv?.group.position.set(hangX, 0, 0)
       scene.add(hv.group)
       if (hfv) scene.add(hfv.group)
       scene.add(bv.group)
       if (byv) scene.add(byv.group)
-      const flatX = backX + envelopeR + FLAT_PRIOR.clearance
+      const flatX = hangX + envelopeR + FLAT_PRIOR.clearance
       view.group.position.x = flatX
       view.group.position.y = FLAT_PRIOR.lift
       scene.add(view.group)
       garmentViewRef.current = view
       setGarmentError(null)
       // 取景让位（幂等：按与上次中心的差量平移，保留用户自由视角）：
-      // 场景中心 = 人台左沿 ~ 平铺组右沿的中点（双主体：人台+悬挂筒 / 平铺）
+      // 场景中心 = 人台左沿 ~ 平铺组右沿的中点（双主体：人台+整裤 / 平铺）
       let flatW = 0
       for (let i = 0; i < garment.pos.length; i += 3) {
         if (garment.pos[i] > flatW) flatW = garment.pos[i]
@@ -451,17 +447,16 @@ export default function Fitting3DView({
       // 终态自然停——末帧已回填已渲染，画面保留）
       hv.update(pair.pos)
       hfv?.update(pair.pos)
-      bv.update(backPair.pos)
-      byv?.update(backPair.pos)
+      bv.update(pair.pos)
+      byv?.update(pair.pos)
       const tick = () => {
         const st = stepDrape(sim)
-        const bst = stepDrape(backSim)
         hv!.update(sim.pos)
         hfv?.update(sim.pos)
-        bv!.update(backSim.pos)
-        byv?.update(backSim.pos)
+        bv!.update(sim.pos)
+        byv?.update(sim.pos)
         ctx.render()
-        if (st === 'running' || bst === 'running') {
+        if (st === 'running') {
           raf = requestAnimationFrame(tick)
         }
       }

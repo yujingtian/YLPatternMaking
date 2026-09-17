@@ -1,37 +1,25 @@
-// 全裁片装配金标（重建 2026-09-15）：平铺验证（三期回落，现行接线）
-// + 扇区悬挂摆位（一期，暂停接线）。平铺验收：payload 逐片一行（成对
-// 片 L 原样 / R 前中镜像逐点等距变换、腰头单片）、全片贴地 y=0、全组
-// z 居中、行序 = payload 片序、行距 ≥ rowGap、无 NaN。悬挂验收：2 片
-// 镜像摆位（x 翻号、z 差 <0.05cm——θ-bin 量化对 ±θ 不对称）、前扇区
-// 角度域 [−90°,0°]、无穿透（摆位半径 = 场 + gap，按构造零穿透；穿透
-// 查验在**纸样空间**——hangLift 抬升后 pos y ≠ 场查询 y）；2026-09-17
-// 起：侧缝边语义摆位 θ=±90° + 整体抬升 hangLift。
+// 全裁片装配金标（重建 2026-09-15；2026-09-17 八期整裤缝合换代）：
+// 平铺验证（三期回落，现行接线）+ buildFullPair 整裤四 part 摆位（八期，
+// 取代六期双筒 buildHangPair——随整裤合并退役）。平铺验收：payload 每
+// 片一行（成对片 L 原样 / R 前中镜像逐点等距变换、腰头单片）、全片贴
+// 地 y=0、全组 z 居中、行序 = payload 片序、行距 ≥ rowGap、无 NaN。
+// 整裤摆位验收见 buildFullPair describe（结构/腰圆/内缝/腿区/穿透）。
 // 夹具 = fixture_fitting.json（引擎 build_fitting_payload 直出，默认
 // 直腰头 3 片：front_piece / back_piece / waistband）。
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
-import { buildFlatLayout, buildFullPair, buildHangPair } from './assemble'
-import type { Garment } from './assemble'
+import { buildFlatLayout, buildFullPair } from './assemble'
 import { buildBackPanel, buildFrontPanel } from './panel'
 import { buildCore, buildLegAxis, CORE_SKIN } from './core'
 import { buildClothMesh } from './mesh'
-import { buildBodyField, penetrationStats, pointInRings } from './placement'
+import { buildBodyField, pointInRings } from './placement'
 import { FLAT_PRIOR, HANG_PRIOR } from './priors'
 
 const HERE = import.meta.dirname   // src/fitting3d/garment
 
 const result: FittingResult = JSON.parse(
   readFileSync(`${HERE}/fixture_fitting.json`, 'utf8'))
-
-// 悬挂摆位穿透查验用：pos 回纸样空间。buildHangPair 场查询用纸样 y
-// （hangLift 抬升在所有摆位之后统一施加），穿透金标对账「摆位半径 =
-// 场(纸样 y)+gap」这一构造性事实，不是显示位碰撞检查
-const patternSpacePos = (g: Garment): Float32Array => {
-  const p = new Float32Array(g.pos)
-  for (let i = 1; i < p.length; i += 3) p[i] -= HANG_PRIOR.hangLift
-  return p
-}
 
 describe('assemble：全裁片平铺装配（重建三期回落，现行）', () => {
   const garment = buildFlatLayout(result)
@@ -381,121 +369,6 @@ describe('assemble：buildFlatLayout exclude（四期前身缝合立起）', () 
   })
 })
 
-describe('assemble：前片 L+R 静态装配（一期扇区摆位，四期起悬挂链接线）', () => {
-  const front = buildClothMesh(result.pieces.find((p) => p.key === 'front_piece')!)
-  const core = buildCore(result)
-  const field = buildBodyField(core.positions, core.indices)
-  const garment = buildHangPair('front', front, field)
-
-  it('两片共享网格、offset 顺排、总数 = 2×前片顶点', () => {
-    expect(garment.parts.map((p) => `${p.key}_${p.side}`))
-      .toEqual(['front_L', 'front_R'])
-    expect(garment.parts[0].mesh).toBe(front)
-    expect(garment.parts[1].mesh).toBe(front)
-    expect(garment.parts[1].offset).toBe(front.xy.length / 2)
-    expect(garment.total).toBe(front.xy.length)
-    expect(garment.pos.length).toBe(3 * garment.total)
-  })
-
-  it('无 NaN；前扇区角度域：L 全部 θ∈[−90°,0°]、R 镜像', () => {
-    for (let i = 0; i < garment.pos.length; i++) {
-      expect(Number.isFinite(garment.pos[i])).toBe(true)
-    }
-    for (let i = 0; i < garment.total; i++) {
-      const x = garment.pos[3 * i], z = garment.pos[3 * i + 2]
-      const th = Math.atan2(x, z)
-      if (i < garment.parts[1].offset) {
-        expect(th).toBeGreaterThanOrEqual(-Math.PI / 2 - 1e-9)
-        expect(th).toBeLessThanOrEqual(1e-9)
-      } else {
-        expect(th).toBeLessThanOrEqual(Math.PI / 2 + 1e-9)
-        expect(th).toBeGreaterThanOrEqual(-1e-9)
-      }
-    }
-  })
-
-  it('镜像对称：L/R 同网格逐顶点 x 翻号、y 同值、z 差 <0.1cm', () => {
-    // z 差源于支撑场 θ-bin 量化对 ±θ 的不对称 + bin 边界支撑跳变：旧链
-    // 人台场实测 <0.05cm；撑型芯场（花生瓣特征更锐）实测 max 0.073cm，
-    // 口径放宽到 <0.1cm（0.7mm 纯量化伪差，视觉不可辨）
-    const N = front.xy.length / 2
-    const xs: number[] = []
-    for (let i = 0; i < N; i++) {
-      const l = 3 * (garment.parts[0].offset + i)
-      const r = 3 * (garment.parts[1].offset + i)
-      expect(garment.pos[l + 1]).toBeCloseTo(garment.pos[r + 1], 6)   // y
-      expect(Math.abs(garment.pos[l + 2] - garment.pos[r + 2]))
-        .toBeLessThan(0.1)
-      xs.push(Math.abs(garment.pos[l] + garment.pos[r]))
-    }
-    xs.sort((a, b) => a - b)
-    expect(xs[Math.floor(xs.length / 2)]).toBeLessThan(0.1)
-  })
-
-  it('穿透零：摆位半径 = 场 + garmentGap，按构造不穿芯（skin 壳口径）', () => {
-    const pen = penetrationStats(patternSpacePos(garment), field, CORE_SKIN)
-    expect(pen.count).toBe(0)
-    expect(pen.worst).toBe(0)
-  })
-})
-
-describe('assemble：后片 L+R 扇区摆位（六期后身缝合，后扇区）', () => {
-  const yokeResult: FittingResult = JSON.parse(
-    readFileSync(`${HERE}/fixture_fitting_yoke.json`, 'utf8'))
-  const back = buildClothMesh(yokeResult.pieces.find((p) => p.key === 'back_piece')!)
-  const core = buildCore(yokeResult)
-  const field = buildBodyField(core.positions, core.indices)
-  const garment = buildHangPair('back', back, field)
-
-  it('两片共享网格、key=back、总数 = 2×后片顶点、无 NaN', () => {
-    expect(garment.parts.map((p) => `${p.key}_${p.side}`))
-      .toEqual(['back_L', 'back_R'])
-    expect(garment.parts[0].mesh).toBe(back)
-    expect(garment.parts[1].offset).toBe(back.xy.length / 2)
-    expect(garment.total).toBe(back.xy.length)
-    for (let i = 0; i < garment.pos.length; i++) {
-      expect(Number.isFinite(garment.pos[i])).toBe(true)
-    }
-  })
-
-  it('后扇区角度域：L 全部 θ∈[−180°,−90°]、R 镜像 [90°,180°]', () => {
-    // 侧缝端 θ=±90°（与前身扇区同角、穿着拓扑侧缝相邻）、后中端
-    // θ=±180°（cb 缝对在此闭合，与前中 θ=0 相对）
-    for (let i = 0; i < garment.total; i++) {
-      const x = garment.pos[3 * i], z = garment.pos[3 * i + 2]
-      const th = Math.atan2(x, z)
-      if (i < garment.parts[1].offset) {
-        expect(th).toBeLessThanOrEqual(-Math.PI / 2 + 1e-9)
-        expect(th).toBeGreaterThanOrEqual(-Math.PI - 1e-9)
-      } else {
-        expect(th).toBeGreaterThanOrEqual(Math.PI / 2 - 1e-9)
-        expect(th).toBeLessThanOrEqual(Math.PI + 1e-9)
-      }
-    }
-  })
-
-  it('镜像对称：L/R 同网格逐顶点 x 翻号、y 同值、z 差 <0.1cm', () => {
-    // θ-bin 量化伪差口径同前片用例（撑型芯场花生瓣特征，x 取中位数）
-    const N = back.xy.length / 2
-    const xs: number[] = []
-    for (let i = 0; i < N; i++) {
-      const l = 3 * i, r = 3 * (garment.parts[1].offset + i)
-      expect(garment.pos[l + 1]).toBeCloseTo(garment.pos[r + 1], 6)
-      expect(Math.abs(garment.pos[l + 2] - garment.pos[r + 2]))
-        .toBeLessThan(0.1)
-      xs.push(Math.abs(garment.pos[l] + garment.pos[r]))
-    }
-    xs.sort((a, b) => a - b)
-    expect(xs[Math.floor(xs.length / 2)]).toBeLessThan(0.1)
-  })
-
-  it('穿透零：摆位半径 = 场 + garmentGap，按构造不穿芯', () => {
-    const pen = penetrationStats(patternSpacePos(garment), field, CORE_SKIN)
-    expect(pen.count).toBe(0)
-    expect(pen.worst).toBe(0)
-  })
-})
-
 describe('assemble：buildFlatLayout exclude 后身组（六期后身缝合立起）', () => {
   const yokeResult: FittingResult = JSON.parse(
     readFileSync(`${HERE}/fixture_fitting_yoke.json`, 'utf8'))
@@ -534,105 +407,6 @@ describe('assemble：buildFlatLayout exclude 后身组（六期后身缝合立�
       'waistband_L',
     ])
   })
-})
-
-describe('assemble：腰口弧长重参数化（六期拉直）', () => {
-  // 顶链按腰口弧长分数铺满扇区：中缝腰角（顶链 s=0 端）精确落中面
-  // （front θ=0 / back θ=−180°，均匀 x→θ 映射的固有偏心实测 −3.9/
-  // −5.8cm 根治）、侧缝腰角（s=1 端）精确落 ±90°、θ 沿链单调——
-  // drape 整圈全向钉的「钉与缝同意」前提。夹具 = 前身并集（pocket）
-  // / 后身并集（yoke）双宿主
-  const cases = [
-    { key: 'front' as const, fixture: 'fixture_fitting_pocket.json',
-      build: buildFrontPanel, centerTh: 0 },
-    { key: 'back' as const, fixture: 'fixture_fitting_yoke.json',
-      build: buildBackPanel, centerTh: -Math.PI },
-  ]
-  for (const c of cases) {
-    it(`${c.key}：中缝腰角落中面、侧缝腰角落 ±90°、θ 沿链单调铺满扇区`, () => {
-      const payload: FittingResult = JSON.parse(
-        readFileSync(`${HERE}/${c.fixture}`, 'utf8'))
-      const core = buildCore(payload)
-      const field = buildBodyField(core.positions, core.indices)
-      const g = buildHangPair(c.key, c.build(payload).host, field)
-      const top = g.parts[0].mesh.runs.find((r) => r.role === 'top_chain')!
-      const thOf = (side: 'L' | 'R', i: number): number => {
-        const off = side === 'L' ? g.parts[0].offset : g.parts[1].offset
-        return Math.atan2(g.pos[3 * (off + i)], g.pos[3 * (off + i) + 2])
-      }
-      // 首端（s=0）= 中缝腰角：精确落中面（front 0° / back −180°）
-      const first = top.indices[0]
-      expect(Math.abs(g.pos[3 * (g.parts[0].offset + first)])).toBeLessThan(0.01)
-      const th0 = thOf('L', first)
-      expect(Math.abs(Math.atan2(Math.sin(th0 - c.centerTh),
-        Math.cos(th0 - c.centerTh)))).toBeLessThan(0.01)
-      // 末端（s=1）= 侧缝腰角：精确落 −90°
-      const lastI = top.indices[top.indices.length - 1]
-      const thL = thOf('L', lastI)
-      expect(Math.abs(Math.atan2(Math.sin(thL + Math.PI / 2),
-        Math.cos(thL + Math.PI / 2)))).toBeLessThan(0.01)
-      expect(g.pos[3 * (g.parts[0].offset + lastI)]).toBeLessThan(0)   // L 侧 −X
-      // θ 沿链单调（front 0→−90 递减 / back −180→−90 递增）铺满 90°
-      const step = c.key === 'front' ? -1 : 1
-      for (let k = 1; k < top.indices.length; k++) {
-        const prev = thOf('L', top.indices[k - 1])
-        const cur = thOf('L', top.indices[k])
-        expect((cur - prev) * step).toBeGreaterThanOrEqual(-1e-6)
-      }
-    })
-  }
-})
-
-describe('assemble：侧缝边语义摆位 + 悬挂整体抬升（2026-09-17 顶部圆弧/不拖地）', () => {
-  // 侧缝边整条改摆 θ=±90° 竖直线：均匀 x→θ 映射对弯曲侧缝（牛仔裤
-  // 腰口撇势内收）把腰口段侧缝摆到 θ≈−76°，与顶链重参数化的侧缝腰角
-  // （精确 ±90°）在腰口角正下方留 ~14° 楔形折角——用户报障「顶部侧缝
-  // 边有折」的摆位侧根因；侧缝边在穿着语义上是体侧竖直线（纸样里的
-  // 弯曲由绕体 wrapping 吸收，与腰口弧长重参数化同因）。悬挂整体抬
-  // hangLift：布全长 > 腰口挂高（实测余量 ~8-10cm），不抬下摆拖地堆布
-  // （front 102 / back 202 粒子贴地实测；抬后三款夹具零触地、离地
-  // 3.3~4.4cm）。夹具 = 前/后身并集双宿主（'side' 名 run 全覆盖——后
-  // 宿主育克侧段与后片侧缝可能各自成 run）
-  const cases = [
-    { key: 'front' as const, fixture: 'fixture_fitting_pocket.json',
-      build: buildFrontPanel },
-    { key: 'back' as const, fixture: 'fixture_fitting_yoke.json',
-      build: buildBackPanel },
-  ]
-  for (const c of cases) {
-    const payload: FittingResult = JSON.parse(
-      readFileSync(`${HERE}/${c.fixture}`, 'utf8'))
-    const core = buildCore(payload)
-    const field = buildBodyField(core.positions, core.indices)
-    const host = c.build(payload).host
-    const g = buildHangPair(c.key, host, field)
-
-    it(`${c.key}：side run 全部顶点 θ=±90° 竖直（z≈0、L −X / R +X）+ y = 纸样高 + hangLift`, () => {
-      const sides = host.runs.filter((r) => r.name === 'side')
-      expect(sides.length).toBeGreaterThan(0)
-      for (const run of sides) {
-        expect(run.indices.length).toBeGreaterThan(0)
-        for (const i of run.indices) {
-          const yPattern = host.xy[2 * i + 1]
-          for (const part of g.parts) {
-            const i3 = 3 * (part.offset + i)
-            // θ=±90°：z = r·cos(±π/2) ≈ 1e-15 → Float32 落 0；x 按侧翻号
-            expect(Math.abs(g.pos[i3 + 2])).toBeLessThan(1e-3)
-            expect(g.pos[i3] * (part.side === 'L' ? -1 : 1)).toBeGreaterThan(0)
-            // 抬升在所有摆位之后统一施加（场查询仍用纸样 y）
-            expect(g.pos[i3 + 1])
-              .toBeCloseTo(yPattern + HANG_PRIOR.hangLift, 4)
-          }
-        }
-      }
-    })
-
-    it(`${c.key}：悬挂整体抬升——全部顶点 y ≥ hangLift（纸样 y ≥ 0）`, () => {
-      let minY = Infinity
-      for (let i = 1; i < g.pos.length; i += 3) minY = Math.min(minY, g.pos[i])
-      expect(minY).toBeGreaterThanOrEqual(HANG_PRIOR.hangLift - 1e-3)
-    })
-  }
 })
 
 describe('assemble：buildFullPair 整裤四 part 摆位（八期整裤缝合）', () => {
@@ -715,6 +489,21 @@ describe('assemble：buildFullPair 整裤四 part 摆位（八期整裤缝合）
         const top = runs.reduce((a, b) =>
           p.mesh.xy[2 * b.indices[0] + 1] > p.mesh.xy[2 * a.indices[0] + 1] ? b : a)
         return top.indices[0]
+      }
+      // θ 沿链单调铺满 90°（front 0→−90 递减 / back −180→−90 递增；
+      // 六期拉直口径移植——整圈全向钉的前提）
+      for (const p of [part('front', 'L'), part('back', 'L')]) {
+        const top = topOf(p)
+        const seam = seamRunOf(p)
+        const seamTop = seam ? seam.indices[seam.indices.length - 1] : null
+        const order = seamTop === top.indices[top.indices.length - 1]
+          ? [...top.indices].reverse() : [...top.indices]
+        const step = p.key === 'front' ? -1 : 1
+        for (let k = 1; k < order.length; k++) {
+          const prev = thOf(p, order[k - 1])
+          const cur = thOf(p, order[k])
+          expect((cur - prev) * step).toBeGreaterThanOrEqual(-1e-6)
+        }
       }
       const fC = at(part('front', 'L'), sideCorner(part('front', 'L')))
       const bC = at(part('back', 'L'), sideCorner(part('back', 'L')))
