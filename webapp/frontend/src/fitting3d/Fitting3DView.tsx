@@ -50,10 +50,11 @@ import { buildDrape, stepDrape } from './garment/drape'
 import { buildClothMesh } from './garment/mesh'
 import { buildBackPanel, buildFrontPanel } from './garment/panel'
 import { bindRider } from './garment/rider'
+import { buildWaistbandMesh } from './garment/band'
 import { FLAT_PRIOR, HANG_PRIOR } from './garment/priors'
 import {
-  buildGarmentView, buildRiderView, pieceColor,
-  type GarmentView, type RiderView,
+  buildGarmentView, buildRiderView, buildSimView, pieceColor,
+  type GarmentView, type RiderView, type SimView,
 } from './garment/render'
 
 type ThreeMod = typeof import('three')
@@ -339,6 +340,7 @@ export default function Fitting3DView({
     let hfv: RiderView | null = null
     let bv: RiderView | null = null
     let byv: RiderView | null = null
+    let wbv: SimView | null = null
     let raf = 0
     try {
       const data = fitting.data
@@ -358,6 +360,7 @@ export default function Fitting3DView({
       const hangExclude = new Set<string>(['front_piece', 'back_piece'])
       if (panel.hasFacing) hangExclude.add('front_facing')
       if (backPanel.hasYoke) hangExclude.add('back_yoke')
+      hangExclude.add('waistband')   // 九期：腰头立体缝合，不再平铺
       // 其余裁片平铺（前后身组离开平铺行；退化时袋贴/育克自动留平铺）
       const garment = buildFlatLayout(data, hangExclude)
       setFlatKeys(data.pieces.map((p) => p.key))
@@ -372,13 +375,17 @@ export default function Fitting3DView({
       // = 腰头代形
       const core = buildCore(data)
       const field = buildBodyField(core.positions, core.indices)
+      // 腰头布片（九期腰头立体化）：两端缝在前中会合、中点落后中，
+      // 带顶整圈钉挂（挂腰头），裤身经缝对悬于带下
+      const bandMesh = buildWaistbandMesh(data)
       const pair = buildFullPair(panel.host, backPanel.host, field, {
         front: data.body.points.front_crotch_vertex[1],
         back: data.body.points.back_crotch_vertex[1],
-      }, buildLegAxis(data))
+      }, buildLegAxis(data), bandMesh)
       const sim = buildDrape(pair, null)
       const hostN = panel.host.xy.length / 2
       const backHostN = backPanel.host.xy.length / 2
+      const hasBand = pair.parts.some((p) => p.key === 'waistband')
       // 贴层视图：前片（径向 0 = 解算位所见）/ 袋贴（内偏衬里侧）；
       // 前宿主 offsets {L:0, R:nF}，后宿主 {L:2nF, R:2nF+nB}
       const frontMesh = buildClothMesh(
@@ -414,6 +421,11 @@ export default function Fitting3DView({
             { side: 'R', hostOffset: 2 * hostN + backHostN, radialOffset: 0 },
           ])
       }
+      // 腰头直渲视图（sim 参与片，非贴层）
+      if (hasBand && bandMesh) {
+        wbv = buildSimView(ctx.THREE, 'waistband', bandMesh)
+        scene.add(wbv.group)
+      }
       // 旁挂（独立原则：芯锚纸样围度与人台无关，整裤不套人台轴）：
       // 整裤外沿 = 人台半宽 + 净空；平铺组再让位到整裤右侧。
       // sim 空间已含 hangLift（下摆离地 3~4cm），显示层不再抬
@@ -423,6 +435,7 @@ export default function Fitting3DView({
       hfv?.group.position.set(hangX, 0, 0)
       bv.group.position.set(hangX, 0, 0)
       byv?.group.position.set(hangX, 0, 0)
+      wbv?.group.position.set(hangX, 0, 0)
       scene.add(hv.group)
       if (hfv) scene.add(hfv.group)
       scene.add(bv.group)
@@ -454,12 +467,18 @@ export default function Fitting3DView({
       hfv?.update(pair.pos)
       bv.update(pair.pos)
       byv?.update(pair.pos)
+      if (wbv && hasBand) {
+        wbv.update(pair.pos, 2 * hostN + 2 * backHostN)
+      }
       const tick = () => {
         const st = stepDrape(sim)
         hv!.update(sim.pos)
         hfv?.update(sim.pos)
         bv!.update(sim.pos)
         byv?.update(sim.pos)
+        if (wbv && hasBand) {
+          wbv.update(sim.pos, 2 * hostN + 2 * backHostN)
+        }
         ctx.render()
         if (st === 'running') {
           raf = requestAnimationFrame(tick)
@@ -479,6 +498,7 @@ export default function Fitting3DView({
       if (hfv) { scene.remove(hfv.group); hfv.dispose() }
       if (bv) { scene.remove(bv.group); bv.dispose() }
       if (byv) { scene.remove(byv.group); byv.dispose() }
+      if (wbv) { scene.remove(wbv.group); wbv.dispose() }
       garmentViewRef.current = null
     }
   }, [fitting, asset])

@@ -74,7 +74,11 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   芯碰撞机制保留〔传 field 即生效：v3 两腿分离三实体 + 行截面环 SliceRing 最近边界+skin·外法线
 #   推出——花生腰谷径向场实心桥/径向场表示不了腿间空隙两教训见决策日志八期条〕，当前口径不用；
 #   实测四族缝 rise/cb/inseam/tip avg=p95=0、side 0.026/0.176，600 帧内真收敛、下摆离地不拖地
-#   〔hangLift 12〕）；rAF 一帧一步 settle 停；宿主不渲染，前片/袋贴/
+#   〔hangLift 12〕）；九期腰头立体化（band.ts）：腰头片作第 5 参与片缝入腰圆——
+#   两端前中会合、中点后中（用户口径，环序按构造成立）、bandWaist/bandEnds 两缝族、
+#   挂腰头=腰口区全钉（身片腰环+带两缘，前后中开洞修复：零缝口须一侧硬钉+孪生角补配对）、
+#   sim 直渲 buildSimView；rAF 一帧
+#   一步 settle 停；宿主不渲染，前片/袋贴/
 #   后片/育克本体 = rider.ts 贴层（bindRider 重心绑宿主三角形逐帧回填、locate 缺口兜底 = 边界环最近段插值；
 #   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面、后片/育克径向 0 相邻非叠层）；整裤单组旁挂人台 +X 侧
 #   不套轴（独立原则：芯锚纸样围度与人台滑杆互不相干）；其余裁片照旧平铺验证通道（assemble.buildFlatLayout

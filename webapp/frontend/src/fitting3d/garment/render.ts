@@ -8,6 +8,7 @@
 // three 模块由调用方注入（Fitting3DView 惰性分包口径）。
 import type * as ThreeT from 'three'
 import type { Garment } from './assemble'
+import type { ClothMesh } from './mesh'
 import type { RiderBind } from './rider'
 import { rideRider } from './rider'
 
@@ -153,6 +154,54 @@ export function buildRiderView(
     update,
     dispose: () => {
       for (const { mesh } of entries) mesh.geometry.dispose()
+      mat.dispose()
+    },
+  }
+}
+
+// ---- sim 参与片直渲视图（九期腰头立体化）：腰头是解算参与片（非贴层
+// ——bandWaist/bandEnds 缝对直连裤身），从 sim 粒子位逐帧直拷三角形
+// 几何 + 法线重算。key 用 payload 片 key 对色（waistband 橙）。 ----
+export interface SimView {
+  group: ThreeT.Group
+  /** sim 解算位 + part 偏移 -> 几何回填（建视图后先调一次出初摆位） */
+  update: (simPos: Float32Array, offset: number) => void
+  dispose: () => void
+}
+
+export function buildSimView(
+  THREE: ThreeMod, key: string, mesh: ClothMesh,
+): SimView {
+  const group = new THREE.Group()
+  group.name = `sim-${key}`
+  const n = mesh.xy.length / 2
+  const mat = new THREE.MeshStandardMaterial({
+    color: pieceColor(key), roughness: 0.9, metalness: 0.0,
+    side: THREE.DoubleSide,
+    transparent: true, opacity: 0.92,
+  })
+  const geo = new THREE.BufferGeometry()
+  const attr = new THREE.BufferAttribute(new Float32Array(3 * n), 3)
+  geo.setAttribute('position', attr)
+  geo.setIndex(Array.from(mesh.tri))
+  const m = new THREE.Mesh(geo, mat)
+  m.name = `sim-${key}`
+  group.add(m)
+  const update = (simPos: Float32Array, offset: number) => {
+    const arr = attr.array as Float32Array
+    for (let i = 0; i < n; i++) {
+      arr[3 * i] = simPos[3 * (offset + i)]
+      arr[3 * i + 1] = simPos[3 * (offset + i) + 1]
+      arr[3 * i + 2] = simPos[3 * (offset + i) + 2]
+    }
+    attr.needsUpdate = true
+    geo.computeVertexNormals()
+  }
+  return {
+    group,
+    update,
+    dispose: () => {
+      geo.dispose()
       mat.dispose()
     },
   }

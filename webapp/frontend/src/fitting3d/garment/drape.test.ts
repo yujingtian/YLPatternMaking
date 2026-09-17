@@ -26,6 +26,7 @@ import { buildCore, buildLegAxis } from './core'
 import { buildBodyField, pointInRings } from './placement'
 import { buildDrape, seamStatsByGroup, stepDrape, type DrapeSim } from './drape'
 import { buildBackPanel, buildFrontPanel } from './panel'
+import { bandBottomChain, buildWaistbandMesh } from './band'
 import { DRAPE_PRIOR } from './priors'
 
 const HERE = import.meta.dirname   // src/fitting3d/garment
@@ -67,10 +68,18 @@ function assertFullPants(
     expect(sim.pos[i3 + 1]).toBeCloseTo(sim.pinTarget[3 * k + 1], 6)
     expect(sim.pos[i3 + 2]).toBeCloseTo(sim.pinTarget[3 * k + 2], 6)
   }
-  // 钉集覆盖四 part 整圈：钉数 ≥ Σ（各 part 顶链顶点 + 终点角）
+  // 钉集覆盖（挂腰头口径互斥）：有腰头 = **只**钉带顶（'top' run，
+  // 身片顶弧经 bandWaist 缝挂不直钉——钉与缝二选一）；无腰头 = Σ 各
+  // 身片（顶链 + 终点角）
+  const bandP = placed.parts.find((p) => p.key === 'waistband')
   let need = 0
   for (const p of placed.parts) {
-    need += p.mesh.runs.find((r) => r.role === 'top_chain')!.indices.length + 1
+    if (p === bandP) {
+      need += (p.mesh.runs.find((r) => r.name === 'top')?.indices.length ?? 0) + 1
+      need += bandBottomChain(p.mesh)?.indices.length ?? 0
+    } else {
+      need += p.mesh.runs.find((r) => r.role === 'top_chain')!.indices.length + 1
+    }
   }
   expect(sim.pinIdx.length).toBeGreaterThanOrEqual(need)
   // ---- 四族缝 stats（分族阈值，首跑实测后收紧写注释）----
@@ -91,6 +100,16 @@ function assertFullPants(
   for (const name of ['inseamL', 'inseamR']) {
     expect(st[name].avg, `${name} avg`).toBeLessThan(0.3)
     expect(st[name].p95, `${name} p95`).toBeLessThan(0.8)
+  }
+  // 腰头两族（九期）：bandWaist 摆位即闭（带底=环顶点原位）；bandEnds
+  // 前中 weld。弯款省道吃势会让 bandWaist 稍开（阈值放宽档）
+  if (st.bandWaist) {
+    expect(st.bandWaist.avg, 'bandWaist avg').toBeLessThan(0.1)
+    expect(st.bandWaist.p95, 'bandWaist p95').toBeLessThan(0.3)
+  }
+  if (st.bandEnds) {
+    expect(st.bandEnds.avg, 'bandEnds avg').toBeLessThan(0.3)
+    expect(st.bandEnds.p95, 'bandEnds p95').toBeLessThan(1.0)
   }
   // ---- 裆四尖汇集（口径③量化）：tipL/tipR 两对共四顶点两两最大距 ----
   const tips: number[] = []
@@ -145,9 +164,10 @@ const buildPant = (payload: FittingResult): {
   const placed = buildFullPair(frontPanel.host, backPanel.host, field, {
     front: payload.body.points.front_crotch_vertex[1],
     back: payload.body.points.back_crotch_vertex[1],
-  }, buildLegAxis(payload))
+  }, buildLegAxis(payload), buildWaistbandMesh(payload))
   // 自由垂（2026-09-17 用户口径「只保留腰部圆形撑开，其他地方真实
-  // 物理垂挂」）：field 只供摆位（腰圆半径 + 初始形态），解算传 null
+  // 物理垂挂」；九期起「腰部圆形撑开」= 腰头带顶整圈钉挂）：field 只供
+  // 摆位（腰圆半径 + 初始形态），解算传 null
   const sim = buildDrape(placed, null)
   return { sim, placed }
 }

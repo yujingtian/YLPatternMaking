@@ -22,6 +22,7 @@ import type { BodyField } from './placement'
 import { pointInRings } from './placement'
 import { DRAPE_PRIOR, HANG_PRIOR } from './priors'
 import { buildSeamSet, type SeamGroup } from './seams'
+import { bandBottomChain } from './band'
 
 export interface DrapeSim {
   pos: Float32Array       // 全粒子当前位置（解算本体；garment.pos 是初摆位）
@@ -72,7 +73,41 @@ export function buildDrape(
   garment: Garment, field: BodyField | null, yLift = 0,
 ): DrapeSim {
   const pinIdx: number[] = []
+  // 腰头在（九期）：**腰口区全钉**——身片腰口环整圈（「腰部圆形撑开」
+  // 全义）+ 带顶/带底两缘（带 = 两缘被持的真实布，中间布自由）；
+  // sideHold 退役（带即腰头）。演进：先试只钉带顶（真实「提着腰头上
+  // 沿」）——自由垂挂对折趋势把前中/后中往里拖 1.2cm，腰头内倾+布面
+  // 内折 = 前后中透光楔形洞（用户报障）；再试加钉带底——缝对与身片
+  // 网格 GS 冲突平衡留 ~0.5cm 均匀缝口；全钉后两侧钉位本就重合、缝恒 0。
+  // 无腰头 = 旧口径：身片腰口整圈钉 + sideHold 带
+  const bandPart = garment.parts.find((p) => p.key === 'waistband')
   for (const part of garment.parts) {
+    // 有腰头（九期）：身片腰口环照旧整圈钉（「腰部圆形撑开」的全义
+    // ——整个腰口区保持圆；早期只钉带顶时自由垂挂的对折趋势把前中/
+    // 后中往里拖 1.2cm、只加钉带底时缝对与身片网格 GS 冲突平衡留
+    // ~0.5cm 均匀缝口——两侧钉位本就重合，全钉后缝恒 0）+ 带顶带底
+    // 两缘钉（带 = 两缘被持的真实布，中间布自由）；sideHold 退役（带
+    // 即腰头）。无腰头 = 旧口径
+    const isBand = part === bandPart
+    if (isBand) {
+      const top = part.mesh.runs.find((r) => r.name === 'top')
+      if (top) {
+        for (const i of top.indices) pinIdx.push(part.offset + i)
+        const loopLen = part.mesh.loop.length
+        const last = top.indices[top.indices.length - 1]
+        const nextNb = (last + 1) % loopLen
+        if (!top.indices.includes(nextNb)) pinIdx.push(part.offset + nextNb)
+      }
+      const chain = bandBottomChain(part.mesh)
+      if (chain) {
+        for (const i of chain.indices) {
+          if (!pinIdx.includes(part.offset + i)) {
+            pinIdx.push(part.offset + i)
+          }
+        }
+      }
+      continue
+    }
     const top = part.mesh.runs.find((r) => r.role === 'top_chain')
     if (!top) throw new Error('裁片缺 top_chain（腰口）边——下垂 pin 无支点')
     const loopLen = part.mesh.loop.length
@@ -84,16 +119,14 @@ export function buildDrape(
     // 终点角（下一条边首采样）：全向锚（防侧角急坠，实测 −2.1cm）
     const nextNb = (last + 1) % loopLen
     if (!top.indices.includes(nextNb)) pinIdx.push(part.offset + nextNb)
-    // 侧缝边顶部刚度带（2026-09-17 用户口径「顶部侧缝边不要折、拼合后
-    // 顶部〔腰头缝合线〕是圆弧」）：无侧缝缝合的自由半身筒，侧缝自由边
-    // 在自由垂中向筒轴心内摆（后身实测最深 ~25°）、顶部扇区塌角。顶部
-    // sideHold cm 全向钉 = 腰头缝合线的刚度带（真实成衣此区由腰头撑圆，
-    // 撑圆口径用户拍板：两筒并排、不缝侧缝），配 assemble 侧缝边语义
-    // 摆位（θ=±90° 竖直）后顶部圆弧保持、带缘出口偏差实测 ≤0.7°
-    // （往下自由内摆渐增属自然垂）。
-    // run 首采样 = 腰口终点角（已在上方钉集）须去重；后宿主育克侧段
-    // 与后片侧缝同为 side 名（可能各自成 run），全部覆盖
-    for (const side of part.mesh.runs) {
+    // 侧缝边顶部刚度带（无腰头旧口径；有腰头时带即腰头、跳过）：无侧缝
+    // 缝合的自由半身筒，侧缝自由边在自由垂中向筒轴心内摆（后身实测最深
+    // ~25°）、顶部扇区塌角。顶部 sideHold cm 全向钉 = 腰头缝合线的刚度带
+    // （真实成衣此区由腰头撑圆），配 assemble 侧缝边语义摆位（θ=±90°
+    // 竖直）后顶部圆弧保持、带缘出口偏差实测 ≤0.7°（往下自由内摆渐增属
+    // 自然垂）。run 首采样 = 腰口终点角（已在上方钉集）须去重；后宿主
+    // 育克侧段与后片侧缝同为 side 名（可能各自成 run），全部覆盖
+    for (const side of bandPart ? [] : part.mesh.runs) {
       if (side.name !== 'side') continue
       for (let k = 0; k < side.indices.length
         && side.arc[k] <= HANG_PRIOR.sideHold; k++) {

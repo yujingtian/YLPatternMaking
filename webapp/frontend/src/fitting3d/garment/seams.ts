@@ -20,6 +20,7 @@
 import type { Garment } from './assemble'
 import type { EdgeRun } from './mesh'
 import { mergeRuns, runIndexAt } from './mesh'
+import { bandBottomChain, bandEndPairs, bandTargets, ringWalk } from './band'
 
 export interface SeamGroup {
   name: string          // rise / cb / sideL / sideR / inseamL / inseamR / tipL / tipR
@@ -117,6 +118,68 @@ export function buildSeamSet(garment: Garment): SeamSet {
       out.push((side === 'L' ? f.l.offset : f.r.offset) + fTip,
         (side === 'L' ? b.l.offset : b.r.offset) + bTip)
     })
+  }
+
+  // 腰头两族（九期腰头立体化，用户口径「腰头两边是前中线、腰头中点是
+  // 后中线」）：bandWaist = 带底边 ↔ 腰环（bandTargets 与 assemble 摆位
+  // 同源——环顶点映射一致、初始间隙 0；吃势 = 带底长与纸样腰弧差沿环
+  // 均匀吸收，直款对账严格相等〔腰长不变量〕、弯款差 = 省道开口）；
+  // bandEnds = 两端 weld 前中会合（扣好的裤子闭合环）
+  const bandPart = garment.parts.find((p) => p.key === 'waistband')
+  if (bandPart) {
+    try {
+      const walk = ringWalk(garment.parts)
+      const chain = bandBottomChain(bandPart.mesh)
+      const targets = bandTargets(bandPart.mesh, walk)
+      if (chain && targets) {
+        // 接缝孪生角补配对：四段腰弧在前中/后中接缝处各有**两个重合角**
+        //（fL|fR 腰角、bL|bR 腰角——镜像片的独立顶点）——带端/带中点只
+        // 配到一个，另一个悬空 ~1cm（后中实测）成小洞。walk 弧距接缝
+        // 弧（0 / P/2 / P）<0.6 的配对追加孪生角
+        // 接缝弧取 0 / P/2 / P；弧距按环形回绕算（0 与 P 是同一接缝——
+        // 前中角分属 fL 首点 arc≈0 与 fR 末点 arc≈P）
+        const junctionArcs = [0, walk.total / 2]
+        const arcDist = (a: number, b: number) => {
+          const d = Math.abs(a - b) % walk.total
+          return Math.min(d, walk.total - d)
+        }
+        const twinOf = (k: number): number | null => {
+          const a = walk.verts[k].arc
+          for (const j of junctionArcs) {
+            if (arcDist(a, j) > 0.6) continue
+            // 孪生 = 距同一接缝弧 <0.6 的另一个顶点（位置重合的镜像角）
+            for (let m = 0; m < walk.verts.length; m++) {
+              if (m === k) continue
+              if (arcDist(walk.verts[m].arc, j) > 0.6) continue
+              return m
+            }
+          }
+          return null
+        }
+        push('bandWaist', (out) => {
+          for (const i of chain.indices) {
+            const r = walk.verts[targets[i].ringK]
+            out.push(bandPart.offset + i,
+              garment.parts[r.part].offset + r.idx)
+            const t = twinOf(targets[i].ringK)
+            if (t !== null) {
+              out.push(bandPart.offset + i,
+                garment.parts[walk.verts[t].part].offset + walk.verts[t].idx)
+            }
+          }
+        })
+      }
+      const ends = bandEndPairs(bandPart.mesh)
+      if (ends) {
+        push('bandEnds', (out) => {
+          for (const [a, b] of ends) {
+            out.push(bandPart.offset + a, bandPart.offset + b)
+          }
+        })
+      }
+    } catch (e) {
+      console.warn('[seams] 腰头缝合族跳过（坏链）:', e)
+    }
   }
 
   return { pairs: new Uint32Array(pairs), groups }

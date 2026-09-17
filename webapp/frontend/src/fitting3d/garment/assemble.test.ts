@@ -10,6 +10,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
 import { buildFlatLayout, buildFullPair } from './assemble'
+import { buildSeamSet } from './seams'
+import { bandBottomChain, bandTargets, buildWaistbandMesh, ringWalk } from './band'
 import { buildBackPanel, buildFrontPanel } from './panel'
 import { buildCore, buildLegAxis, CORE_SKIN } from './core'
 import { buildClothMesh } from './mesh'
@@ -602,4 +604,83 @@ describe('assemble：buildFullPair 整裤四 part 摆位（八期整裤缝合）
       expect(penCount).toBe(0)
     })
   }
+})
+
+describe('assemble：腰头立体缝合（九期，用户口径「腰头两边是前中线、腰头中点是后中线」）', () => {
+  const payload: FittingResult = JSON.parse(
+    readFileSync(`${HERE}/fixture_fitting.json`, 'utf8'))
+  const frontPanel = buildFrontPanel(payload)
+  const backPanel = buildBackPanel(payload)
+  const core = buildCore(payload)
+  const field = buildBodyField(core.positions, core.indices)
+  const band = buildWaistbandMesh(payload)!
+  expect(band).toBeTruthy()
+  const g = buildFullPair(frontPanel.host, backPanel.host, field, {
+    front: payload.body.points.front_crotch_vertex[1],
+    back: payload.body.points.back_crotch_vertex[1],
+  }, buildLegAxis(payload), band)
+  const seam = buildSeamSet(g)
+  const bandPart = g.parts.find((p) => p.key === 'waistband')!
+  const walk = ringWalk(g.parts)
+  const chain = bandBottomChain(band)!
+  const targets = bandTargets(band, walk)!
+
+  it('第 5 part 结构 + 对账：带底弧长 ≈ 四段腰弧和（腰长不变量，直款 <0.5%）', () => {
+    expect(g.parts).toHaveLength(5)
+    expect(bandPart.offset).toBe(g.total - band.xy.length / 2)
+    expect(Math.abs(chain.runLength - walk.total) / walk.total).toBeLessThan(0.005)
+  })
+
+  it('两端在前中、中点在后中（用户口径的量化）：u=0/1 环伙伴 θ≈0(+Z)、u=0.5 伙伴 θ≈−180(−Z)', () => {
+    const ringPos = (ringK: number): [number, number, number] => {
+      const r = walk.verts[ringK]
+      const v = g.parts[r.part]
+      const i3 = 3 * (v.offset + r.idx)
+      return [g.pos[i3], g.pos[i3 + 1], g.pos[i3 + 2]]
+    }
+    const ends: [number, number][] = [
+      [0, chain.indices[0]],
+      [1, chain.indices[chain.indices.length - 1]],
+    ]
+    for (const [, vi] of ends) {
+      const [x, , z] = ringPos(targets[vi].ringK)
+      expect(Math.abs(x)).toBeLessThan(0.05)   // 前中面
+      expect(z).toBeGreaterThan(10)            // +Z 前中
+    }
+    const mid = chain.indices[Math.floor(chain.indices.length / 2)]
+    const [mx, , mz] = ringPos(targets[mid].ringK)
+    expect(Math.abs(mx)).toBeLessThan(0.05)    // 后中面
+    expect(mz).toBeLessThan(-10)               // −Z 后中
+  })
+
+  it('bandWaist 摆位即闭：全部底边焊对初始距离 = 0（带底=环顶点原位）', () => {
+    const gw = seam.groups.find((s) => s.name === 'bandWaist')!
+    // ≥ 底边链顶点数：接缝孪生角（前中/后中镜像角）追加配对
+    expect(gw.pairCount).toBeGreaterThanOrEqual(chain.indices.length)
+    for (let p = 0; p < gw.pairCount; p++) {
+      const a = 3 * seam.pairs[2 * (gw.pairOffset + p)]
+      const b = 3 * seam.pairs[2 * (gw.pairOffset + p) + 1]
+      expect(Math.hypot(g.pos[a] - g.pos[b], g.pos[a + 1] - g.pos[b + 1],
+        g.pos[a + 2] - g.pos[b + 2])).toBeLessThan(1e-6)
+    }
+  })
+
+  it('带高 = width：全部带顶点 v ∈ [0, width]（带法向距离，弯款曲线底边口径）', () => {
+    const width = payload.pieces.find((p) => p.key === 'waistband')!.scalars!.width
+    for (const t of targets) {
+      expect(t.v).toBeGreaterThanOrEqual(-0.01)
+      expect(t.v).toBeLessThanOrEqual(width + 0.01)
+    }
+  })
+
+  it('bandEnds 前中 weld 两端共位（扣好闭合环）', () => {
+    const ge = seam.groups.find((s) => s.name === 'bandEnds')!
+    expect(ge.pairCount).toBeGreaterThan(0)
+    for (let p = 0; p < ge.pairCount; p++) {
+      const a = 3 * seam.pairs[2 * (ge.pairOffset + p)]
+      const b = 3 * seam.pairs[2 * (ge.pairOffset + p) + 1]
+      expect(Math.hypot(g.pos[a] - g.pos[b], g.pos[a + 1] - g.pos[b + 1],
+        g.pos[a + 2] - g.pos[b + 2])).toBeLessThan(0.5)
+    }
+  })
 })

@@ -16,6 +16,7 @@ import type { ClothMesh, EdgeRun } from './mesh'
 import { buildClothMesh, mergeRuns } from './mesh'
 import { CORE_SKIN, type LegAxis } from './core'
 import { pointInRings } from './placement'
+import { bandTargets, ringWalk } from './band'
 import type { BodyField, PieceKey, Side } from './placement'
 import { placePoint } from './placement'
 import { FLAT_PRIOR, HANG_PRIOR } from './priors'
@@ -263,6 +264,7 @@ export function buildFullPair(
   front: ClothMesh, back: ClothMesh, field: BodyField,
   forkY: { front: number; back: number },
   axis: LegAxis,
+  band?: ClothMesh | null,
 ): Garment {
   const nF = front.xy.length / 2
   const nB = back.xy.length / 2
@@ -272,7 +274,21 @@ export function buildFullPair(
     { key: 'back', side: 'L', mesh: back, offset: 2 * nF },
     { key: 'back', side: 'R', mesh: back, offset: 2 * nF + nB },
   ]
-  const pos = new Float32Array(3 * (2 * nF + 2 * nB))
+  // 腰头（九期）：底边链/环行走先验算（坏链降级无腰头——主展示不炸）
+  const bandPlan = (() => {
+    if (!band) return null
+    try {
+      const walk = ringWalk(parts)
+      const targets = bandTargets(band, walk)
+      if (!targets) return null
+      return { walk, targets }
+    } catch (e) {
+      console.warn('[assemble] 腰头摆放降级（无腰头）:', e)
+      return null
+    }
+  })()
+  const nBand = bandPlan ? band!.xy.length / 2 : 0
+  const pos = new Float32Array(3 * (2 * nF + 2 * nB + nBand))
   // ---- 1) 片身基础映射（躯干全局 x→θ / 腿区腿局部圆环绕管）----
   for (const part of parts) {
     const mesh = part.mesh
@@ -439,8 +455,26 @@ export function buildFullPair(
       }
     }
   }
+  // ---- 4.5) 腰头摆放（九期腰头立体化，用户口径「腰头两边是前中线、
+  // 腰头中点是后中线」）：bandTargets 对每个带顶点给 (环顶点, 带法向
+  // 距离 v)——底边顶点摆到**配对环顶点原位**（bandWaist 焊对初始间隙
+  // 0，摆位先行），列沿竖直向上 v；u 沿带弧的环映射 = 端 u=0/1 落前中
+  // （环 s=0/P）、中点 u=0.5 落后中（s=P/2，左右半弧镜像相等）----
+  if (bandPlan) {
+    const { walk, targets } = bandPlan
+    parts.push({ key: 'waistband', side: 'L', mesh: band!,
+      offset: 2 * nF + 2 * nB })
+    for (let i = 0; i < targets.length; i++) {
+      const r = walk.verts[targets[i].ringK]
+      const gi = 3 * (parts[r.part].offset + r.idx)
+      const bi = 3 * (parts[4].offset + i)
+      pos[bi] = pos[gi]
+      pos[bi + 1] = pos[gi + 1] + targets[i].v
+      pos[bi + 2] = pos[gi + 2]
+    }
+  }
   // ---- 5) hangLift 统一抬升（最后施加，含全部钉目标；上方场查询均用
   // 纸样 y，drape collide 按 yLift 回减保持一致）----
   for (let i = 1; i < pos.length; i += 3) pos[i] += HANG_PRIOR.hangLift
-  return { parts, pos, total: 2 * nF + 2 * nB }
+  return { parts, pos, total: 2 * nF + 2 * nB + nBand }
 }
