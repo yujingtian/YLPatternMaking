@@ -4,8 +4,10 @@
 // rise|cb 链镜像配对 rest=0——两片共享同一网格，顶点号天然一一对齐）
 // + 腰口整圈全向钉悬挂 + 地面碰撞。**自由垂口径（无撑型芯）**：悬挂
 // 不用撑型芯撑开（field 传 null）——芯撑出的前凸筒不是真实提着前片的
-// 形态；布条自腰口顶缘竖直垂下、下摆过长得地铺地（地面 y≥0 推回 +
-// 摩擦）。形态沿革：二~五期 Y-only 腰口自由垂下「布塌成对折门帘」曾
+// 形态；布条自腰口顶缘竖直垂下。2026-09-17 起悬挂整体抬 hangLift
+// （assemble buildHangPair），布全长超挂高的余量不再触地堆布，下摆
+// 离地 3~4cm，地面碰撞（y≥0 推回 + 摩擦）降级为安全网。形态沿革：
+// 二~五期 Y-only 腰口自由垂下「布塌成对折门帘」曾
 // 是预期形态，2026-09-16 用户报障「前中和后中往里折、要拉直」后由
 // 整圈全向钉（三轮，见 buildDrape 头注）取代——中缝保持在前中/后中
 // 竖直、顶缘按摆位弧全撑。旧口径「勿去碰撞（腿间塌片）」是整裤包腿
@@ -15,7 +17,7 @@
 import type { Garment } from './assemble'
 import { CORE_SKIN } from './core'
 import type { BodyField } from './placement'
-import { DRAPE_PRIOR } from './priors'
+import { DRAPE_PRIOR, HANG_PRIOR } from './priors'
 
 export interface DrapeSim {
   pos: Float32Array       // 全粒子当前位置（解算本体；garment.pos 是初摆位）
@@ -71,6 +73,23 @@ export function buildDrape(garment: Garment, field: BodyField | null): DrapeSim 
     // 终点角（下一条边首采样）：全向锚（防侧角急坠，实测 −2.1cm）
     const nextNb = (last + 1) % loopLen
     if (!top.indices.includes(nextNb)) pinIdx.push(part.offset + nextNb)
+    // 侧缝边顶部刚度带（2026-09-17 用户口径「顶部侧缝边不要折、拼合后
+    // 顶部〔腰头缝合线〕是圆弧」）：无侧缝缝合的自由半身筒，侧缝自由边
+    // 在自由垂中向筒轴心内摆（后身实测最深 ~25°）、顶部扇区塌角。顶部
+    // sideHold cm 全向钉 = 腰头缝合线的刚度带（真实成衣此区由腰头撑圆，
+    // 撑圆口径用户拍板：两筒并排、不缝侧缝），配 assemble 侧缝边语义
+    // 摆位（θ=±90° 竖直）后顶部圆弧保持、带缘出口偏差实测 ≤0.7°
+    // （往下自由内摆渐增属自然垂）。
+    // run 首采样 = 腰口终点角（已在上方钉集）须去重；后宿主育克侧段
+    // 与后片侧缝同为 side 名（可能各自成 run），全部覆盖
+    for (const side of part.mesh.runs) {
+      if (side.name !== 'side') continue
+      for (let k = 0; k < side.indices.length
+        && side.arc[k] <= HANG_PRIOR.sideHold; k++) {
+        const gi = part.offset + side.indices[k]
+        if (!pinIdx.includes(gi)) pinIdx.push(gi)
+      }
+    }
   }
   const pinTarget = new Float32Array(3 * pinIdx.length)
   for (let k = 0; k < pinIdx.length; k++) {
@@ -139,9 +158,10 @@ function collide(sim: DrapeSim): void {
   }
 }
 
-// 地面碰撞（自由垂主约束）：y < 0 推回地面；法向速度清零（prev.y 同钉）
-// + 切向摩擦（prev xz 向 pos 混合——无摩擦布在地上持续滑转不锚）。
-// 悬挂高 = 纸样腰高，布全长超过它则下摆拖地铺地（真实提着前片的形态）
+// 地面碰撞（hangLift 抬升后的安全网）：y < 0 推回地面；法向速度清零
+// （prev.y 同钉）+ 切向摩擦（prev xz 向 pos 混合——无摩擦布在地上持续
+// 滑转不锚）。抬升前布全长超挂高、下摆拖地铺地曾是主约束（front 102/
+// back 202 粒子贴地实测），抬 12 后正常挂相零接触
 function collideGround(sim: DrapeSim): void {
   const { pos, prev } = sim
   const fr = DRAPE_PRIOR.friction

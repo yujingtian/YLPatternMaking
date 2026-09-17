@@ -3,23 +3,35 @@
 // 片 L 原样 / R 前中镜像逐点等距变换、腰头单片）、全片贴地 y=0、全组
 // z 居中、行序 = payload 片序、行距 ≥ rowGap、无 NaN。悬挂验收：2 片
 // 镜像摆位（x 翻号、z 差 <0.05cm——θ-bin 量化对 ±θ 不对称）、前扇区
-// 角度域 [−90°,0°]、无穿透（摆位半径 = 场 + gap，按构造零穿透）。
+// 角度域 [−90°,0°]、无穿透（摆位半径 = 场 + gap，按构造零穿透；穿透
+// 查验在**纸样空间**——hangLift 抬升后 pos y ≠ 场查询 y）；2026-09-17
+// 起：侧缝边语义摆位 θ=±90° + 整体抬升 hangLift。
 // 夹具 = fixture_fitting.json（引擎 build_fitting_payload 直出，默认
 // 直腰头 3 片：front_piece / back_piece / waistband）。
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
 import { buildFlatLayout, buildHangPair } from './assemble'
+import type { Garment } from './assemble'
 import { buildBackPanel, buildFrontPanel } from './panel'
 import { buildCore, CORE_SKIN } from './core'
 import { buildClothMesh } from './mesh'
 import { buildBodyField, penetrationStats } from './placement'
-import { FLAT_PRIOR } from './priors'
+import { FLAT_PRIOR, HANG_PRIOR } from './priors'
 
 const HERE = import.meta.dirname   // src/fitting3d/garment
 
 const result: FittingResult = JSON.parse(
   readFileSync(`${HERE}/fixture_fitting.json`, 'utf8'))
+
+// 悬挂摆位穿透查验用：pos 回纸样空间。buildHangPair 场查询用纸样 y
+// （hangLift 抬升在所有摆位之后统一施加），穿透金标对账「摆位半径 =
+// 场(纸样 y)+gap」这一构造性事实，不是显示位碰撞检查
+const patternSpacePos = (g: Garment): Float32Array => {
+  const p = new Float32Array(g.pos)
+  for (let i = 1; i < p.length; i += 3) p[i] -= HANG_PRIOR.hangLift
+  return p
+}
 
 describe('assemble：全裁片平铺装配（重建三期回落，现行）', () => {
   const garment = buildFlatLayout(result)
@@ -421,7 +433,7 @@ describe('assemble：前片 L+R 静态装配（一期扇区摆位，四期起悬
   })
 
   it('穿透零：摆位半径 = 场 + garmentGap，按构造不穿芯（skin 壳口径）', () => {
-    const pen = penetrationStats(garment.pos, field, CORE_SKIN)
+    const pen = penetrationStats(patternSpacePos(garment), field, CORE_SKIN)
     expect(pen.count).toBe(0)
     expect(pen.worst).toBe(0)
   })
@@ -478,7 +490,7 @@ describe('assemble：后片 L+R 扇区摆位（六期后身缝合，后扇区）
   })
 
   it('穿透零：摆位半径 = 场 + garmentGap，按构造不穿芯', () => {
-    const pen = penetrationStats(garment.pos, field, CORE_SKIN)
+    const pen = penetrationStats(patternSpacePos(garment), field, CORE_SKIN)
     expect(pen.count).toBe(0)
     expect(pen.worst).toBe(0)
   })
@@ -567,6 +579,58 @@ describe('assemble：腰口弧长重参数化（六期拉直）', () => {
         const cur = thOf('L', top.indices[k])
         expect((cur - prev) * step).toBeGreaterThanOrEqual(-1e-6)
       }
+    })
+  }
+})
+
+describe('assemble：侧缝边语义摆位 + 悬挂整体抬升（2026-09-17 顶部圆弧/不拖地）', () => {
+  // 侧缝边整条改摆 θ=±90° 竖直线：均匀 x→θ 映射对弯曲侧缝（牛仔裤
+  // 腰口撇势内收）把腰口段侧缝摆到 θ≈−76°，与顶链重参数化的侧缝腰角
+  // （精确 ±90°）在腰口角正下方留 ~14° 楔形折角——用户报障「顶部侧缝
+  // 边有折」的摆位侧根因；侧缝边在穿着语义上是体侧竖直线（纸样里的
+  // 弯曲由绕体 wrapping 吸收，与腰口弧长重参数化同因）。悬挂整体抬
+  // hangLift：布全长 > 腰口挂高（实测余量 ~8-10cm），不抬下摆拖地堆布
+  // （front 102 / back 202 粒子贴地实测；抬后三款夹具零触地、离地
+  // 3.3~4.4cm）。夹具 = 前/后身并集双宿主（'side' 名 run 全覆盖——后
+  // 宿主育克侧段与后片侧缝可能各自成 run）
+  const cases = [
+    { key: 'front' as const, fixture: 'fixture_fitting_pocket.json',
+      build: buildFrontPanel },
+    { key: 'back' as const, fixture: 'fixture_fitting_yoke.json',
+      build: buildBackPanel },
+  ]
+  for (const c of cases) {
+    const payload: FittingResult = JSON.parse(
+      readFileSync(`${HERE}/${c.fixture}`, 'utf8'))
+    const core = buildCore(payload)
+    const field = buildBodyField(core.positions, core.indices)
+    const host = c.build(payload).host
+    const g = buildHangPair(c.key, host, field)
+
+    it(`${c.key}：side run 全部顶点 θ=±90° 竖直（z≈0、L −X / R +X）+ y = 纸样高 + hangLift`, () => {
+      const sides = host.runs.filter((r) => r.name === 'side')
+      expect(sides.length).toBeGreaterThan(0)
+      for (const run of sides) {
+        expect(run.indices.length).toBeGreaterThan(0)
+        for (const i of run.indices) {
+          const yPattern = host.xy[2 * i + 1]
+          for (const part of g.parts) {
+            const i3 = 3 * (part.offset + i)
+            // θ=±90°：z = r·cos(±π/2) ≈ 1e-15 → Float32 落 0；x 按侧翻号
+            expect(Math.abs(g.pos[i3 + 2])).toBeLessThan(1e-3)
+            expect(g.pos[i3] * (part.side === 'L' ? -1 : 1)).toBeGreaterThan(0)
+            // 抬升在所有摆位之后统一施加（场查询仍用纸样 y）
+            expect(g.pos[i3 + 1])
+              .toBeCloseTo(yPattern + HANG_PRIOR.hangLift, 4)
+          }
+        }
+      }
+    })
+
+    it(`${c.key}：悬挂整体抬升——全部顶点 y ≥ hangLift（纸样 y ≥ 0）`, () => {
+      let minY = Infinity
+      for (let i = 1; i < g.pos.length; i += 3) minY = Math.min(minY, g.pos[i])
+      expect(minY).toBeGreaterThanOrEqual(HANG_PRIOR.hangLift - 1e-3)
     })
   }
 })

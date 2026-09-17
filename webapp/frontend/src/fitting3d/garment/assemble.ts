@@ -282,5 +282,33 @@ export function buildHangPair(
       }
     }
   }
+  // 侧缝边语义摆位（2026-09-17 用户口径「顶部侧缝边不要折、拼合后顶部
+  // 〔腰头缝合线〕是圆弧」，AskUserQuestion 拍板保持两筒并排撑圆）：
+  // 均匀 x→θ 映射对弯曲侧缝（牛仔裤腰口撇势内收）把腰口段侧缝摆到
+  // θ≈−76°，与顶链重参数化的侧缝腰角（精确 ±90°）在腰口角正下方留
+  // ~14° 楔形折角——摆位侧根因。侧缝边在穿着语义上是体侧竖直线（纸样
+  // 里的弯曲由绕体 wrapping 吸收——与腰口弧长重参数化同因：x 均匀映射
+  // 只对直线边成立），整条改摆 θ=±90° 竖直（R 镜像 +90°）、r = 场+gap、
+  // y = 纸样高原样。'side' 名 run 全覆盖（后宿主育克侧段与后片侧缝同为
+  // side 名，可能各自成 run）；配 drape 侧缝边顶部 sideHold 全向钉撑住
+  // 顶部圆弧（腰头刚度带）
+  for (const run of mesh.runs) {
+    if (run.name !== 'side') continue
+    for (const i of run.indices) {
+      const y = mesh.xy[2 * i + 1]
+      for (const part of parts) {
+        const th = part.side === 'L' ? -Math.PI / 2 : Math.PI / 2
+        const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
+        pos[3 * (part.offset + i)] = r * Math.sin(th)
+        pos[3 * (part.offset + i) + 1] = y
+        pos[3 * (part.offset + i) + 2] = r * Math.cos(th)
+      }
+    }
+  }
+  // 悬挂整体抬升（2026-09-17 用户口径「不要让裤子拖地」）：布全长 >
+  // 腰口挂高（实测余量 ~8-10cm），不抬则下摆触地堆布。全 pos y +=
+  // hangLift（含顶链/侧缝摆位后的钉目标——钉在抬升后的挂相上）；
+  // 上方场查询仍用纸样 y（抬升前），本行放在所有摆位之后
+  for (let i = 1; i < pos.length; i += 3) pos[i] += HANG_PRIOR.hangLift
   return { parts, pos, total: 2 * n }
 }
