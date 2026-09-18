@@ -81,8 +81,14 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   sim 直渲 buildSimView；rAF 一帧
 #   一步 settle 停；宿主不渲染，前片/袋贴/
 #   后片/育克本体 = rider.ts 贴层（bindRider 重心绑宿主三角形逐帧回填、locate 缺口兜底 = 边界环最近段插值；
-#   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面、后片/育克径向 0 相邻非叠层）；整裤单组旁挂人台 +X 侧
-#   不套轴（独立原则：芯锚纸样围度与人台滑杆互不相干）；其余裁片照旧平铺验证通道（assemble.buildFlatLayout
+#   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面、后片/育克径向 0 相邻非叠层）；整裤双视图（2026-09-18
+#   十期，侧栏 Segmented 切换）：旁挂=单组 +X 侧不套轴（独立原则：芯锚纸样围度与人台滑杆互不相干）/
+#   穿台=真穿人台轴——碰撞体人台切片环场、anchorLift 腰地标锚定、settle.ts 落位状态机
+#   （hold→lowering 前后裆独立探针缓释钉高俯仰涌现→settle→done）、DressReport 合身读数（掉裆/接触三态/
+#   最差穿透 tooSmall——读数提示不改版型）、滑杆 ref 冻结+「重新试穿」手动闭环；脚碰撞修复
+#   （场 yMin 下探罩脚底消除行表负 y 盲区 + 腿轴扫描止踝防脚环喇叭摆位）+ 热力图双通道
+#   （heatmap.ts：间隙=布离体距离/应变=网格拉伸，一个开关切换、只重着色不重跑仿真）；
+#   其余裁片照旧平铺验证通道（assemble.buildFlatLayout
 #   exclude 前后身组——排除锚且守卫通过时整组离开；STITCH_GROUPS 平面缝合拼合组照旧：机头(back_yoke)+后片、
 #   袋贴+前片，贴合守卫 <0.5cm，有省款 yoke 省闭口错位退独立行）+ render.ts PIECE_COLORS 逐片分色（前蓝/后绿/
 #   腰头橙/育克紫/袋贴青）+ 侧栏图例；band/ease/heatmap/align/useGarment 等旧整裤解算链 2026-09-15 删除

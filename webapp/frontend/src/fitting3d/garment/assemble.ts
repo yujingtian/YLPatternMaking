@@ -265,6 +265,9 @@ export function buildFullPair(
   forkY: { front: number; back: number },
   axis: LegAxis,
   band?: ClothMesh | null,
+  lift: number = HANG_PRIOR.hangLift,   // 统一抬升（旁挂缺省 hangLift 抬离
+                                        // 地面；穿台传人台腰地标锚 anchorLift
+                                        // ——钉初始即钉在腰地标高度，2026-09-18）
 ): Garment {
   const nF = front.xy.length / 2
   const nB = back.xy.length / 2
@@ -476,9 +479,16 @@ export function buildFullPair(
   for (const part of parts) {
     for (const run of part.mesh.runs) {
       if (run.name !== 'inseam') continue
+      const fork = part.key === 'back' ? forkY.back : forkY.front
       const sgn = part.side === 'L' ? -1 : 1
       for (const i of run.indices) {
         const y = part.mesh.xy[2 * i + 1]
+        // 叉口以上的内缝顶段 = 裆布区：穿台体叉口可低于纸样裆深（体叉 70
+        // vs 纸样裆 78），钳位内侧线（x=±0.3）会插进骨盆环——这些行归
+        // step1 躯干/混合摆位（含穿芯回退）。旁挂纸样叉 = 内缝链顶，
+        // 严格 > 不触发（回归零改动，2026-09-18 穿台实测 7 行/腿 最深
+        // 6.7cm）
+        if (y > fork) continue
         const medial = Math.max(
           axis.cAt(y) - (axis.rAt(y) + CORE_SKIN + HANG_PRIOR.garmentGap), 0.3)
         const i3 = 3 * (part.offset + i)
@@ -506,8 +516,9 @@ export function buildFullPair(
       pos[bi + 2] = pos[gi + 2]
     }
   }
-  // ---- 5) hangLift 统一抬升（最后施加，含全部钉目标；上方场查询均用
-  // 纸样 y，drape collide 按 yLift 回减保持一致）----
-  for (let i = 1; i < pos.length; i += 3) pos[i] += HANG_PRIOR.hangLift
+  // ---- 5) 统一抬升 lift（最后施加，含全部钉目标；上方场查询均用
+  // 纸样 y，drape collide 按 yLift 回减保持一致。旁挂 = hangLift 抬离
+  // 地面；穿台 = anchorLift 腰地标锚——落位下放由 settle 控制器接管）----
+  for (let i = 1; i < pos.length; i += 3) pos[i] += lift
   return { parts, pos, total: 2 * nF + 2 * nB + nBand }
 }

@@ -11,6 +11,7 @@ import type { Garment } from './assemble'
 import type { ClothMesh } from './mesh'
 import type { RiderBind } from './rider'
 import { rideRider } from './rider'
+import { heatColor, type HeatMode } from './heatmap'
 
 type ThreeMod = typeof import('three')
 
@@ -113,6 +114,9 @@ export interface RiderView {
   group: ThreeT.Group
   /** 宿主解算位 -> 双 side 贴层回填 + 法线重算（建视图后先调一次出初摆位） */
   update: (hostPos: Float32Array) => void
+  /** 热力着色（2026-09-18 穿台热力图）：values = 全粒子标量（宿主系），
+   * 贴层顶点按绑定重心权重插值三宿主粒子；null 恢复分色材质 */
+  heat: (values: Float32Array | null, mode: HeatMode) => void
   dispose: () => void
 }
 
@@ -127,19 +131,26 @@ export function buildRiderView(
     side: THREE.DoubleSide,
     transparent: true, opacity: 0.92,
   })
-  const entries: { mesh: ThreeT.Mesh; attr: ThreeT.BufferAttribute; slot: RiderViewSlot }[] = []
+  const heatMat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.9, metalness: 0.0,
+    side: THREE.DoubleSide,
+    transparent: true, opacity: 0.92,
+  })
+  const entries: { mesh: ThreeT.Mesh; attr: ThreeT.BufferAttribute; cattr: ThreeT.BufferAttribute; slot: RiderViewSlot }[] = []
   const idx: number[] = []
   for (let t = 0; t < bind.mesh.tri.length; t++) idx.push(bind.mesh.tri[t])
   for (const slot of slots) {
     const geo = new THREE.BufferGeometry()
     const attr = new THREE.BufferAttribute(new Float32Array(3 * n), 3)
+    const cattr = new THREE.BufferAttribute(new Float32Array(3 * n).fill(1), 3)
     geo.setAttribute('position', attr)
+    geo.setAttribute('color', cattr)
     geo.setIndex(idx)
     geo.computeVertexNormals()
     const mesh = new THREE.Mesh(geo, mat)
     mesh.name = `rider-${key}-${slot.side}`
     group.add(mesh)
-    entries.push({ mesh, attr, slot })
+    entries.push({ mesh, attr, cattr, slot })
   }
   const update = (hostPos: Float32Array) => {
     for (const { attr, slot } of entries) {
@@ -149,12 +160,34 @@ export function buildRiderView(
     }
     for (const { mesh } of entries) mesh.geometry.computeVertexNormals()
   }
+  const heat = (values: Float32Array | null, mode: HeatMode) => {
+    if (values === null) {
+      for (const { mesh } of entries) mesh.material = mat
+      return
+    }
+    for (const { mesh, cattr, slot } of entries) {
+      const carr = cattr.array as Float32Array
+      for (let i = 0; i < n; i++) {
+        // 绑定重心权重插值三宿主粒子标量（与位置回填同权重）
+        let v = 0
+        for (let s = 0; s < 3; s++) {
+          v += bind.w[3 * i + s] * values[slot.hostOffset + bind.vtx[3 * i + s]]
+        }
+        const [r, g, b] = heatColor(v, mode)
+        carr[3 * i] = r; carr[3 * i + 1] = g; carr[3 * i + 2] = b
+      }
+      cattr.needsUpdate = true
+      mesh.material = heatMat
+    }
+  }
   return {
     group,
     update,
+    heat,
     dispose: () => {
       for (const { mesh } of entries) mesh.geometry.dispose()
       mat.dispose()
+      heatMat.dispose()
     },
   }
 }
@@ -166,6 +199,9 @@ export interface SimView {
   group: ThreeT.Group
   /** sim 解算位 + part 偏移 -> 几何回填（建视图后先调一次出初摆位） */
   update: (simPos: Float32Array, offset: number) => void
+  /** 热力着色（穿台热力图）：values = 全粒子标量 + 本 part 偏移；
+   * null 恢复分色材质 */
+  heat: (values: Float32Array | null, mode: HeatMode, offset: number) => void
   dispose: () => void
 }
 
@@ -180,9 +216,16 @@ export function buildSimView(
     side: THREE.DoubleSide,
     transparent: true, opacity: 0.92,
   })
+  const heatMat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.9, metalness: 0.0,
+    side: THREE.DoubleSide,
+    transparent: true, opacity: 0.92,
+  })
   const geo = new THREE.BufferGeometry()
   const attr = new THREE.BufferAttribute(new Float32Array(3 * n), 3)
+  const cattr = new THREE.BufferAttribute(new Float32Array(3 * n).fill(1), 3)
   geo.setAttribute('position', attr)
+  geo.setAttribute('color', cattr)
   geo.setIndex(Array.from(mesh.tri))
   const m = new THREE.Mesh(geo, mat)
   m.name = `sim-${key}`
@@ -197,12 +240,27 @@ export function buildSimView(
     attr.needsUpdate = true
     geo.computeVertexNormals()
   }
+  const heat = (values: Float32Array | null, mode: HeatMode, offset: number) => {
+    if (values === null) {
+      m.material = mat
+      return
+    }
+    const carr = cattr.array as Float32Array
+    for (let i = 0; i < n; i++) {
+      const [r, g, b] = heatColor(values[offset + i], mode)
+      carr[3 * i] = r; carr[3 * i + 1] = g; carr[3 * i + 2] = b
+    }
+    cattr.needsUpdate = true
+    m.material = heatMat
+  }
   return {
     group,
     update,
+    heat,
     dispose: () => {
       geo.dispose()
       mat.dispose()
+      heatMat.dispose()
     },
   }
 }

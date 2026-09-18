@@ -19,7 +19,7 @@
 import type { Garment } from './assemble'
 import { CORE_SKIN } from './core'
 import type { BodyField } from './placement'
-import { pointInRings } from './placement'
+import { pointInRings, nearestRingBoundary } from './placement'
 import { DRAPE_PRIOR, HANG_PRIOR } from './priors'
 import { buildSeamSet, type SeamGroup } from './seams'
 import { bandBottomChain } from './band'
@@ -40,6 +40,8 @@ export interface DrapeSim {
   field: BodyField | null   // null = 自由垂（无撑型芯径向碰撞，仅地面）
   collideAboveY: number    // 碰撞生效的纸样 y 下限（-∞ = 全程；混合形态：
                             // 躯干段撑开、腿段自由垂——(九) 山脊修复）
+  maxFrames: number        // 帧数封顶（per-sim：穿台 settle 控制器 wake 时
+                            // 续预算用；缺省同 DRAPE_PRIOR.maxFrames）
   stepCount: number
   settledFrames: number
   settled: boolean
@@ -73,7 +75,7 @@ export interface DrapeSim {
 // 到腰）L/R 同号配对
 export function buildDrape(
   garment: Garment, field: BodyField | null, yLift = 0,
-  collideAboveY = -Infinity,
+  collideAboveY = -Infinity, maxFrames = DRAPE_PRIOR.maxFrames,
 ): DrapeSim {
   const pinIdx: number[] = []
   // 腰头在（九期）：**腰口区全钉**——身片腰口环整圈（「腰部圆形撑开」
@@ -182,6 +184,7 @@ export function buildDrape(
     parts: garment.parts.map((p) => ({ offset: p.offset, mesh: p.mesh })),
     field,
     collideAboveY,
+    maxFrames,
     stepCount: 0, settledFrames: 0, settled: false, capped: false,
     frozen: false, avgSpeed: 0, failStreak: 0,
     lastGood: new Float32Array(pos),
@@ -280,38 +283,12 @@ function collide(sim: DrapeSim): void {
     if (patY < sim.collideAboveY) continue   // 腿段自由垂（混合形态）
     const rings = field.loopsAt(patY)
     if (rings.length === 0) continue
-    // 最近边界（跨全部环，quick reject：质心包围圆 + skin 余量）。
-    // 性能口径：Math.hypot 慢一个量级，用 sqrt
-    let bd = Infinity, bx = 0, bz = 0, bnx = 0, bnz = 0
-    for (const ring of rings) {
-      const dxc = x - ring.cx, dzc = z - ring.cz
-      const rr = ring.r + CORE_SKIN
-      if (dxc * dxc + dzc * dzc > rr * rr) continue
-      const n = ring.pts.length / 2
-      for (let s = 0; s < n; s++) {
-        const a2 = 2 * s, b2 = 2 * ((s + 1) % n)
-        const ax = ring.pts[a2], az = ring.pts[a2 + 1]
-        const ex = ring.pts[b2] - ax, ez = ring.pts[b2 + 1] - az
-        const l2 = ex * ex + ez * ez
-        const t = l2 > 1e-12
-          ? Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / l2)) : 0
-        const px = ax + ex * t, pz = az + ez * t
-        const dxp = x - px, dzp = z - pz
-        const d2 = dxp * dxp + dzp * dzp
-        if (d2 < bd * bd) {
-          bd = Math.sqrt(d2); bx = px; bz = pz
-          // 外法线 = 段垂线，背离环质心
-          const len = Math.sqrt(l2) || 1
-          let nx = -ez / len, nz = ex / len
-          if (nx * (ring.cx - px) + nz * (ring.cz - pz) > 0) {
-            nx = -nx; nz = -nz
-          }
-          bnx = nx; bnz = nz
-        }
-      }
-    }
-    if (bd === Infinity) continue
-    if (bd >= CORE_SKIN) {
+    // 最近边界（跨全部环，quick reject 余量 = skin；2026-09-18 扫描体
+    // 提取为 placement.nearestRingBoundary，与穿台裆探针共口径，迭代序
+    // 不变）
+    const hit = nearestRingBoundary(rings, x, z, CORE_SKIN)
+    if (!hit) continue
+    if (hit.d >= CORE_SKIN) {
       // 远离边界：只在某环包围圆内（可能深穿）才做射线判内兜底——正常
       // 挂相布在壳外起步，此分支零命中（v1 细龙骨穿膛教训的守门）
       let maybe = false
@@ -323,8 +300,8 @@ function collide(sim: DrapeSim): void {
     }
     // 统一推出目标 = 最近边界 + skin·外法线：边界外侧近壳粒子与环内
     // 粒子同向处理（内侧粒子若按「边界->粒子」方向推会越推越深自陷）
-    const tx = bx + bnx * CORE_SKIN
-    const tz = bz + bnz * CORE_SKIN
+    const tx = hit.px + hit.nx * CORE_SKIN
+    const tz = hit.pz + hit.nz * CORE_SKIN
     pos[i3] = tx
     pos[i3 + 2] = tz
     prev[i3] += (pos[i3] - prev[i3]) * fr
@@ -448,8 +425,9 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
   sim.avgSpeed = speedSum / (sim.pos.length / 3)
   sim.settledFrames = sim.avgSpeed < p.settleSpeed
     ? sim.settledFrames + 1 : 0
-  // 帧数封顶兜底：超限取当前帧出 settled（防极限环卡死显示）
-  if (sim.stepCount >= p.maxFrames) {
+  // 帧数封顶兜底：超限取当前帧出 settled（防极限环卡死显示；per-sim
+  // maxFrames——穿台 settle 控制器可续预算，2026-09-18）
+  if (sim.stepCount >= sim.maxFrames) {
     sim.settled = true
     sim.capped = true
   } else if (sim.settledFrames >= p.settleFrames) {

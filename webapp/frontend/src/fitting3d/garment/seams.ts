@@ -48,8 +48,9 @@ function hostParts(garment: Garment, key: string): HostParts {
 }
 
 // 无中缝链款（fly 连裁）的裆尖兜底：inseam 末采样在边界环中的下一点
-// = tip 本体（角点共享规则：共享角点 = 下一条边首采样）
-function tipAfterInseam(mesh: Garment['parts'][number]['mesh']): number | null {
+// = tip 本体（角点共享规则：共享角点 = 下一条边首采样；2026-09-18
+// export——穿台 settle 裆探针同款兜底）
+export function tipAfterInseam(mesh: Garment['parts'][number]['mesh']): number | null {
   const run = mesh.runs.find((r) => r.name === 'inseam')
   if (!run || run.indices.length === 0) return null
   const last = run.indices[run.indices.length - 1]

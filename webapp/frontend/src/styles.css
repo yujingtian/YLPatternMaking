@@ -337,6 +337,18 @@ html, body, #root { height: 100%; margin: 0; }
 }
 /* 预设体型芯片（身高快捷档） */
 .f3d-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 穿台热力图图例（渐变停靠色与 garment/heatmap.ts RED/GREEN/BLUE 同源） */
+.f3d-heat-legend { margin-top: 6px; }
+.f3d-heat-legend-off { opacity: 0.45; }
+.f3d-heat-bar {
+  height: 8px; border-radius: 4px;
+  background: linear-gradient(90deg,
+    rgb(255 64 51), rgb(77 204 89) 50%, rgb(64 115 242));
+}
+.f3d-heat-labels {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: #aaa; margin-top: 3px;
+}
 
 /* ---- 导出中心（勾选产物 -> 逐项串行下载） ---- */
 .ec-hint {

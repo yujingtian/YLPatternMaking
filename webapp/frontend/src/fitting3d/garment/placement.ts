@@ -8,7 +8,8 @@
 // 后片 = 左半扇区 [−180°,−90°]，右半均镜像 θ→−θ。y = 纸样高
 // （纸样系 identity，无 warp）。
 import { sliceLoops } from '../bodymesh/slice'
-import { FIELD_PRIOR, HANG_PRIOR } from './priors'
+import type { LegAxis } from './core'
+import { DRESSING_PRIOR, FIELD_PRIOR, HANG_PRIOR } from './priors'
 
 // 行截面环（八期碰撞用）：行 y 处网格切片的闭环点列 + 质心/包围半径
 // （quick reject）。躯干行 1 环、腿行 2 环（左右腿管）
@@ -26,6 +27,9 @@ export class BodyField {
     readonly rowStep: number,
     readonly thetaBins: number,
     readonly slices: SliceRing[][] = [],   // 行 → 截面环（碰撞截面；缺省空=纯场表用）
+    readonly yMin = 0,             // 行 0 对应的 y（2026-09-18 脚碰撞修复：穿台
+                                   // 锚定下移后脚成纸样负 y，行表须下探到脚底；
+                                   // 缺省 0 = 旁挂芯场/合成场老口径字节等价）
   ) {}
 
   /** 全表最大支撑半径（悬挂展示算裤筒旁置偏移用：人台 +X 侧占位上界） */
@@ -39,13 +43,15 @@ export class BodyField {
 
   /** 行截面环（y 夹取到表域；无截面行返回空数组） */
   loopsAt(y: number): SliceRing[] {
-    const r = Math.max(0, Math.min(this.rows - 1, Math.round(y / this.rowStep)))
+    const r = Math.max(0, Math.min(this.rows - 1,
+      Math.round((y - this.yMin) / this.rowStep)))
     return this.slices[r] ?? []
   }
 
   radiusAt(y: number, th: number): number {
     // y 夹取（腰上无几何/脚底下沿用端行），行双线性
-    const rr = Math.max(0, Math.min(this.rows - 1.0001, y / this.rowStep))
+    const rr = Math.max(0, Math.min(this.rows - 1.0001,
+      (y - this.yMin) / this.rowStep))
     const r0 = Math.floor(rr), fr = rr - r0
     const r1 = Math.min(this.rows - 1, r0 + 1)
     // θ 环形双线性（bin 中心约定 (b+0.5)·Δ）
@@ -67,14 +73,16 @@ export class BodyField {
 // 两腿分离芯的腿间空隙只有截面/表面碰撞能留白，径向场是星形实心）。
 // 一次性 ~几十 ms，只在建衣/重穿时跑
 export function buildBodyField(
-  positions: Float32Array, indices: Uint32Array,
+  positions: Float32Array, indices: Uint32Array, yMin = 0,
 ): BodyField {
   const { thetaBins, rowStep } = FIELD_PRIOR
   let maxY = -Infinity
   for (let i = 1; i < positions.length; i += 3) {
     if (positions[i] > maxY) maxY = positions[i]
   }
-  const rows = Math.max(2, Math.floor(maxY / rowStep) + 1)
+  // 行 r 高 = yMin + r·rowStep（yMin<0 时行表下探覆盖脚部负 y 域；缺省 0
+  // = 老口径字节等价）
+  const rows = Math.max(2, Math.floor((maxY - yMin) / rowStep) + 1)
   const table = new Float32Array(rows * thetaBins)
   const slices: SliceRing[][] = []
   // 方向单位向量预表（bin 中心）
@@ -85,7 +93,7 @@ export function buildBodyField(
     cosT[b] = Math.cos(th)
   }
   for (let r = 0; r < rows; r++) {
-    const y = r * rowStep
+    const y = yMin + r * rowStep
     const base = r * thetaBins
     const rings: SliceRing[] = []
     for (const loop of sliceLoops(positions, indices, y)) {
@@ -113,7 +121,7 @@ export function buildBodyField(
     }
     slices.push(rings)
   }
-  return new BodyField(table, rows, rowStep, thetaBins, slices)
+  return new BodyField(table, rows, rowStep, thetaBins, slices, yMin)
 }
 
 export type PieceKey = 'front' | 'back'
@@ -176,4 +184,126 @@ export function penetrationStats(
     }
   }
   return { count, worst }
+}
+
+// ---- 穿台（2026-09-18）：人台侧几何原语。碰撞体 = 人台切片环场
+// （用户拍板口径），旁挂口径不动（芯锚纸样围度照旧）----
+
+// 整组 Y 平移（世界→纸样系 frame 锚定）：θ 两系同构（头注），锚定只需
+// Y 平移（人台腰地标 ↔ 纸样腰站 y），1:1 cm 不缩放
+export function shiftPositionsY(
+  positions: Float32Array, dy: number,
+): Float32Array {
+  const out = new Float32Array(positions.length)
+  for (let i = 0; i < positions.length; i += 3) {
+    out[i] = positions[i]
+    out[i + 1] = positions[i + 1] + dy
+    out[i + 2] = positions[i + 2]
+  }
+  return out
+}
+
+// 最近截面环边界 + 外法线（drape.collide 与穿台裆探针/终态穿透扫共口径，
+// 2026-09-18 从 collide 内联扫描提取）：跨全部环找最近边界段；margin =
+// quick reject 包围圆余量（collide 传 CORE_SKIN；探针要量间隙须放大）。
+// null = 距全部环边界 > margin。性能口径：Math.hypot 慢一个量级，用 sqrt
+export interface RingHit {
+  d: number              // 到最近边界距离（≥0）
+  px: number; pz: number // 边界最近点
+  nx: number; nz: number // 外法线（段垂线，背离环质心）
+}
+export function nearestRingBoundary(
+  rings: SliceRing[], x: number, z: number, margin: number,
+): RingHit | null {
+  let bd = Infinity, bx = 0, bz = 0, bnx = 0, bnz = 0
+  for (const ring of rings) {
+    const dxc = x - ring.cx, dzc = z - ring.cz
+    const rr = ring.r + margin
+    if (dxc * dxc + dzc * dzc > rr * rr) continue
+    const n = ring.pts.length / 2
+    for (let s = 0; s < n; s++) {
+      const a2 = 2 * s, b2 = 2 * ((s + 1) % n)
+      const ax = ring.pts[a2], az = ring.pts[a2 + 1]
+      const ex = ring.pts[b2] - ax, ez = ring.pts[b2 + 1] - az
+      const l2 = ex * ex + ez * ez
+      const t = l2 > 1e-12
+        ? Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / l2)) : 0
+      const px = ax + ex * t, pz = az + ez * t
+      const dxp = x - px, dzp = z - pz
+      const d2 = dxp * dxp + dzp * dzp
+      if (d2 < bd * bd) {
+        bd = Math.sqrt(d2); bx = px; bz = pz
+        // 外法线 = 段垂线，背离环质心
+        const len = Math.sqrt(l2) || 1
+        let nx = -ez / len, nz = ex / len
+        if (nx * (ring.cx - px) + nz * (ring.cz - pz) > 0) {
+          nx = -nx; nz = -nz
+        }
+        bnx = nx; bnz = nz
+      }
+    }
+  }
+  return bd === Infinity ? null
+    : { d: bd, px: bx, pz: bz, nx: bnx, nz: bnz }
+}
+
+// 人台切片环 → LegAxis（穿台摆位腿区输入；数据源无关——旁挂仍用
+// core.buildLegAxis 纸样站口径）。自裆地标向下 forkSearch 窗内找**首个
+// 恰 2 闭环行** = 有效叉口 forkEff（体裆地标处切片可能仍单环）；双环行
+// rAt = max 环包围半径（支撑上界口径——绕管摆位半径 = rAt+skin+gap 按
+// 构造在环外，对冲真腿环非圆的局部凸起）、cAt = 双环 |质心 x| 均值。
+// 非 2 环行跳过（相邻 2 环行线性桥接）。
+// ankleY（2026-09-18 脚碰撞修复）：扫描下限——踝以下是脚不是圆柱腿，
+// 脚环包围半径含脚全长（r ~18，前伸 cz 13+），混进 rProf 会让裤脚摆位
+// 喇叭张开；穿台场行表下探负 y 后必须止于踝。缺省 undefined = 扫到行 0
+// （合成场/老口径，脚环不存在无此问题）
+export function buildLegAxisFromRings(
+  field: BodyField, forkY: number, ankleY?: number,
+): LegAxis {
+  const step = field.rowStep
+  const r0 = Math.max(0, Math.round((forkY - field.yMin) / step))
+  const rMin = Math.max(0, r0 - Math.floor(DRESSING_PRIOR.forkSearch / step))
+  let forkRow = -1
+  for (let r = r0; r >= rMin; r--) {
+    if (field.slices[r]?.length === 2) { forkRow = r; break }
+  }
+  if (forkRow < 0) {
+    throw new Error(`穿台腿轴：裆地标下方 ${DRESSING_PRIOR.forkSearch}cm 窗内无双腿分离行（人台切片环未分开）`)
+  }
+  // 腿轴扫描下限行（ceil 只含踝及以上行）；无踝地标 = 行 0 老口径
+  const rFloor = ankleY === undefined ? 0 : Math.max(0, Math.min(field.rows - 1,
+    Math.ceil((ankleY - field.yMin) / step)))
+  const rProf: [number, number][] = []
+  const cProf: [number, number][] = []
+  for (let r = forkRow; r >= rFloor; r--) {
+    const rings = field.slices[r]
+    if (!rings || rings.length !== 2) continue
+    const [a, b] = rings
+    // 轴心 z=0 近似（LegAxis 无 zAt）：真腿环质心 z 偏移（大腿偏前 ~2cm，
+    // 穿台实测）会让绕管前侧浅穿——包围圆按 (cx,0) 圆心放大 |cz|，保证
+    // 环 ⊂ 圆(轴心, rAt)，绕管半径 rAt+skin+gap 按构造在环外
+    rProf.push([field.yMin + r * step,
+      Math.max(a.r + Math.abs(a.cz), b.r + Math.abs(b.cz))])
+    cProf.push([field.yMin + r * step, (Math.abs(a.cx) + Math.abs(b.cx)) / 2])
+  }
+  if (rProf.length < 2) {
+    throw new Error('穿台腿轴：双腿分离行不足 2 行，无法插值')
+  }
+  rProf.sort((p, q) => p[0] - q[0])
+  cProf.sort((p, q) => p[0] - q[0])
+  const lerpAt = (prof: [number, number][], y: number): number => {
+    if (y <= prof[0][0]) return prof[0][1]
+    for (let i = 1; i < prof.length; i++) {
+      if (y <= prof[i][0]) {
+        const [ya, ra] = prof[i - 1], [yb, rb] = prof[i]
+        return yb - ya > 1e-9 ? ra + ((rb - ra) * (y - ya)) / (yb - ya) : rb
+      }
+    }
+    return prof[prof.length - 1][1]
+  }
+  return {
+    rAt: (y) => lerpAt(rProf, y),
+    cAt: (y) => lerpAt(cProf, y),
+    forkY: field.yMin + forkRow * step,
+  }
 }
