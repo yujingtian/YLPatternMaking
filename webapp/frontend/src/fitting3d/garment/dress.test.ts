@@ -280,7 +280,8 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     expect(out1.ph).toBe('done')
     expectFinite(out1.sim.pos)
     expect(tipWorstDist(out1.sim)).toBeLessThan(1.0)
-    // 掉裆：前裆锚腰后顶入 ~7cm → 预期掉 ~7 量级；域 [0, maxDrop]
+    // 掉裆：前裆锚腰后顶入 → 旧拉伸口径 ~7；strain limiting 后布不可
+    // 伸长、需降更深才裆接触，实测 7.8/8.3；域 [0, maxDrop]
     expect(out1.report.dropF).toBeGreaterThanOrEqual(2.0)
     expect(out1.report.dropF).toBeLessThanOrEqual(DRESSING_PRIOR.maxDrop + 1e-6)
     expect(out1.report.dropB).toBeGreaterThanOrEqual(-1e-6)
@@ -293,10 +294,11 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
       minY = Math.min(minY, out1.sim.pos[i])
     }
     expect(minY).toBeGreaterThanOrEqual(-1e-6)
-    // ---- 脚口前缘挂扣（2026-09-19（二）修复金标）：脚口带（纸样 y∈
-    // [−1,1]）前向 max z ≥7 = 前缘挂在脚背上（挂扣态实测 7.9，脱扣态
-    // ~3——09-19 钉环贴体→掉裆加深 dropF 7.12 把前缘拖过脚背冠；脚
-    // 碰撞本身干净，修复 = hem 环带刚度非碰撞壳）----
+    // ---- 脚口前缘位置（2026-09-19（三）strain limiting 重定标）：布不可
+    // 伸长后整裤垂长变短，dropF 7.8/8.3 时脚口带（纸样 y∈[−1,1]）落
+    // y[6.7,8.6] 前脚区，前缘 z 实测 4.5——旧挂扣态 7.9 是 +10% 拉伸布
+    // 垂到脚背冠的口径，前提已变；把门改为前缘保持前半（≥4；滑脱到
+    // 脚后的脱扣态 ~3）----
     let frontRim = -Infinity
     for (const part of out1.pair.parts) {
       if (part.key === 'waistband') continue
@@ -307,7 +309,7 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
         frontRim = Math.max(frontRim, out1.sim.pos[3 * gi + 2])
       }
     }
-    expect(frontRim).toBeGreaterThan(7.0)
+    expect(frontRim).toBeGreaterThan(4.0)
     // ---- 同输入双跑 DressReport 逐字段相等（确定性红线）----
     const out2 = runDress(a, data, {})
     const r1 = out1.report, r2 = out2.report

@@ -65,7 +65,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   内部化、yoke 余边反向闭环——cb 反向段与 back.cb 同名相邻聚合成整条后浪贯通育克；有省款守卫拦下退化、
 #   退化时 top 边角色升回 top_chain 供钉挂）合并为一条完整整裤：assemble.buildFullPair 四 part 摆位（腰圆
 #   360° 整圈弧长重参数化四段拼闭 + 侧缝语义竖直 + 腿局部圆环绕管〔内缝边落腿内侧线前后宿主相邻共线、
-#   侧缝边落腿外侧线；fork 向上 forkBlend(8) 过渡〕+ 侧缝腰角前后共点 snap + hangLift(8) 抬升）→
+#   侧缝边落腿外侧线；fork 向上 forkBlend(8) 过渡〕+ 侧缝腰角前后共点 snap + hangLift(10) 抬升）→
 #   seams.buildSeamSet 四族缝合对（前中 rise/后中 cb 镜像族 + 侧缝/内缝跨宿主弧长族〔吃势均匀吸收〕+ 四裆尖
 #   tip 补焊零 rest 闭环自动坍缩裆交叉点；back 宿主 side 双 run 先 mesh.mergeRuns 合链）→ drape verlet
 #   解算**全域自由垂**（（十一）现行「腰头一圈+下面真实物理悬挂」；（九）混合形态〔腰臀芯碰撞 collideAboveY〕
@@ -75,7 +75,10 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   芯碰撞机制保留〔传 field 即生效：v3 两腿分离三实体 + 行截面环 SliceRing 最近边界+skin·外法线
 #   推出——花生腰谷径向场实心桥/径向场表示不了腿间空隙两教训见决策日志八期条〕，当前口径不用；
 #   实测四族缝 rise/cb/inseam/tip avg=p95=0、side 0.026/0.176，600 帧内真收敛、下摆离地不拖地
-#   〔hangLift 12〕）；九期腰头立体化（band.ts）：腰头片作第 5 参与片缝入腰圆——
+#   〔hangLift 10〕；布不可伸长（2026-09-19（四）应变限幅现行：每子步单遍硬钳 dist ≤ 纸样净长
+#   ×1.01 + 钉逆质量 0/collide 钉豁免 pinFlag 共用 + 约束块末速度泄压——腰环长恒=成衣腰长、
+#   限幅必在 collide 前；接触带残余 5~7% = 紧身穿偏大人台诚实读数；口径 §10.11「布不可伸长」）；
+#   九期腰头立体化（band.ts）：腰头片作第 5 参与片缝入腰圆——
 #   两端前中会合、中点后中（用户口径，环序按构造成立）、bandWaist/bandEnds 两缝族、
 #   挂腰头=腰口区全钉（身片腰环+带两缘，前后中开洞修复：零缝口须一侧硬钉+孪生角补配对）、
 #   sim 直渲 buildSimView；rAF 一帧

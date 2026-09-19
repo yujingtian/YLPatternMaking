@@ -30,6 +30,8 @@ export interface DrapeSim {
   vel: Float32Array
   pinIdx: Uint32Array     // 腰口整圈粒子（top_chain 边全量 + 终点角，六期直挂口径）
   pinTarget: Float32Array // 3×pin 目标位（初始摆位处，全向硬钉 = 悬挂支点）
+  pinFlag: Uint8Array     // 顶点级钉查询表（0/1）：strain limiting 逆质量 0 +
+                          // collide 豁免共用——钉 = 刚性腰口边界条件（2026-09-19）
   seamIdx: Uint32Array    // 2S 全族缝合对（八期 buildSeamSet：rise/cb 镜像
                           // + side/inseam 弧长 + tip 补焊，全 rest=0 同一求解）
   seamGroups: SeamGroup[] // 分族切片（金标分族统计用）
@@ -147,6 +149,9 @@ export function buildDrape(
     pinTarget[3 * k + 1] = garment.pos[3 * pinIdx[k] + 1]
     pinTarget[3 * k + 2] = garment.pos[3 * pinIdx[k] + 2]
   }
+  // 顶点级钉查询表：strain limiting（钉逆质量 0）与 collide（钉豁免）共用
+  const pinFlag = new Uint8Array(garment.pos.length / 3)
+  for (const gi of pinIdx) pinFlag[gi] = 1
   // 全族缝合对（八期 buildSeamSet）：六期「parts[0] 单一 rise|cb 链同号
   // 配对」的泛化——rise/cb 镜像族同机制、side/inseam 跨宿主弧长配对、
   // 四裆尖 tip 补焊，全族 rest=0 进同一扁平数组（求解循环零改动）
@@ -176,6 +181,7 @@ export function buildDrape(
     vel: new Float32Array(pos.length),
     pinIdx: new Uint32Array(pinIdx),
     pinTarget,
+    pinFlag,
     seamIdx: seam.pairs,
     seamGroups: seam.groups,
     yLift,
@@ -296,10 +302,15 @@ function projectHold(sim: DrapeSim): void {
 // 径向场表示不了（星形实心），只有截面/表面碰撞能留白（旧链 BVH 同因）；
 // 腿管间隙按环独立判内，无 v1「双管交叠符号判陷阱」
 function collide(sim: DrapeSim): void {
-  const { pos, prev, field } = sim
+  const { pos, prev, field, pinFlag } = sim
   if (!field) return
   const fr = DRAPE_PRIOR.friction
   for (let i3 = 0; i3 < pos.length; i3 += 3) {
+    // 钉豁免（2026-09-19）：钉 = 刚性腰口边界条件，人台不顶开腰环——
+    // 穿台审计实测 collide 在 projectPins 之后覆写嵌体钉（漂移 max 1.57，
+    // 腰环 81.68 vs 成衣 77.83）。穿不进（钉环缩进截面内）由热力图 gap
+    // 带符号红区读出，不靠静默顶开（偏小是读数不是错误）
+    if (pinFlag[i3 / 3]) continue
     const x = pos[i3], z = pos[i3 + 2]
     const patY = pos[i3 + 1] - sim.yLift
     if (patY < sim.collideAboveY) continue   // 腿段自由垂（混合形态）
@@ -346,6 +357,55 @@ function collideGround(sim: DrapeSim): void {
       prev[i3] += (pos[i3] - prev[i3]) * fr
       prev[i3 + 2] += (pos[i3 + 2] - prev[i3 + 2]) * fr
     }
+  }
+}
+
+// 应变限幅（strain limiting，2026-09-19 用户口径「牛仔裤布料很厚实、不会
+// 这么被拉伸」）：穿台审计实测 PBD 平衡态残余拉伸 mean 4.3%/p95 16%（续跑
+// 2400 帧一分不退、旁挂 hangLift 12 即为藏它而设）全是数值假象——dist 约束
+// rest=纸样净长，模型本义就是不可伸长的布。每子步末（collide 之后）一遍
+// Gauss-Seidel 硬投影：边长 > rest×(1+ε) 才动，把拉伸钳回丹宁无弹量级。
+// ①只限拉不限压——压缩=褶皱=真布自由度（弯腰头省口吃势呈轻褶属缝前真实
+// 语义，摊成应变读数才是错的）；②钉点逆质量 0——腰口钉是刚性边界条件，
+// 邻点向钉靠拢、钉不动（配 collide 钉豁免，环长恒=成衣腰长）；
+// ③缝对/弯曲约束不参与——前者 rest=0 本就是约束，后者管折痕不管拉伸
+function strainLimit(sim: DrapeSim): void {
+  const lim = 1 + DRAPE_PRIOR.strainLimit
+  const { pos, pinFlag } = sim
+  for (const part of sim.parts) {
+    const { dist } = part.mesh
+    const off = part.offset
+    for (let c = 0; c < dist.length; c += 3) {
+      const ia = off + dist[c], ib = off + dist[c + 1]
+      const a = 3 * ia, b = 3 * ib
+      const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
+      const dz = pos[b + 2] - pos[a + 2]
+      const d = Math.hypot(dx, dy, dz)
+      if (d < 1e-9 || d <= dist[c + 2] * lim) continue
+      const fa = pinFlag[ia] ? 0 : 1
+      const fb = pinFlag[ib] ? 0 : 1
+      const w = fa + fb
+      if (w === 0) continue               // 钉-钉边（腰环上）：环几何即真值
+      const k = ((d - dist[c + 2] * lim) / d) / w
+      pos[a] += dx * k * fa; pos[a + 1] += dy * k * fa; pos[a + 2] += dz * k * fa
+      pos[b] -= dx * k * fb; pos[b + 1] -= dy * k * fb; pos[b + 2] -= dz * k * fb
+    }
+  }
+}
+
+// 全族缝合对一遍（rest=0、双向各移一半）——迭代内与限幅后共用：限幅只顾
+// 边长会把缝合对拉开 ~0.2cm，紧跟一遍收回（钉投影随后）
+function seamPass(sim: DrapeSim): void {
+  const { pos, seamIdx } = sim
+  for (let c = 0; c < seamIdx.length; c += 2) {
+    const a = 3 * seamIdx[c], b = 3 * seamIdx[c + 1]
+    const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
+    const dz = pos[b + 2] - pos[a + 2]
+    const d = Math.hypot(dx, dy, dz)
+    if (d < 1e-9) continue
+    const k = 0.5 * DRAPE_PRIOR.seamStiffness
+    pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
+    pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
   }
 }
 
@@ -399,23 +459,24 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
         }
       }
       // 全族缝合对（八期：rise/cb 镜像 + side/inseam 弧长 + tip 补焊，
-      // 跨片 rest=0、刚度 1）：双向各移一半——求解循环对全族一视同仁
-      const { seamIdx } = sim
-      for (let c = 0; c < seamIdx.length; c += 2) {
-        const a = 3 * seamIdx[c], b = 3 * seamIdx[c + 1]
-        const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
-        const dz = pos[b + 2] - pos[a + 2]
-        const d = Math.hypot(dx, dy, dz)
-        if (d < 1e-9) continue
-        // rest = 0：k = ((d − 0)/d) × 0.5 × 刚度 = 0.5 × 刚度
-        const k = 0.5 * p.seamStiffness
-        pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
-        pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
-      }
+      // 跨片 rest=0、刚度 1）——求解循环对全族一视同仁
+      seamPass(sim)
       projectPins(sim)
       // 裆尖短时硬钉（crotchHold 帧后硬释放交还缝合约束；默认 0 关）
       if (sim.stepCount < DRAPE_PRIOR.crotchHold) projectHold(sim)
     }
+    // 应变限幅收尾（约束迭代之后、碰撞之前）：单遍硬钳 + 缝对/钉回投影
+    // （限幅只顾边长会把缝合对拉开 ~0.2cm，紧跟一遍收回；交替多遍实测
+    // 无收益且缝口重开）。放在 collide 前给碰撞最后一句话——限幅若在
+    // 碰撞后执行会把刚推出的接触点拽回体内（实测 worstPen 1.96→4.25），
+    // 穿透比 <1% 接触区应变余量更不可接受
+    strainLimit(sim)
+    seamPass(sim)
+    projectPins(sim)
+    // 约束块速度泄压：限幅/缝对的硬投影位移会被 verlet 记成速度（下一
+    // 子步反冲振荡，hang 模式实测永不静止 avgSpeed 悬在 ~1+）——块末把
+    // prev 向 pos 轻混，只泄掉约束注入的那部分（同 collide 摩擦手法）
+    for (let i = 0; i < pos.length; i++) prev[i] += (pos[i] - prev[i]) * 0.1
     collide(sim)
     collideGround(sim)
     for (let i3 = 0; i3 < pos.length; i3 += 3) {

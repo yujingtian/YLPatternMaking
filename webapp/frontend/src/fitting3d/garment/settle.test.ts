@@ -27,6 +27,7 @@ const mkSim = (pins: [number, number, number][]): DrapeSim => {
     prev: new Float32Array(pinTarget),
     vel: new Float32Array(3 * n),
     pinIdx, pinTarget,
+    pinFlag: new Uint8Array(n).fill(1),   // stub 全顶点皆钉（pinIdx[k]=k）
     seamIdx: new Uint32Array(0), seamGroups: [],
     yLift: 0, holdIdx: new Uint32Array(0), holdTarget: new Float32Array(0),
     parts: [], field: null, collideAboveY: -Infinity,
