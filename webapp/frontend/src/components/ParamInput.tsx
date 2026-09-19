@@ -18,6 +18,9 @@ export interface ParamInputProps {
   // 全 schema 参数默认值表（open 链近似锚点兜底用：options state 初始为 {}，
   // 只有 touched 键有值，未手输的锚点参数须回落 schema 默认而非 0）
   defaults?: Record<string, unknown>
+  // 暂时中文口径（2026-09-19）：键->中文名，仅覆盖标签与枚举下拉的显示，
+  // 值/搜索/校验不受影响；不传 = 英文键原样（全部参数页签现状）
+  zhMap?: Record<string, string>
   setOption: (key: string, value: unknown) => void
   onSeed: (kind: SeedPayload['kind'], shape: string) =>
     Promise<SeedResult | { ok: false; message: string }>
@@ -38,7 +41,7 @@ export function flyTypeOf(options: Values): string {
 }
 
 export default function ParamInput({
-  spec, value, onChange, err, options, defaults, setOption, onSeed,
+  spec, value, onChange, err, options, defaults, zhMap, setOption, onSeed,
 }: ParamInputProps) {
   const [jsonText, setJsonText] = useState<string | null>(null)
   const [jsonBad, setJsonBad] = useState(false)
@@ -121,7 +124,8 @@ export default function ParamInput({
           size="small"
           style={{ width: '100%' }}
           value={String(value ?? spec.default)}
-          options={spec.choices!.map((c) => ({ value: c, label: c }))}
+          options={spec.choices!.map(
+            (c) => ({ value: c, label: zhMap?.[c] ?? c }))}
           onChange={(v) => onChange(v)}
         />
       )
@@ -205,7 +209,9 @@ export default function ParamInput({
   return (
     <div className={`param${err ? ' param-error' : ''}`} data-param={spec.key}>
       <div className="param-head">
-        <span className="param-label" title={spec.key}>{spec.label}</span>
+        <span className="param-label" title={spec.key}>
+          {zhMap?.[spec.key] ?? spec.label}
+        </span>
         {control}
       </div>
       {err && <div className="param-msg">{err}</div>}

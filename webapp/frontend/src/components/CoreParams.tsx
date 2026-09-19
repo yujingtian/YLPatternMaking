@@ -7,7 +7,7 @@ import type {
   IssueDetail, ParamSpec, SectionSpec, SeedPayload, SeedResult, Values,
 } from '../types'
 import ParamInput, { flyTypeOf, pocketTypeOf } from './ParamInput'
-import { CORE_PARAM_GROUPS } from '../coreParams'
+import { CORE_PARAM_GROUPS, CORE_PARAM_ZH } from '../coreParams'
 
 // schema 白名单键 -> spec（全 section/group 扫一遍建索引）
 function specIndex(sections: SectionSpec[]): Map<string, ParamSpec> {
@@ -91,6 +91,7 @@ export default function CoreParams({
                   value={value}
                   err={errs.get(spec.key)}
                   options={options}
+                  zhMap={CORE_PARAM_ZH}
                   setOption={onOption}
                   onSeed={onSeed}
                   onChange={(v) =>
