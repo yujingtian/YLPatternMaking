@@ -15,7 +15,10 @@ import { bandBottomChain, bandTargets, buildWaistbandMesh, ringWalk } from './ba
 import { buildBackPanel, buildFrontPanel } from './panel'
 import { buildCore, buildLegAxis, CORE_SKIN } from './core'
 import { buildClothMesh } from './mesh'
-import { buildBodyField, pointInRings } from './placement'
+import {
+  BodyField, buildBodyField, buildWaistRing, pointInRings, ringPointAt,
+  type SliceRing, type WaistRing,
+} from './placement'
 import { FLAT_PRIOR, HANG_PRIOR } from './priors'
 
 const HERE = import.meta.dirname   // src/fitting3d/garment
@@ -682,5 +685,163 @@ describe('assemble：腰头立体缝合（九期，用户口径「腰头两边�
       expect(Math.hypot(g.pos[a] - g.pos[b], g.pos[a + 1] - g.pos[b + 1],
         g.pos[a + 2] - g.pos[b + 2])).toBeLessThan(0.5)
     }
+  })
+})
+
+// ---- 穿台腰圈摆位（2026-09-19 形随体长随衣）----
+// 合成椭圆截面场（腰行 a=12/b=10、向上逐行收窄——模拟腰上方围收窄），
+// 验 buildWaistRing + buildFullPair 环分支：形状来自截面、长度 = 成衣
+// 腰长 C（带底净长）；顶链/带底贴环、侧缝腰角随弧位前移（≠±90° 硬切）、
+// 带顶贴带顶环（收窄行 → 顶环更拢）；旁挂既有断言不受影响（上方双款
+// 未传 waistRing = 字节等价回归）
+describe('assemble：穿台腰圈摆位（形随体长随衣，合成椭圆场）', () => {
+  const payload: FittingResult = JSON.parse(
+    readFileSync(`${HERE}/fixture_fitting.json`, 'utf8'))
+  const frontPanel = buildFrontPanel(payload)
+  const backPanel = buildBackPanel(payload)
+  const band = buildWaistbandMesh(payload)!
+  const C = bandBottomChain(band)!.runLength
+  // 行表 yMin=0 / rowStep=0.5，行 192~208（y 96~104）放椭圆环：向上收窄
+  // 只收 a（X 侧向）——形似均匀缩放的环径向恒等（环总缩放至 C，径向 =
+  // 局部半径/周长×C 与截面绝对大小无关），非均匀收窄才出「带顶环更拢」；
+  // 其余行空（摆位只消费腰口附近行）
+  const ellipse = (a: number, b: number): SliceRing => {
+    const n = 48
+    const pts = new Float64Array(2 * n)
+    let cx = 0, cz = 0
+    for (let k = 0; k < n; k++) {
+      const t = (k / n) * 2 * Math.PI
+      pts[2 * k] = a * Math.cos(t)
+      pts[2 * k + 1] = b * Math.sin(t)
+      cx += pts[2 * k]; cz += pts[2 * k + 1]
+    }
+    return { pts, cx: cx / n, cz: cz / n, r: Math.max(a, b) }
+  }
+  const slices: SliceRing[][] = []
+  const rows = 221
+  for (let r = 0; r < rows; r++) {
+    const y = r * 0.5
+    slices.push(y >= 96 && y <= 104
+      ? [ellipse(12 - 0.15 * (y - 98), 10 - 0.02 * (y - 98))] : [])
+  }
+  const field = new BodyField(
+    new Float32Array(rows * 8), rows, 0.5, 8, slices, 0)
+  const ring = buildWaistRing(field, 98, C)
+  const g = buildFullPair(frontPanel.host, backPanel.host, field, {
+    front: payload.body.points.front_crotch_vertex[1],
+    back: payload.body.points.back_crotch_vertex[1],
+  }, buildLegAxis(payload), band, 0, ring)
+  const walk = ringWalk(g.parts.filter((p) => p.key !== 'waistband'))
+  const bandPart = g.parts.find((p) => p.key === 'waistband')!
+  const bandTop = bandPart.mesh.runs.find((r) => r.name === 'top')!
+  const bandBot = bandBottomChain(bandPart.mesh)!
+  // 点到环折线最小距（顶链贴环断言）
+  const distToRing = (rg: WaistRing, x: number, z: number): number => {
+    const n = rg.pts.length / 2
+    let dMin = Infinity
+    for (let k = 0; k < n; k++) {
+      const k2 = (k + 1) % n
+      const ax = rg.pts[2 * k], az = rg.pts[2 * k + 1]
+      const ex = rg.pts[2 * k2] - ax, ez = rg.pts[2 * k2 + 1] - az
+      const l2 = ex * ex + ez * ez
+      const t = l2 > 1e-12
+        ? Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / l2)) : 0
+      dMin = Math.min(dMin, Math.hypot(x - (ax + ex * t), z - (az + ez * t)))
+    }
+    return dMin
+  }
+
+  it('环长 = 成衣腰长（重采样弦差 <0.5%）；顶链逐点贴环（Float32 量化 1e-4）', () => {
+    expect(Math.abs(ring.total - C) / C).toBeLessThan(0.005)
+    for (const v of walk.verts) {
+      const part = g.parts[v.part]
+      const i3 = 3 * (part.offset + v.idx)
+      expect(distToRing(ring, g.pos[i3], g.pos[i3 + 2])).toBeLessThan(1e-4)
+    }
+  })
+
+  it('侧缝腰角沿钉环弧位落位（≠±90° 硬切）且前后宿主共点（腰圆闭合）', () => {
+    for (const [key, side, sgn] of [
+      ['front', 'L', -1], ['back', 'L', -1],
+    ] as const) {
+      const p = g.parts.find(
+        (q) => q.key === key && q.side === side)!
+      const runs = p.mesh.runs.filter((r) => r.name === 'side')
+      const top = runs.reduce((a, b) =>
+        p.mesh.xy[2 * b.indices[0] + 1] > p.mesh.xy[2 * a.indices[0] + 1] ? b : a)
+      const i3 = 3 * (p.offset + top.indices[0])
+      // 角点弧位 = 布弧分数 × 环弧速，漂移方向/幅度随截面形状与布量分布
+      // （真人截面前移 ~73°、对称椭圆恰落截面 1/4 弧 z≈0），非不变量、
+      // 不定向断言。判别「≠±90° 硬切」= 角点在钉环上 + 落侧区真实半径
+      // （本合成场 θ 表全 0，径向场路径只会给 r≈gap=1.2——x>5 即证走钉环）
+      expect(distToRing(ring, g.pos[i3], g.pos[i3 + 2])).toBeLessThan(1e-3)
+      expect(g.pos[i3] * sgn, `${key} 角在侧`).toBeGreaterThan(5)
+    }
+    const fRuns = g.parts[0].mesh.runs.filter((r) => r.name === 'side')
+    const bRuns = g.parts[2].mesh.runs.filter((r) => r.name === 'side')
+    const fTop = fRuns.reduce((a, b) =>
+      g.parts[0].mesh.xy[2 * b.indices[0] + 1]
+        > g.parts[0].mesh.xy[2 * a.indices[0] + 1] ? b : a)
+    const bTop = bRuns.reduce((a, b) =>
+      g.parts[2].mesh.xy[2 * b.indices[0] + 1]
+        > g.parts[2].mesh.xy[2 * a.indices[0] + 1] ? b : a)
+    const fI = 3 * (g.parts[0].offset + fTop.indices[0])
+    const bI = 3 * (g.parts[2].offset + bTop.indices[0])
+    expect(Math.hypot(g.pos[fI] - g.pos[bI], g.pos[fI + 1] - g.pos[bI + 1],
+      g.pos[fI + 2] - g.pos[bI + 2])).toBeLessThan(1e-3)
+  })
+
+  it('带底贴腰环、带顶贴带顶环（收窄行 → 顶环同向更拢）、两缘弦和 ≈ C', () => {
+    // 带底 = f0 贴环；带顶：行截面非均匀收窄（a 收 b 持平）→ 顶环径向
+    // 比腰环更拢（同向对比 max 对 max——椭圆各向半径不同，min/max 交叉
+    // 无意义）
+    let topMaxR = 0, botMaxR = 0
+    for (const i of bandTop.indices) {
+      const i3 = 3 * (bandPart.offset + i)
+      topMaxR = Math.max(topMaxR, Math.hypot(g.pos[i3], g.pos[i3 + 2]))
+    }
+    for (const i of bandBot.indices) {
+      const i3 = 3 * (bandPart.offset + i)
+      botMaxR = Math.max(botMaxR, Math.hypot(g.pos[i3], g.pos[i3 + 2]))
+    }
+    expect(topMaxR).toBeLessThan(botMaxR - 0.1)
+    const chordOf = (idx: number[]): number => {
+      let s = 0
+      for (let k = 0; k + 1 < idx.length; k++) {
+        const aI = 3 * (bandPart.offset + idx[k])
+        const bI = 3 * (bandPart.offset + idx[k + 1])
+        s += Math.hypot(g.pos[aI] - g.pos[bI], g.pos[aI + 1] - g.pos[bI + 1],
+          g.pos[aI + 2] - g.pos[bI + 2])
+      }
+      return s
+    }
+    // 带顶容差略宽（2.5%）：端帽列 v<带宽，XZ 沿底→顶环直线插值走割线
+    // （合成直款实测 +1.6%），缝焊吸收量级；带底钉环原位 1.5%
+    expect(Math.abs(chordOf(bandTop.indices) - C) / C).toBeLessThan(0.025)
+    expect(Math.abs(chordOf(bandBot.indices) - C) / C).toBeLessThan(0.015)
+  })
+
+  it('L/R 镜像对称（对称椭圆场下左右半环逐点镜像）', () => {
+    for (const key of ['front', 'back'] as const) {
+      const xs: number[] = []
+      const mesh = g.parts.find((p) => p.key === key && p.side === 'L')!.mesh
+      for (let i = 0; i < mesh.xy.length / 2; i++) {
+        const l = g.parts.find((p) => p.key === key && p.side === 'L')!
+        const r = g.parts.find((p) => p.key === key && p.side === 'R')!
+        const li = 3 * (l.offset + i), ri = 3 * (r.offset + i)
+        expect(g.pos[li + 1]).toBeCloseTo(g.pos[ri + 1], 6)
+        xs.push(Math.abs(g.pos[li] + g.pos[ri]))
+      }
+      xs.sort((a, b) => a - b)
+      expect(xs[Math.floor(xs.length / 2)]).toBeLessThan(0.1)
+    }
+  })
+
+  it('偏小环（C−4）s<1：钉位整体缩进截面内（穿不进摆位侧把门）', () => {
+    const small = buildWaistRing(field, 98, C - 4)
+    const p = ringPointAt(small, small.total * 0.25)
+    expect(pointInRings(p.x, p.z, field.loopsAt(98))).toBe(true)
+    const p2 = ringPointAt(small, 0)
+    expect(pointInRings(p2.x, p2.z, field.loopsAt(98))).toBe(true)
   })
 })

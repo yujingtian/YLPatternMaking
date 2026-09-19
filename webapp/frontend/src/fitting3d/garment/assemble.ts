@@ -18,8 +18,10 @@ import { CORE_SKIN, type LegAxis } from './core'
 import { pointInRings } from './placement'
 import { bandTargets, ringWalk } from './band'
 import type { BodyField, PieceKey, Side } from './placement'
-import { placePoint } from './placement'
-import { FLAT_PRIOR, HANG_PRIOR } from './priors'
+import {
+  buildWaistRing, placePoint, ringPointAt, type WaistRing,
+} from './placement'
+import { FLAT_PRIOR, HANG_PRIOR, MESH_PRIOR } from './priors'
 
 export interface GarmentPart {
   key: string             // payload 片 key（front_piece/back_piece/...）
@@ -260,6 +262,11 @@ function chainXAt(chain: EdgeRun, xy: Float64Array, y: number): number {
 //    补焊零 rest 闭环汇集裆交叉点=口径③（叉口在 fork 下方的腿间隙里）
 // 5) hangLift 统一抬升（碰撞模式重定标：布撑芯上不下坠，hem≈纸样 y
 //    +lift；drape collide 截面环查询按 yLift 回纸样空间，两处一致）
+// 穿台分支（2026-09-19 形随体长随衣）：waistRing 在时腰口/顶链相关段
+// 沿钉环弧长摆放（环 = 腰站截面边界放大至成衣腰长，见 placement.
+// buildWaistRing），侧缝语义竖直线方向随侧腰角（扁截面下前移）；腿区/
+// 躯干非腰口段照旧（有碰撞管终态）。缺省 waistRing = 旁挂 θ 角度表
+// 原口径，字节等价
 export function buildFullPair(
   front: ClothMesh, back: ClothMesh, field: BodyField,
   forkY: { front: number; back: number },
@@ -268,6 +275,8 @@ export function buildFullPair(
   lift: number = HANG_PRIOR.hangLift,   // 统一抬升（旁挂缺省 hangLift 抬离
                                         // 地面；穿台传人台腰地标锚 anchorLift
                                         // ——钉初始即钉在腰地标高度，2026-09-18）
+  waistRing?: WaistRing,                // 穿台腰圈钉环（形随体长随衣）；缺省
+                                        // 旁挂原口径（保回归零改动）
 ): Garment {
   const nF = front.xy.length / 2
   const nB = back.xy.length / 2
@@ -277,17 +286,47 @@ export function buildFullPair(
     { key: 'back', side: 'L', mesh: back, offset: 2 * nF },
     { key: 'back', side: 'R', mesh: back, offset: 2 * nF + nB },
   ]
-  // 腰头（九期）：底边链/环行走先验算（坏链降级无腰头——主展示不炸）
+  // 腰环行走（四段腰口弧 → 有序顶点链）：腰头配对（九期）与穿台腰圈
+  // 摆位（2026-09-19）共用；坏链时腰头降级无腰头（主展示不炸）、穿台
+  // 腰圈硬依赖（waistRing 在而行走失败 = 腰口无法摆位，直接抛）
+  const walk = (() => {
+    try { return ringWalk(parts) } catch (e) {
+      console.warn('[assemble] 腰环行走失败（腰头降级/腰圈不可用）:', e)
+      return null
+    }
+  })()
   const bandPlan = (() => {
-    if (!band) return null
+    if (!band || !walk) return null
     try {
-      const walk = ringWalk(parts)
       const targets = bandTargets(band, walk)
       if (!targets) return null
       return { walk, targets }
     } catch (e) {
       console.warn('[assemble] 腰头摆放降级（无腰头）:', e)
       return null
+    }
+  })()
+  if (waistRing && !walk) {
+    throw new Error('穿台腰圈摆位缺 top_chain 边（腰环行走失败）')
+  }
+  // 穿台腰圈映射：fabric 弧（ringWalk 纸样弧）→ 环弧换算 kScale，与左右
+  // 侧缝腰角弧位（fL/bR 段末；角点本体 = 顶链末再走一个边界步——边界
+  // 重采样角点共享规则，角点不在 top run 采样内）
+  const ringMap = !waistRing || !walk ? null : (() => {
+    const kScale = waistRing.total / walk.total
+    let arcL = 0, arcR = 0
+    for (let k = 0; k < walk.verts.length; k++) {
+      const v = walk.verts[k]
+      const nxt = walk.verts[k + 1]
+      if (nxt === undefined || nxt.part !== v.part) {
+        if (v.part === 0) arcL = v.arc        // fL 段末 = 左侧缝腰角
+        else if (v.part === 3) arcR = v.arc   // bR 段末 = 右侧缝腰角
+      }
+    }
+    return {
+      kScale,
+      cornerArcL: arcL + MESH_PRIOR.boundaryStep,
+      cornerArcR: arcR + MESH_PRIOR.boundaryStep,
     }
   })()
   const nBand = bandPlan ? band!.xy.length / 2 : 0
@@ -353,44 +392,69 @@ export function buildFullPair(
     }
   }
   // ---- 2) 腰圆 360° 整圈弧长重参数化（per part；order[0]=中缝腰角）----
-  for (const part of parts) {
-    const mesh = part.mesh
-    const top = mesh.runs.find((r) => r.role === 'top_chain')
-    const seamRun = mesh.runs.find(
-      (r) => r.name === 'rise' || r.name === 'cb')
-    if (!top || top.indices.length <= 1) continue
-    const seamTop = seamRun
-      ? seamRun.indices[seamRun.indices.length - 1] : null
-    const order = seamTop !== null
-      && seamTop === top.indices[top.indices.length - 1]
-      ? [...top.indices].reverse() : [...top.indices]
-    const arc: number[] = [0]
-    for (let k = 1; k < order.length; k++) {
-      const a = order[k - 1], b = order[k]
-      arc.push(arc[k - 1] + Math.hypot(
-        mesh.xy[2 * b] - mesh.xy[2 * a], mesh.xy[2 * b + 1] - mesh.xy[2 * a + 1]))
+  if (ringMap && waistRing && walk) {
+    // 穿台（2026-09-19 形随体长随衣）：顶链沿钉环弧长摆放——fabric 弧
+    // （ringWalk 纸样弧）× kScale 映到环弧：环长 = 成衣腰长，直款顶链
+    // 总弧 ≈ 带底净长 → 钉间距 = 纸样边长（零应变，腰头真实尺寸守恒的
+    // 摆位侧前提）；弯款身片省口富余按比例压缩 = bandWaist 吃势软褶。
+    // 中缝/侧缝腰角由弧长自然落位（扁截面下侧缝腰角前移是布量分布的
+    // 真实几何，不再钉死 0°/±90°）
+    for (const v of walk.verts) {
+      const p = ringPointAt(waistRing, v.arc * ringMap.kScale)
+      const part = parts[v.part]
+      const i3 = 3 * (part.offset + v.idx)
+      pos[i3] = p.x
+      pos[i3 + 1] = part.mesh.xy[2 * v.idx + 1]
+      pos[i3 + 2] = p.z
     }
-    const total = arc[order.length - 1] || 1
-    for (let k = 0; k < order.length; k++) {
-      const i = order[k]
-      const f = arc[k] / total
-      // f=0 中缝腰角落中面（front 0° / back −180°）、f=1 侧缝腰角落 ±90°
-      const thL = part.key === 'back'
-        ? -Math.PI + f * (Math.PI / 2)
-        : -f * (Math.PI / 2)
-      const th = part.side === 'R' ? -thL : thL
-      const y = mesh.xy[2 * i + 1]
-      const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
-      const i3 = 3 * (part.offset + i)
-      pos[i3] = r * Math.sin(th)
-      pos[i3 + 1] = y
-      pos[i3 + 2] = r * Math.cos(th)
+  } else {
+    for (const part of parts) {
+      const mesh = part.mesh
+      const top = mesh.runs.find((r) => r.role === 'top_chain')
+      const seamRun = mesh.runs.find(
+        (r) => r.name === 'rise' || r.name === 'cb')
+      if (!top || top.indices.length <= 1) continue
+      const seamTop = seamRun
+        ? seamRun.indices[seamRun.indices.length - 1] : null
+      const order = seamTop !== null
+        && seamTop === top.indices[top.indices.length - 1]
+        ? [...top.indices].reverse() : [...top.indices]
+      const arc: number[] = [0]
+      for (let k = 1; k < order.length; k++) {
+        const a = order[k - 1], b = order[k]
+        arc.push(arc[k - 1] + Math.hypot(
+          mesh.xy[2 * b] - mesh.xy[2 * a], mesh.xy[2 * b + 1] - mesh.xy[2 * a + 1]))
+      }
+      const total = arc[order.length - 1] || 1
+      for (let k = 0; k < order.length; k++) {
+        const i = order[k]
+        const f = arc[k] / total
+        // f=0 中缝腰角落中面（front 0° / back −180°）、f=1 侧缝腰角落 ±90°
+        const thL = part.key === 'back'
+          ? -Math.PI + f * (Math.PI / 2)
+          : -f * (Math.PI / 2)
+        const th = part.side === 'R' ? -thL : thL
+        const y = mesh.xy[2 * i + 1]
+        const r = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
+        const i3 = 3 * (part.offset + i)
+        pos[i3] = r * Math.sin(th)
+        pos[i3 + 1] = y
+        pos[i3 + 2] = r * Math.cos(th)
+      }
     }
   }
   // ---- 3) 侧缝语义摆位竖直线（六期 θ=±90° 的腿局部版）：躯干行照旧
   // 径向场 ±90°、腿行 = 腿外侧线（cAt+rAt+skin+gap），fork 过渡带内线性
   // 混合（带内两口径在 fork 处差 ~0.8cm，硬切会留台阶）。'side' 全 run
-  // 覆盖（后宿主育克侧段与后片侧缝各自成 run，同一顶点集）----
+  // 覆盖（后宿主育克侧段与后片侧缝各自成 run，同一顶点集）。穿台分支
+  // （2026-09-19）：竖直线方向 = 钉环侧缝腰角方向（与腰圈连续，扁截面
+  // 下前移；±90° 硬切会在角点与下一行间留 ~4cm 台阶）----
+  // 穿台侧缝腰角方向（旁挂缺省 null = ±90° 原口径）
+  const cornerDir = !ringMap || !waistRing ? null : (() => {
+    const pL = ringPointAt(waistRing, ringMap.cornerArcL * ringMap.kScale)
+    const pR = ringPointAt(waistRing, ringMap.cornerArcR * ringMap.kScale)
+    return { L: Math.atan2(pL.x, pL.z), R: Math.atan2(pR.x, pR.z) }
+  })()
   for (const part of parts) {
     const fork = part.key === 'back' ? forkY.back : forkY.front
     const legW = (y: number): number => {
@@ -403,15 +467,26 @@ export function buildFullPair(
       for (const i of run.indices) {
         const y = part.mesh.xy[2 * i + 1]
         const sgn = part.side === 'L' ? -1 : 1
-        const th = part.side === 'L' ? -Math.PI / 2 : Math.PI / 2
+        const th = cornerDir
+          ? cornerDir[part.side]
+          : (part.side === 'L' ? -Math.PI / 2 : Math.PI / 2)
         const radial = field.radiusAt(y, th) + HANG_PRIOR.garmentGap
         const lateral = axis.cAt(y) + axis.rAt(y)
           + CORE_SKIN + HANG_PRIOR.garmentGap
         const r = radial + (lateral - radial) * legW(y)
         const i3 = 3 * (part.offset + i)
-        pos[i3] = sgn * r
-        pos[i3 + 1] = y
-        pos[i3 + 2] = 0
+        if (cornerDir) {
+          // 向量式（θ 非特殊角）：躯干行沿角方向、腿行混合到腿外侧线
+          const rx = r * Math.sin(th), rz = r * Math.cos(th)
+          const w = legW(y)
+          pos[i3] = rx + (sgn * lateral - rx) * w
+          pos[i3 + 1] = y
+          pos[i3 + 2] = rz * (1 - w)
+        } else {
+          pos[i3] = sgn * r
+          pos[i3 + 1] = y
+          pos[i3 + 2] = 0
+        }
       }
     }
   }
@@ -420,8 +495,8 @@ export function buildFullPair(
   // 各自摆位后两角不重合——它们在钉集（sideHold 带首点）又是 side 缝对
   // 首对，不 snap 则钉与缝永久拔河。**角点本体 = side 合链首采样**（边
   // 界重采样共享角点规则；top run 末端只是角点前一步，写它没用）。前后
-  // 两角统一摆到平均 y（θ=±90°、r = 场(平均 y)+gap）——「钉与缝同意」
-  // 的腰圆闭合收尾；R 侧独立平均自动保 L/R 镜像（各 part 摆位本身镜像）
+  // 两角统一摆到平均 y（旁挂 θ=±90°、r = 场(平均 y)+gap；穿台 = 钉环
+  // 侧腰角弧位点）——「钉与缝同意」的腰圆闭合收尾
   for (const [iF, iB] of [[0, 2], [1, 3]] as const) {
     const cornerOf = (p: GarmentPart): { v: number; y: number } => {
       const chain = mergeRuns(
@@ -430,18 +505,33 @@ export function buildFullPair(
       return { v, y: p.mesh.xy[2 * v + 1] }
     }
     const fC = cornerOf(parts[iF]), bC = cornerOf(parts[iB])
-    const th = parts[iF].side === 'L' ? -Math.PI / 2 : Math.PI / 2
+    const cp = !ringMap || !waistRing ? null : ringPointAt(
+      waistRing,
+      (parts[iF].side === 'L' ? ringMap.cornerArcL : ringMap.cornerArcR)
+        * ringMap.kScale)
+    const th = cp !== null
+      ? Math.atan2(cp.x, cp.z)
+      : (parts[iF].side === 'L' ? -Math.PI / 2 : Math.PI / 2)
     const yAvg = (fC.y + bC.y) / 2
-    const r = field.radiusAt(yAvg, th) + HANG_PRIOR.garmentGap
+    const r = cp !== null
+      ? Math.hypot(cp.x, cp.z)
+      : field.radiusAt(yAvg, th) + HANG_PRIOR.garmentGap
     for (const [p, c] of [[parts[iF], fC], [parts[iB], bC]] as const) {
       const i3 = 3 * (p.offset + c.v)
-      pos[i3] = r * Math.sin(th)
-      pos[i3 + 1] = yAvg
-      pos[i3 + 2] = r * Math.cos(th)
+      if (cp !== null) {
+        pos[i3] = cp.x
+        pos[i3 + 1] = yAvg
+        pos[i3 + 2] = cp.z
+      } else {
+        pos[i3] = r * Math.sin(th)
+        pos[i3 + 1] = yAvg
+        pos[i3 + 2] = r * Math.cos(th)
+      }
     }
     // 高差渐变（（十）腰头侧缝不平整）：角点两侧 waistBlendSpan 弧内的
     // 顶链顶点 y 向 snap 高度渐变——只平均角点会在缝口两侧留台阶，腰头
-    // 底边跟出折点。order[last] = 侧缝腰角端，弧距 = total − arc[k]
+    // 底边跟出折点。order[last] = 侧缝腰角端，弧距 = total − arc[k]。
+    // 穿台分支：钉环是 2D 钉目标（与 y 无关），只渐变 y、x/z 保持环位
     for (const p of [parts[iF], parts[iB]]) {
       const top = p.mesh.runs.find((rr) => rr.role === 'top_chain')!
       const seam = p.mesh.runs.find((rr) => rr.name === 'rise' || rr.name === 'cb')
@@ -463,13 +553,17 @@ export function buildFullPair(
         const w = 1 - fromCorner / (span || 1)
         const i3 = 3 * (p.offset + order[k])
         const yNew = pos[i3 + 1] * (1 - w) + yAvg * w
-        // 半径随 y 同步重算（场半径沿高度变化——y 调低不更新 r 会陷进
-        // 碰撞壳 ~0.07cm，钉与 collide 打架，有省款金标实测）
-        const th = Math.atan2(pos[i3], pos[i3 + 2])
-        const r = field.radiusAt(yNew, th) + HANG_PRIOR.garmentGap
-        pos[i3] = r * Math.sin(th)
-        pos[i3 + 1] = yNew
-        pos[i3 + 2] = r * Math.cos(th)
+        if (cp !== null) {
+          pos[i3 + 1] = yNew
+        } else {
+          // 半径随 y 同步重算（场半径沿高度变化——y 调低不更新 r 会陷进
+          // 碰撞壳 ~0.07cm，钉与 collide 打架，有省款金标实测）
+          const th = Math.atan2(pos[i3], pos[i3 + 2])
+          const r = field.radiusAt(yNew, th) + HANG_PRIOR.garmentGap
+          pos[i3] = r * Math.sin(th)
+          pos[i3 + 1] = yNew
+          pos[i3 + 2] = r * Math.cos(th)
+        }
       }
     }
   }
@@ -507,13 +601,42 @@ export function buildFullPair(
     const { walk, targets } = bandPlan
     parts.push({ key: 'waistband', side: 'L', mesh: band!,
       offset: 2 * nF + 2 * nB })
+    // 穿台带顶环（2026-09-19）：腰上方身体围收窄但前腹外凸（base.bin 实测
+    // y=98→102.5：周长 69.05→67.11、前 z 14.72→15.55）——带顶边沿用腰站环
+    // x,z 会前腹嵌体 0.3~0.6（钉 XZ 冻结救不回）。顶环 = 「环源行+带宽」行
+    // 截面同口径缩放（该行形随体长随衣：上方收窄 → 真实带顶微悬空 ~0.5；
+    // 隆起体则负 gap 顶紧）。带列 XZ 随 v 从底环位渐变到顶环位；顶环构建
+    // 失败退化竖直列（旁挂路径不触发）
+    let topRing: WaistRing | null = null
+    let vMax = 0
+    if (ringMap && waistRing) {
+      for (const t of targets) vMax = Math.max(vMax, t.v)
+      if (vMax > 0.01) {
+        try {
+          topRing = buildWaistRing(field, waistRing.y + vMax, waistRing.total)
+        } catch {
+          topRing = null
+        }
+      }
+    }
     for (let i = 0; i < targets.length; i++) {
       const r = walk.verts[targets[i].ringK]
       const gi = 3 * (parts[r.part].offset + r.idx)
       const bi = 3 * (parts[4].offset + i)
-      pos[bi] = pos[gi]
-      pos[bi + 1] = pos[gi + 1] + targets[i].v
-      pos[bi + 2] = pos[gi + 2]
+      const f = topRing !== null ? targets[i].v / vMax : 0
+      if (topRing !== null && f > 0) {
+        // 配对底边环顶点的环弧（纸样弧 × kScale）等比例映到顶环
+        const sB = r.arc * ringMap!.kScale
+        const tp = ringPointAt(
+          topRing, sB * (topRing.total / waistRing!.total))
+        pos[bi] = pos[gi] + (tp.x - pos[gi]) * f
+        pos[bi + 1] = pos[gi + 1] + targets[i].v
+        pos[bi + 2] = pos[gi + 2] + (tp.z - pos[gi + 2]) * f
+      } else {
+        pos[bi] = pos[gi]
+        pos[bi + 1] = pos[gi + 1] + targets[i].v
+        pos[bi + 2] = pos[gi + 2]
+      }
     }
   }
   // ---- 5) 统一抬升 lift（最后施加，含全部钉目标；上方场查询均用

@@ -220,3 +220,73 @@ describe('drape：整裤缝合芯碰撞解算（八期）——有省款退化�
     assertFullPants(sim, placed, { degradedSide: true })
   })
 })
+
+describe('drape：脚口环带刚度 stamp（2026-09-19（二）脚口前缘脱扣修复）', () => {
+  // 真实牛仔裤脚口 = 双折卷边+车缝硬圈：hem 链 hemBandSpan 内弯曲约束
+  // 刚度升 hemBandStiffness（抗剪切压折——穿台掉裆加深时环口保持圆形、
+  // 前缘不滑过脚背冠）。验收 = 第三窗存在性：「只被 hem 窗覆盖」的约束
+  // （缝口摊平/腰臀过渡两窗皆窗外）必须取 hemBandStiffness——删 hem 窗
+  // 即回落 0.3 假绿；大腿中段对照回落 bendStiffness。k/span 窗口地图
+  // 见 priors.hemBandStiffness 注释（3/3.5/6 与 k 0.8/1.0 均已证伪）
+  it('hem 窗覆盖约束取 hemBandStiffness、三窗外回落 bendStiffness', { timeout: 60000 }, () => {
+    const { placed } = buildPant(load('fixture_fitting.json'))
+    let inHem = 0, hemOnly = 0, plain = 0
+    const seen = new Set<unknown>()
+    for (const part of placed.parts) {
+      if (part.key === 'waistband' || seen.has(part.mesh)) continue
+      seen.add(part.mesh)   // L/R 共享 ClothMesh，重复写同值幂等
+      const mesh = part.mesh
+      expect(mesh.bendKArr).toBeDefined()
+      const ptsOf = (names: string[]): number[] => {
+        const pts: number[] = []
+        for (const r of mesh.runs) {
+          if (!names.includes(r.name)) continue
+          for (const i of r.indices) pts.push(mesh.xy[2 * i], mesh.xy[2 * i + 1])
+        }
+        return pts
+      }
+      const hemPts = ptsOf(['hem'])
+      const seamPts = ptsOf(['side', 'inseam'])
+      expect(hemPts.length).toBeGreaterThan(0)
+      const dMin = (pts: number[], x: number, y: number): number => {
+        let d = Infinity
+        for (let k = 0; k < pts.length; k += 2) {
+          d = Math.min(d, Math.hypot(pts[k] - x, pts[k + 1] - y))
+        }
+        return d
+      }
+      const top = mesh.runs.find((r) => r.role === 'top_chain')
+      let topY = -Infinity
+      if (top) {
+        for (const i of top.indices) topY = Math.max(topY, mesh.xy[2 * i + 1])
+      }
+      for (let c = 0; c < mesh.bend.length; c += 3) {
+        const i = mesh.bend[c], j = mesh.bend[c + 1]
+        const mx = (mesh.xy[2 * i] + mesh.xy[2 * j]) / 2
+        const my = (mesh.xy[2 * i + 1] + mesh.xy[2 * j + 1]) / 2
+        const dHem = dMin(hemPts, mx, my)
+        const dSeam = dMin(seamPts, mx, my)
+        const inTrans = topY > -Infinity
+          && my >= topY - DRAPE_PRIOR.waistTransitionSpan
+        if (dHem < DRAPE_PRIOR.hemBandSpan) {
+          inHem++
+          if (dSeam >= DRAPE_PRIOR.seamFlattenSpan && !inTrans) {
+            expect(mesh.bendKArr![c / 3], 'hem-only 约束刚度')
+              .toBe(DRAPE_PRIOR.hemBandStiffness)
+            hemOnly++
+          }
+        } else if (dSeam >= DRAPE_PRIOR.seamFlattenSpan && !inTrans) {
+          // Float32 量化：0.3 存不精确（本仓已知坑），CloseTo 6 位
+          expect(mesh.bendKArr![c / 3], '三窗外约束刚度')
+            .toBeCloseTo(DRAPE_PRIOR.bendStiffness, 6)
+          plain++
+        }
+      }
+    }
+    // 规模把门（diag 实测 front+back 两 mesh 合计 stamp ~285 约束；
+    // 腰头无 hem 链被跳过）
+    expect(inHem).toBeGreaterThan(100)
+    expect(hemOnly).toBeGreaterThan(10)
+    expect(plain).toBeGreaterThan(50)
+  })
+})

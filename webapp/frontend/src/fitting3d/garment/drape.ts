@@ -87,7 +87,7 @@ export function buildDrape(
   // 无腰头 = 旧口径：身片腰口整圈钉 + sideHold 带
   const bandPart = garment.parts.find((p) => p.key === 'waistband')
   for (const part of garment.parts) {
-    stampSeamFlatten(part)
+    stampStiffBands(part)
     // 有腰头（九期）：身片腰口环照旧整圈钉（「腰部圆形撑开」的全义
     // ——整个腰口区保持圆；早期只钉带顶时自由垂挂的对折趋势把前中/
     // 后中往里拖 1.2cm、只加钉带底时缝对与身片网格 GS 冲突平衡留
@@ -201,21 +201,25 @@ function projectPins(sim: DrapeSim): void {
   }
 }
 
-// 缝口摊平窗 + 腰臀过渡带（2026-09-17（八）缝口刀锋卷边、（九）腰臀
-// 段山脊/前后片叠合——两窗共用 seamFlattenStiffness 覆写 bendKArr）：
+// 局部刚度带覆写 bendKArr（三窗）：缝口摊平窗 + 腰臀过渡带（2026-09-17
+// （八）缝口刀锋卷边、（九）腰臀段山脊——两窗共用 seamFlattenStiffness）
+// + 脚口环带（2026-09-19（二）前缘脱扣修复，hemBandStiffness——真实
+// 牛仔裤脚口是双折卷边+车缝硬圈，抗剪切压折，环口保持圆形，穿台掉裆
+// 加深时前缘不滑过脚背冠）。
 // 自由垂挂前后片近乎平行贴合，侧缝/内缝 = 180° 对折的刀锋卷边——
 // 距 side/inseam 链纸样距离 < seamFlattenSpan 的弯曲约束，刚度升到
 // seamFlattenStiffness，折痕摊开成缓坡（「向两边拉直」的物理实现：
 // 全局 bend 0.45 实测无效——重力压平镜头截面缝尖不动，必须局部作用
 // 在折边上）。stamp 一次幂等（bendKArr 已在则跳过）
-function stampSeamFlatten(
+function stampStiffBands(
   part: { mesh: Garment['parts'][number]['mesh'] },
 ): void {
   const mesh = part.mesh
   if (mesh.bendKArr || mesh.bend.length === 0) return
   const seamRuns = mesh.runs.filter(
     (r) => r.name === 'side' || r.name === 'inseam')
-  if (seamRuns.length === 0) return
+  const hemRuns = mesh.runs.filter((r) => r.name === 'hem')
+  if (seamRuns.length === 0 && hemRuns.length === 0) return
   const span = DRAPE_PRIOR.seamFlattenSpan
   // 缝链 2D 点集（预抽，逐约束中点查最近距）
   const pts: number[] = []
@@ -227,6 +231,22 @@ function stampSeamFlatten(
   const nearSeam = (x: number, y: number): boolean => {
     for (let k = 0; k < pts.length; k += 2) {
       if (Math.hypot(pts[k] - x, pts[k + 1] - y) < span) return true
+    }
+    return false
+  }
+  // 脚口环带（（二）修复）：hem 链 hemBandSpan 内弯曲约束刚度升到
+  // hemBandStiffness——优先于缝口窗判（重叠区两者同值 0.5，语义上
+  // hem 带更具体）。窗口地图见 priors.hemBandStiffness 注释
+  const hemSpan = DRAPE_PRIOR.hemBandSpan
+  const hemPts: number[] = []
+  for (const run of hemRuns) {
+    for (const i of run.indices) {
+      hemPts.push(mesh.xy[2 * i], mesh.xy[2 * i + 1])
+    }
+  }
+  const nearHem = (x: number, y: number): boolean => {
+    for (let k = 0; k < hemPts.length; k += 2) {
+      if (Math.hypot(hemPts[k] - x, hemPts[k + 1] - y) < hemSpan) return true
     }
     return false
   }
@@ -249,7 +269,9 @@ function stampSeamFlatten(
     const i = mesh.bend[c], j = mesh.bend[c + 1]
     const mx = (mesh.xy[2 * i] + mesh.xy[2 * j]) / 2
     const my = (mesh.xy[2 * i + 1] + mesh.xy[2 * j + 1]) / 2
-    if (nearSeam(mx, my) || inTransition(my)) {
+    if (nearHem(mx, my)) {
+      arr[c / 3] = DRAPE_PRIOR.hemBandStiffness
+    } else if (nearSeam(mx, my) || inTransition(my)) {
       arr[c / 3] = DRAPE_PRIOR.seamFlattenStiffness
     }
   }
@@ -361,7 +383,8 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
           pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
           pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
         }
-        // 弯曲约束（内边对点；全局 0.3 / 缝口摊平窗覆写）
+        // 弯曲约束（内边对点；全局 0.3 / 局部刚度带三窗覆写：缝口摊平
+        // + 腰臀过渡 + 脚口环带）
         const bendK = part.mesh.bendKArr
         for (let c = 0; c < bend.length; c += 3) {
           const a = 3 * (off + bend[c]), b = 3 * (off + bend[c + 1])

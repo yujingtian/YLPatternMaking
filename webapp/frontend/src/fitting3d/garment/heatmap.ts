@@ -3,8 +3,10 @@
 //   gap 间隙 = 布离身体距离（贴身≈0/适中余量/松垮悬空）→ 看松量分布
 //   strain 应变 = 布料网格被拉伸程度（绷紧=偏小信号/压缩=堆布）→ 看偏小
 // 两者互补一个开关切换，色带沿用一期口径**红紧/绿贴(适中)/蓝松**。
-// · gap 逐粒子 = nearestRingBoundary − CORE_SKIN（与 collide 推出位同
-//   口径：0 = 恰在接触壳上、负 = 穿透；无环行/超 margin 钳 gapMax 松端）
+// · gap 逐粒子 = 带符号距离 − CORE_SKIN（外法线点积：体外为正、体内为
+//   负——2026-09-19 口径「穿不进需要在热力图中体现」：穿体深度读红端，
+//   旧无符号口径把体内深点误读成正值=松；0 = 恰在接触壳上；无环行/超
+//   margin 钳 gapMax 松端）
 // · strain 逐顶点 = 参与的 dist 约束 (len−rest)/rest 的 signed 最大值
 //   （最被拉长的一条边；rest = 纸样净长）
 // · 开关切换只重着色当前帧，不重跑仿真（heatmap.ts 无状态）
@@ -27,7 +29,12 @@ export function computeHeat(sim: DrapeSim, mode: HeatMode): Float32Array {
       const rings = sim.field.loopsAt(y - sim.yLift)
       if (rings.length === 0) { out[i] = HEAT_PRIOR.gapMax; continue }
       const hit = nearestRingBoundary(rings, x, z, margin)
-      out[i] = hit === null ? HEAT_PRIOR.gapMax : hit.d - CORE_SKIN
+      if (hit === null) {
+        out[i] = HEAT_PRIOR.gapMax
+      } else {
+        // 带符号距离：p−最近边界点 在外法线上的投影（体外正/体内负）
+        out[i] = (x - hit.px) * hit.nx + (z - hit.pz) * hit.nz - CORE_SKIN
+      }
     }
   } else {
     // strain：三角网格每顶点至少连一条 dist 边，NaN 哨兵兜底无约束顶点

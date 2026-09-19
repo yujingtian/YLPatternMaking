@@ -87,7 +87,12 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   （hold→lowering 前后裆独立探针缓释钉高俯仰涌现→settle→done）、DressReport 合身读数（掉裆/接触三态/
 #   最差穿透 tooSmall——读数提示不改版型）、滑杆 ref 冻结+「重新试穿」手动闭环；脚碰撞修复
 #   （场 yMin 下探罩脚底消除行表负 y 盲区 + 腿轴扫描止踝防脚环喇叭摆位）+ 热力图双通道
-#   （heatmap.ts：间隙=布离体距离/应变=网格拉伸，一个开关切换、只重着色不重跑仿真）；
+#   （heatmap.ts：间隙=布离体距离/应变=网格拉伸，一个开关切换、只重着色不重跑仿真）+ 腰圈钉环
+#   形随体长随衣（2026-09-19：穿台腰口钉环 = 腰站截面边界放大至成衣腰长——形状随体/尺寸随衣
+#   互不锚定，穿不进由带符号热力图 gap 红区读出；口径 §10.11）
+#   + 脚口环带刚度（2026-09-19（二）：priors hemBandStiffness 0.5/hemBandSpan 4——
+#   真实脚口双折卷边硬圈，穿台掉裆加深时脚口前缘保持挂扣脚背不滑脱，
+#   drape.stampStiffBands 局部刚度带三窗之一）；
 #   其余裁片照旧平铺验证通道（assemble.buildFlatLayout
 #   exclude 前后身组——排除锚且守卫通过时整组离开；STITCH_GROUPS 平面缝合拼合组照旧：机头(back_yoke)+后片、
 #   袋贴+前片，贴合守卫 <0.5cm，有省款 yoke 省闭口错位退独立行）+ render.ts PIECE_COLORS 逐片分色（前蓝/后绿/

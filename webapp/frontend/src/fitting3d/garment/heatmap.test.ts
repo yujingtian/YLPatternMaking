@@ -1,8 +1,10 @@
 // 穿台热力图金标（2026-09-18）：computeHeat 双通道 + heatColor 色带的
 // 合成场单元验证（与 dressfield.test.ts 同款手搓几何——正多边形环构造
 // 即知）。手工演算：
-// · gap 场中心粒子：16 边形环 r=5 圆心到边距离 = 5·cos(π/16) ≈ 4.904，
-//   gap = 4.904 − CORE_SKIN(0.98) ≈ 3.924
+// · gap **带符号**（2026-09-19「穿不进需要在热力图中体现」：旧无符号
+//   d−skin 把体内深点误读成正=松）：gap = (p−最近边界点)·外法线 − CORE_SKIN
+//   ——环心粒子在体内：投影 = −5·cos(π/16) ≈ −4.904，gap ≈ −5.884 读红端；
+//   边中点法线外 6cm 点：raw = 6−4.904 = 1.096，gap ≈ 0.116
 // · strain：p0-p1 len 2 rest 1 → s=+1（+100%）；p1-p2 len 3 rest 4 →
 //   s=−0.25；顶点取参与约束的 signed 最大值
 // · 色带（修复反向后）：gap 0→红/2→绿/4→蓝；strain +6%→红/0→绿/−6%→蓝
@@ -45,10 +47,19 @@ describe('computeHeat 间隙通道', () => {
   // 单行环场：row 0（y=0）一枚 r=5 环；row 1 空（无环行 → 松端）
   const field = mkField([[ring(0, 0, 5)], []])
 
-  it('环心粒子：gap = 到边界距离 − 接触壳（贴身口径同 collide 推出位）', () => {
+  it('环心粒子（体内深点）：gap 带符号读负 = 穿透红端', () => {
     const v = computeHeat(mkSim([0, 0, 0], { field }), 'gap')
     expect(v.length).toBe(1)
-    expect(v[0]).toBeCloseTo(5 * Math.cos(Math.PI / 16) - CORE_SKIN, 6)
+    expect(v[0]).toBeCloseTo(-5 * Math.cos(Math.PI / 16) - CORE_SKIN, 6)
+  })
+
+  it('边中点法线外近点：gap = 径向距 − 到边投影 − 接触壳（体外正）', () => {
+    // 边 0-1 中点方向 11.25°、半径 6 的点：垂足 = 边中点（正多边形对称），
+    // 外法线 = 该径向 → raw = 6 − 5·cos(π/16)
+    const th = Math.PI / 16
+    const v = computeHeat(
+      mkSim([6 * Math.cos(th), 0, 6 * Math.sin(th)], { field }), 'gap')
+    expect(v[0]).toBeCloseTo(6 - 5 * Math.cos(Math.PI / 16) - CORE_SKIN, 6)
   })
 
   it('环外超 margin / 无环行：钳 gapMax 松端；yLift 换算回纸样系查行', () => {
@@ -60,7 +71,7 @@ describe('computeHeat 间隙通道', () => {
     expect(empty[0]).toBe(HEAT_PRIOR.gapMax)
     // 世界系 y 扣 yLift 查同一行：环心 gap 与首例逐位相等
     const lifted = computeHeat(mkSim([0, 7.6, 0], { field, yLift: 7.6 }), 'gap')
-    expect(lifted[0]).toBeCloseTo(5 * Math.cos(Math.PI / 16) - CORE_SKIN, 6)
+    expect(lifted[0]).toBeCloseTo(-5 * Math.cos(Math.PI / 16) - CORE_SKIN, 6)
   })
 
   it('field 为 null（旁挂自由垂）：全 0 中性', () => {

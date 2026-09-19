@@ -247,6 +247,98 @@ export function nearestRingBoundary(
     : { d: bd, px: bx, pz: bz, nx: bnx, nz: bnz }
 }
 
+// ---- 穿台腰圈钉环（2026-09-19 口径：形随体、长随衣）----
+// 用户拍板（复拍板，原「半径=成衣腰长/2π」按圆截面假设不成立——base.bin
+// 实测腰截面侧 12.72/前 14.74/后 2.69、截面中心前偏 ~5.3cm、场周长
+// 68.95=站点 69；等周圆 11.16 罩不住横径 12.72，正圆钉圈侧面嵌体 1.6、
+// 右前最深 4.6cm，钉 XZ 冻结碰撞救不回）：「模拟真实的情况、腰头尺寸
+// 多少就是多少、穿不进在热力图体现」→ 钉环 = 腰站截面边界整体放大
+// s = 成衣腰长 ÷ 截面周长：
+//   · 形状来自人体（真实腰头贴合截面变形）、尺寸来自布长（环长严格
+//     = 成衣腰）——互不锚定，偏大 s>1 全场体外（间隙随截面比例 0.05~
+//     0.25cm 非均匀）、偏小 s<1 穿体（碰撞推挤 + 热力图 gap 红区 =
+//     穿不进读数）；旁挂分支不建环（原口径）
+export interface WaistRing {
+  pts: Float64Array      // 2N 闭合折线（缩放后终环，N 点等弧长重采样）
+  arc: Float64Array      // N 累计弦弧长（arc[0]=0；末段闭回 pts[0]）
+  total: number          // 环全长 ≈ 成衣腰长 C（重采样弦差 <0.5%）
+  y: number              // 源截面行（assemble 带顶环按 y+带宽取行派生）
+}
+
+// 腰站 y 行截面边界 → 长度恰为 C 的钉环：取该行首个闭环，前中（+Z 最
+// 远点）起、向左（−X）行走（与 band.ringWalk 环序一致），等弧长重采样
+// 后绕原点整体放大 s = C/周长（原点在截面内、环星形——缩放保持包含
+// 且周长严格 ×s；不支持场带撑型芯的多环行，腰站单环）
+export function buildWaistRing(
+  field: BodyField, y: number, circumference: number,
+): WaistRing {
+  const rings = field.loopsAt(y)
+  if (rings.length === 0) {
+    throw new Error(`y=${y.toFixed(1)} 行无截面环——腰圈钉环无法构建`)
+  }
+  const src = rings[0].pts
+  const n = src.length / 2
+  if (n < 8 || !Number.isFinite(circumference) || circumference <= 0) {
+    throw new Error('腰站截面环退化或成衣腰长非法——腰圈钉环无法构建')
+  }
+  // 前中起点 = +Z 支撑最大点；行走方向取下一步 x 更小（向左）
+  let start = 0, bestZ = -Infinity
+  for (let k = 0; k < n; k++) {
+    if (src[2 * k + 1] > bestZ) { bestZ = src[2 * k + 1]; start = k }
+  }
+  const dir = src[2 * ((start + 1) % n)] < src[2 * ((start - 1 + n) % n)] ? 1 : -1
+  const order: number[] = []
+  for (let k = 0; k < n; k++) order.push(((start + dir * k) % n + n) % n)
+  // 原折线闭周长 + 沿序累计弧长表
+  const cum: number[] = [0]
+  for (let k = 0; k < n; k++) {
+    const a = 2 * order[k], b = 2 * order[(k + 1) % n]
+    cum.push(cum[k] + Math.hypot(src[b] - src[a], src[b + 1] - src[a + 1]))
+  }
+  const len = cum[n]
+  // 等弧长重采样（N·spacing 恰铺满闭合折线）后绕原点缩放 s = C/len
+  const N = Math.max(64, Math.round(len / DRESSING_PRIOR.waistRingStep))
+  const spacing = len / N
+  const s = circumference / len
+  const pts = new Float64Array(2 * N)
+  const arc = new Float64Array(N)
+  let j = 0
+  for (let k = 0; k < N; k++) {
+    const target = k * spacing
+    while (j < n - 1 && cum[j + 1] < target) j++
+    const a = 2 * order[j], b = 2 * order[(j + 1) % n]
+    const seg = cum[j + 1] - cum[j] || 1
+    const t = (target - cum[j]) / seg
+    pts[2 * k] = (src[a] + (src[b] - src[a]) * t) * s
+    pts[2 * k + 1] = (src[a + 1] + (src[b + 1] - src[a + 1]) * t) * s
+    if (k > 0) {
+      arc[k] = arc[k - 1] + Math.hypot(
+        pts[2 * k] - pts[2 * k - 2], pts[2 * k + 1] - pts[2 * k - 1])
+    }
+  }
+  const total = arc[N - 1] + Math.hypot(
+    pts[0] - pts[2 * (N - 1)], pts[1] - pts[2 * (N - 1) + 1])
+  return { pts, arc, total, y }
+}
+
+// 弧长 → 环上点（二分段插值；s 夹取 [0,total]，末段闭回 pts[0]）
+export function ringPointAt(ring: WaistRing, s: number): { x: number; z: number } {
+  const t = Math.max(0, Math.min(ring.total, s))
+  let lo = 0, hi = ring.arc.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (ring.arc[mid] <= t) lo = mid; else hi = mid - 1
+  }
+  const k = lo, k2 = (k + 1) % ring.arc.length
+  const a0 = ring.arc[k]
+  const a1 = k + 1 < ring.arc.length ? ring.arc[k + 1] : ring.total
+  const f = a1 > a0 ? (t - a0) / (a1 - a0) : 0
+  return {
+    x: ring.pts[2 * k] + (ring.pts[2 * k2] - ring.pts[2 * k]) * f,
+    z: ring.pts[2 * k + 1] + (ring.pts[2 * k2 + 1] - ring.pts[2 * k + 1]) * f,
+  }
+}
+
 // 人台切片环 → LegAxis（穿台摆位腿区输入；数据源无关——旁挂仍用
 // core.buildLegAxis 纸样站口径）。自裆地标向下 forkSearch 窗内找**首个
 // 恰 2 闭环行** = 有效叉口 forkEff（体裆地标处切片可能仍单环）；双环行

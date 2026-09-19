@@ -53,7 +53,7 @@ import type { FittingResult, Snapshot } from '../types'
 import { buildFlatLayout, buildFullPair, type Garment } from './garment/assemble'
 import { buildCore, buildLegAxis } from './garment/core'
 import {
-  buildBodyField, buildLegAxisFromRings, shiftPositionsY,
+  buildBodyField, buildLegAxisFromRings, buildWaistRing, shiftPositionsY,
 } from './garment/placement'
 import { buildDrape, stepDrape, type DrapeSim } from './garment/drape'
 import {
@@ -63,7 +63,7 @@ import {
 import { buildClothMesh } from './garment/mesh'
 import { buildBackPanel, buildFrontPanel } from './garment/panel'
 import { bindRider } from './garment/rider'
-import { buildWaistbandMesh } from './garment/band'
+import { bandBottomChain, buildWaistbandMesh } from './garment/band'
 import { FIELD_PRIOR, FLAT_PRIOR, HANG_PRIOR, HEAT_PRIOR } from './garment/priors'
 import { computeHeat, type HeatMode } from './garment/heatmap'
 import {
@@ -484,9 +484,19 @@ export default function Fitting3DView({
         // rProf 会让裤脚摆位喇叭张开
         const legAxisM = buildLegAxisFromRings(
           fieldM, lmCrotch * sf - anchorLift, lmAnkle * sf - anchorLift)
+        // 腰圈钉环（2026-09-19 形随体长随衣）：形状 = 腰站人台截面边界、
+        // 尺寸 = 成衣腰长（优先腰头带底净长——收省后口径；无腰头/坏链
+        // 回退腰站 girth_finished 成衣量）。腰头真实尺寸守恒 + 贴体真实
+        // 形状；偏小款 s<1 穿体 → 碰撞推挤 + 热力图 gap 红区（穿不进读数）
+        const waistLen = (bandMesh && bandBottomChain(bandMesh)?.runLength)
+          ?? waistSt.girth_finished
+        if (waistLen == null) {
+          throw new Error('缺成衣腰长（腰头带底净长/腰站 girth_finished 均缺）——穿台无法定腰圈钉环')
+        }
+        const waistRing = buildWaistRing(fieldM, waistSt.y, waistLen)
         pair = buildFullPair(panel.host, backPanel.host, fieldM, {
           front: legAxisM.forkY, back: legAxisM.forkY,
-        }, legAxisM, bandMesh, anchorLift)
+        }, legAxisM, bandMesh, anchorLift, waistRing)
         // 落位 = settle 控制器：拉到腰地标 → 前后裆探针驱动钉高独立
         // 缓释（俯仰涌现）→ 零穿透静止出读数（真人「裆不舒服一点点
         // 往下」的仿真翻译，口径见 settle.ts 头注）
