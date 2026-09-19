@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type {
   DraftPayload, HandleBinding, HandleInfo, Schema, Transform,
@@ -400,8 +400,13 @@ export default function SheetView({
   }, [])
 
   // ---------- overlay：每次整版刷新重建（React 重注入销毁旧子树） ----------
+  // 必须用 useLayoutEffect（2026-09-19 用户报障：先缩小再拖把手，画面每次
+  // 重生成都先闪一帧放大）：拖拽回写 -> svg 字符串变化 -> innerHTML 整体重
+  // 注入，新 svg 带引擎固有默认 viewBox（适配视图）；useEffect 在绘制后才
+  // 回放用户缩放态，闪帧窗口 = 整帧。useLayoutEffect 在 DOM 提交后、绘制前
+  // 同步回放，窗口归零。缩放/平移自身不重注入 svg 元素（只改属性）无此问题
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const host = hostRef.current
     const svgEl = host?.querySelector('svg') as SVGSVGElement | null
     if (!svgEl) return

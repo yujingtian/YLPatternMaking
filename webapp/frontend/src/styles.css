@@ -36,9 +36,12 @@ html, body, #root { height: 100%; margin: 0; }
   padding: 8px; border-top: 1px solid #e8e8e8; background: #fff;
 }
 .app-main { display: flex; flex: 1; min-height: 0; }
-/* 右栏：3D 主视图（常驻）/ 高级编辑工作台（advanced 时整体替换） */
+/* 右栏：顶部视图切换条（2026-09-19 默认整版）+ 内容区。
+   '2d' 高级编辑（默认）/ '3d' 3D 试穿——Fitting3DView 切入才挂载 */
 .right-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.right-pane > .fitting3d { flex: 1; }
+.right-mode-bar { padding: 8px 8px 0; border-bottom: 1px solid #e8e8e8; }
+.right-mode-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.right-mode-body > .fitting3d { flex: 1; }
 
 /* ---- 参数面板（全部参数页签；左栏几何由 .left-panel 承担） ---- */
 .param-panel {
@@ -370,3 +373,31 @@ html, body, #root { height: 100%; margin: 0; }
   display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
 }
 .ec-status { width: 16px; flex: none; text-align: center; }
+
+/* ---- 启动初始化选择层（每次启动先选参数来源，2026-09-19） ---- */
+/* 不透明 fixed 遮罩：zIndex 900 < antd Modal 1000，从本层拉起的提取
+   向导弹层天然盖在其上（取消即自然退回本层） */
+.init-gate {
+  position: fixed; inset: 0; z-index: 900;
+  display: flex; align-items: center; justify-content: center;
+  background: #fafafa;
+}
+.init-gate-card {
+  width: 720px; max-width: calc(100vw - 48px);
+  background: #fff; border: 1px solid #e8e8e8; border-radius: 8px;
+  padding: 28px 32px;
+}
+.init-gate-card h2 { margin: 0 0 4px; font-size: 20px; color: #2c6e49; }
+.init-gate-sub { margin: 0 0 20px; color: #888; font-size: 13px; }
+.init-gate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.init-option {
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  padding: 14px; border: 1px solid #eee; border-radius: 6px; background: #fff;
+}
+.init-option:hover { border-color: #2c6e49; }
+.init-option-title {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-weight: 600; font-size: 14px; color: #333;
+}
+.init-option-title .anticon { color: #2c6e49; }
+.init-option-desc { color: #999; font-size: 12px; line-height: 1.6; }

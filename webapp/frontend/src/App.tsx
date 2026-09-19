@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { App as AntApp, Alert, Button, ConfigProvider, Segmented, Tag } from 'antd'
-import { CameraOutlined, DownloadOutlined, EditOutlined } from '@ant-design/icons'
+import {
+  DownloadOutlined, FileAddOutlined, PlayCircleOutlined,
+} from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
-import TemplatePicker from './components/TemplatePicker'
+import InitGate from './components/InitGate'
 import ParamPanel from './components/ParamPanel'
 import CoreParams from './components/CoreParams'
 import AdvancedEditor from './components/AdvancedEditor'
@@ -10,7 +12,7 @@ import ExportCenter from './components/ExportCenter'
 import SizeRunDrawer from './components/SizeRunDrawer'
 import ExtractWizard from './components/ExtractWizard'
 import Fitting3DView from './fitting3d/Fitting3DView'
-import type { IssueDetail } from './types'
+import type { IssueDetail, SizeRunSpec, Values } from './types'
 import { useDraft } from './hooks/useDraft'
 import './styles.css'
 
@@ -68,26 +70,48 @@ function DraftApp() {
   const [dragging, setDragging] = useState(false)
   // 推板设置抽屉开合（导出中心「推板设置」/未配置引导均转到此处）
   const [sizeRunOpen, setSizeRunOpen] = useState(false)
-  // 提取向导弹层开合（与模板载入同属"填表单"动作，入口在 header）
+  // 提取向导弹层开合（2026-09-19 起唯一入口 = 启动选择层「从照片提取」，
+  // header 按钮已随入口收口删除；取消自然退回选择层）
   const [extractOpen, setExtractOpen] = useState(false)
   // 导出中心弹层开合（勾选产物 -> 逐项串行下载）
   const [exportOpen, setExportOpen] = useState(false)
-  // 高级编辑模式：右栏 3D 主视图整体替换为 2D 工作台，退出回到 3D
-  const [advanced, setAdvanced] = useState(false)
+  // 右栏主视图切换（2026-09-19 用户口径「默认是整版效果」）：'2d' 高级
+  // 编辑（整版调版工作台，默认）↔ '3d' 3D 试穿——Fitting3DView 切入才
+  // 挂载，首挂自动试穿在那一刻才发；编辑器内「返回」= 切回 3D
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d')
   // 左栏参数分层：核心参数（白名单 17 控件）/ 全部参数（原全量面板）
   const [paramTab, setParamTab] = useState<'core' | 'all'>('core')
+  // 启动初始化选择层（2026-09-19）：initialized 单向闩锁——首次选择前
+  // 工作台不挂载（Fitting3DView 不发隐藏首挂请求），中途重开不卸载
+  // （3D 场景不重建、fitting 快照不丢）；initOpen 遮罩可重开（header 新建）
+  const [initialized, setInitialized] = useState(false)
+  const [initOpen, setInitOpen] = useState(true)
+  const finishInit = () => {
+    setInitialized(true)
+    setInitOpen(false)
+  }
+  // 选择层「载入即完成」：模板/空白默认共用（第三参语义各自成立——
+  // 模板带码表、出厂 fresh start 显式 null）
+  const initLoadValues = (m: Values, o: Values, sr?: SizeRunSpec | null) => {
+    d.loadValues(m, o, sr)
+    finishInit()
+  }
 
   return (
     <div className="app">
+      {initialized && (
+      <>
       <header className="app-header">
         <h1>YLPattern 牛仔裤打版</h1>
-        <TemplatePicker onLoad={d.loadValues} />
+        {/* 新建：重开启动选择层（继续上次/模板/提取/出厂），参数可整体换源。
+            模板/照片提取 2026-09-19 起不再各设 header 入口——参数来源选择
+            统一收口到选择层，避免同一动作两个入口 */}
         <Button
           size="small"
-          icon={<CameraOutlined />}
-          onClick={() => setExtractOpen(true)}
+          icon={<FileAddOutlined />}
+          onClick={() => setInitOpen(true)}
         >
-          从照片提取
+          新建
         </Button>
       </header>
       <main className="app-main">
@@ -137,52 +161,82 @@ function DraftApp() {
             {d.engineState === 'loading' && <Tag color="processing">引擎…</Tag>}
             {d.engineState === 'ready' && <Tag color="success">本地计算</Tag>}
             {d.engineState === 'http' && <Tag>服务端计算</Tag>}
+            {/* 生成 = 重算当前右栏视图（2026-09-20 回归左栏；3D 侧栏
+                「重新生成」按钮随之收口删除）：2D 刷新整版（ensureSheet
+                过期才重跑、新鲜直用），3D 重发 fitting */}
+            <Button
+              icon={<PlayCircleOutlined />}
+              loading={viewMode === '3d' ? d.fittingBusy : d.sheetBusy}
+              onClick={() => {
+                if (viewMode === '3d') void d.generateFitting()
+                else void d.ensureSheet()
+              }}
+            >
+              生成
+            </Button>
             <Button
               icon={<DownloadOutlined />}
               onClick={() => setExportOpen(true)}
             >
               导出
             </Button>
-            <Button
-              icon={<EditOutlined />}
-              disabled={advanced}
-              onClick={() => setAdvanced(true)}
-            >
-              高级编辑
-            </Button>
           </div>
         </aside>
         <section className="right-pane">
-          {advanced ? (
-            <AdvancedEditor
-              sheet={d.sheet}
-              pieces={d.pieces}
-              schema={d.schema}
-              base={{ measurements: d.measurements, options: d.options }}
-              onApplyAdjust={(p, v, b) => void d.applyAdjust(p, v, b)}
-              onBeginDrag={d.beginDrag}
-              onDragChange={setDragging}
-              sheetBusy={d.sheetBusy}
-              piecesBusy={d.piecesBusy}
-              sheetStale={d.sheetStale}
-              piecesStale={d.piecesStale}
-              onEnsureSheet={d.ensureSheet}
-              onGeneratePieces={() => void d.generatePieces()}
-              canUndo={d.lastDrag !== null}
-              onUndo={d.undoLastDrag}
-              onExit={() => setAdvanced(false)}
-              dragging={dragging}
+          <div className="right-mode-bar">
+            <Segmented
+              value={viewMode}
+              onChange={(v) => setViewMode(v as '2d' | '3d')}
+              options={[
+                { value: '2d', label: '高级编辑' },
+                { value: '3d', label: '3D 试穿' },
+              ]}
             />
-          ) : (
-            <Fitting3DView
-              fitting={d.fitting}
-              fittingStale={d.fittingStale}
-              fittingBusy={d.fittingBusy}
-              onGenerateFitting={() => void d.generateFitting()}
-            />
-          )}
+          </div>
+          <div className="right-mode-body">
+            {viewMode === '2d' ? (
+              <AdvancedEditor
+                sheet={d.sheet}
+                pieces={d.pieces}
+                schema={d.schema}
+                base={{ measurements: d.measurements, options: d.options }}
+                onApplyAdjust={(p, v, b) => void d.applyAdjust(p, v, b)}
+                onBeginDrag={d.beginDrag}
+                onDragChange={setDragging}
+                sheetBusy={d.sheetBusy}
+                piecesBusy={d.piecesBusy}
+                sheetStale={d.sheetStale}
+                piecesStale={d.piecesStale}
+                onEnsureSheet={d.ensureSheet}
+                onGeneratePieces={() => void d.generatePieces()}
+                canUndo={d.lastDrag !== null}
+                onUndo={d.undoLastDrag}
+                onExit={() => setViewMode('3d')}
+                dragging={dragging}
+              />
+            ) : (
+              <Fitting3DView
+                fitting={d.fitting}
+                fittingStale={d.fittingStale}
+                fittingBusy={d.fittingBusy}
+                onGenerateFitting={() => void d.generateFitting()}
+              />
+            )}
+          </div>
         </section>
       </main>
+      </>
+      )}
+      {/* 启动/重开选择层：工作台之上遮罩（zIndex 900，向导 Modal 盖其上） */}
+      {initOpen && (
+        <InitGate
+          hasSavedDraft={d.hasSavedDraft}
+          initialized={initialized}
+          onContinue={finishInit}
+          onLoadValues={initLoadValues}
+          onOpenExtract={() => setExtractOpen(true)}
+        />
+      )}
       <ExportCenter
         open={exportOpen}
         onClose={() => setExportOpen(false)}
@@ -222,6 +276,9 @@ function DraftApp() {
         onConfirm={(m, o) => {
           // 第三参必须显式传：loadValues 缺省 null 会清空推板码表
           d.loadValues(m, o, d.sizeRun)
+          // 确认即完成初始化关层（中途经「新建」重开时 initialized 已真，
+          // finishInit 无副作用）
+          finishInit()
         }}
       />
     </div>

@@ -4,6 +4,9 @@
 // girth_finished（纸样成衣量），芯半径 = g/2π − CORE_SKIN，摆位半径
 // （芯面 + skin + garmentGap）落在纸样围度附近 → 圆筒按构造成立，
 // 廓形 = 版型。坐标系 = 纸样系（y=纸样高、hem≈0 落地）。
+// （2026-09-19 旁挂视图退役后 buildCore/buildLegAxis 转测试专用——
+//   自由垂夹具金标仍消费；运行时穿台走 placement 环场链，本文件常量
+//   CORE_SKIN/HANG_PRIOR/FIELD_PRIOR 照旧广泛在役）
 //
 // 形状（v3，2026-09-17 八期整裤缝合：**三实体**——躯干管 + 左右分离
 // 腿管，一个 positions/indices 数组拼装，各实体独立水密）：

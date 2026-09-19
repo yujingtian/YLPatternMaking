@@ -8,6 +8,7 @@ import {
   postSheet,
 } from '../api'
 import { normalizeSizeRun } from '../sizeRun'
+import { PRODUCT_POCKET_KEYS } from '../factoryParams'
 import { getEngine } from '../engine/client'
 
 // UI 侧引擎状态：client 的 unavailable（引擎不可用）在界面上统一呈现为
@@ -16,12 +17,16 @@ type UiEngineState = 'loading' | 'ready' | 'http'
 
 const STORAGE_KEY = 'ylpattern.draft.v1'
 
+// 有效草稿 = measurements 为对象且至少含 1 个键（空对象恢复出来本就是
+// 空工作台，判无效——「继续上次」入口据此禁用，2026-09-19 收紧）
 function loadDraft(): DraftPayload | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (!parsed.measurements) return null
+    if (typeof parsed.measurements !== 'object'
+        || parsed.measurements === null
+        || Object.keys(parsed.measurements).length === 0) return null
     return parsed as DraftPayload
   } catch {
     return null
@@ -81,6 +86,9 @@ export interface DraftState {
   // 本地引擎状态（Pyodide worker）：loading 加载中 / ready 本地计算 /
   // http 走服务端（?engine=off、加载失败降级或 worker 反复崩溃）
   engineState: UiEngineState
+  // 挂载期是否存在有效草稿（启动初始化选择层「继续上次」入口的依据；
+  // 全会话稳定事实，不随后续暂存变化）
+  hasSavedDraft: boolean
 }
 
 interface DraftWarning {
@@ -102,8 +110,7 @@ export function useDraft(): DraftState {
   // 键 = 未曾表态，补默认；显式关过的用户键值 false 不受影响。
   const [options, setOptions] = useState<Values>(() => {
     const o: Values = { ...(saved.current?.options ?? {}) }
-    if (!('front_pocket' in o)) o.front_pocket = true
-    if (!('front_pocket_facing' in o)) o.front_pocket_facing = true
+    for (const k of PRODUCT_POCKET_KEYS) if (!(k in o)) o[k] = true
     return o
   })
   // 推板码表：normalize 兜底（旧存量无键 / 坏数据 -> null = 未配置）
@@ -421,5 +428,6 @@ export function useDraft(): DraftState {
     errors, warnings,
     sheetBusy, piecesBusy, fittingBusy, dlBusy,
     engineState,
+    hasSavedDraft: saved.current !== null,
   }
 }

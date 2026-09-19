@@ -28,15 +28,17 @@
 // 组）。独立原则：撑型芯锚**纸样围度**（payload stations，与人台滑杆
 // 互不相干），现仅用于初摆位半径与取景包络；前后身旁挂人台 +X 侧不
 // 套轴。payload schema v1 照旧（引擎零改动）。
-// 穿台（2026-09-18）：旁挂/穿台双视图（Segmented 切换）。穿台 = 整裤套
-// 轴穿在人台上：碰撞体换人台 morph 切片环场（buildBodyField 喂平移后
-// 网格；锚定 = 纸样腰站 ↔ 人台腰地标，θ 两系同构只 Y 平移），落位 =
-// settle.ts 落位控制器（拉到腰 → 前后裆探针驱动钉高独立缓释 → 零穿透
-// 静止 = 真人「裆不舒服一点点往下」的仿真翻译），读数 = 掉裆/裆接触/
-// 最差穿透（tooSmall 偏小信号——读数不是自动调版闭环；独立原则不变：
-// 滑杆不改 payload，重穿走「重新试穿」按钮）。
+// 穿台（2026-09-18 双视图 → 2026-09-19 旁挂视图退役，恒穿台，用户口径
+// 「旁挂暂时不需要」——旁挂分支/纸样芯场链留 git 史，core.ts 的
+// buildCore/buildLegAxis 转测试专用）。穿台 = 整裤套轴穿在人台上：碰撞体
+// 换人台 morph 切片环场（buildBodyField 喂平移后网格；锚定 = 纸样腰站 ↔
+// 人台腰地标，θ 两系同构只 Y 平移），落位 = settle.ts 落位控制器（拉到
+// 腰 → 前后裆探针驱动钉高独立缓释 → 零穿透静止 = 真人「裆不舒服一点点
+// 往下」的仿真翻译），读数 = 掉裆/裆接触/最差穿透（tooSmall 偏小信号——
+// 读数不是自动调版闭环；独立原则不变：滑杆不改 payload，重穿走
+// 「重新试穿」按钮）。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Empty, Segmented, Slider, Spin, Switch } from 'antd'
+import { Button, Empty, Slider, Spin, Switch } from 'antd'
 import {
   CameraOutlined, EyeInvisibleOutlined, EyeOutlined, RedoOutlined,
   UndoOutlined,
@@ -51,7 +53,6 @@ import { morphPositions } from './bodymesh/morph'
 import { heightCm, stationFactor, weightFor } from './bodymesh/height'
 import type { FittingResult, Snapshot } from '../types'
 import { buildFlatLayout, buildFullPair, type Garment } from './garment/assemble'
-import { buildCore, buildLegAxis } from './garment/core'
 import {
   buildBodyField, buildLegAxisFromRings, buildWaistRing, shiftPositionsY,
 } from './garment/placement'
@@ -180,22 +181,19 @@ export default function Fitting3DView({
   // camShift 记上次平移量（幂等，防效应重跑叠加）
   const hangXRef = useRef(0)
   const camShiftRef = useRef(0)
-  // ---- 穿台（2026-09-18）：旁挂/穿台双视图 + 落位读数 ----
-  // viewMode 切视图；dressEpoch 重新试穿 = ++（大效应重跑重解算）；
+  // ---- 穿台（2026-09-18 双视图 → 2026-09-19 旁挂退役恒穿台）+ 落位读数 ----
+  // dressEpoch 重新试穿 = ++（大效应重跑重解算）；
   // dressStale = 滑杆变化后穿着与当前人台不一致（提示重穿，不自动闭环）；
   // dressRunW = 本次穿台权重快照（stale 判据）
-  const [viewMode, setViewMode] = useState<'hang' | 'dress'>('hang')
   const [dressEpoch, setDressEpoch] = useState(0)
   const [dressStale, setDressStale] = useState(false)
   const [dressReport, setDressReport] = useState<DressReport | null>(null)
   const dressRunW = useRef<MeshWeights | null>(null)
-  // 热力图（2026-09-18 双通道，用户拍板：间隙/应变一个开关切换）：穿台
-  // 限定；开/切只重着色当前帧不重跑仿真——refs 镜像供解算 tick 与开关
-  // 效应读取（heatOn/heatMode 不进大效应 deps，避免重跑重解算）
+  // 热力图（2026-09-18 双通道 → 2026-09-19 应变通道移除，恒间隙通道）：
+  // 开关只重着色当前帧不重跑仿真——heatOnRef 镜像供解算 tick 与开关
+  // 效应读取（不进大效应 deps，避免重跑重解算）
   const [heatOn, setHeatOn] = useState(false)
-  const [heatMode, setHeatMode] = useState<HeatMode>('gap')
   const heatOnRef = useRef(false)
-  const heatModeRef = useRef<HeatMode>('gap')
   const dressViewsRef = useRef<{
     sim: DrapeSim
     /** 对当前帧按 mode 重着色（不重跑仿真） */
@@ -374,21 +372,20 @@ export default function Fitting3DView({
   // ---- 穿台 stale 判定：滑杆/身高 vs 本次穿台权重快照（独立原则：不自动
   // 重穿，提示用户点「重新试穿」——试穿是读数不是闭环） ----
   useEffect(() => {
-    if (viewMode !== 'dress' || dressRunW.current === null) return
+    if (dressRunW.current === null) return
     setDressStale(JSON.stringify(weightsFrom(sliders, heightW))
       !== JSON.stringify(dressRunW.current))
-  }, [sliders, heightW, viewMode])
+  }, [sliders, heightW])
 
-  // ---- 热力图开/通道切：只对当前帧重着色（refs 即时读，不重跑仿真）。
-  // 穿台大效应重建（重试穿/切视图）时 startup 已按 heatOnRef 补画 ----
+  // ---- 热力图开关：只对当前帧重着色（refs 即时读，不重跑仿真）。
+  // 穿台大效应重建（重试穿）时 startup 已按 heatOnRef 补画 ----
   useEffect(() => {
     heatOnRef.current = heatOn
-    heatModeRef.current = heatMode
     const dv = dressViewsRef.current
     if (!dv) return
-    if (heatOn) dv.paint(heatMode)
+    if (heatOn) dv.paint('gap')
     else dv.clear()
-  }, [heatOn, heatMode])
+  }, [heatOn])
 
   // ---- 裁片上屏（八期整裤缝合：单 sim 四 part 自由垂 + 其余平铺）----
   // 前身组 = 前片+袋贴沿 mouth 缝合的并集宿主（panel.ts，守卫失败退化
@@ -401,8 +398,8 @@ export default function Fitting3DView({
   // 腰圆整圈钉挂 + sideHold 刚度带暂代腰头（本期不含腰头）。前片/袋贴/
   // 后片/育克作为贴层（rider.ts 绑定宿主三角形）逐帧回填渲染，宿主不
   // 渲染，袋贴径向内偏衬里侧。其余裁片照旧平铺（exclude 前后身组）。
-  // 依赖 [fitting, asset, viewMode, dressEpoch]：asset 守卫相机取景时序
-  // （人台先落位再让位）；viewMode/dressEpoch 切视图/重试穿 = 效应重跑。
+  // 依赖 [fitting, asset, dressEpoch]：asset 守卫相机取景时序（人台先落位
+  // 再让位）；dressEpoch 重试穿 = 效应重跑。
   // 穿台滑杆值经 slidersRef/heightWRef 冻结读取（滑杆变化不重跑——独立
   // 原则，stale 效应只提示不闭环）。
   useEffect(() => {
@@ -444,14 +441,13 @@ export default function Fitting3DView({
       // 腰头布片（九期腰头立体化）：两端缝在前中会合、中点落后中，
       // 带顶整圈钉挂（挂腰头），裤身经缝对悬于带下
       const bandMesh = buildWaistbandMesh(data)
-      // ---- 整裤解算双分支（2026-09-18）：旁挂 = 纸样芯场摆位 + 自由垂
-      // （现行口径原样）；穿台 = 人台 morph 环场碰撞 + settle 落位 ----
+      // ---- 整裤解算（2026-09-18 双分支 → 2026-09-19 旁挂退役，恒穿台 =
+      // 人台 morph 环场碰撞 + settle 落位） ----
       let pair!: Garment
       let sim!: DrapeSim
-      let ctrl: SettleController | null = null
-      let hangX = 0
+      let ctrl: SettleController | null
       let flatX: number
-      if (viewMode === 'dress') {
+      {
         // 锚定（θ 两系同构只 Y 平移）：纸样腰站 y ↔ 人台腰地标×身高因子
         // （身高 morph 地标按 stationFactor 近似——与围度读数同口径同量级
         // 误差，试验场可接受）。人台网格平移进纸样系建场，drape collide
@@ -504,21 +500,6 @@ export default function Fitting3DView({
         ctrl = buildSettle(sim, buildCrotchProbeIdx(pair))
         // 组位 = 原点套轴（sim 系锚世界系：anchorLift 即世界腰高）
         flatX = bodyHalfW + HANG_PRIOR.clearance + FLAT_PRIOR.clearance
-      } else {
-        // 旁挂（独立原则：芯锚纸样围度与人台无关，整裤不套人台轴）：
-        // v3 两腿分离芯建场，forkY 取 payload body.points 裆尖 y；解算
-        // 全域自由垂（（十一）用户口径「腰头一圈 + 下面真实物理悬挂」，
-        // field 传 null——（九）collideAboveY 混合形态机制留 drape 备用）
-        const core = buildCore(data)
-        const field = buildBodyField(core.positions, core.indices)
-        pair = buildFullPair(panel.host, backPanel.host, field, {
-          front: data.body.points.front_crotch_vertex[1],
-          back: data.body.points.back_crotch_vertex[1],
-        }, buildLegAxis(data), bandMesh)
-        sim = buildDrape(pair, null)
-        const envelopeR = field.maxRadius + HANG_PRIOR.garmentGap
-        hangX = bodyHalfW + HANG_PRIOR.clearance + envelopeR
-        flatX = hangX + envelopeR + FLAT_PRIOR.clearance
       }
       const hostN = panel.host.xy.length / 2
       const backHostN = backPanel.host.xy.length / 2
@@ -563,15 +544,13 @@ export default function Fitting3DView({
         wbv = buildSimView(ctx.THREE, 'waistband', bandMesh)
         scene.add(wbv.group)
       }
-      // 整裤组位：旁挂 hangX = 人台 +X 侧让位（独立原则不套轴；sim 空间
-      // 已含 hangLift 下摆离地 3~4cm，显示层不再抬）；穿台 hangX = 0 原点
-      // 套轴（sim 系锚世界系——anchorLift 即世界腰高，显示层零平移）。
-      // 平铺组再让位到整裤右侧
-      hv.group.position.set(hangX, 0, 0)
-      hfv?.group.position.set(hangX, 0, 0)
-      bv.group.position.set(hangX, 0, 0)
-      byv?.group.position.set(hangX, 0, 0)
-      wbv?.group.position.set(hangX, 0, 0)
+      // 整裤组位 = 原点套轴（sim 系锚世界系：anchorLift 即世界腰高，显示
+      // 层零平移）；平铺组让位到整裤右侧
+      hv.group.position.set(0, 0, 0)
+      hfv?.group.position.set(0, 0, 0)
+      bv.group.position.set(0, 0, 0)
+      byv?.group.position.set(0, 0, 0)
+      wbv?.group.position.set(0, 0, 0)
       scene.add(hv.group)
       if (hfv) scene.add(hfv.group)
       scene.add(bv.group)
@@ -605,7 +584,7 @@ export default function Fitting3DView({
       if (wbv && hasBand) {
         wbv.update(pair.pos, 2 * hostN + 2 * backHostN)
       }
-      // 热力图（穿台限定）：paint/clear 挂 refs 供开关效应即时重着色；
+      // 热力图：paint/clear 挂 refs 供开关效应即时重着色；
       // 解算中每 HEAT_PRIOR.every 帧刷一层，双停终态刷末帧定格
       const bandOff = 2 * hostN + 2 * backHostN
       const paintHeat = (mode: HeatMode, s: DrapeSim = sim) => {
@@ -623,10 +602,8 @@ export default function Fitting3DView({
         byv?.heat(null, 'gap')
         wbv?.heat(null, 'gap', bandOff)
       }
-      if (viewMode === 'dress') {
-        dressViewsRef.current = { sim, paint: (m) => paintHeat(m), clear: clearHeat }
-        if (heatOnRef.current) paintHeat(heatModeRef.current)
-      }
+      dressViewsRef.current = { sim, paint: (m) => paintHeat(m), clear: clearHeat }
+      if (heatOnRef.current) paintHeat('gap')
       let frames = 0
       const tick = () => {
         const st = stepDrape(sim)
@@ -638,9 +615,8 @@ export default function Fitting3DView({
         if (wbv && hasBand) {
           wbv.update(sim.pos, 2 * hostN + 2 * backHostN)
         }
-        if (viewMode === 'dress' && heatOnRef.current
-          && frames % HEAT_PRIOR.every === 0) {
-          paintHeat(heatModeRef.current)
+        if (heatOnRef.current && frames % HEAT_PRIOR.every === 0) {
+          paintHeat('gap')
         }
         frames++
         ctx.render()
@@ -650,8 +626,8 @@ export default function Fitting3DView({
         if (st === 'running' || (ctrl !== null && ph !== 'done')) {
           raf = requestAnimationFrame(tick)
         } else if (ctrl !== null) {
-          if (viewMode === 'dress' && heatOnRef.current) {
-            paintHeat(heatModeRef.current)
+          if (heatOnRef.current) {
+            paintHeat('gap')
           }
           setDressReport(ctrl.report(sim))
         }
@@ -674,7 +650,7 @@ export default function Fitting3DView({
       if (wbv) { scene.remove(wbv.group); wbv.dispose() }
       garmentViewRef.current = null
     }
-  }, [fitting, asset, viewMode, dressEpoch])
+  }, [fitting, asset, dressEpoch])
 
   // ---- 自动首挂（仅一次）：进系统即有衣服；失败不自动重试（按钮兜底） ----
   useEffect(() => {
@@ -757,25 +733,16 @@ export default function Fitting3DView({
         <div className="f3d-card">
           <div className="f3d-card-title">裁片</div>
           <div className="f3d-row">
-            <Segmented size="small" value={viewMode}
-              onChange={(v) => setViewMode(v as 'hang' | 'dress')}
-              options={[
-                { label: '旁挂', value: 'hang' },
-                { label: '穿台', value: 'dress' },
-              ]} />
+            {/* 重新生成（fitting 重算）2026-09-20 收口到左栏「生成」，
+                此处只留重新试穿（dressEpoch++ 换滑杆快照重解算） */}
             <Button size="small" icon={<RedoOutlined />}
-              loading={fittingBusy}
-              onClick={() => onGenerateFitting()}>
-              重新生成
+              onClick={() => setDressEpoch((e) => e + 1)}>
+              重新试穿
             </Button>
           </div>
-          {viewMode === 'dress' && (
+          {dressStale && (
             <div className="f3d-row">
-              <Button size="small" icon={<RedoOutlined />}
-                onClick={() => setDressEpoch((e) => e + 1)}>
-                重新试穿
-              </Button>
-              {dressStale && <span>人台已调，穿着待更新</span>}
+              <span>人台已调，穿着待更新</span>
             </div>
           )}
           {flatKeys.length > 0 && (
@@ -811,14 +778,14 @@ export default function Fitting3DView({
             <div className="f3d-hint">{panelHint}</div>
           )}
           {fittingStale && (
-            <div className="f3d-hint">参数已改，展示待更新</div>
+            <div className="f3d-hint">参数已改，左栏「生成」重算后更新</div>
           )}
           {garmentError && (
             <div className="f3d-hint f3d-hint-err">{garmentError}</div>
           )}
         </div>
 
-        {viewMode === 'dress' && !garmentError && (
+        {!garmentError && (
           <div className="f3d-card">
             <div className="f3d-card-title">穿台读数</div>
             {dressReport ? (
@@ -862,7 +829,7 @@ export default function Fitting3DView({
           </div>
         )}
 
-        {viewMode === 'dress' && !garmentError && (
+        {!garmentError && (
           <div className="f3d-card">
             <div className="f3d-card-title">穿台热力图</div>
             <div className="f3d-row">
@@ -870,27 +837,17 @@ export default function Fitting3DView({
               <Switch size="small" checked={heatOn}
                 onChange={(ck) => setHeatOn(ck)} />
             </div>
-            <div className="f3d-row">
-              <span>通道</span>
-              <Segmented size="small" value={heatMode} disabled={!heatOn}
-                onChange={(v) => setHeatMode(v as HeatMode)}
-                options={[
-                  { label: '间隙', value: 'gap' },
-                  { label: '应变', value: 'strain' },
-                ]} />
-            </div>
             <div className={heatOn ? 'f3d-heat-legend' : 'f3d-heat-legend f3d-heat-legend-off'}>
               <div className="f3d-heat-bar" />
               <div className="f3d-heat-labels">
-                <span>{heatMode === 'gap' ? '穿透 / 紧贴 0' : '绷紧 ≥6%'}</span>
-                <span>{heatMode === 'gap' ? '适中' : '自然 0'}</span>
-                <span>{heatMode === 'gap' ? '松 ≥4cm' : '堆布 ≤−6%'}</span>
+                <span>穿透 / 紧贴 0</span>
+                <span>适中</span>
+                <span>松 ≥4cm</span>
               </div>
             </div>
             <div className="f3d-hint">
-              间隙 = 布面离身体距离（看松量分布）；应变 = 布相对纸样净长的
-              拉伸（绷紧=偏小信号、堆布=富余）。开关/切换只重着色当前画面，
-              不重跑解算
+              间隙 = 布面离身体距离（红=穿不进/紧贴、蓝=松量分布）。开关只
+              重着色当前画面，不重跑解算
             </div>
           </div>
         )}

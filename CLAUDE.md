@@ -28,9 +28,13 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
     --back-piece-svg out/back_piece.svg
 # DXF（裁床/服装 CAD，R12/mm 折线，需 pip install 'ylpattern[dxf]'）：
 #   --dxf out/sheet.dxf 整版一张；--pieces-dxf out/pieces.dxf 全部裁片平铺合一张
-# Web 端（主流程 2026-09-11 重构：左栏核心/全部参数两页签 + 右栏 3D 人台常驻；
-#   「生成」按钮已随 3D payload 消费退役移除（2026-09-12），2D 进高级编辑/导出中心时
-#   ensureSheet/ensurePieces 自动补算；需 pip install -e ".[web]"）：
+# Web 端（主流程 2026-09-11 重构：左栏核心/全部参数两页签 + 右栏顶部「高级编辑(默认)|
+#   3D 试穿」Segmented 切换（2026-09-20 起默认整版 2D 工作台、3D 切入才挂载）；
+#   「生成」按钮 2026-09-12 随 3D payload 消费移除、2026-09-20 回归左栏动作条
+#   （重算当前右栏视图：2D ensureSheet / 3D fitting，3D 侧栏「重新生成」收口），2D 进高级编辑/导出中心时
+#   ensureSheet/ensurePieces 自动补算；启动初始化选择层（2026-09-19）：每次启动
+#   先选参数来源（继续上次草稿/模板/照片提取/空白默认，详见 §10.7）；
+#   需 pip install -e ".[web]"）：
 #   uvicorn webapp.backend.app:app 后访问 http://127.0.0.1:8000
 #   二期拖拽调版：整版把手拖动 -> 反解参数回写（flows/adjust.solve_param 数值求根，
 #   绑定登记处 ylpattern/webschema.py 的 ADJUSTABLES；把手/缩放平移见 SheetView，口径 .doc/python工程设计.md §10.7）
@@ -47,8 +51,8 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   参数在产品层默认开 front_pocket/front_pocket_facing（useDraft 对 localStorage 缺键补 true）；
 #   （前端已构建于 webapp/frontend/dist；改前端：cd webapp/frontend && npm run dev，
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
-#   3D 人台（2026-09-13 定型 = MakeHuman 下半身切割+站直 target 滑杆试验场）：右栏 3D 主视图
-#   常驻（进系统即有人台），three 惰性分包；fitting3d/ = Fitting3DView + bodymesh/
+#   3D 人台（2026-09-13 定型 = MakeHuman 下半身切割+站直 target 滑杆试验场）：右栏 Segmented
+#   切到「3D 试穿」才挂载（2026-09-20 前常驻主视图口径退役），three 惰性分包；fitting3d/ = Fitting3DView + bodymesh/
 #   {bin,morph,types,slice,height}——loadBodyMesh 拉取 base.bin（vendor 切割+站直姿势链产物：
 #   官方 rigs 骨架+蒙皮权重 clean-room LBS 站直〔大腿/小腿/脚逐关节角度，髋/膝/踝
 #   铅垂；--pose apose 退回 A-pose〕、粗裁去臂、精裁腰+15、水密封盖；官方 14 场 =
@@ -84,13 +88,13 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   sim 直渲 buildSimView；rAF 一帧
 #   一步 settle 停；宿主不渲染，前片/袋贴/
 #   后片/育克本体 = rider.ts 贴层（bindRider 重心绑宿主三角形逐帧回填、locate 缺口兜底 = 边界环最近段插值；
-#   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面、后片/育克径向 0 相邻非叠层）；整裤双视图（2026-09-18
-#   十期，侧栏 Segmented 切换）：旁挂=单组 +X 侧不套轴（独立原则：芯锚纸样围度与人台滑杆互不相干）/
-#   穿台=真穿人台轴——碰撞体人台切片环场、anchorLift 腰地标锚定、settle.ts 落位状态机
+#   袋贴径向内偏 riderStep 衬里侧——前片在前口袋上面、后片/育克径向 0 相邻非叠层）；整裤穿台
+#   （2026-09-18 十期双视图 → 2026-09-20 旁挂视图退役恒穿台）：
+#   真穿人台轴——碰撞体人台切片环场、anchorLift 腰地标锚定、settle.ts 落位状态机
 #   （hold→lowering 前后裆独立探针缓释钉高俯仰涌现→settle→done）、DressReport 合身读数（掉裆/接触三态/
 #   最差穿透 tooSmall——读数提示不改版型）、滑杆 ref 冻结+「重新试穿」手动闭环；脚碰撞修复
-#   （场 yMin 下探罩脚底消除行表负 y 盲区 + 腿轴扫描止踝防脚环喇叭摆位）+ 热力图双通道
-#   （heatmap.ts：间隙=布离体距离/应变=网格拉伸，一个开关切换、只重着色不重跑仿真）+ 腰圈钉环
+#   （场 yMin 下探罩脚底消除行表负 y 盲区 + 腿轴扫描止踝防脚环喇叭摆位）+ 热力图间隙通道
+#   （heatmap.ts：间隙=布离体带符号距离，开关只重着色不重跑仿真；应变通道 2026-09-20 移除）+ 腰圈钉环
 #   形随体长随衣（2026-09-19：穿台腰口钉环 = 腰站截面边界放大至成衣腰长——形状随体/尺寸随衣
 #   互不锚定，穿不进由带符号热力图 gap 红区读出；口径 §10.11）
 #   + 脚口环带刚度（2026-09-19（二）：priors hemBandStiffness 0.5/hemBandSpan 4——
@@ -119,7 +123,8 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   POST /api/extract（multipart：describe/photos/thinking/...）-> to_web_payload 契约 + 信封；
 #   缺必填尺寸/照片非法 422、VLM 未配置或失败 503；GET /healthz 查 vlm_configured（只回 bool）；
 #   vlm.toml 路径解析 YLP_VLM_CONFIG > 仓库根 > YLP_VLM_* 环境变量；CLI 与 eval 仍直调 extract 门面
-#   前端接线（一期 2026-09）：页面 header「从照片提取」向导弹层 -> 确认屏 -> 预填表单；
+#   前端接线（一期 2026-09；2026-09-19 入口移启动选择层，header 按钮删）：
+#   向导弹层 -> 确认屏 -> 预填表单；
 #   连通统一 /agent 前缀（dev Vite proxy / prod backend httpx 转发）；
 #   契约/压缩口径/踩坑见 .doc/python工程设计.md §10.9.1
 # 多码推码（尺寸单含 [size_run] 段且 enabled = true 时自动进入：逐码重打版 ->
