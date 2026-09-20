@@ -366,4 +366,73 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     for (const v of heat) gapMin = Math.min(gapMin, v)
     expect(gapMin).toBeLessThan(-1.0)
   }, 60_000)
+
+  // ---- 长裤盖脚（2026-09-20 用户报障「裤腿不盖在脚上、脚慢慢穿透布」）----
+  // zhitong 直筒 outseam 106 ≈ 身高：脚全在裤筒内、hem 37.5 < 脚底切片
+  // 周长 75~86（脚口环抱脚截面不可能——真实长裤脚口本就搭在脚背上）。
+  // 修复三层：脚区幕帘摆位（placement.buildFootCurtain，踝下布沿脚面
+  // 弧长走线、初值直落正确 drape 盆地）+ collide 上表面竖直支撑
+  // （topSupportY 阈 0.6 盖趾盒冠 g≈0.8）+ 埋点救援。金标把门：
+  // · 踝下（幕帘域）全粒子穿脚环深度 ≤0.3（deadZone 口径；修复前布绕
+  //   脚沉地、脚渐次穿出裤筒 = 脚环内大量布点 + 永动 churn）
+  // · hem 前缘（脚区 z>1 采样）盖在脚背上：中位离地 >2cm、z>2 覆盖
+  //   采样 >10（修复前 hem 中位 0 = 全体贴地）
+  // · 裆读数照旧（contact gap ≈1.1-1.2 → lowering 不触发属正确——
+  //   长裤问题全在脚区，掉裆机制零改动）
+  it('zhitong 长裤：脚区幕帘盖脚（踝下零穿透 + hem 前缘挂脚背）', () => {
+    const a = loadBodyFromDisk()
+    const data = JSON.parse(
+      readFileSync(`${HERE}/fixture_zhitong.json`, 'utf8')) as FittingResult
+    const out = runDress(a, data, {})
+    // 锚定 canary：zhitong 纸样腰站 ≈ 人台腰地标 → 负小量 lift（量级把门）
+    expect(out.anchorLift).toBeGreaterThan(-1.0)
+    expect(out.anchorLift).toBeLessThan(0.0)
+    expect(out.ph).toBe('done')
+    expectFinite(out.sim.pos)
+    expect(out.report.dropF).toBeGreaterThanOrEqual(-1e-6)
+    expect(out.report.dropF).toBeLessThanOrEqual(DRESSING_PRIOR.maxDrop + 1e-6)
+    expect(out.report.dropB).toBeGreaterThanOrEqual(-1e-6)
+    expect(out.report.dropB).toBeLessThanOrEqual(DRESSING_PRIOR.maxDrop + 1e-6)
+    // 踝下（幕帘域，踝上 1cm 缓冲）全粒子穿脚环深度 >0.3 计数 = 0
+    const field = out.sim.field as NonNullable<DrapeSim['field']>
+    const anklePat = a.landmarks.ankle! * stationFactor(a.heightInfo, 0)
+      - out.anchorLift
+    let footPen = 0
+    for (const part of out.pair.parts) {
+      if (part.key === 'waistband') continue
+      for (let i = 0; i < part.mesh.xy.length / 2; i++) {
+        const gi = part.offset + i
+        const patY = out.sim.pos[3 * gi + 1] - out.sim.yLift
+        if (patY >= anklePat - 1) continue
+        const rings = field.loopsAt(patY)
+        if (rings.length === 0) continue
+        const x = out.sim.pos[3 * gi], z = out.sim.pos[3 * gi + 2]
+        const hit = nearestRingBoundary(rings, x, z, 1)
+        if (hit === null) continue
+        const sd = (x - hit.px) * hit.nx + (z - hit.pz) * hit.nz
+        if (-sd > 0.3) footPen++
+      }
+    }
+    expect(footPen).toBe(0)
+    // hem 前缘挂脚背：脚区 z>1 的 hem 采样 world y 中位 >2（实测 ~6，
+    // 盖在脚背/趾盒上）；z>2 覆盖采样 >10（实测 ~28，双脚）
+    const hemFront: number[] = []
+    let hemOverToe = 0
+    for (const part of out.pair.parts) {
+      for (const run of part.mesh.runs) {
+        if (run.name !== 'hem') continue
+        for (const i of run.indices) {
+          const gi = part.offset + i
+          const z = out.sim.pos[3 * gi + 2]
+          if (z <= 1) continue
+          hemFront.push(out.sim.pos[3 * gi + 1])
+          if (z > 2) hemOverToe++
+        }
+      }
+    }
+    hemFront.sort((p, q) => p - q)
+    expect(hemFront.length).toBeGreaterThan(20)
+    expect(hemFront[Math.floor(hemFront.length / 2)]).toBeGreaterThan(2.0)
+    expect(hemOverToe).toBeGreaterThan(10)
+  }, 300_000)
 })

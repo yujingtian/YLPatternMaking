@@ -108,6 +108,10 @@ export interface LegAxis {
   rAt(y: number): number    // 腿管芯半径（不含 skin）
   cAt(y: number): number    // 腿轴 |x| = r(y) + gapHalf(y)
   forkY: number             // 裆站 y（腿管顶 = 躯干管底）
+  ankleY?: number           // 踝站 y（穿台 buildLegAxisFromRings 传入时回填：
+                            // 踝以下是脚不是圆柱腿，脚区幕帘摆位
+                            // 〔assemble step 4.5〕以此分界；缺省 undefined
+                            // = 合成场/旁挂芯口径，无脚区）
 }
 
 export function buildLegAxis(payload: FittingResult): LegAxis {

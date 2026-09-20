@@ -19,7 +19,8 @@ import { pointInRings } from './placement'
 import { bandTargets, ringWalk } from './band'
 import type { BodyField, PieceKey, Side } from './placement'
 import {
-  buildWaistRing, placePoint, ringPointAt, type WaistRing,
+  buildFootCurtain, buildWaistRing, curtainAt, placePoint, ringPointAt,
+  type WaistRing,
 } from './placement'
 import { FLAT_PRIOR, HANG_PRIOR, MESH_PRIOR } from './priors'
 
@@ -593,7 +594,33 @@ export function buildFullPair(
       }
     }
   }
-  // ---- 4.5) 腰头摆放（九期腰头立体化，用户口径「腰头两边是前中线、
+  // ---- 4.5) 脚区幕帘（2026-09-20 长裤盖脚；穿台腿轴带 ankleY 才走）：
+  // 踝下顶点按其绕腿轴方向查幕帘行走表（placement.buildFootCurtain：踝环
+  // 竖直下垂 → 触脚面贴坡走线 → 预算尽/落地），侧/内向无触面时走线 =
+  // 筒半径竖直垂，与 step 1/4 摆位逐点一致——偏离只出现在脚面凸出处
+  // （趾盒/脚背/脚底缘），脚口前缘落趾盒上、侧后缘垂地。旁挂/合成场
+  // 无 ankleY 零改动 ----
+  if (axis.ankleY !== undefined && HANG_PRIOR.legReparam) {
+    const curtains = buildFootCurtain(field, axis, -lift)
+    for (const part of parts) {
+      if (part.key !== 'front' && part.key !== 'back') continue
+      const sgn = part.side === 'R' ? 1 : -1
+      const cur = curtains[sgn === 1 ? 1 : 0]
+      for (let i = 0; i < part.mesh.xy.length / 2; i++) {
+        const yPat = part.mesh.xy[2 * i + 1]
+        if (yPat >= axis.ankleY) continue
+        const i3 = 3 * (part.offset + i)
+        const dx = pos[i3] - cur.cx, dz = pos[i3 + 2]
+        const rr = Math.hypot(dx, dz)
+        if (rr < 1e-6) continue
+        const { h, t } = curtainAt(cur, Math.atan2(dx, dz), axis.ankleY - yPat)
+        pos[i3] = cur.cx + (dx / rr) * t
+        pos[i3 + 1] = h
+        pos[i3 + 2] = (dz / rr) * t
+      }
+    }
+  }
+  // ---- 4.6) 腰头摆放（九期腰头立体化，用户口径「腰头两边是前中线、
   // 腰头中点是后中线」）：bandTargets 对每个带顶点给 (环顶点, 带法向
   // 距离 v)——底边顶点摆到**配对环顶点原位**（bandWaist 焊对初始间隙
   // 0，摆位先行），列沿竖直向上 v；u 沿带弧的环映射 = 端 u=0/1 落前中
