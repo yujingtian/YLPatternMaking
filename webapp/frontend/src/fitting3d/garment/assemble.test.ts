@@ -688,13 +688,13 @@ describe('assemble：腰头立体缝合（九期，用户口径「腰头两边�
   })
 })
 
-// ---- 穿台腰圈摆位（2026-09-19 形随体长随衣）----
+// ---- 穿台腰圈摆位（2026-09-19 形随体长随衣；2026-09-20 间隙均匀）----
 // 合成椭圆截面场（腰行 a=12/b=10、向上逐行收窄——模拟腰上方围收窄），
 // 验 buildWaistRing + buildFullPair 环分支：形状来自截面、长度 = 成衣
-// 腰长 C（带底净长）；顶链/带底贴环、侧缝腰角随弧位前移（≠±90° 硬切）、
-// 带顶贴带顶环（收窄行 → 顶环更拢）；旁挂既有断言不受影响（上方双款
-// 未传 waistRing = 字节等价回归）
-describe('assemble：穿台腰圈摆位（形随体长随衣，合成椭圆场）', () => {
+// 腰长 C（带底净长）、间隙均匀（等距外偏 |δ| 恒定）；顶链/带底贴环、
+// 侧缝腰角随弧位前移（≠±90° 硬切）、带顶贴带顶环（收窄行 → 顶环更拢）；
+// 旁挂既有断言不受影响（上方双款未传 waistRing = 字节等价回归）
+describe('assemble：穿台腰圈摆位（形随体长随衣+间隙均匀，合成椭圆场）', () => {
   const payload: FittingResult = JSON.parse(
     readFileSync(`${HERE}/fixture_fitting.json`, 'utf8'))
   const frontPanel = buildFrontPanel(payload)
@@ -702,9 +702,9 @@ describe('assemble：穿台腰圈摆位（形随体长随衣，合成椭圆场�
   const band = buildWaistbandMesh(payload)!
   const C = bandBottomChain(band)!.runLength
   // 行表 yMin=0 / rowStep=0.5，行 192~208（y 96~104）放椭圆环：向上收窄
-  // 只收 a（X 侧向）——形似均匀缩放的环径向恒等（环总缩放至 C，径向 =
-  // 局部半径/周长×C 与截面绝对大小无关），非均匀收窄才出「带顶环更拢」；
-  // 其余行空（摆位只消费腰口附近行）
+  // 只收 a（X 侧向）——均匀缩放行偏移到同一 C 时 δ 顶抬升回补半径（maxR
+  // 对比弱），非均匀收窄才出「带顶环更拢」；其余行空（摆位只消费腰口
+  // 附近行）
   const ellipse = (a: number, b: number): SliceRing => {
     const n = 48
     const pts = new Float64Array(2 * n)
@@ -751,13 +751,41 @@ describe('assemble：穿台腰圈摆位（形随体长随衣，合成椭圆场�
     return dMin
   }
 
-  it('环长 = 成衣腰长（重采样弦差 <0.5%）；顶链逐点贴环（Float32 量化 1e-4）', () => {
-    expect(Math.abs(ring.total - C) / C).toBeLessThan(0.005)
+  it('环长 = 成衣腰长（定点迭代收敛 <1e-4）；顶链逐点贴环（Float32 量化 1e-4）', () => {
+    expect(Math.abs(ring.total - C) / C).toBeLessThan(1e-4)
     for (const v of walk.verts) {
       const part = g.parts[v.part]
       const i3 = 3 * (part.offset + v.idx)
       expect(distToRing(ring, g.pos[i3], g.pos[i3 + 2])).toBeLessThan(1e-4)
     }
+  })
+
+  it('环点到体截面边界等距（间隙均匀——每点 ≈ 同一 δ，spread <0.05）', () => {
+    // 等距外偏的直接判据：钉环每点到源截面边界折线的最短距 ≈ 同一 δ
+    // （重采样 + 顶点角平分法线偏移的理论误差 <0.01）。旧「绕原点放大」
+    // 口径此量 ∝ 点到原点距离（真人截面实测前后差 5.5:1——环整体前骑），
+    // 本断言即钉死该回归
+    const loops = field.loopsAt(98)
+    const dists: number[] = []
+    for (let k = 0; k < ring.pts.length / 2; k++) {
+      let dMin = Infinity
+      for (const lp of loops) {
+        const m = lp.pts.length / 2
+        for (let s = 0; s < m; s++) {
+          const s2 = (s + 1) % m
+          const ax = lp.pts[2 * s], az = lp.pts[2 * s + 1]
+          const ex = lp.pts[2 * s2] - ax, ez = lp.pts[2 * s2 + 1] - az
+          const l2 = ex * ex + ez * ez
+          const t = l2 > 1e-12
+            ? Math.max(0, Math.min(1, ((ring.pts[2 * k] - ax) * ex
+              + (ring.pts[2 * k + 1] - az) * ez) / l2)) : 0
+          dMin = Math.min(dMin, Math.hypot(
+            ring.pts[2 * k] - (ax + ex * t), ring.pts[2 * k + 1] - (az + ez * t)))
+        }
+      }
+      dists.push(dMin)
+    }
+    expect(Math.max(...dists) - Math.min(...dists)).toBeLessThan(0.05)
   })
 
   it('侧缝腰角沿钉环弧位落位（≠±90° 硬切）且前后宿主共点（腰圆闭合）', () => {
@@ -837,7 +865,7 @@ describe('assemble：穿台腰圈摆位（形随体长随衣，合成椭圆场�
     }
   })
 
-  it('偏小环（C−4）s<1：钉位整体缩进截面内（穿不进摆位侧把门）', () => {
+  it('偏小环（C−4）δ<0：钉位均匀内嵌截面内（穿不进摆位侧把门）', () => {
     const small = buildWaistRing(field, 98, C - 4)
     const p = ringPointAt(small, small.total * 0.25)
     expect(pointInRings(p.x, p.z, field.loopsAt(98))).toBe(true)

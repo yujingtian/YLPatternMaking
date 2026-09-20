@@ -480,10 +480,11 @@ export default function Fitting3DView({
         // rProf 会让裤脚摆位喇叭张开
         const legAxisM = buildLegAxisFromRings(
           fieldM, lmCrotch * sf - anchorLift, lmAnkle * sf - anchorLift)
-        // 腰圈钉环（2026-09-19 形随体长随衣）：形状 = 腰站人台截面边界、
-        // 尺寸 = 成衣腰长（优先腰头带底净长——收省后口径；无腰头/坏链
-        // 回退腰站 girth_finished 成衣量）。腰头真实尺寸守恒 + 贴体真实
-        // 形状；偏小款 s<1 穿体 → 碰撞推挤 + 热力图 gap 红区（穿不进读数）
+        // 腰圈钉环（2026-09-19 形随体长随衣；2026-09-20 间隙均匀）：形状
+        // = 腰站人台截面边界、尺寸 = 成衣腰长（优先腰头带底净长——收省后
+        // 口径；无腰头/坏链回退腰站 girth_finished 成衣量），沿外法线等距
+        // 偏移至环长 = 成衣腰长——周身间隙均匀 |δ|；偏小款 δ<0 均匀穿体
+        // → 碰撞推挤 + 热力图 gap 红区（穿不进读数）
         const waistLen = (bandMesh && bandBottomChain(bandMesh)?.runLength)
           ?? waistSt.girth_finished
         if (waistLen == null) {

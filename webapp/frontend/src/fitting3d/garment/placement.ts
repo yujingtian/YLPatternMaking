@@ -247,28 +247,31 @@ export function nearestRingBoundary(
     : { d: bd, px: bx, pz: bz, nx: bnx, nz: bnz }
 }
 
-// ---- 穿台腰圈钉环（2026-09-19 口径：形随体、长随衣）----
-// 用户拍板（复拍板，原「半径=成衣腰长/2π」按圆截面假设不成立——base.bin
-// 实测腰截面侧 12.72/前 14.74/后 2.69、截面中心前偏 ~5.3cm、场周长
-// 68.95=站点 69；等周圆 11.16 罩不住横径 12.72，正圆钉圈侧面嵌体 1.6、
-// 右前最深 4.6cm，钉 XZ 冻结碰撞救不回）：「模拟真实的情况、腰头尺寸
-// 多少就是多少、穿不进在热力图体现」→ 钉环 = 腰站截面边界整体放大
-// s = 成衣腰长 ÷ 截面周长：
+// ---- 穿台腰圈钉环（2026-09-20 口径：形随体、长随衣、间隙均匀）----
+// 用户口径「模拟真实的情况、腰头尺寸多少就是多少、穿不进在热力图体现」
+// → 钉环 = 腰站截面边界沿局部外法线**等距偏移** δ，定点迭代解 δ 使闭弦
+// 周长恰 = 成衣腰长 C：
 //   · 形状来自人体（真实腰头贴合截面变形）、尺寸来自布长（环长严格
-//     = 成衣腰）——互不锚定，偏大 s>1 全场体外（间隙随截面比例 0.05~
-//     0.25cm 非均匀）、偏小 s<1 穿体（碰撞推挤 + 热力图 gap 红区 =
-//     穿不进读数）；旁挂分支不建环（原口径）
+//     = 成衣腰）、间隙均匀 |δ|（周身松量一致）
+//   · 偏大 δ>0 全环离体等距、偏小 δ<0 均匀穿透（钉 XZ 冻结如实呈现 +
+//     热力图 gap 红区 = 穿不进读数）；旁挂分支不建环（原口径）
+// 证伪留档：绕原点整体放大 s=C/周长（2026-09-19 首版）在截面中心前偏
+// ~5.3cm（前伸 14.74/后缩 2.69）时每点间隙 =(s−1)·|p| ∝ 到原点距离——
+// 前:后 ≈ 5.5:1 环整体前骑（用户目检「不是平均分配、整体往前」；决策
+// 日志 2026-09-20 条）
 export interface WaistRing {
-  pts: Float64Array      // 2N 闭合折线（缩放后终环，N 点等弧长重采样）
+  pts: Float64Array      // 2N 闭合折线（等距偏移后终环，N 点等弧长重采样）
   arc: Float64Array      // N 累计弦弧长（arc[0]=0；末段闭回 pts[0]）
-  total: number          // 环全长 ≈ 成衣腰长 C（重采样弦差 <0.5%）
+  total: number          // 环全长 = 成衣腰长 C（定点迭代收敛 <1e-6）
   y: number              // 源截面行（assemble 带顶环按 y+带宽取行派生）
 }
 
 // 腰站 y 行截面边界 → 长度恰为 C 的钉环：取该行首个闭环，前中（+Z 最
 // 远点）起、向左（−X）行走（与 band.ringWalk 环序一致），等弧长重采样
-// 后绕原点整体放大 s = C/周长（原点在截面内、环星形——缩放保持包含
-// 且周长严格 ×s；不支持场带撑型芯的多环行，腰站单环）
+// 后逐点沿局部外法线（相邻段垂线均值、背离环质心取向）等距偏移 δ，定
+// 点迭代 δ ← δ + (C−P(δ))/2π 至闭弦周长 = C（凸闭曲线 Steiner 公式
+// P(δ)≈P+2πδ，重采样弦亏由实测修正吸收；δ<0 = 均匀内偏穿体不设防；
+// 不支持场带撑型芯的多环行，腰站单环）
 export function buildWaistRing(
   field: BodyField, y: number, circumference: number,
 ): WaistRing {
@@ -296,12 +299,10 @@ export function buildWaistRing(
     cum.push(cum[k] + Math.hypot(src[b] - src[a], src[b + 1] - src[a + 1]))
   }
   const len = cum[n]
-  // 等弧长重采样（N·spacing 恰铺满闭合折线）后绕原点缩放 s = C/len
+  // 等弧长重采样（N·spacing 恰铺满闭合折线）得基环（未偏移）
   const N = Math.max(64, Math.round(len / DRESSING_PRIOR.waistRingStep))
   const spacing = len / N
-  const s = circumference / len
-  const pts = new Float64Array(2 * N)
-  const arc = new Float64Array(N)
+  const base = new Float64Array(2 * N)
   let j = 0
   for (let k = 0; k < N; k++) {
     const target = k * spacing
@@ -309,12 +310,53 @@ export function buildWaistRing(
     const a = 2 * order[j], b = 2 * order[(j + 1) % n]
     const seg = cum[j + 1] - cum[j] || 1
     const t = (target - cum[j]) / seg
-    pts[2 * k] = (src[a] + (src[b] - src[a]) * t) * s
-    pts[2 * k + 1] = (src[a + 1] + (src[b + 1] - src[a + 1]) * t) * s
-    if (k > 0) {
-      arc[k] = arc[k - 1] + Math.hypot(
-        pts[2 * k] - pts[2 * k - 2], pts[2 * k + 1] - pts[2 * k - 1])
+    base[2 * k] = src[a] + (src[b] - src[a]) * t
+    base[2 * k + 1] = src[a + 1] + (src[b + 1] - src[a + 1]) * t
+  }
+  // 基环质心 + 逐点外法线 = 相邻两段垂线均值、背离质心取向（取向技巧同
+  // nearestRingBoundary——轻度凹截面也给出一致向外的法线）
+  let cx = 0, cz = 0
+  for (let k = 0; k < N; k++) { cx += base[2 * k]; cz += base[2 * k + 1] }
+  cx /= N; cz /= N
+  const nx = new Float64Array(N), nz = new Float64Array(N)
+  for (let k = 0; k < N; k++) {
+    const p = 2 * ((k - 1 + N) % N), q = 2 * k, r = 2 * ((k + 1) % N)
+    // 段 k→k+1 与段 k−1→k 的左垂线之和（角点法线 = 角平分方向）
+    const ax = -(base[r + 1] - base[q + 1]), az = base[r] - base[q]
+    const bx = -(base[q + 1] - base[p + 1]), bz = base[q] - base[p]
+    let ux = ax + bx, uz = az + bz
+    const un = Math.hypot(ux, uz) || 1
+    ux /= un; uz /= un
+    if (ux * (base[q] - cx) + uz * (base[q + 1] - cz) < 0) { ux = -ux; uz = -uz }
+    nx[k] = ux; nz[k] = uz
+  }
+  // 等距偏移 δ 定点迭代：闭弦周长 P(δ) ≈ len + 2πδ（Steiner），每轮量实测
+  // 修正 δ ← δ + (C−P)/2π，2~3 轮收敛 |P−C| ≤ 1e-6（上限 32 轮防御）；
+  // δ<0 = 均匀内偏（偏小款穿体，钉 XZ 冻结如实呈现，不设下限）
+  const pts = new Float64Array(2 * N)
+  const perim = (d: number): number => {
+    for (let k = 0; k < N; k++) {
+      pts[2 * k] = base[2 * k] + d * nx[k]
+      pts[2 * k + 1] = base[2 * k + 1] + d * nz[k]
     }
+    let s = 0
+    for (let k = 0; k < N; k++) {
+      const k2 = 2 * ((k + 1) % N)
+      s += Math.hypot(pts[k2] - pts[2 * k], pts[k2 + 1] - pts[2 * k + 1])
+    }
+    return s
+  }
+  let delta = (circumference - len) / (2 * Math.PI)
+  let P = perim(delta)
+  for (let it = 0; it < 32 && Math.abs(P - circumference) > 1e-6; it++) {
+    delta += (circumference - P) / (2 * Math.PI)
+    P = perim(delta)
+  }
+  // 终环累计弦弧长表（total = P 恰 = C，kScale/弧长摆放契约保持）
+  const arc = new Float64Array(N)
+  for (let k = 1; k < N; k++) {
+    arc[k] = arc[k - 1] + Math.hypot(
+      pts[2 * k] - pts[2 * k - 2], pts[2 * k + 1] - pts[2 * k - 1])
   }
   const total = arc[N - 1] + Math.hypot(
     pts[0] - pts[2 * (N - 1)], pts[1] - pts[2 * (N - 1) + 1])

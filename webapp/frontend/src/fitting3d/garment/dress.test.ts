@@ -6,9 +6,10 @@
 // · θ 对齐 canary：前中腰角 z>0 / 后中腰角 z<0（纸样系与人台 +Z=前同构）
 // · 裆地标下方 forkSearch 窗内存在双腿分离行（腿轴成立前提）
 // · 初摆位 pointInRings 计数 = 0（摆位按构造体外——穿模把门）
-// · 腰圈钉环（2026-09-19 形随体长随衣）：环长 = 成衣腰长；身片顶链/
-//   腰头两缘 3D 弦和 ≈ 成衣腰长（钉间距 = 纸样边长、零应变摆位）；
-//   钉集带符号间隙贴体（后腰 ~0 起）且微隙为截面比例量级（非旧 1.2 垫）
+// · 腰圈钉环（2026-09-19 形随体长随衣；2026-09-20 间隙均匀）：环长 =
+//   成衣腰长；身片顶链/腰头两缘 3D 弦和 ≈ 成衣腰长（钉间距 = 纸样边长、
+//   零应变摆位）；钉集带符号间隙均匀（等距外偏：每点 ≈ 所在行 δ，底环
+//   行 ~0.17、带顶行 ~0.49；旧绕原点缩放前 2.0/后 0.36 悬殊分布已废）
 // · 跑至 done：无 NaN、裆四尖两两 <1.0、dropF/dropB ∈ [0, maxDrop]、
 //   下摆离地；**同输入双跑 DressReport 逐字段相等**（确定性——单跑
 //   比较无意义红线）
@@ -18,7 +19,7 @@
 //   曾误判脚碰撞缺陷，实为钉环贴体→掉裆加深拖脱，见决策日志当日条
 // · hips+ 负松量探索例：不炸、收敛、读数在值域（宽松断言——偏小是
 //   读数不是错误）
-// · 偏小款快检（只摆位不解算）：成衣腰长 −4 → 钉环 s<1 整圈嵌体 +
+// · 偏小款快检（只摆位不解算）：成衣腰长 −4 → 钉环 δ<0 整圈均匀嵌体 +
 //   热力图 gap 带符号负值红区（「穿不进需要在热力图中体现」把门）
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
@@ -103,8 +104,9 @@ function runDress(
   const panel = buildFrontPanel(data)
   const backPanel = buildBackPanel(data)
   const bandMesh = buildWaistbandMesh(data)
-  // 腰圈钉环（2026-09-19 形随体长随衣）：尺寸 = 成衣腰长（优先腰头带底
-  // 净长——收省后口径；回退腰站 girth_finished），视图 dress 分支同源
+  // 腰圈钉环（2026-09-19 形随体长随衣；2026-09-20 间隙均匀）：尺寸 =
+  // 成衣腰长（优先腰头带底净长——收省后口径；回退腰站 girth_finished），
+  // 视图 dress 分支同源
   const waistLen0 = (bandMesh && bandBottomChain(bandMesh)?.runLength)
     ?? waistSt.girth_finished
   if (waistLen0 == null) {
@@ -179,9 +181,9 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     expect(fTop).toBeGreaterThan(0)
     expect(bTop).toBeLessThan(0)
     // ---- 腰圈钉环（形随体长随衣）----
-    // 环长 = 成衣腰长（等弧长重采样弦差 <0.5%）
+    // 环长 = 成衣腰长（定点迭代收敛：实测残差 ~1e-8 量级，预算 1e-4）
     expect(Math.abs(out1.waistRing.total - out1.waistLen) / out1.waistLen)
-      .toBeLessThan(0.005)
+      .toBeLessThan(1e-4)
     // 身片顶链连续环走 3D 弦和 ≈ 成衣腰长（弧长贴环、钉间距 = 纸样边长
     // 零应变）。量法必须沿 ringWalk 连续走：per-part 分段会漏 4 个角点
     // 缺口（各 ~2×boundaryStep，合计 ~8%——角点在 side 链不在 top 采样）；
@@ -223,9 +225,10 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
       / out1.waistLen
     expect(relBandTop).toBeLessThan(0.02)
     expect(relBandBot).toBeLessThan(0.02)
-    // 钉集带符号间隙（到体截面边界，raw）：贴体起于 ~0（后腰最薄处截面
-    // 行差/重采样 ≤0.06）且上限为截面比例量级（上方收窄行的真实悬空
-    // ~0.7；旧统一 1.2 垫已废）
+    // 钉集带符号间隙（到体截面边界，raw）：等距外偏口径——每点 ≈ 所在
+    // 行的 δ（底环行 ~0.17、带顶行 ~0.49；上方收窄/前腹外凸的行形差是
+    // ±0.15 内真实浮动）。旧绕原点缩放 gap ∝ |p|（前 2.0/后 0.36 悬殊
+    // ——环整体前骑）已废
     const pinnedIdx: number[] = []
     for (const part of out1.pair.parts) {
       if (part.key === 'waistband') {
@@ -252,16 +255,17 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
       gapAll.push(sd)
     }
     gapAll.sort((p, q) => p - q)
-    // 判别「非旧统一 1.2 垫」的稳健量 = 中位数（旧垫法 min≈max≈1.15；
-    // 实测新口径 min −0.009 贴体 / 中位 0.35 / p90 0.73）；上限给到 1.1
-    // ——腰上凹背行带列走两环直线割线，真实悬空峰值 ~1（实测 0.99）
-    expect(gapMin).toBeGreaterThan(-0.06)
+    // 判别「间隙均匀」：下限起于底环行 δ（实测 min 0.14 ≈ δ_底 0.17 −
+    // 行形差；旧缩放口径前 2.0/后 0.36 悬殊时 max 会破 1.6）；中位混两
+    // 行（底 0.17 + 顶 0.49）实测 0.38；上限 = 带顶行凹背真实悬空实测
+    // 0.76，预算 0.9
+    expect(gapMin).toBeGreaterThan(0.05)
     expect(gapAll[Math.floor(gapAll.length / 2)]).toBeLessThan(0.5)
-    expect(gapMax).toBeLessThan(1.1)
+    expect(gapMax).toBeLessThan(0.9)
     // ---- 初摆位穿透把门（腿区绕管半径 = rAt+skin+gap 按构造体外；腰圈
-    // 钉环 = 截面边界放大 s=C/周长，等弧长弦重采样内切伪差 ~0.01cm 级
-    // 实测最深 0.009——计数把门改深度把门，预算 0.05（碰撞 deadZone 0.3
-    // 量级内，动力学不受扰）----
+    // 钉环 = 截面边界沿外法线等距偏移 δ>0 按构造体外，残余仅角平分法线/
+    // 重采样伪差 0.01 量级——深度把门预算 0.05（碰撞 deadZone 0.3 量级
+    // 内，动力学不受扰）----
     let worstIn = 0
     for (let i3 = 0; i3 < out1.pair.pos.length; i3 += 3) {
       const rings = (out1.sim.field as NonNullable<DrapeSim['field']>)
@@ -294,11 +298,12 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
       minY = Math.min(minY, out1.sim.pos[i])
     }
     expect(minY).toBeGreaterThanOrEqual(-1e-6)
-    // ---- 脚口前缘位置（2026-09-19（三）strain limiting 重定标）：布不可
-    // 伸长后整裤垂长变短，dropF 7.8/8.3 时脚口带（纸样 y∈[−1,1]）落
-    // y[6.7,8.6] 前脚区，前缘 z 实测 4.5——旧挂扣态 7.9 是 +10% 拉伸布
-    // 垂到脚背冠的口径，前提已变；把门改为前缘保持前半（≥4；滑脱到
-    // 脚后的脱扣态 ~3）----
+    // ---- 脚口前缘位置（2026-09-19（三）strain limiting 重定标 → 2026-09-20
+    // 等距外偏再定标）：布不可伸长后整裤垂长变短，脚口带（纸样 y∈[−1,1]）
+    // 落前脚区；腰圈钉环间隙均匀化后布量沿环重排（前侧间隙 0.22→0.17、
+    // 后侧 0.04→0.17），钉位 ~0.1cm 级扰动经 settle 动力放大，前缘实测
+    // 3.25（旧缩放口径 4.5）——挂扣余量变薄，把门 ≥3.2（滑脱到脚后的
+    // 脱扣态 ~3 仍可分）----
     let frontRim = -Infinity
     for (const part of out1.pair.parts) {
       if (part.key === 'waistband') continue
@@ -309,7 +314,7 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
         frontRim = Math.max(frontRim, out1.sim.pos[3 * gi + 2])
       }
     }
-    expect(frontRim).toBeGreaterThan(4.0)
+    expect(frontRim).toBeGreaterThan(3.2)
     // ---- 同输入双跑 DressReport 逐字段相等（确定性红线）----
     const out2 = runDress(a, data, {})
     const r1 = out1.report, r2 = out2.report
@@ -337,12 +342,12 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     // 偏小（穿透未解/fault）是读数不是错误——本例只验不炸不飞
   }, 300_000)
 
-  it('偏小款穿不进：钉环 s<1 整圈嵌体 + 热力图 gap 红区（只摆位快检）', () => {
+  it('偏小款穿不进：钉环 δ<0 整圈均匀嵌体 + 热力图 gap 红区（只摆位快检）', () => {
     const a = loadBodyFromDisk()
     const data = JSON.parse(
       readFileSync(`${HERE}/fixture_fitting.json`, 'utf8')) as FittingResult
-    // 成衣腰长 −4：s = 66.1/69.05 ≈ 0.957——钉环整体缩进截面内（前腹
-    // ~0.6、侧 ~0.55），钉 XZ 冻结如实呈现穿不进
+    // 成衣腰长 −4：δ = (66.1−69.05)/2π ≈ −0.47——钉环沿外法线均匀内嵌
+    // 截面内 ~0.47（每点同一深度），钉 XZ 冻结如实呈现穿不进
     const out = runDress(a, data, {}, { waistDelta: 4, maxFrames: 0 })
     let inside = 0
     for (let i3 = 0; i3 < out.pair.pos.length; i3 += 3) {
@@ -355,7 +360,7 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     }
     // 腰口钉环整圈（顶链 + 腰头两缘）嵌体——腿区/躯干摆位照旧体外
     expect(inside).toBeGreaterThan(100)
-    // 热力图 gap 带符号：穿体深度读负值红端（前腹 ~0.6 − 接触壳 0.98）
+    // 热力图 gap 带符号：穿体深度读负值红端（均匀嵌体 ~0.47 − 接触壳 0.98）
     const heat = computeHeat(out.sim, 'gap')
     let gapMin = 0
     for (const v of heat) gapMin = Math.min(gapMin, v)
