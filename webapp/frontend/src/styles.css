@@ -201,6 +201,11 @@ html, body, #root { height: 100%; margin: 0; }
   fill: rgba(44, 110, 73, 0.92); stroke: #fff; stroke-width: 1.2;
   pointer-events: none;
 }
+/* 把手静默态：默认半透明不抢版型线条视线，悬停（命中区在 .handle 组上）/
+   拖拽中恢复全不透明；钳制色不受影响（拖拽中恒全显） */
+#yl-handles .handle .handle-dot { opacity: 0.35; transition: opacity 0.15s; }
+#yl-handles .handle:hover .handle-dot,
+#yl-handles .handle.dragging .handle-dot { opacity: 1; }
 #yl-handles .handle-hit { fill: transparent; }
 #yl-handles .axis-hint {
   stroke: #2c6e49; stroke-width: 1.2; stroke-dasharray: 2.5 2;
