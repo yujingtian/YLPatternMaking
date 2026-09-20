@@ -19,7 +19,7 @@
 import type { Garment } from './assemble'
 import { CORE_SKIN } from './core'
 import type { BodyField } from './placement'
-import { pointInRings, nearestRingBoundary } from './placement'
+import { pointInRings, nearestRingBoundary, topSupportY } from './placement'
 import { DRAPE_PRIOR, HANG_PRIOR } from './priors'
 import { buildSeamSet, type SeamGroup } from './seams'
 import { bandBottomChain } from './band'
@@ -175,6 +175,25 @@ export function buildDrape(
     holdTarget[3 * k + 2] = garment.pos[3 * holdIdx[k] + 2]
   }
   const pos = new Float32Array(garment.pos)
+  // 穿台初始支撑面钳位（2026-09-20 长裤盖脚收口）：脚踝以下筒摆位半径
+  // 钳踝值，而脚全长前伸远超筒径（zhitong 实测趾尖距腿轴 19.3 vs 筒 6.7，
+  // 脚底切片周长 75~86 vs 脚口环 37.5）——第 0 帧脚就穿布；且 hem 随摆位
+  // 落地面后被不可能的环抱锁进「侧喷摊地」盆地，坡面支撑救不了运输（无
+  // 向前+向上的驱动）。解法 = 初始态直接落进正确 drape 盆地：全部低于
+  // 上表面支撑壳的粒子一遍抬到 topSupportY 接触壳——脚区布搭在脚背/趾盒
+  // 上起步（真实长裤脚口本就搭在脚上：站姿平脚不可能穿过更紧的脚口环），
+  // 动力学只做局部松弛；field=null 自由垂零改动
+  if (field) {
+    for (let i3 = 0; i3 < pos.length; i3 += 3) {
+      if (pinFlag[i3 / 3]) continue
+      const patY = pos[i3 + 1] - yLift
+      const supY = topSupportY(field, pos[i3], pos[i3 + 2], patY)
+      if (supY !== null) {
+        const wy = supY + yLift
+        if (pos[i3 + 1] < wy) pos[i3 + 1] = wy
+      }
+    }
+  }
   return {
     pos,
     prev: new Float32Array(pos),
@@ -301,6 +320,10 @@ function projectHold(sim: DrapeSim): void {
 // ~9 永不收敛）。截面多边形口径取代旧径向推——两腿分离芯的腿间空隙
 // 径向场表示不了（星形实心），只有截面/表面碰撞能留白（旧链 BVH 同因）；
 // 腿管间隙按环独立判内，无 v1「双管交叠符号判陷阱」
+// （2026-09-20）上表面竖直支撑前置：水平推出只作用于水平面内，向下
+// 变宽的坡面（脚背等）撑不住布——先 topSupportY 判上表面域（g≥
+// topSupportSlope，阈 0.6 盖住趾盒冠 g≈0.8）抬到坡面接触壳，墙面/陡坡
+// 路径零改动
 function collide(sim: DrapeSim): void {
   const { pos, prev, field, pinFlag } = sim
   if (!field) return
@@ -314,6 +337,23 @@ function collide(sim: DrapeSim): void {
     const x = pos[i3], z = pos[i3 + 2]
     const patY = pos[i3 + 1] - sim.yLift
     if (patY < sim.collideAboveY) continue   // 腿段自由垂（混合形态）
+    // 上表面竖直支撑（2026-09-20 长裤盖脚）：水平推出撑不住「向下变宽」
+    // 的坡面（脚背/脚尖/脚跟、大腿上侧）——外法线朝上、推出却在水平面内，
+    // 布粒被侧向射出再下坠 = 沿坡滑到底，长裤脚口盖不住脚。先判上表面域
+    // （placement.topSupportY：坡 g≥topSupportSlope 才接管），抬到行间
+    // 交叉插值面 + skin·法线竖直分量；上表面域跳过水平推出（会把盖在坡上
+    // 的布射飞）
+    const supY = topSupportY(field, x, z, patY)
+    if (supY !== null) {
+      const wy = supY + sim.yLift
+      if (pos[i3 + 1] < wy) {
+        pos[i3 + 1] = wy
+        prev[i3] += (pos[i3] - prev[i3]) * fr
+        prev[i3 + 1] += (pos[i3 + 1] - prev[i3 + 1]) * fr
+        prev[i3 + 2] += (pos[i3 + 2] - prev[i3 + 2]) * fr
+      }
+      continue
+    }
     const rings = field.loopsAt(patY)
     if (rings.length === 0) continue
     // 最近边界（跨全部环，quick reject 余量 = skin；2026-09-18 扫描体

@@ -19,7 +19,8 @@ import { pointInRings } from './placement'
 import { bandTargets, ringWalk } from './band'
 import type { BodyField, PieceKey, Side } from './placement'
 import {
-  buildWaistRing, placePoint, ringPointAt, type WaistRing,
+  buildFootCurtain, buildWaistRing, curtainAt, placePoint, ringPointAt,
+  type WaistRing,
 } from './placement'
 import { FLAT_PRIOR, HANG_PRIOR, MESH_PRIOR } from './priors'
 
@@ -262,9 +263,10 @@ function chainXAt(chain: EdgeRun, xy: Float64Array, y: number): number {
 //    补焊零 rest 闭环汇集裆交叉点=口径③（叉口在 fork 下方的腿间隙里）
 // 5) hangLift 统一抬升（碰撞模式重定标：布撑芯上不下坠，hem≈纸样 y
 //    +lift；drape collide 截面环查询按 yLift 回纸样空间，两处一致）
-// 穿台分支（2026-09-19 形随体长随衣）：waistRing 在时腰口/顶链相关段
-// 沿钉环弧长摆放（环 = 腰站截面边界放大至成衣腰长，见 placement.
-// buildWaistRing），侧缝语义竖直线方向随侧腰角（扁截面下前移）；腿区/
+// 穿台分支（2026-09-19 形随体长随衣；2026-09-20 间隙均匀）：waistRing
+// 在时腰口/顶链相关段沿钉环弧长摆放（环 = 腰站截面边界沿外法线等距
+// 偏移至周长 = 成衣腰长，见 placement.buildWaistRing），侧缝语义竖直
+// 线方向随侧腰角（扁截面下前移）；腿区/
 // 躯干非腰口段照旧（有碰撞管终态）。缺省 waistRing = 旁挂 θ 角度表
 // 原口径，字节等价
 export function buildFullPair(
@@ -592,7 +594,33 @@ export function buildFullPair(
       }
     }
   }
-  // ---- 4.5) 腰头摆放（九期腰头立体化，用户口径「腰头两边是前中线、
+  // ---- 4.5) 脚区幕帘（2026-09-20 长裤盖脚；穿台腿轴带 ankleY 才走）：
+  // 踝下顶点按其绕腿轴方向查幕帘行走表（placement.buildFootCurtain：踝环
+  // 竖直下垂 → 触脚面贴坡走线 → 预算尽/落地），侧/内向无触面时走线 =
+  // 筒半径竖直垂，与 step 1/4 摆位逐点一致——偏离只出现在脚面凸出处
+  // （趾盒/脚背/脚底缘），脚口前缘落趾盒上、侧后缘垂地。旁挂/合成场
+  // 无 ankleY 零改动 ----
+  if (axis.ankleY !== undefined && HANG_PRIOR.legReparam) {
+    const curtains = buildFootCurtain(field, axis, -lift)
+    for (const part of parts) {
+      if (part.key !== 'front' && part.key !== 'back') continue
+      const sgn = part.side === 'R' ? 1 : -1
+      const cur = curtains[sgn === 1 ? 1 : 0]
+      for (let i = 0; i < part.mesh.xy.length / 2; i++) {
+        const yPat = part.mesh.xy[2 * i + 1]
+        if (yPat >= axis.ankleY) continue
+        const i3 = 3 * (part.offset + i)
+        const dx = pos[i3] - cur.cx, dz = pos[i3 + 2]
+        const rr = Math.hypot(dx, dz)
+        if (rr < 1e-6) continue
+        const { h, t } = curtainAt(cur, Math.atan2(dx, dz), axis.ankleY - yPat)
+        pos[i3] = cur.cx + (dx / rr) * t
+        pos[i3 + 1] = h
+        pos[i3 + 2] = (dz / rr) * t
+      }
+    }
+  }
+  // ---- 4.6) 腰头摆放（九期腰头立体化，用户口径「腰头两边是前中线、
   // 腰头中点是后中线」）：bandTargets 对每个带顶点给 (环顶点, 带法向
   // 距离 v)——底边顶点摆到**配对环顶点原位**（bandWaist 焊对初始间隙
   // 0，摆位先行），列沿竖直向上 v；u 沿带弧的环映射 = 端 u=0/1 落前中
@@ -604,7 +632,8 @@ export function buildFullPair(
     // 穿台带顶环（2026-09-19）：腰上方身体围收窄但前腹外凸（base.bin 实测
     // y=98→102.5：周长 69.05→67.11、前 z 14.72→15.55）——带顶边沿用腰站环
     // x,z 会前腹嵌体 0.3~0.6（钉 XZ 冻结救不回）。顶环 = 「环源行+带宽」行
-    // 截面同口径缩放（该行形随体长随衣：上方收窄 → 真实带顶微悬空 ~0.5；
+    // 截面同口径等距偏移（该行形随体长随衣：上方收窄 → 真实带顶均匀微悬
+    // 空 ~δ 顶；
     // 隆起体则负 gap 顶紧）。带列 XZ 随 v 从底环位渐变到顶环位；顶环构建
     // 失败退化竖直列（旁挂路径不触发）
     let topRing: WaistRing | null = null
