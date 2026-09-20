@@ -1,6 +1,6 @@
 import type {
-  AdjustResult, DraftPayload, FittingResult, IssueDetail, PiecesResult,
-  Schema, SeedPayload, SeedResult, SheetResult, Values,
+  AdjustResult, DraftPayload, FittingResult, IssueDetail, NestResult,
+  PiecesResult, Schema, SeedPayload, SeedResult, SheetResult, Values,
 } from './types'
 import type { ExtractResponse } from './types'
 import { AGENT_BASE } from './agentConfig'
@@ -105,6 +105,45 @@ export function downloadBlob(
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// 二进制内存直存（排料 DXF：/api/nest JSON 里的 base64 解码成字节后落盘），
+// 与 downloadBlob 同款 blob + a[download]。形参收窄 Uint8Array<ArrayBuffer>：
+// TS 5.7 起 BlobPart 不再接受 ArrayBufferLike（atob/Uint8Array.from 均产此型）
+export function downloadBlobBytes(
+  data: Uint8Array<ArrayBuffer>, filename: string,
+  mime = 'application/dxf',
+): void {
+  const url = URL.createObjectURL(new Blob([data], { type: mime }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// 排料对接（POST /api/nest，§10.3.2）：带 g 码编号 DXF（file=base64）+
+// numMap 数量契约。422 detail 双形态（字符串=推板码号非纯数字等 |
+// IssueDetail[]=参数校验），归一成可读消息——排料侧码号错误用户要能看懂
+export async function postNest(payload: DraftPayload): Promise<NestResult> {
+  const res = await fetch('/api/nest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    if (res.status === 422 && body) {
+      const detail: unknown = body.detail
+      throw new Error(typeof detail === 'string' ? detail
+        : Array.isArray(detail)
+          ? detail.map((d: IssueDetail) =>
+            `${d.param ? `${d.param}: ` : ''}${d.message}`).join('；')
+          : '参数校验失败')
+    }
+    throw new Error(`${res.status} ${await res.text()}`)
+  }
+  return res.json() as Promise<NestResult>
 }
 
 export interface Template {

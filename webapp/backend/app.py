@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import os
 from pathlib import Path
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 
 from ylpattern.exporters import dxf as dxf_exp
 from ylpattern.exporters import fitting as fitting_exp
+from ylpattern.exporters import piece_codes
 from ylpattern.exporters import piece_dxf as piece_dxf_exp
 from ylpattern.exporters import piece_svg as piece_exp
 from ylpattern.exporters import report as report_exp
@@ -262,6 +264,54 @@ def dxf(req: DraftRequest, kind: str = "pieces") -> Response:
     return Response(buf.getvalue(), media_type="application/dxf",
                     headers={"Content-Disposition":
                              f'attachment; filename="{name}"'})
+
+
+@app.post("/api/nest")
+def nest(req: DraftRequest) -> dict:
+    """排料系统对接产物（对接文档《母版DXF编号植入对接文档_2026-09.md》）：
+    带 g 码编号的 DXF（file = base64）+ numMap 数量契约，JSON 返回。
+
+    - 单码（无 size_run）：码号 = 腰围英寸档（piece_codes.inch_size_label，
+      如 74cm -> 29）；多码：码号 = 推板码表（须纯数字——块名码号尾缀
+      正则要求，非数字 422）；
+    - belt_loop 不进排料产物（整根连裁不走 nesting，piece_codes.NEST_EXCLUDED）；
+    - 强制 show_seam=True：净样交换文件（层 1 无毛样 POLYLINE）对排料
+      解析整片不可见，不透传 show_seam_allowance 开关；
+    - web 路径 doc.write 直出（不走 save_doc 的 R12 清洗）-> TABLES 保留，
+      TEXT 层表随文件下发，恰好满足对接规范「编号 TEXT 层须注册层表」；
+    - 字段名 file/numMap 按对接契约**有意不用 snake_case**（2026-09-20
+      用户口径）；labels 为 g码 -> 中文裁片名，仅供前端展示（不进 DXF）。
+    """
+    if req.size_run:
+        m, o, _ = _build(req)     # 基码构造+校验；逐码重打版在内存核心里
+        try:
+            run = size_run_from_dict(m, o, req.size_run)
+            piece_codes.assert_numeric_labels(run.labels)
+            _ctxs, groups, _rows, _tr = run_size_run_groups(run, o)
+        except ValueError as e:   # 码表/档差/码号非数字（消息带全部不良码）
+            raise HTTPException(422, str(e))
+        base_pieces = piece_codes.nest_pieces(dict(groups)[run.base])
+        doc = piece_dxf_exp.render_size_run_dxf(
+            [(s, piece_codes.nest_pieces(ps)) for s, ps in groups],
+            sample_size=run.base, style_name=run.style_name, show_seam=True)
+        pieces = base_pieces      # numMap/labels 取基码片集（各码片集恒同）
+        filename = "nest_size_run.dxf"
+    else:
+        m, _o, ctx, _warnings = _draft_ctx(req)
+        pieces, _skips = collect_pieces(ctx)
+        pieces = piece_codes.nest_pieces(pieces)
+        doc = piece_dxf_exp.render_pieces_dxf(
+            pieces, size=piece_codes.inch_size_label(m.waist), show_seam=True)
+        filename = "nest.dxf"
+    buf = io.StringIO()
+    doc.write(buf)
+    return {
+        "ok": True,
+        "file": base64.b64encode(buf.getvalue().encode("ascii")).decode(),
+        "filename": filename,
+        "numMap": piece_codes.nest_num_map(pieces),
+        "labels": piece_codes.nest_labels(pieces),
+    }
 
 
 @app.post("/api/toml")

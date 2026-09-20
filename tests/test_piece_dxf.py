@@ -4,7 +4,12 @@
 金标（M 同 test_waistband_piece；back_yoke+back_patch 开启使 back_piece
 drills/marks 齐全）：
 - 每片一个 BLOCK + msp 恰一个同名 INSERT（插入点 = 平铺偏移）；块名 =
-  {片名}-{尺码}（如 WAISTBAND-30，多尺码同文件不冲突）；
+  {片名}-G{NN}-{尺码}（如 WAISTBAND-G05-30，排料方式 A 编号尾缀，
+  多尺码同文件不冲突、跨码同号）；
+- 排料编号 TEXT：每块恰 1 个独立层 "TEXT"（层表已注册）的编号 TEXT，
+  值 "g{NN}-{尺码}"、字高 25mm、纯 ASCII、插入点在 layer 1 CUT 折线内
+  （对接文档锚点算法，凹片不悬空）；位于块内实体序列末段（晚于全部
+  layer 1 POLYLINE，piece_index 身份键不受扰动）；
 - 图层为 AAMA 数字层：层 "1" CUT 闭合 POLYLINE 每片恰 1 条、顶点数 >=
   gross_polygon 去重后点数（刀口点共线插入为顶点，ET 按顶点吸附挂刀口
   符号）；"14" NET/SHRUNK 每片恰 1 条**闭合**净样环（ET08 方言净样层，
@@ -28,6 +33,7 @@ ezdxf 缺席时逐条 importorskip。
 import pytest
 
 from ylpattern.exporters import _dxf_base as base
+from ylpattern.exporters import piece_codes
 from ylpattern.exporters.piece_dxf import _piece_bounds, render_pieces_dxf
 from ylpattern.flows.back_flow import FULL_FLOW
 from ylpattern.flows.back_piece_flow import build_back_piece
@@ -89,12 +95,74 @@ def test_block_per_piece_with_insert(pieces):
     doc = _doc(pieces)
     inserts = [e for e in doc.modelspace() if e.dxftype() == "INSERT"]
     assert len(inserts) == len(pieces)
-    # 块名与片名-尺码对应（ASCII 大写化），每块被引用恰一次
+    # 块名与片名-G码-尺码对应（ASCII 大写化），每块被引用恰一次
     names = [e.dxf.name for e in inserts]
     assert len(set(names)) == len(names)
     for piece in pieces:
+        g = piece_codes.gcode_for(piece.name)
         assert sum(1 for n in names
-                   if n == f"{piece.name.upper()}-30") == 1
+                   if n == f"{piece.name.upper()}-G{g:02d}-30") == 1
+
+
+# ---------- 排料 g 码编号（对接文档方式 A） ----------
+
+def test_code_text_per_block(pieces):
+    """每块恰 1 个独立层 "TEXT" 的编号 TEXT：值 g{NN}-{尺码}、字高
+    25mm、纯 ASCII；层表已注册 TEXT 层；编号 TEXT 晚于块内全部 layer 1
+    POLYLINE（不扰动其出现顺序 -> piece_index 身份键不变）。"""
+    doc = _doc(pieces)
+    assert "TEXT" in doc.layers
+    blocks = [b for b in doc.blocks
+              if not b.name.startswith(("*", "$", "_"))]
+    assert len(blocks) == len(pieces)
+    for blk, piece in zip(blocks, pieces):
+        g = piece_codes.gcode_for(piece.name)
+        codes = [e for e in blk if e.dxftype() == "TEXT"
+                 and e.dxf.layer == "TEXT"]
+        assert len(codes) == 1
+        assert codes[0].dxf.text == piece_codes.code_text(g, "30")
+        assert codes[0].dxf.height == pytest.approx(
+            piece_codes.CODE_TEXT_HEIGHT_MM)
+        assert codes[0].dxf.text.isascii()
+        # 编号 TEXT 位于块内实体序列末段（晚于全部 layer 1 POLYLINE，
+        # 不扰动其出现顺序 -> piece_index 身份键不变）
+        ents = list(blk)
+        code_i = ents.index(codes[0])
+        poly_i = max(i for i, e in enumerate(ents)
+                     if e.dxftype() == "POLYLINE" and e.dxf.layer == "1")
+        assert code_i > poly_i
+
+
+def test_code_anchor_inside_cut(pieces):
+    """编号 TEXT 插入点在 layer 1 CUT 折线内（射线法）——对接文档锚点
+    算法的交付形态：图面编号不悬空。"""
+    doc = _doc(pieces)
+    blocks = [b for b in doc.blocks
+              if not b.name.startswith(("*", "$", "_"))]
+    for blk in blocks:
+        cut = next(e for e in blk if e.dxftype() == "POLYLINE"
+                   and e.dxf.layer == "1")
+        code = next(e for e in blk if e.dxftype() == "TEXT"
+                    and e.dxf.layer == "TEXT")
+        poly = [(v.dxf.location.x, v.dxf.location.y) for v in cut.vertices]
+        assert piece_codes.point_in_polygon(
+            (code.dxf.insert.x, code.dxf.insert.y), poly)
+
+
+def test_block_codes_self_check(pieces):
+    """对接自校验（对接文档 §7.1）：回读块名按方式 A 两条正则复算
+    (码号, g 码)，与 PIECE_GCODES 渲染意图逐块一致；码内编号唯一
+    （all-or-nothing 判定的前提）。"""
+    doc = _doc(pieces)
+    seen: set[int] = set()
+    blocks = [b for b in doc.blocks
+              if not b.name.startswith(("*", "$", "_"))]
+    for blk, piece in zip(blocks, pieces):
+        size, g = piece_codes.parse_block_code(blk.name)
+        assert size == "30"
+        assert g == piece_codes.gcode_for(piece.name)
+        assert g not in seen
+        seen.add(g)
 
 
 def test_blockref_at_layout_offset(pieces):

@@ -86,7 +86,10 @@ def _block(doc):
 def test_dxf_hidden_seam_drops_cut_keeps_net():
     pytest.importorskip("ezdxf")
     from ylpattern.exporters.piece_dxf import render_pieces_dxf
-    doc = render_pieces_dxf([_piece()], size="30", show_seam=False)
+    # embed_codes=False：合成片名 "demo" 不在排料赋码表（缝边显示开关
+    # 测试与编号植入解耦，编号金标在 test_piece_dxf.py）
+    doc = render_pieces_dxf([_piece()], size="30", show_seam=False,
+                            embed_codes=False)
     blk = _block(doc)
     layer1_poly = [e for e in blk if e.dxftype() == "POLYLINE"
                    and e.dxf.layer == "1"]
@@ -101,9 +104,10 @@ def test_dxf_hidden_seam_drops_cut_keeps_net():
 def test_dxf_notch_switches_to_net_line_when_hidden():
     pytest.importorskip("ezdxf")
     from ylpattern.exporters.piece_dxf import render_pieces_dxf
-    shown = render_pieces_dxf([_projected_notch_piece()], size="30")
+    shown = render_pieces_dxf([_projected_notch_piece()], size="30",
+                              embed_codes=False)
     hidden = render_pieces_dxf([_projected_notch_piece()], size="30",
-                               show_seam=False)
+                               show_seam=False, embed_codes=False)
 
     def notch_ys(doc) -> list[float]:
         blk = _block(doc)

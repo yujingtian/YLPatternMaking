@@ -205,6 +205,18 @@ export interface Snapshot<T> {
 
 // 下载种类（单一 dlBusy 串行：DXF 下载重跑引擎，防重复点击）
 export type DownloadKind = 'sheetDxf' | 'piecesDxf' | 'sizeRunDxf' | 'toml'
+  | 'nest'
+
+// 排料对接产物（POST /api/nest）：带 g 码编号的 DXF（file = base64，
+// 对接文档《母版DXF编号植入对接文档》方式 A）+ numMap 数量契约。
+// 字段名 file/numMap 按对接契约有意不用 snake_case（与后端逐字段同构）
+export interface NestResult {
+  ok: boolean
+  file: string
+  filename: string
+  numMap: Record<string, number>
+  labels: Record<string, string>
+}
 
 export interface IssueDetail {
   param: string | null

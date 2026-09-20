@@ -107,11 +107,14 @@ def flatten_geom(g: LineSegment | CubicBezier,
 
 
 def add_polyline(msp, pts_cm: Sequence[Point], to_mm: ToMm, *,
-                 layer: str, closed: bool = False) -> None:
+                 layer: str, closed: bool = False
+                 ) -> list[tuple[float, float]]:
     """点列（cm 域）经 to_mm 变换后写 2D POLYLINE（R12 自动 VERTEX/SEQEND）。
 
     连续重复点与闭合首尾重复点先去重，防零长度段（个别裁床对零长度
-    顶点报错）；去重后不足 2 点则跳过（退化输入不上版）。
+    顶点报错）；去重后不足 2 点则跳过（退化输入不上版）。返回**实际写入**
+    的 mm 点列（跳过时为空）——排料编号锚点（piece_codes.label_anchor）
+    用它喂「与 layer 1 POLYLINE 逐点一致」的顶点，杜绝两处去重逻辑漂移。
     """
     eps = 1e-6  # mm 域去重容差
     pts: list[tuple[float, float]] = []
@@ -126,16 +129,26 @@ def add_polyline(msp, pts_cm: Sequence[Point], to_mm: ToMm, *,
         if abs(first[0] - last[0]) < eps and abs(first[1] - last[1]) < eps:
             pts.pop()
     if len(pts) < 2:
-        return
+        return []
     msp.add_polyline2d(pts, close=closed, dxfattribs={"layer": layer})
+    return pts
+
+
+def add_text_mm(msp, text: str, xy: tuple[float, float], *,
+                layer: str = "TEXT",
+                height_mm: float = TEXT_HEIGHT_MM) -> None:
+    """单行 TEXT，插入点直接给 mm 坐标（不经过 to_mm 变换）——排料编号
+    锚点已在 mm 域（label_anchor 输入即 layer 1 顶点同款坐标）。调用方
+    保证 text 为 ASCII。"""
+    msp.add_text(text, dxfattribs={"layer": layer, "height": height_mm}) \
+        .set_placement((float(xy[0]), float(xy[1])))
 
 
 def add_text(msp, text: str, pos_cm: Point, to_mm: ToMm, *,
              layer: str = "TEXT", height_mm: float = TEXT_HEIGHT_MM) -> None:
-    """单行 TEXT（左对齐，插入点由 to_mm 变换）。调用方保证 text 为 ASCII。"""
-    x, y = to_mm(pos_cm)
-    msp.add_text(text, dxfattribs={"layer": layer, "height": height_mm}) \
-        .set_placement((float(x), float(y)))
+    """单行 TEXT（左对齐，插入点 = cm 域点经 to_mm 变换）。add_text_mm 的
+    cm 域薄封装。调用方保证 text 为 ASCII。"""
+    add_text_mm(msp, text, to_mm(pos_cm), layer=layer, height_mm=height_mm)
 
 
 def _strip_r12_compat(path: str) -> None:

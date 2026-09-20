@@ -155,7 +155,7 @@ def test_dxf_size_run_ok():
     import io
     doc = ezdxf.read(io.StringIO(r.content.decode("latin-1")))
     blocks = [b.name for b in doc.blocks if not b.name.startswith(("*", "_"))]
-    assert "WAISTBAND-31" in blocks and "FRONT_PIECE-29" in blocks
+    assert "WAISTBAND-G05-31" in blocks and "FRONT_PIECE-G01-29" in blocks
 
 
 def test_dxf_size_run_missing_422():

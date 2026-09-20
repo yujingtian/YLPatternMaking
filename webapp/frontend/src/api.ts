@@ -15,9 +15,13 @@ export type { Template } from './apiHttp'
 
 // 下载（DXF/toml）与模板/参数 schema：永远 HTTP（引擎不落盘、
 // ezdxf 不进浏览器；schema 首屏不等 worker 就绪）。
-// downloadBlob 为内存直存（SVG/报表，无 HTTP）
+// downloadBlob 为内存直存（SVG/报表，无 HTTP）；downloadBlobBytes 为
+// 二进制内存直存（排料 DXF base64 解码后落盘）；postNest 排料对接
+// （/api/nest 出 JSON：DXF 依赖 ezdxf，同 DXF 类永不走本地引擎）
 export const download = http.download
 export const downloadBlob = http.downloadBlob
+export const downloadBlobBytes = http.downloadBlobBytes
+export const postNest = http.postNest
 export const fetchSchema = http.fetchSchema
 export const fetchTemplates = http.fetchTemplates
 export const fetchTemplateDetail = http.fetchTemplateDetail

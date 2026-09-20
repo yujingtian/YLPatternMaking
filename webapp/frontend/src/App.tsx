@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { App as AntApp, Alert, Button, ConfigProvider, Segmented, Tag } from 'antd'
 import {
-  DownloadOutlined, FileAddOutlined, PlayCircleOutlined,
+  DownloadOutlined, FileAddOutlined, LayoutOutlined, PlayCircleOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import InitGate from './components/InitGate'
@@ -11,6 +11,7 @@ import AdvancedEditor from './components/AdvancedEditor'
 import ExportCenter from './components/ExportCenter'
 import SizeRunDrawer from './components/SizeRunDrawer'
 import ExtractWizard from './components/ExtractWizard'
+import NestResultModal from './components/NestResultModal'
 import Fitting3DView from './fitting3d/Fitting3DView'
 import type { IssueDetail, SizeRunSpec, Values } from './types'
 import { useDraft } from './hooks/useDraft'
@@ -75,6 +76,12 @@ function DraftApp() {
   const [extractOpen, setExtractOpen] = useState(false)
   // 导出中心弹层开合（勾选产物 -> 逐项串行下载）
   const [exportOpen, setExportOpen] = useState(false)
+  // 排料 numMap 弹窗开合：产物到达即开（download('nest') 成功置
+  // nestResult），关窗即清产物（不留快照，重点击重取）
+  const [nestOpen, setNestOpen] = useState(false)
+  useEffect(() => {
+    if (d.nestResult !== null) setNestOpen(true)
+  }, [d.nestResult])
   // 右栏主视图切换（2026-09-19 用户口径「默认是整版效果」）：'2d' 高级
   // 编辑（整版调版工作台，默认）↔ '3d' 3D 试穿——Fitting3DView 切入才
   // 挂载，首挂自动试穿在那一刻才发；编辑器内「返回」= 切回 3D
@@ -186,6 +193,15 @@ function DraftApp() {
             >
               导出
             </Button>
+            {/* 排料对接（§10.3.2）：POST /api/nest 出带 g 码编号 DXF +
+                numMap——下载文件 + 弹窗展示数量；失败入全局 IssueStrip */}
+            <Button
+              icon={<LayoutOutlined />}
+              loading={d.dlBusy === 'nest'}
+              onClick={() => void d.download('nest').catch(() => {})}
+            >
+              排料
+            </Button>
           </div>
         </aside>
         <section className="right-pane">
@@ -274,6 +290,14 @@ function DraftApp() {
           void d.download('sizeRunDxf', { sizeRun: s })
             .then(() => setSizeRunOpen(false))
             .catch(() => {})
+        }}
+      />
+      <NestResultModal
+        open={nestOpen}
+        result={d.nestResult}
+        onClose={() => {
+          setNestOpen(false)
+          d.clearNestResult()
         }}
       />
       <ExtractWizard

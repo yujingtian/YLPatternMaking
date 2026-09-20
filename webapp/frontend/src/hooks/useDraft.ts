@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
-  DraftPayload, DownloadKind, FittingResult, IssueDetail, PiecesResult,
-  Schema, SeedPayload, SeedResult, SheetResult, Snapshot, SizeRunSpec, Values,
+  DraftPayload, DownloadKind, FittingResult, IssueDetail, NestResult,
+  PiecesResult, Schema, SeedPayload, SeedResult, SheetResult, Snapshot,
+  SizeRunSpec, Values,
 } from '../types'
 import {
-  download as downloadFile, fetchSchema, postFitting, postPieces, postSeed,
-  postSheet,
+  download as downloadFile, fetchSchema, postFitting, postNest, postPieces,
+  postSeed, postSheet,
 } from '../api'
 import { normalizeSizeRun } from '../sizeRun'
 import { PRODUCT_POCKET_KEYS } from '../factoryParams'
@@ -63,6 +64,11 @@ export interface DraftState {
   // opts.sizeRun：抽屉「保存+导出」同 tick 的显式覆盖（规避闭包旧值竞态）
   download: (kind: DownloadKind, opts?: { sizeRun?: SizeRunSpec | null }) =>
     Promise<void>
+  // 排料对接产物（download('nest') 成功后置）：numMap 弹窗数据源；
+  // 关弹窗即清（产物只属于当次点击，不留快照——排料 DXF 不参与
+  // 版本过期门控，重新点击即重取）
+  nestResult: NestResult | null
+  clearNestResult: () => void
   // 二期拖拽调版：反解回写（显式载荷重生成整版）/ 撤销 / 面板高亮
   applyAdjust: (param: string, value: number, base: DraftPayload) => Promise<void>
   beginDrag: (param: string, prevValue: number) => void
@@ -151,6 +157,7 @@ export function useDraft(): DraftState {
   const fittingBusyRef = useRef(false)
   fittingBusyRef.current = fittingBusy
   const [dlBusy, setDlBusy] = useState<DownloadKind | null>(null)
+  const [nestResult, setNestResult] = useState<NestResult | null>(null)
   const [lastDrag, setLastDrag] = useState<{ param: string; prevValue: number } | null>(null)
   const [adjustInfo, setAdjustInfo] = useState<{ param: string; ts: number } | null>(null)
   const [engineState, setEngineState] = useState<UiEngineState>('loading')
@@ -399,6 +406,13 @@ export function useDraft(): DraftState {
       } else if (kind === 'sizeRunDxf') {
         await downloadFile('/api/dxf?kind=size_run', { ...base, size_run: sr },
                            'size_run.dxf')
+      } else if (kind === 'nest') {
+        // 排料对接（§10.3.2）：JSON 响应只拿数据不落盘（用户口径
+        // 2026-09-20：不要默认下载），numMap 置 nestResult 开弹窗，
+        // DXF 留在内存由弹窗「下载 DXF」按钮手动取；载荷口径同 toml
+        // （有码表才带段）
+        const res = await postNest(sr ? { ...base, size_run: sr } : base)
+        setNestResult(res)
       } else {
         await downloadFile('/api/toml',
                            sr ? { ...base, size_run: sr } : base,
@@ -414,12 +428,15 @@ export function useDraft(): DraftState {
     }
   }, [measurements, options, sizeRun, dlBusy])
 
+  const clearNestResult = useCallback(() => setNestResult(null), [])
+
   return {
     schema, measurements, options, sizeRun,
     setMeasurement, setOption, setSizeRun, loadValues,
     seedShape,
     generateSheet, generatePieces, generateFitting, ensureSheet, ensurePieces,
     download,
+    nestResult, clearNestResult,
     applyAdjust, beginDrag, undoLastDrag, lastDrag, adjustInfo,
     sheet, pieces, fitting,
     sheetReady: sheet !== null, sheetStale,

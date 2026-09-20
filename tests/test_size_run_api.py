@@ -59,9 +59,9 @@ def test_run_size_run_end_to_end(run_file, tmp_path):
               if not b.name.startswith(("*", "_"))]
     assert len(blocks) == 3 * 3          # 默认开关：waistband/front/back × 3 码
     for s in ("29", "30", "31"):
-        assert f"WAISTBAND-{s}" in blocks
-        assert f"FRONT_PIECE-{s}" in blocks
-        assert f"BACK_PIECE-{s}" in blocks
+        assert f"WAISTBAND-G05-{s}" in blocks
+        assert f"FRONT_PIECE-G01-{s}" in blocks
+        assert f"BACK_PIECE-G02-{s}" in blocks
     headers = [e.dxf.text for e in doc.modelspace()
                if e.dxftype() == "TEXT"
                and e.dxf.text.startswith("Sample Size:")]

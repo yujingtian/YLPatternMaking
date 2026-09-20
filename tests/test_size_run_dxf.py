@@ -1,7 +1,8 @@
 """多码推码 DXF（render_size_run_dxf / write_size_run_dxf）测试（推码方案步 3）。
 
 金标（结构测试，同批裁片复用于三码——块结构/摆放与几何内容无关）：
-- 块数 = Σ各码片数、块名 {片名}-{码} 全命中（跨码不冲突）；
+- 块数 = Σ各码片数、块名 {片名}-G{NN}-{码} 全命中（跨码不冲突、g 码
+  跨码同号——排料方式 A 同片型模板各码共用一个 g 码）；
 - Sample Size = 基码（ET08 底部尺码栏数据源）；
 - Category 码内 0 起重置（同片名跨码 Category 相同，ET08 参考件口径）；
 - 带间不重叠：码 A 带 maxY + 8cm <= 码 B 带 minY（带沿 Y 叠放、间距
@@ -15,6 +16,7 @@ ezdxf 缺席时逐条 importorskip。
 
 import pytest
 
+from ylpattern.exporters import piece_codes
 from ylpattern.exporters.piece_dxf import (BAND_GAP_CM, PIECE_GAP_CM,
                                            _layout, _piece_bounds,
                                            render_size_run_dxf,
@@ -59,13 +61,36 @@ def _inserts(msp) -> dict[str, tuple[float, float]]:
 
 
 def test_block_count_and_names(doc, pieces):
-    """① 块数 = Σ各码片数、块名 {片名}-{码} 全命中。"""
+    """① 块数 = Σ各码片数、块名 {片名}-G{NN}-{码} 全命中。"""
     blocks = [b.name for b in doc.blocks
               if not b.name.startswith(("*", "_"))]   # 剔匿名/标准箭头块
     assert len(blocks) == len(SIZES) * len(pieces)
     for s in SIZES:
-        assert f"WAISTBAND-{s}" in blocks
-        assert f"BACK_PIECE-{s}" in blocks
+        assert f"WAISTBAND-G05-{s}" in blocks
+        assert f"BACK_PIECE-G02-{s}" in blocks
+
+
+def test_gcode_same_across_sizes_unique_within(doc, pieces):
+    """排料方式 A 多码口径：同一片型模板各码共用一个 g 码（跨码同号），
+  每码内编号唯一（all-or-nothing 判定前提）；块名回读按对接正则复算
+  (码号, g 码) 与渲染意图一致。"""
+    blocks = [b.name for b in doc.blocks
+              if not b.name.startswith(("*", "_"))]
+    for s in SIZES:
+        codes = set()
+        for piece in pieces:
+            m = piece_codes.parse_block_code(
+                f"{piece.name.upper()}-G{piece_codes.gcode_for(piece.name):02d}-{s}")
+            assert m == (s, piece_codes.gcode_for(piece.name))
+            codes.add(m[1])
+        assert len(codes) == len(pieces)
+    # 跨码同号：同片名各码块剥出同一 g 码
+    from collections import Counter
+    g_per_piece = Counter(
+        piece_codes.parse_block_code(n)[1] for n in blocks)
+    for piece in pieces:
+        g = piece_codes.gcode_for(piece.name)
+        assert g_per_piece[g] == len(SIZES)
 
 
 def test_sample_size_is_base(doc):
@@ -78,7 +103,8 @@ def test_sample_size_is_base(doc):
 def test_category_resets_per_size(doc):
     """③ Category 码内 0 起重置（同片名跨码相同）。"""
     for s in SIZES:
-        for piece_name, expect in (("WAISTBAND", "0"), ("BACK_PIECE", "1")):
+        for piece_name, expect in (("WAISTBAND-G05", "0"),
+                                    ("BACK_PIECE-G02", "1")):
             cats = [t for t in _texts(doc.blocks.get(f"{piece_name}-{s}"))
                     if t.startswith("Category:")]
             assert cats == [f"Category: {expect}"]
@@ -100,7 +126,8 @@ def test_band_stacking(doc, pieces):
     ins = _inserts(doc.modelspace())
     for s in SIZES:
         for piece, offx, offy in placements:
-            name = f"{piece.name.upper()}-{s}"
+            name = (f"{piece.name.upper()}"
+                    f"-G{piece_codes.gcode_for(piece.name):02d}-{s}")
             assert name in ins, name
             assert ins[name][0] == pytest.approx(offx * 10)
             assert ins[name][1] == pytest.approx((exp_bottom[s] + offy) * 10)

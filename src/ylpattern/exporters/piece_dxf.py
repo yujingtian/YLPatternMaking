@@ -31,6 +31,12 @@
   行是 ET08 底部尺码栏的数据源**，缺组则尺码栏显示 "*"；块内标签行序为
   Piece Name 最下、Y 逐行 +15mm 递增，Category 填逐片序号（0 起）。
 - 全 ASCII：块名/标注取 piece.name 与净长宽数字，中文 label 留在 SVG。
+- **排料 g 码编号（2026-09-20，对接文档《母版DXF编号植入对接文档》方式 A）**：
+  块名 = {片名}-G{NN}-{尺码}（跨码同号），块内独立层 "TEXT"（颜色 7，层表
+  已注册）写编号 TEXT "g{NN}-{size}"（字高 25mm，锚点算法见
+  piece_codes.label_anchor，凹片不悬空）；赋码/数量表见 piece_codes.py。
+  编号 TEXT 不在解析提取白名单 {1,14,8,4,7} 内，对排料解析管线不可见、
+  不扰动 layer 1 实体顺序（piece_index 身份键不受影响）。
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ from datetime import datetime
 from ..geometry import Point, Vector
 from ..pieces import PatternPiece
 from . import _dxf_base as base
+from . import piece_codes
 
 PIECE_GAP_CM = 3.0      # 平铺片间距
 BAND_GAP_CM = 8.0       # 码带间距（多码 DXF 每码一条摆放带，大于片间距
@@ -80,6 +87,9 @@ _LAYERS: dict[str, base.LayerSpec] = {
     "4": (4, "CONTINUOUS"),   # 刀口（POINT + 组码 30=1.524 / 50=角度）
     "13": (6, "CONTINUOUS"),  # 定位孔（POINT，自动渲染钻孔符号）
     "7": (5, "CONTINUOUS"),   # 丝缕线
+    # 排料编号专属层（对接文档 §4：独立层名 "TEXT" 颜色 7，注册层表；
+    # 不在解析提取白名单 {1,14,8,4,7} 内 -> 对排料解析管线不可见）
+    "TEXT": (7, "CONTINUOUS"),
 }
 
 _BLOCK_NAME_RE = re.compile(r"[^A-Za-z0-9_-]")   # 连字符合法：{片名}-{尺码}
@@ -167,13 +177,29 @@ def _notch_segment(p: Point, polygon: tuple[Point, ...]
     return p, p + normal.scale(base.NOTCH_LEN_CM)
 
 
-def _block_name(piece_name: str, size: str, used: set[str]) -> str:
-    """AAMA 块名：{片名}-{尺码}（如 WAISTBAND-30，多尺码同文件不冲突），
-    正则清洗为 ASCII 大写（字母数字/下划线/连字符）、<=31 字符、全局唯一
-    （重名加序号）。"""
-    name = _BLOCK_NAME_RE.sub("_", f"{piece_name}-{size}").upper()[:BLOCK_NAME_MAX]
+def _block_name(piece_name: str, size: str, used: set[str], *,
+                gnum: int | None = None) -> str:
+    """AAMA 块名：{片名}-G{NN}-{尺码}（如 WAISTBAND-G05-30；gnum=None 退回
+    旧形态 {片名}-{尺码}），正则清洗为 ASCII 大写（字母数字/下划线/
+    连字符）、<=31 字符、全局唯一（重名加序号）。
+
+    排料对接（对接文档 §3 方式 A）：块名剥码号尾缀后以 G{NN} 结尾 ->
+    对接方复用为 g 码，跨码同号。**截断守卫**：31 字符截断一旦咬掉
+    `-G{NN}-{SIZE}` 尾缀会让对接方静默回退顺序赋码，必须响亮失败
+    （最长 FRONT_FLY_DOUBLE-G11-30 = 25 字符，正常不触发）。唯一化
+    后缀 `_{i}` 同样会破坏 g 码尾缀识别，但 g 码按片名唯一、片名在
+    collect 内唯一，理论上不可达，保留作异常安全网。
+    """
+    tail = f"-G{gnum:02d}-{size}".upper() if gnum is not None \
+        else f"-{size}"
+    name = _BLOCK_NAME_RE.sub(
+        "_", f"{piece_name}{tail}").upper()[:BLOCK_NAME_MAX]
     if not name:
         name = "PIECE"
+    if gnum is not None and not name.endswith(tail):
+        raise ValueError(
+            f"块名超长截断咬掉排料 g 码尾缀：{piece_name}{tail} -> {name}"
+            "（R12 块名 31 字符上限，请缩短片名）")
     unique, i = name, 2
     while unique in used:
         suffix = f"_{i}"
@@ -213,22 +239,31 @@ def _with_notch_vertices(poly: tuple[Point, ...], notches: Sequence[Point]
 
 
 def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
-                       tolerance_cm: float, show_seam: bool = True) -> None:
+                       tolerance_cm: float, show_seam: bool = True, *,
+                       code: str | None = None) -> None:
     """单片写入 BLOCK（图层顺序同 piece_svg：CUT/NET/SHRUNK/MARK/GRAIN/
     DRILL/NOTCH，层名经 _LAYER_MAP 映射为 AAMA 数字层）。
 
     show_seam=False 隐藏缝边（options.show_seam_allowance 总开关）：
     层 1 不发 CUT 闭合折线（层 1 文本照常），刀口回退净线口径
     （shrunk_notches or notches，与 piece_svg 同口径）；净样环/内部线/
-    丝缕/定位孔照常——出净样交换文件而非裁床切割文件。"""
+    丝缕/定位孔照常——出净样交换文件而非裁床切割文件。
+
+    code（排料编号 "g05-30"）：**函数末尾 append** 到独立层 "TEXT"（不在
+    _LAYER_MAP——不经层 1，对接解析白名单外不可见）；追加在全部实体之后
+    不扰动 layer 1 POLYLINE 的出现顺序（piece_index 身份键）。锚点用
+    add_polyline 返回的「与 layer 1 顶点逐点一致」的 mm 点列；show_seam=
+    False 无毛样顶点时回退净样折线（该片排料侧本就识别不到，TEXT 只
+    服务人读）。"""
     notch_pts = ((piece.gross_notches or piece.shrunk_notches or piece.notches)
                  if show_seam
                  else (piece.shrunk_notches or piece.notches))
+    cut_pts_mm: list[tuple[float, float]] = []
     # 毛样（最终裁切线，闭合；刀口点共线插入为顶点——ET 按顶点吸附挂符号）
     if show_seam and piece.gross_polygon:
-        base.add_polyline(block, _with_notch_vertices(piece.gross_polygon,
-                                                      notch_pts),
-                          to_mm, layer=_LAYER_MAP["CUT"], closed=True)
+        cut_pts_mm = base.add_polyline(
+            block, _with_notch_vertices(piece.gross_polygon, notch_pts),
+            to_mm, layer=_LAYER_MAP["CUT"], closed=True)
     # 净样/缩水净样：整圈链成**一条闭合 POLYLINE** 落层 14（ET08 方言净样
     # 层，逆向 5336 大货样本；已缩水时省略未缩水净样--同 piece_svg，只留
     # 一条内轮廓基准线）。层 8 只是 ET08 的普通内部线层，净样落 8 显示白
@@ -275,6 +310,16 @@ def _render_piece_into(block, piece: PatternPiece, to_mm: base.ToMm,
         block.add_point((x, y, base.NOTCH_Z_MM),
                         dxfattribs={"layer": _LAYER_MAP["NOTCH"],
                                     "angle": angle})
+
+    # 排料编号 TEXT：独立层 "TEXT"（层表已注册、颜色 7），锚点=对接文档 §5
+    # 算法（质心/最宽内条带中点，凹片不悬空）；末尾 append 保 piece_index。
+    if code:
+        pts = cut_pts_mm or [
+            to_mm(p) for e in (piece.shrunk_edges or piece.net_edges)
+            for p in base.flatten_geom(e.geom, tolerance_cm)]
+        base.add_text_mm(block, code, piece_codes.label_anchor(pts),
+                         layer="TEXT",
+                         height_mm=piece_codes.CODE_TEXT_HEIGHT_MM)
 
 
 def _add_piece_info(block, piece: PatternPiece, x0: float, y0: float,
@@ -343,19 +388,26 @@ def render_size_run_dxf(
         band_gap_cm: float = BAND_GAP_CM,
         qty: int = 1,
         style_name: str = "noname",
-        show_seam: bool = True):
+        show_seam: bool = True,
+        embed_codes: bool = True):
     """多码单文件推码 DXF（ezdxf Drawing）：groups = [(码标签, 该码裁片
     列表), ...]（码序），逐码参数化重打版后各码裁片合一张。
 
     每码一条摆放带：带内沿用 _layout shelf 行装箱（行宽 200cm、片间
     gap_cm、行内底对齐），带高 = 该码 shelf 总高，带与带沿 Y 叠放、间距
     band_gap_cm，首带贴原点。每片 BLOCK（局部 mm 坐标）+ Model Space
-    INSERT（插入点 = 平铺偏移）；块名 = _block_name(片名, 码) 全沿用
+    INSERT（插入点 = 平铺偏移）；块名 = _block_name(片名, 码, gnum)
     （跨码天然不冲突）；**Category 序号码内 0 起**（ET08 参考件口径，
     单码行为不变）；块内 5 行魔法标签 Size 行 = 本码；多码时每带左上画
     码标 TEXT（层 1，ASCII，如 "SIZE 30"，人读辅助——ET08 分码靠块内
     Size 标签与全局 Sample Size 头，不依赖它）。_add_doc_header：
     Sample Size = 基码（ET08 底部尺码栏数据源）。
+
+    embed_codes=True（默认，2026-09-20 排料对接）：每片植入 g 码——块名
+    ``{片名}-G{NN}-{码}``（方式 A，跨码同号）+ 块内 "TEXT" 层编号 TEXT
+    （值 "g05-30"，锚点见 piece_codes.label_anchor）。未登记 g 码的片名
+    raise（all-or-nothing 防线）。size 非数字（如常规单码 "-"）时块名
+    尾缀无码号、TEXT 退化为纯 g 码（对接方 size=None，不参与排料）。
     """
     doc = base.new_doc(_LAYERS)
     msp = doc.modelspace()
@@ -377,11 +429,16 @@ def render_size_run_dxf(
                 return ((p.x - x0) * base.MM_PER_CM,
                         (y1 - p.y) * base.MM_PER_CM)
 
-            block = doc.blocks.new(name=_block_name(piece.name, size, used),
-                                   base_point=(0.0, 0.0, 0.0))
+            gnum = piece_codes.gcode_for(piece.name) if embed_codes else None
+            block = doc.blocks.new(
+                name=_block_name(piece.name, size, used, gnum=gnum),
+                base_point=(0.0, 0.0, 0.0))
             # 块与块引用必须显式落层 1：默认层 0 会被 ET 08 直接过滤丢弃
             block.block.dxf.layer = _LAYER_MAP["CUT"]
-            _render_piece_into(block, piece, to_mm, tolerance_cm, show_seam)
+            _render_piece_into(
+                block, piece, to_mm, tolerance_cm, show_seam,
+                code=(piece_codes.code_text(gnum, size)
+                      if gnum is not None else None))
             _add_piece_info(block, piece, x0, y0, x1, y1, to_mm,
                             size, qty, index)
             msp.add_blockref(block.name,
@@ -421,11 +478,13 @@ def write_size_run_dxf(
         band_gap_cm: float = BAND_GAP_CM,
         qty: int = 1,
         style_name: str = "noname",
-        show_seam: bool = True) -> None:
+        show_seam: bool = True,
+        embed_codes: bool = True) -> None:
     doc = render_size_run_dxf(groups, sample_size=sample_size,
                               tolerance_cm=tolerance_cm, gap_cm=gap_cm,
                               band_gap_cm=band_gap_cm, qty=qty,
-                              style_name=style_name, show_seam=show_seam)
+                              style_name=style_name, show_seam=show_seam,
+                              embed_codes=embed_codes)
     base.save_doc(doc, path, comment=AAMA_NOTE)   # 前置 999 注释组
 
 
@@ -434,12 +493,13 @@ def render_pieces_dxf(pieces: Sequence[PatternPiece], *,
                       gap_cm: float = PIECE_GAP_CM,
                       size: str = "-", qty: int = 1,
                       style_name: str = "noname",
-                      show_seam: bool = True):
+                      show_seam: bool = True,
+                      embed_codes: bool = True):
     """单码裁片合集 = 多码渲染的单组退化（Sample Size = 本码）。"""
     return render_size_run_dxf([(size, pieces)], sample_size=size,
                                tolerance_cm=tolerance_cm, gap_cm=gap_cm,
                                qty=qty, style_name=style_name,
-                               show_seam=show_seam)
+                               show_seam=show_seam, embed_codes=embed_codes)
 
 
 def write_pieces_dxf(pieces: Sequence[PatternPiece], path: str, *,
@@ -447,7 +507,9 @@ def write_pieces_dxf(pieces: Sequence[PatternPiece], path: str, *,
                      gap_cm: float = PIECE_GAP_CM,
                      size: str = "-", qty: int = 1,
                      style_name: str = "noname",
-                     show_seam: bool = True) -> None:
+                     show_seam: bool = True,
+                     embed_codes: bool = True) -> None:
     write_size_run_dxf([(size, pieces)], path, sample_size=size,
                        tolerance_cm=tolerance_cm, gap_cm=gap_cm,
-                       qty=qty, style_name=style_name, show_seam=show_seam)
+                       qty=qty, style_name=style_name, show_seam=show_seam,
+                       embed_codes=embed_codes)
