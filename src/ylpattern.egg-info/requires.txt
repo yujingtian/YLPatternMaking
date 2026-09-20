@@ -1,6 +1,0 @@
-
-[dev]
-pytest>=7.4
-
-[dxf]
-ezdxf>=1.1
