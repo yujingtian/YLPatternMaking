@@ -145,7 +145,7 @@ html, body, #root { height: 100%; margin: 0; }
   padding: 6px 10px; border-bottom: 1px solid #e8e8e8; background: #fff;
 }
 .preview-pane {
-  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;
   background: #fafafa;
 }
 .preview-empty {
@@ -163,9 +163,14 @@ html, body, #root { height: 100%; margin: 0; }
    放大内容在元素边缘被裁、右侧容器空白用不上）；逐级打通 height 链
    到 sheet-view 宿主 div（裁片 tab 内容超高仍由 content-holder 滚动） */
 .preview-tabs { padding: 4px 8px 0; background: #fff; flex: 1; min-height: 0; }
+/* antd v6 Tabs DOM：内容壳由 v5 的 .ant-tabs-content-holder 改名
+   .ant-tabs-body-holder（中间多一层 .ant-tabs-body），旧选择器落空会让
+   svg 按原始纵横比撑高整条链、页面级出滚动条（2026-09-20 修）；
+   裁片 tab 内容超高仍由 body-holder 滚动，整版 tab 恰好铺满不出条 */
+.preview-tabs .ant-tabs-body,
 .preview-tabs .ant-tabs-content,
 .preview-tabs .ant-tabs-tabpane { height: 100%; }
-.preview-tabs .ant-tabs-content-holder {
+.preview-tabs .ant-tabs-body-holder {
   overflow: auto; flex: 1; min-height: 0;
 }
 .svg-view { padding: 8px; }
