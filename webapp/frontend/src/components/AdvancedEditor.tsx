@@ -67,7 +67,7 @@ export default function AdvancedEditor({
   const busy = sheetBusy || piecesBusy
   const sheetReady = sheet !== null
   const sheetStaleTip = !dragging && sheetStale
-    ? '参数已修改，正在自动重新生成整版…' : null
+    ? '参数已修改，整版预览已过期；重新「生成」后恢复' : null
   const piecesStaleTip = !dragging && piecesStale
     ? '参数已修改，裁片预览已过期；重新「裁片生成」后恢复' : null
 

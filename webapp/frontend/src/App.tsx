@@ -86,6 +86,11 @@ function DraftApp() {
   // （3D 场景不重建、fitting 快照不丢）；initOpen 遮罩可重开（header 新建）
   const [initialized, setInitialized] = useState(false)
   const [initOpen, setInitOpen] = useState(true)
+  // 整体换源纪元：loadValues 整体替换参数时 +1，作 AdvancedEditor 的
+  // remount key——中途经「新建」重开选择层时工作台不卸载，编辑器的挂载期
+  // ensureSheet 不会重发，整版会停在旧参数（2026-09-20 修）；换源即视为
+  // 重新进入编辑器，补算/tab/缩放全部随新草稿重置
+  const [draftEpoch, setDraftEpoch] = useState(0)
   const finishInit = () => {
     setInitialized(true)
     setInitOpen(false)
@@ -94,6 +99,7 @@ function DraftApp() {
   // 模板带码表、出厂 fresh start 显式 null）
   const initLoadValues = (m: Values, o: Values, sr?: SizeRunSpec | null) => {
     d.loadValues(m, o, sr)
+    setDraftEpoch((e) => e + 1)
     finishInit()
   }
 
@@ -196,6 +202,7 @@ function DraftApp() {
           <div className="right-mode-body">
             {viewMode === '2d' ? (
               <AdvancedEditor
+                key={draftEpoch}
                 sheet={d.sheet}
                 pieces={d.pieces}
                 schema={d.schema}
@@ -276,6 +283,8 @@ function DraftApp() {
         onConfirm={(m, o) => {
           // 第三参必须显式传：loadValues 缺省 null 会清空推板码表
           d.loadValues(m, o, d.sizeRun)
+          // 换源纪元 +1（同 initLoadValues：确认预填 = 整体换参数）
+          setDraftEpoch((e) => e + 1)
           // 确认即完成初始化关层（中途经「新建」重开时 initialized 已真，
           // finishInit 无副作用）
           finishInit()
