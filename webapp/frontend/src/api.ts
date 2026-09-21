@@ -31,6 +31,16 @@ export const fetchTemplateDetail = http.fetchTemplateDetail
 export const postExtract = http.postExtract
 export const fetchAgentHealth = http.fetchAgentHealth
 
+// MS 机器排料五端点（二期对接 §10.3.2）：纯网络调用（求解/轮询/取果/停止/
+// PLT 导出全在 MS 服务侧），不进 route() 引擎通道（同 postNest 先例）；
+// MsError 供 useNestSolve 按 status 判「不可重试」（404/400）
+export const msSolveStart = http.msSolveStart
+export const msStatus = http.msStatus
+export const msResult = http.msResult
+export const msStop = http.msStop
+export const msExport = http.msExport
+export type { MsError } from './apiHttp'
+
 // 本地引擎单命令超时（ms）：超时本次回落 HTTP 并计数，连续 3 次会话降级
 const TIMEOUTS: Record<EngineCmd, number> = {
   sheet: 30_000,

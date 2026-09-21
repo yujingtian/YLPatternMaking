@@ -1,10 +1,10 @@
 # Ralph Progress Log
 Started: Mon, Sep 21, 2026  7:53:26 PM
 
-  - 测试: py -m pytest tests/ -q 全绿（1075 passed 含新增 test_ms_proxy 8 例）；npx tsc --noEmit 零错误；npm test 176 全过；活体冒烟：8020 实例经真 MS(8010) GET /ms/ 200+Cache-Control 透传、machine status/DELETE 路径映射 404 语义正确、YLP_MS_BASE 指死端口 502 中文——验后已 PowerShell 杀净（8020/8021 CLEAN）
-  - 备注: 超时分档 _ms_timeout_sec：solve/export/result 尾缀 120s、status/stop/DELETE 30s；响应头白名单透传 Cache-Control+Content-Disposition；下一 Story US-002 msConfig 纯函数（仅类型依赖，可并行）
 
-[2026-09-21 20:10] US-002 - msConfig 配置构建器 + 契约类型 - DONE
-  - 改动: webapp/frontend/src/types.ts（MS 契约段），src/msConfig.ts（新，buildMachineConfig + RUN_MODE_OPTIONS），src/msConfig.test.ts（新，11 例金标），.doc/python工程设计.md §10.3.2（US-002 条目）
   - 测试: npx tsc --noEmit 零错误；npm test 187 全过（+11）；后端 py -m pytest tests/ -q 1075 passed 无回归
   - 备注: per_type 键集 = numMap ∪ labels 并集（独有键数量 0）；client_ref 由 US-003 提交层追加不进构建器；下一 Story US-003 useNestSolve 轮询 hook + apiHttp 五函数
+[2026-09-21 20:35] US-003 - useNestSolve 轮询 hook + 五 API 函数 - DONE
+  - 改动: webapp/frontend/src/apiHttp.ts（MS 五函数+normalizeMsError），src/api.ts（re-export+MsError），src/hooks/useNestSolve.ts（新），src/apiHttp.test.ts（新），src/useNestSolve.test.ts（新），.doc/python工程设计.md §10.3.2（US-003 条目）
+  - 测试: npx tsc --noEmit 零错误；npm test 212 全过（+25）；tsc -b + vite build 成功（引擎未动，zip 未重建）；后端 py -m pytest tests/ -q 1075 passed 无回归
+  - 备注: 轮询 setTimeout 链非 setInterval；orphan 归 running 家族继续轮询自然落 error；reset 不删 MS 任务（US-004 弹窗关闭时 best-effort DELETE 需自增 msDeleteTask）；下一 Story US-004 NestSolveModal 弹窗接线

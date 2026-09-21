@@ -2,16 +2,10 @@
   "branchName": "ralph/ms-nesting-integration",
   "stories": [
     {
-      "id": "US-002",
-      "title": "msConfig 配置构建器 + 契约类型",
-      "description": "作为前端，需要把 numMap/码表/幅宽/运行模式翻译成 MS config 的纯函数，使提交载荷口径单一可测。\n\n具体任务：\n1. webapp/frontend/src/types.ts — 新增 MS 契约类型（config/result/status 等）\n2. webapp/frontend/src/msConfig.ts — 新建 buildMachineConfig 纯函数 + runMode 三档映射常量\n3. webapp/frontend/src/msConfig.test.ts — vitest 金标测试\n\n验收标准：\n- buildMachineConfig({numMap:{g01:2,g08:1}, sizes:['29','30'], gateCm:175, runMode:'normal'}) → {gate_mm:1750, sizes:[29,30], run_mode:'normal', per_type:{g01:{d:0,tol:0},g08:{d:0,tol:0}}, quantities:{g01:{'29':2,'30':2},g08:{'29':1,'30':1}}}（quantities 键为数字字符串；per_type 键集 = numMap/labels 全部 g 码、值恒 {d:0,tol:0}）\n- runMode 三档映射常量：normal/advanced/extreme（文案「普通运行（180s）/ 高级运行（20min）/ 极限运行（2h）」同源标注）；gateCm 缺省 175、runMode 缺省 normal；非法输入（空 sizes/非数字码）抛可读错误\n- 无单码分支（单码场景由调用侧前置拦截，不进本函数——二期仅推板多码）\n- npm test（vitest）与 npx tsc --noEmit 通过",
-      "passes": true
-    },
-    {
       "id": "US-003",
       "title": "useNestSolve 轮询 hook + 五 API 函数",
       "description": "作为前端，需要提交任务并双档轮询到终态，展示实时利用率并取回结果。\n\n具体任务：\n1. webapp/frontend/src/apiHttp.ts — 新增 msSolveStart/msStatus/msResult/msStop/msExport 五函数 + normalizeMsError，纯 HTTP 不进 route() 引擎通道（同 postNest 先例）\n2. webapp/frontend/src/api.ts — re-export 上述函数\n3. webapp/frontend/src/hooks/useNestSolve.ts — 新建轮询 hook\n\n验收标准：\n- 状态机 idle→submitting→running→done|stopped|error；弹窗开 2s / 关 15s 双档轮询，terminal 停表；组件卸载清 interval\n- running 期暴露 {densityPct, elapsedSec, totalSec, perSeed}；轮询单次网络失败不炸（连续 3 次才转 error）；done 自动拉 result 暴露 {manifest, best}\n- 409（重复提交）/404/400/502 透传为可读中文错误（normalizeMsError）\n- npx tsc --noEmit 通过（hook 行为由 US-007 冒烟端到端验证）",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-004",
