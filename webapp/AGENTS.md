@@ -31,3 +31,19 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
   MS 公式（pointsStr r2 同式）。端口坑：5173 常被 MaterialSorting-web 的
   陈年 Vite 占用且页面长得很像——起服务后先 `cat` vite 日志确认实际端口。
 
+
+## 正式冒烟：scripts/smoke_ms_nest.mjs（2026-09-21 US-007）
+
+- `cd webapp/frontend && npm run smoke:ms-nest`（前置：`npm run build` 出 dist +
+  MS :8010 在跑）。自举双 YL backend（8040 真 MS / 8041 死链 502 夹具），退出
+  树杀；报告 `out/smoke_ms_nest/report.txt`。临场 us00X_verify.mjs 套路已吸收
+  进正式脚本，勿再手搓 Vite dev 验证排料链路。
+- 409 夹具手法：`context.route` 拿 `req.postDataBuffer()` latin1 字节替换
+  multipart 里的 client_ref 为**同长**定值（不动 content-length/boundary）；
+  tab2 须 `addInitScript` 清任务锚（否则 App 挂载期 attach 到在飞任务，无参
+  数态可提交）。
+- 502 夹具：第二 backend 实例 `YLP_MS_BASE` 指死端口；B 页免重走码表 = 把
+  A 页 localStorage 草稿 `addInitScript` 注入（剔 `ylpattern.msNestTask.v1`
+  防 attach）。
+- prod 形态冒烟不依赖 Vite：backend 托管 dist + `/ms` httpx 转发一并回归；
+  uvicorn spawn 用 `py`（`python` 是 Store 假 alias，SMOKE_PY 可覆盖）。

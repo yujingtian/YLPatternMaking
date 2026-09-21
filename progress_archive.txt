@@ -17,3 +17,7 @@
   - 备注: 关闭语义 solveCloseBehavior 三段(进度期=降频守望/结果期=DELETE/idle=纯关); 再次排料走 onSessionReset 结果会话同样回收名额; 坑: 本机 Playwright :text-is 与 getByRole exact 匹配不上 CJK 纯文本按钮(getByText exact 可用)、antd 两字按钮自动插空格(关 闭/重 试)、npm prebuild 的 python 需真 3.11 路径; 下一 Story US-005 NestPreview SVG 自渲染
 [2026-09-21 21:40] US-005 - NestPreview SVG 自渲染（超排三件套） - DONE
   - 改动: webapp/frontend/src/components/NestPreview.tsx(新)+NestPreview.test.ts(新), NestSolveModal.tsx(结果态接线), types.ts(MsPieceMeta.raw_polygon 放宽可空), styles.css(nest-preview 三件套样式), .doc/python工程设计.md §10.3.2, webapp/AGENTS.md
+  - 测试: npx tsc --noEmit 零错误; npm test 238 全过(+18); vite build 成功; 后端 py -m pytest tests/ -q 1075 passed 无回归; 浏览器 Playwright+chrome 活体验证(真 MS :8010 经 Vite :5174): us005_verify 11/11(顶标签 85.66%·302.80cm 逐字符一致/翻转组 translate(0 1750) scale(1 -1)/DOM 多边形 51=placed 51/首片 points 与 MS 公式逐字节一致/图例 29/30/31 升序/信息条四要素) + us005_ms_ref.py 同 task 走 MS render_png 参考图与 YL 截图并排目检布局一致(联调 M2 判据); 验后 8000/8010/5174 及残留 5173 全部杀净
+  - 备注: 静态声明式渲染(非 MS 命令式帧流，终态一次取果); 上下留白复刻 canvasPad v2(nestVPadMm); width_mm 缺失回退多边形最大 x; 下一 Story US-006 PLT 下载(msExport apiHttp 已备，只差弹窗按钮)
+[2026-09-21 21:55] US-006 - PLT 下载 - DONE
+  - 改动: webapp/frontend/src/components/NestSolveModal.tsx, webapp/frontend/src/styles.css, .doc/python工程设计.md

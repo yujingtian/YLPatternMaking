@@ -31,6 +31,12 @@
         "title": "NestPreview SVG 自渲染（超排三件套）",
         "description": "作为用户，需要在弹窗里看到最终排料布局图，不打开 MS 工作台即可核对。\n\n具体任务：\n1. webapp/frontend/src/components/NestPreview.tsx — 新建 SVG 自渲染组件，复刻 MS 超排三件套观感（顶标签 + fit-view 翻转组 + 尺码图例）\n\n验收标准：\n- 三件套形态：顶部标签 X.XX% · 长度 X.XX cm（density×100 两位小数、width_mm/10，同 MS NestLabel 口径）+ fit-view SVG（viewBox=\"0 0 width gate\"、内容组 translate(0,gate) scale(1,-1) 翻转、上下自动留白）+ 右上尺码图例（size→color 去重数值升序，color 直接消费 manifest 的 piece.color，不复刻色表）\n- 几何：锚点 piece.raw_polygon ?? piece.polygon（d=0 时 polygon 过 _clean_polygon ≠ raw 的防御）；变换 world = R(rotation)·p + translation；demand>1 的 pid 逐条建 N 个多边形节点（绝不按 pid 去重——夹具 numMap g01:2 断言 DOM 多边形计数 = placed 条数）\n- 无缩放/平移/拖拽编辑交互（静态 fit）；信息条含利用率/幅宽/料长(m)/片数\n- 与 MS /export PNG 并排目检布局一致（联调 M2 判据）；npx tsc --noEmit 通过",
         "passes": true
+      },
+      {
+        "id": "US-006",
+        "title": "PLT 下载",
+        "description": "作为用户，需要下载生产用 PLT，直接交付裁床。\n\n具体任务：\n1. webapp/frontend/src/apiHttp.ts — msExport blob 下载（文件名优先消费 Content-Disposition，兜底本地合成）\n2. webapp/frontend/src/components/NestSolveModal.tsx — 结果区「下载 PLT」按钮\n\n验收标准：\n- 「下载 PLT」按钮请求体仅 {task_id}（零格式/表格参数，MS 默认 plt-clean + 默认表格全算）→ blob → downloadBlob\n- 下载的 .plt 首行含 HPGL 头（IN;/PU 断言）；文件包含表格区内容（PU/PD 笔画）\n- 通过浏览器验证下载交互；npx tsc --noEmit 通过",
+        "passes": true
       }
     ]
   }
