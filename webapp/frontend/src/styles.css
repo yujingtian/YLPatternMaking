@@ -431,6 +431,10 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .nest-sect { margin-top: 10px; }
 .nest-result-line { font-size: 15px; color: #333; }
+/* 结果区动作行（US-006「下载 PLT」）：按钮 + 侧注灰字 */
+.nest-result-actions {
+  display: flex; align-items: center; gap: 10px; margin-top: 8px;
+}
 
 /* ---- 排料结果布局图（NestPreview，二期 US-005；复刻 MS 超排三件套观感） ---- */
 /* 外框卡片：顶标签（MS nest-label 深色条）+ 画布体（相对定位锚，图例 overlay

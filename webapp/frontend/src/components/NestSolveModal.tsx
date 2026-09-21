@@ -1,8 +1,9 @@
 // 机器排料求解弹窗（二期对接 §10.3.2 US-004）：NestResultModal「发送排料」
 // 转入，按 useNestSolve 阶段切三态视图——参数（幅宽/运行模式两项表单，
 // localStorage 记忆）→ 进度（利用率〔物理口径〕+ 进度条 + per_seed 阶段 +
-// 终止）→ 结果（摘要行 + 布局图 NestPreview 三件套〔US-005〕；「下载
-// PLT」是 US-006 增量）。弹窗安全（PRD FR-4）：maskClosable/keyboard 全程禁（点遮罩/ESC
+// 终止）→ 结果（摘要行 + 「下载 PLT」〔US-006：msExport 最小体 {task_id} →
+// blob 落盘，MS 侧缺省 plt-clean + 表格全算〕+ 布局图 NestPreview 三件套
+// 〔US-005〕）。弹窗安全（PRD FR-4）：maskClosable/keyboard 全程禁（点遮罩/ESC
 // 均不关闭），唯一出口 = 显式关闭按钮（右上 X / footer 关闭），语义随期别
 // 分派 solveCloseBehavior（进度期 = 关窗降频 15s 后台守望，可从左栏
 // 「排料进度」继续查看；结果期 = 停表 + best-effort msDeleteTask——由 App
@@ -12,9 +13,12 @@ import type { ReactNode } from 'react'
 import {
   Alert, Button, InputNumber, Modal, Progress, Select, Space, Spin, Tag,
 } from 'antd'
-import { SendOutlined, StopOutlined } from '@ant-design/icons'
+import {
+  DownloadOutlined, SendOutlined, StopOutlined,
+} from '@ant-design/icons'
 import type { MsPerSeed, MsRunMode, NestResult } from '../types'
 import type { NestSolveState } from '../hooks/useNestSolve'
+import { downloadBlob, msExport } from '../api'
 import {
   DEFAULT_GATE_CM, DEFAULT_RUN_MODE, RUN_MODE_OPTIONS, buildMachineConfig,
 } from '../msConfig'
@@ -92,6 +96,8 @@ export default function NestSolveModal({
 }) {
   const [params, setParams] = useState<NestSolveParams>(readNestSolveParams)
   const [formError, setFormError] = useState<string | null>(null)
+  const [pltBusy, setPltBusy] = useState(false)
+  const [pltError, setPltError] = useState<string | null>(null)
 
   // 提交：buildMachineConfig（校验内置，非法输入回表单区显示）→ base64
   // 解码 DXF 字节 → multipart（client_ref 由 hook 层追加）
@@ -116,6 +122,25 @@ export default function NestSolveModal({
     await solve.submit(
       new Blob([bytes], { type: 'application/dxf' }),
       payload.filename, config)
+  }
+
+  // 下载 PLT（US-006）：msExport 请求体仅 {task_id}（零格式/表格参数——
+  // MS 侧缺省 plt-clean 毛版 + 唛架表格全算）→ blob → downloadBlob 落盘。
+  // PLT 是纯 ASCII HPGL 文本（MS write_marker_plt 末步 encode('ascii')），
+  // blob.text() 往返字节安全；失败消息经 normalizeMsError 已是可读中文，
+  // 不动终态（弹窗留在结果区，可重按重试）
+  const doExportPlt = async () => {
+    if (solve.taskId === null) return
+    setPltBusy(true)
+    setPltError(null)
+    try {
+      const { blob, filename } = await msExport(solve.taskId)
+      downloadBlob(await blob.text(), filename, 'application/plt')
+    } catch (e) {
+      setPltError((e as Error).message)
+    } finally {
+      setPltBusy(false)
+    }
   }
 
   const { phase } = solve
@@ -232,6 +257,23 @@ export default function NestSolveModal({
               {' '}· 种子 {solve.result.best.seed ?? '-'}
               {' '}· 摆放 {solve.result.best.placed_items.length} 片
             </div>
+            <div className="nest-result-actions">
+              <Button
+                icon={<DownloadOutlined />}
+                loading={pltBusy}
+                disabled={solve.taskId === null}
+                onClick={() => void doExportPlt()}>
+                下载 PLT
+              </Button>
+              <span className="extract-meta">
+                毛版 + 唛架信息表格（plt-clean，直接交付裁床）
+              </span>
+            </div>
+            {pltError !== null
+              ? <Alert type="error" showIcon
+                message={`PLT 导出失败：${pltError}`}
+                style={{ marginTop: 8 }} />
+              : null}
             {/* 布局图三件套（US-005）：顶标签 + fit-view 翻转 SVG + 尺码
                 图例 + 信息条——不打开 MS 工作台即可核对最终布局 */}
             <NestPreview
