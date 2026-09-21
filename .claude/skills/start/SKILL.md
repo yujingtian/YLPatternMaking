@@ -1,6 +1,6 @@
 ---
 name: start
-description: 启动（或重启）YLPatternMaking 牛仔裤打版项目：后端 uvicorn（默认 :8000，被外部进程占用时回落 :8010）+ 可选前端 Vite dev（:5173）。支持 prod（默认，后端 serve 已构建 dist）/dev 模式、单端启动、重启。改 Python 后自动触发重启，改引擎源码自动重打引擎 zip。
+description: 启动（或重启）YLPatternMaking 牛仔裤打版项目：后端 uvicorn（默认 :8000，被外部进程占用时回落 :8010）+ 前端 Vite dev（:5173）。支持 dev（默认，Vite 跑源码 HMR 热更）/prod（后端 serve 已构建 dist）模式、单端启动、重启。改 Python 后自动触发重启，改引擎源码自动重打引擎 zip。
 allowed-tools: Bash
 ---
 
@@ -26,7 +26,7 @@ curl -s --max-time 3 http://127.0.0.1:<PORT>/ | grep -q YLPattern && echo OURS |
 
 ## 解析意图（从用户消息 / args）
 - 目标端：`backend` / `frontend` / `all`（默认 `all`；prod 模式下 frontend 无独立进程，等价 backend）
-- 模式：`prod`（默认）/ `dev`
+- 模式：`prod` / `dev`（默认）
 - 动作：`start`（默认）/ `restart`（= 先停目标端再起）
 
 ## 执行步骤
@@ -41,12 +41,13 @@ if ! python --version >/dev/null 2>&1; then
   printf '@py %%*\r\n' > /tmp/pyshim/python.bat            # npm 脚本走 cmd 用 .bat
   printf '#!/bin/sh\nexec py "$@"\n' > /tmp/pyshim/python  # bash 直接调用用无扩展名
 fi
-# c) prod 模式：dist 缺失则构建（node_modules 缺则先 npm install）
-test -f d:/code/YLPatternMaking/webapp/frontend/dist/index.html || {
-  cd d:/code/YLPatternMaking/webapp/frontend
-  test -d node_modules || npm install --no-fund --no-audit
+# c) 前端 node_modules 缺则先 npm install（dev 要起 Vite、prod 要构建，都需要）
+cd d:/code/YLPatternMaking/webapp/frontend
+test -d node_modules || npm install --no-fund --no-audit
+# d) 仅 prod 模式：dist 缺失则构建（dev 由 Vite 直跑源码，不需要 dist）
+if [ "$MODE" = prod ] && [ ! -f dist/index.html ]; then
   PATH="/tmp/pyshim:$PATH" npm run build     # 构建失败（tsc 报错）→ 报给用户，不启后端
-}
+fi
 ```
 
 ### 1. 探测现状，选端口 / 决定是否先停
@@ -103,11 +104,12 @@ done
 
 ### 5. 汇报
 ```
-✅ 项目已启动（prod）
-  后端 uvicorn   :8010   http://127.0.0.1:8010/   (PID ...)
-  打开 → http://127.0.0.1:8010/
+✅ 项目已启动（dev）
+  后端 uvicorn   :8000   http://127.0.0.1:8000/   (PID ...)
+  前端 Vite dev  :5173   http://127.0.0.1:5173/   (PID ...)
+  打开 → http://127.0.0.1:5173/
 ```
-dev 模式加一行前端 Vite。8000 被外部占用回落时要注明原因。PID 用步骤 2/3 起来后复探 netstat 取。
+prod 模式只有后端一行（dist 同源 serve，打开 :8000）。8000 被外部占用回落时要注明原因。PID 用步骤 2/3 起来后复探 netstat 取。
 
 ## 何时自动触发（Claude 自调用，无需用户输入）
 - 改了后端 Python 代码（webapp/、src/ylpattern/）→ 自动 `/start restart backend` 让改动生效。
@@ -119,4 +121,4 @@ dev 模式加一行前端 Vite。8000 被外部占用回落时要注明原因。
 - 后端必须在仓库根 cwd 启动；后台任务里 `cd` 不影响后续命令的会话 cwd。
 - 只杀身份验证为 OURS 的进程；8000/8010/5173 上可能是用户其他项目（本机 8000 = 排料可视化工作台）。
 - 后台进程随当前 Claude 会话存活（Bash 后台任务）；关掉 Claude 即停。要脱离会话长驻请用户外起。
-- 首次启动（fresh clone）dist 不存在，必须走步骤 0c 构建链，否则 `GET /` 只返回「前端未构建」提示文本。
+- 首次启动（fresh clone）dist 不存在：dev 模式不构建也能用（走 Vite :5173）；仅 prod 模式必须走步骤 0d 构建链，否则 `GET /` 只返回「前端未构建」提示文本。
