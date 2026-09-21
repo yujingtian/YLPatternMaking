@@ -2,16 +2,10 @@
   "branchName": "ralph/ms-nesting-integration",
   "stories": [
     {
-      "id": "US-004",
-      "title": "NestSolveModal 弹窗 + 入口 + 弹窗安全",
-      "description": "作为用户，需要在排料数量清单弹窗点「发送排料」、填幅宽与运行模式后看进度和结果，一键把打版产物送去排料。\n\n具体任务：\n1. webapp/frontend/src/components/NestSolveModal.tsx — 新建参数/进度/结果三态弹窗，参数 localStorage 记忆\n2. webapp/frontend/src/components/NestResultModal.tsx — footer 增「发送排料」按钮，nestResult 内存透传\n3. webapp/frontend/src/App.tsx — 接线\n\n验收标准：\n- 表单仅两项：幅宽 cm（默认 175）+ 运行模式 select（默认普通档）；单码场景入口前置拦截（禁用/不显示，方式以 YL 现有交互惯例为准）\n- 弹窗安全：全程 maskClosable=false + keyboard=false（点遮罩/ESC 均不关闭）；唯一出口 = 显式关闭按钮；进度期显式关闭 = 降频 15s（task_id 存 localStorage，可「继续查看」重连）；结果期显式关闭 = 停表 + best-effort msDeleteTask（失败静默，MS 侧 TTL+7 天兜底）\n- 进度区：利用率%（标注「物理口径」）+ 进度条（elapsed/total）+ 阶段（per_seed）+「终止」按钮（→ stopped 态可返回）；error/orphan 显示 MS 中文错误 + 重试\n- 通过浏览器验证弹窗布局/交互与现有 antd 主题一致（大弹窗尺寸）；npx tsc --noEmit 通过",
-      "passes": true
-    },
-    {
       "id": "US-005",
       "title": "NestPreview SVG 自渲染（超排三件套）",
       "description": "作为用户，需要在弹窗里看到最终排料布局图，不打开 MS 工作台即可核对。\n\n具体任务：\n1. webapp/frontend/src/components/NestPreview.tsx — 新建 SVG 自渲染组件，复刻 MS 超排三件套观感（顶标签 + fit-view 翻转组 + 尺码图例）\n\n验收标准：\n- 三件套形态：顶部标签 X.XX% · 长度 X.XX cm（density×100 两位小数、width_mm/10，同 MS NestLabel 口径）+ fit-view SVG（viewBox=\"0 0 width gate\"、内容组 translate(0,gate) scale(1,-1) 翻转、上下自动留白）+ 右上尺码图例（size→color 去重数值升序，color 直接消费 manifest 的 piece.color，不复刻色表）\n- 几何：锚点 piece.raw_polygon ?? piece.polygon（d=0 时 polygon 过 _clean_polygon ≠ raw 的防御）；变换 world = R(rotation)·p + translation；demand>1 的 pid 逐条建 N 个多边形节点（绝不按 pid 去重——夹具 numMap g01:2 断言 DOM 多边形计数 = placed 条数）\n- 无缩放/平移/拖拽编辑交互（静态 fit）；信息条含利用率/幅宽/料长(m)/片数\n- 与 MS /export PNG 并排目检布局一致（联调 M2 判据）；npx tsc --noEmit 通过",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-006",

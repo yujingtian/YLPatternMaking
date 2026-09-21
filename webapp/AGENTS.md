@@ -23,4 +23,11 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
      position:fixed，offsetParent 恒 null，用 `getComputedStyle(w).display !== 'none'` 判）。
 - MS 排料活体链路已打通（US-004）：solve→status 轮询→终止 stopped→result
   取果→DELETE 全部真实往返过（81.57% / 51 片 / DELETE 200）。
+- M2 布局一致性参考图（US-005）：同 task 的 best 布局走 MS 自己的 render_png
+  管线出 PNG（`load_pieces(run_dir/pieces_intermediate.json)` →
+  `placed_to_world` → `render_png`，run_dir 取
+  `out/config_runs/machine_*` 最新——machine result 载荷**不带 run_dir**），
+  与 YL 截图 PIL 拼图并排目检；几何字节级则直接比对 polygon points 与
+  MS 公式（pointsStr r2 同式）。端口坑：5173 常被 MaterialSorting-web 的
+  陈年 Vite 占用且页面长得很像——起服务后先 `cat` vite 日志确认实际端口。
 

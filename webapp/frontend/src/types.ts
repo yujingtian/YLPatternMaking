@@ -394,15 +394,17 @@ export type MsPolygon = [number, number][]
 
 // manifest.pieces 条目（start 快照口径 build_pid_meta）：polygon = erode
 // 后碰撞参考线；raw_polygon = 原始毛版（物理口径渲染锚点——d=0 时 polygon
-// 过 _clean_polygon 仍可能与 raw 不同，渲染取 raw_polygon ?? polygon）；
-// demand = 副本数（前端按 demand 逐条建 N 个节点，绝不按 pid 去重）
+// 过 _clean_polygon 仍可能与 raw 不同，渲染取 raw_polygon ?? polygon；
+// 现行 machine API 恒在场，null 仅作老载荷/异常形态的防御位，同 MS
+// PieceInfo raw_polygon? 口径）；demand = 副本数（前端按 demand 逐条建
+// N 个节点，绝不按 pid 去重）
 export interface MsPieceMeta {
   id: string
   size: number | null
   color: string
   area_mm2: number
   polygon: MsPolygon
-  raw_polygon: MsPolygon
+  raw_polygon: MsPolygon | null
   d_mm: number
   label: string | null
   demand: number

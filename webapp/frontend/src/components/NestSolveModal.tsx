@@ -1,8 +1,8 @@
 // 机器排料求解弹窗（二期对接 §10.3.2 US-004）：NestResultModal「发送排料」
 // 转入，按 useNestSolve 阶段切三态视图——参数（幅宽/运行模式两项表单，
 // localStorage 记忆）→ 进度（利用率〔物理口径〕+ 进度条 + per_seed 阶段 +
-// 终止）→ 结果（文本摘要；布局图 NestPreview 与「下载 PLT」是 US-005/006
-// 增量）。弹窗安全（PRD FR-4）：maskClosable/keyboard 全程禁（点遮罩/ESC
+// 终止）→ 结果（摘要行 + 布局图 NestPreview 三件套〔US-005〕；「下载
+// PLT」是 US-006 增量）。弹窗安全（PRD FR-4）：maskClosable/keyboard 全程禁（点遮罩/ESC
 // 均不关闭），唯一出口 = 显式关闭按钮（右上 X / footer 关闭），语义随期别
 // 分派 solveCloseBehavior（进度期 = 关窗降频 15s 后台守望，可从左栏
 // 「排料进度」继续查看；结果期 = 停表 + best-effort msDeleteTask——由 App
@@ -18,6 +18,7 @@ import type { NestSolveState } from '../hooks/useNestSolve'
 import {
   DEFAULT_GATE_CM, DEFAULT_RUN_MODE, RUN_MODE_OPTIONS, buildMachineConfig,
 } from '../msConfig'
+import NestPreview from './NestPreview'
 
 // 参数记忆锚（幅宽/运行模式跨会话记忆；runMode 非法值回默认档——
 // RUN_MODE_OPTIONS 演进时不让旧锚把 select 打成空值）
@@ -225,11 +226,19 @@ export default function NestSolveModal({
             : <Tag color="orange">已终止（取回终止前最优解）</Tag>}
         </Space>
         {solve.result !== null && solve.result.best != null ? (
-          <div className="nest-result-line">
-            利用率 {bestDensityPct?.toFixed(2)}%（物理口径）
-            {' '}· 种子 {solve.result.best.seed ?? '-'}
-            {' '}· 摆放 {solve.result.best.placed_items.length} 片
-          </div>
+          <>
+            <div className="nest-result-line">
+              利用率 {bestDensityPct?.toFixed(2)}%（物理口径）
+              {' '}· 种子 {solve.result.best.seed ?? '-'}
+              {' '}· 摆放 {solve.result.best.placed_items.length} 片
+            </div>
+            {/* 布局图三件套（US-005）：顶标签 + fit-view 翻转 SVG + 尺码
+                图例 + 信息条——不打开 MS 工作台即可核对最终布局 */}
+            <NestPreview
+              manifest={solve.result.manifest}
+              best={solve.result.best}
+            />
+          </>
         ) : solve.error !== null ? (
           <Alert type="error" showIcon
             message={`取回结果失败：${solve.error}`} />
