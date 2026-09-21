@@ -374,6 +374,49 @@ async def agent_forward(path: str, request: Request) -> Response:
                     media_type=resp.headers.get("content-type", ""))
 
 
+# MS（MaterialSorting 排料服务）同源转发（二期机器排料对接 §10.3.2，复刻
+# /agent 先例）：前端永不直连 MS——dev 由 Vite proxy /ms -> 8010，生产（dist
+# 由本进程托管）无 Vite，故此处 httpx 原样字节透传，dev/prod 同构、零 CORS。
+# 机器端点面（MS web/machine.py）：POST /api/machine/solve（multipart 母版
+# DXF ≤20MB 直传）、GET .../status | .../result、POST .../stop、POST
+# /api/machine/export（PLT 文件流）、DELETE .../solve/{task_id}。超时分档：
+# solve 提交（上传+parse+commit）/ export（PLT 生成）/ result（MB 级多边形
+# 载荷）重端点 120s，status（2s 级轮询）与其余轻端点 30s；Content-Disposition
+# （导出文件名）/ Cache-Control（首页探针）响应头原样透传；MS 未启动 -> 502
+#（中文消息，前端弹层直显）。
+_MS_BASE = os.environ.get("YLP_MS_BASE", "http://127.0.0.1:8010")
+_MS_SLOW_SUFFIXES = ("/solve", "/export", "/result")   # 重端点：120s
+
+
+def _ms_timeout_sec(path: str) -> float:
+    """超时分档：solve 提交 / export / result 重端点 120s；status 轮询、
+    stop、DELETE、首页探针等轻端点 30s。"""
+    return 120.0 if f"/{path}".lower().endswith(_MS_SLOW_SUFFIXES) else 30.0
+
+
+@app.api_route("/ms/{path:path}", methods=["GET", "POST", "DELETE"])
+async def ms_forward(path: str, request: Request) -> Response:
+    import httpx   # 懒加载（同 agent_forward 先例）：未装 httpx 只影响本路由
+    target = f"/{path}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    try:
+        async with httpx.AsyncClient(base_url=_MS_BASE,
+                                     timeout=_ms_timeout_sec(path)) as client:
+            resp = await client.request(
+                request.method, target, content=await request.body(),
+                headers={"content-type": request.headers.get("content-type", "")})
+    except httpx.HTTPError:
+        raise HTTPException(
+            502, "MS 排料服务未启动或不可达（默认 http://127.0.0.1:8010，"
+                 "可用环境变量 YLP_MS_BASE 覆盖）")
+    passthrough = {k: resp.headers[k] for k in
+                   ("cache-control", "content-disposition") if k in resp.headers}
+    return Response(resp.content, status_code=resp.status_code,
+                    media_type=resp.headers.get("content-type", ""),
+                    headers=passthrough)
+
+
 @app.get("/")
 def index() -> Response:
     dist = _DIST / "index.html"

@@ -5,7 +5,7 @@
       "id": "US-001",
       "title": "后端 /ms 代理通道",
       "description": "作为前端，需要同源 /ms 前缀透传到 MS 服务，使 dev/prod 同构零 CORS 调用机器端点。\n\n具体任务：\n1. webapp/backend/app.py — 新增 /ms/{path:path} httpx 转发路由（GET/POST/DELETE），镜像 agent_forward：懒加载 httpx、YLP_MS_BASE 缺省 http://127.0.0.1:8010、502 中文提示含环境变量指引、超时分档 solve/export 120s、status 30s、multipart 字节透传、Content-Disposition 响应头原样透传\n2. webapp/frontend/vite.config.ts — dev proxy '/ms' → 8010，rewrite 剥前缀\n3. webapp/frontend/src/msBase.ts — 新建，MS_BASE 常量，镜像 agentConfig.ts\n\n验收标准：\n- GET /ms/（MS 首页探针）经 MS 返回 200 且透传 Cache-Control 头；MS 未启动 → 502 中文提示含 YLP_MS_BASE 指引\n- multipart POST 字节透传（echo 夹具断言 body 长度一致）；DELETE 方法可转发；Content-Disposition 响应头原样透传（文件流测试）\n- 既有后端测试全绿（python -m pytest tests/ -q）；npx tsc --noEmit 通过",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-002",
