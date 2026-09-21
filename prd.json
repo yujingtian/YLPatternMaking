@@ -1,0 +1,47 @@
+{
+  "branchName": "ralph/ms-nesting-integration",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "后端 /ms 代理通道",
+      "description": "作为前端，需要同源 /ms 前缀透传到 MS 服务，使 dev/prod 同构零 CORS 调用机器端点。\n\n具体任务：\n1. webapp/backend/app.py — 新增 /ms/{path:path} httpx 转发路由（GET/POST/DELETE），镜像 agent_forward：懒加载 httpx、YLP_MS_BASE 缺省 http://127.0.0.1:8010、502 中文提示含环境变量指引、超时分档 solve/export 120s、status 30s、multipart 字节透传、Content-Disposition 响应头原样透传\n2. webapp/frontend/vite.config.ts — dev proxy '/ms' → 8010，rewrite 剥前缀\n3. webapp/frontend/src/msBase.ts — 新建，MS_BASE 常量，镜像 agentConfig.ts\n\n验收标准：\n- GET /ms/（MS 首页探针）经 MS 返回 200 且透传 Cache-Control 头；MS 未启动 → 502 中文提示含 YLP_MS_BASE 指引\n- multipart POST 字节透传（echo 夹具断言 body 长度一致）；DELETE 方法可转发；Content-Disposition 响应头原样透传（文件流测试）\n- 既有后端测试全绿（python -m pytest tests/ -q）；npx tsc --noEmit 通过",
+      "passes": false
+    },
+    {
+      "id": "US-002",
+      "title": "msConfig 配置构建器 + 契约类型",
+      "description": "作为前端，需要把 numMap/码表/幅宽/运行模式翻译成 MS config 的纯函数，使提交载荷口径单一可测。\n\n具体任务：\n1. webapp/frontend/src/types.ts — 新增 MS 契约类型（config/result/status 等）\n2. webapp/frontend/src/msConfig.ts — 新建 buildMachineConfig 纯函数 + runMode 三档映射常量\n3. webapp/frontend/src/msConfig.test.ts — vitest 金标测试\n\n验收标准：\n- buildMachineConfig({numMap:{g01:2,g08:1}, sizes:['29','30'], gateCm:175, runMode:'normal'}) → {gate_mm:1750, sizes:[29,30], run_mode:'normal', per_type:{g01:{d:0,tol:0},g08:{d:0,tol:0}}, quantities:{g01:{'29':2,'30':2},g08:{'29':1,'30':1}}}（quantities 键为数字字符串；per_type 键集 = numMap/labels 全部 g 码、值恒 {d:0,tol:0}）\n- runMode 三档映射常量：normal/advanced/extreme（文案「普通运行（180s）/ 高级运行（20min）/ 极限运行（2h）」同源标注）；gateCm 缺省 175、runMode 缺省 normal；非法输入（空 sizes/非数字码）抛可读错误\n- 无单码分支（单码场景由调用侧前置拦截，不进本函数——二期仅推板多码）\n- npm test（vitest）与 npx tsc --noEmit 通过",
+      "passes": false
+    },
+    {
+      "id": "US-003",
+      "title": "useNestSolve 轮询 hook + 五 API 函数",
+      "description": "作为前端，需要提交任务并双档轮询到终态，展示实时利用率并取回结果。\n\n具体任务：\n1. webapp/frontend/src/apiHttp.ts — 新增 msSolveStart/msStatus/msResult/msStop/msExport 五函数 + normalizeMsError，纯 HTTP 不进 route() 引擎通道（同 postNest 先例）\n2. webapp/frontend/src/api.ts — re-export 上述函数\n3. webapp/frontend/src/hooks/useNestSolve.ts — 新建轮询 hook\n\n验收标准：\n- 状态机 idle→submitting→running→done|stopped|error；弹窗开 2s / 关 15s 双档轮询，terminal 停表；组件卸载清 interval\n- running 期暴露 {densityPct, elapsedSec, totalSec, perSeed}；轮询单次网络失败不炸（连续 3 次才转 error）；done 自动拉 result 暴露 {manifest, best}\n- 409（重复提交）/404/400/502 透传为可读中文错误（normalizeMsError）\n- npx tsc --noEmit 通过（hook 行为由 US-007 冒烟端到端验证）",
+      "passes": false
+    },
+    {
+      "id": "US-004",
+      "title": "NestSolveModal 弹窗 + 入口 + 弹窗安全",
+      "description": "作为用户，需要在排料数量清单弹窗点「发送排料」、填幅宽与运行模式后看进度和结果，一键把打版产物送去排料。\n\n具体任务：\n1. webapp/frontend/src/components/NestSolveModal.tsx — 新建参数/进度/结果三态弹窗，参数 localStorage 记忆\n2. webapp/frontend/src/components/NestResultModal.tsx — footer 增「发送排料」按钮，nestResult 内存透传\n3. webapp/frontend/src/App.tsx — 接线\n\n验收标准：\n- 表单仅两项：幅宽 cm（默认 175）+ 运行模式 select（默认普通档）；单码场景入口前置拦截（禁用/不显示，方式以 YL 现有交互惯例为准）\n- 弹窗安全：全程 maskClosable=false + keyboard=false（点遮罩/ESC 均不关闭）；唯一出口 = 显式关闭按钮；进度期显式关闭 = 降频 15s（task_id 存 localStorage，可「继续查看」重连）；结果期显式关闭 = 停表 + best-effort msDeleteTask（失败静默，MS 侧 TTL+7 天兜底）\n- 进度区：利用率%（标注「物理口径」）+ 进度条（elapsed/total）+ 阶段（per_seed）+「终止」按钮（→ stopped 态可返回）；error/orphan 显示 MS 中文错误 + 重试\n- 通过浏览器验证弹窗布局/交互与现有 antd 主题一致（大弹窗尺寸）；npx tsc --noEmit 通过",
+      "passes": false
+    },
+    {
+      "id": "US-005",
+      "title": "NestPreview SVG 自渲染（超排三件套）",
+      "description": "作为用户，需要在弹窗里看到最终排料布局图，不打开 MS 工作台即可核对。\n\n具体任务：\n1. webapp/frontend/src/components/NestPreview.tsx — 新建 SVG 自渲染组件，复刻 MS 超排三件套观感（顶标签 + fit-view 翻转组 + 尺码图例）\n\n验收标准：\n- 三件套形态：顶部标签 X.XX% · 长度 X.XX cm（density×100 两位小数、width_mm/10，同 MS NestLabel 口径）+ fit-view SVG（viewBox=\"0 0 width gate\"、内容组 translate(0,gate) scale(1,-1) 翻转、上下自动留白）+ 右上尺码图例（size→color 去重数值升序，color 直接消费 manifest 的 piece.color，不复刻色表）\n- 几何：锚点 piece.raw_polygon ?? piece.polygon（d=0 时 polygon 过 _clean_polygon ≠ raw 的防御）；变换 world = R(rotation)·p + translation；demand>1 的 pid 逐条建 N 个多边形节点（绝不按 pid 去重——夹具 numMap g01:2 断言 DOM 多边形计数 = placed 条数）\n- 无缩放/平移/拖拽编辑交互（静态 fit）；信息条含利用率/幅宽/料长(m)/片数\n- 与 MS /export PNG 并排目检布局一致（联调 M2 判据）；npx tsc --noEmit 通过",
+      "passes": false
+    },
+    {
+      "id": "US-006",
+      "title": "PLT 下载",
+      "description": "作为用户，需要下载生产用 PLT，直接交付裁床。\n\n具体任务：\n1. webapp/frontend/src/apiHttp.ts — msExport blob 下载（文件名优先消费 Content-Disposition，兜底本地合成）\n2. webapp/frontend/src/components/NestSolveModal.tsx — 结果区「下载 PLT」按钮\n\n验收标准：\n- 「下载 PLT」按钮请求体仅 {task_id}（零格式/表格参数，MS 默认 plt-clean + 默认表格全算）→ blob → downloadBlob\n- 下载的 .plt 首行含 HPGL 头（IN;/PU 断言）；文件包含表格区内容（PU/PD 笔画）\n- 通过浏览器验证下载交互；npx tsc --noEmit 通过",
+      "passes": false
+    },
+    {
+      "id": "US-007",
+      "title": "文档增补 + 端到端冒烟",
+      "description": "作为开发者，需要二期接线文档与自动化冒烟，使回归有护栏。\n\n具体任务：\n1. .doc/python工程设计.md §10.3.2 — 增补调用链图/config 映射表/端口与环境变量/运行模式语义区分（YL「高级/极限」= MS race/extreme 求解模式，非时长别名）\n2. webapp/frontend/scripts/smoke_ms_nest.mjs — Playwright 冒烟脚本（镜像 MS scripts/smoke_*.mjs 套路：上传→生成→排料→发送（time 短档夹具）→轮询→预览→PLT 下载 + 异常分支 409/终止/502/误关防护）\n\n验收标准：\n- 冒烟脚本全绿（含四条异常分支）\n- 文档增补段完整（含 per_type 全 0 = 缺省语义全等注记、密度物理口径警示）\n- npm run build + npm test + npx tsc --noEmit + 后端 python -m pytest tests/ -q 全部通过",
+      "passes": false
+    }
+  ]
+}
