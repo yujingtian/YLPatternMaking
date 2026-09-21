@@ -6,10 +6,6 @@ Started: Mon, Sep 21, 2026  7:53:26 PM
 
 
 
-  - 测试: npx tsc --noEmit 零错误; npm test 238 全过; npm run build(py 代跑 build:engine) 成功; 后端 py -m pytest tests/ -q 1075 passed 无回归; 浏览器 Playwright+chrome 活体验证(真 MS :8010 经 Vite :5175): us006_verify 12/12(请求体逐键={task_id}/落盘名 machine_…_码29-30-31_85.24pct_seed0_毛版.plt 即 filename* 中文优先/首行 IN;PS125800;SP1;PW0.08;/PU×1712 PD×2194/表格区 max_x=3135mm>唛架 3043mm(40 单位/mm 换算后 36mm 表格条在唛架外围)/DELETE 后再点→Alert「未知任务」且终态不动); 验后自启 Vite 5175 已杀净(8000/8010 系环境既有进程未动)
-  - 备注: msExport/downloadBlob 均复用既有件(blob.text() 往返字节安全=PLT 纯 ASCII); 下一 Story US-007 文档增补+Playwright 冒烟(out/us006_verify.mjs 可作冒烟 PLT 段蓝本)
 
-[2026-09-21 22:05] US-007 - 文档增补 + 端到端冒烟 - DONE
-  - 改动: webapp/frontend/scripts/smoke_ms_nest.mjs(新, 497 行), webapp/frontend/package.json(smoke:ms-nest), .doc/python工程设计.md §10.3.2(US-007 收口总目: 调用链图/config 映射表/端口与环境变量/运行模式语义区分/per_type 全 0 全等注记/密度物理口径警示/冒烟条目; US-001 条目尾注收口), webapp/AGENTS.md(冒烟套路沉淀)
   - 测试: npx tsc --noEmit 零错误; npm test 238 全过; npm run build 成功(PATH 前置真 3.11 绕 python Store alias); 后端 py -m pytest tests/ -q 1075 passed 无回归; 冒烟 node scripts/smoke_ms_nest.mjs 37/37 全绿(自举双 backend 8040 真 MS:8010 prod 形态 + 8041 死链 502 夹具, 退出树杀验后 8040/8041/8049 全 dead): 主链路 M(基样载入/单码拦截/码表 29-30-31/发送/time 短档=普通 180s 夹具/轮询 2 拍) + 误关防护 W(ESC+遮罩不关/后台守望/排料进度重开/F5 锚 attach taskId 不变) + 终止 T(stopped 84.90%/51 片/顶标签逐字符一致/DOM=placed 51/PLT 体仅 {task_id}/machine_m20260_5d9757_码29-30-31_84.90pct_seed0_毛版.plt/IN; 头/表格区 max_x=125880>3055+40/DELETE 200 锚清入口退场) + 502 F(死链实例中文 Alert「MS 排料服务未启动或不可达」) + 409 C(context.route 同长 latin1 字节替换 client_ref→tab2 清锚二次提交→「已有在飞任务」带既有 task_id→Node DELETE 清场 200)
   - 备注: 二期 ms-nesting 六故事收口全绿; 首跑 36/37 唯一 FAIL 是我方文件名正则少 machine_<task6>_<rand6> 段(us006 备注 machine_… 是省略写法), 修正后全绿; playwright 跨仓借用 createRequire 回落(SMOKE_PLAYWRIGHT_FROM 可覆盖); 已知边界记录: /ms 转发只透传 content-type, MS 启用 MS_MACHINE_TOKEN 认证前需扩头白名单
