@@ -316,3 +316,144 @@ export interface ExtractResponse {
   probe: ExtractProbe
   score: ExtractScoreItem[]
 }
+
+// ---- MS 机器排料契约（二期对接 §10.3.2；MS 侧 /api/machine/* 五端点） ----
+// 契约源 = MaterialSorting tasks/prd-machine-nesting-api.md FR-1/4/5/6。
+// 坐标系：MS 世界 X=用布长度、Y=门幅且 Y 向上（mm）——预览渲染需翻转组。
+// density 一律物理毛版包络口径（勿与 MS 历史 erode 口径数值对比）。
+
+export type MsRunMode = 'normal' | 'advanced' | 'extreme'
+
+// 提交 config（solve multipart 的 config JSON 字符串）：gate_mm 必填
+// int>0；run_mode 缺省 normal；sizes 整数码表；per_type 全 g 码 {d,tol}
+// （YL 恒发 0 = MS 缺省语义全等，三期工艺预设档才启用非 0）；quantities
+// 外层键 = g 码、内层键 = 码号字符串。client_ref（幂等引用）由提交层
+// （useNestSolve）追加，不进 buildMachineConfig 产物
+export interface MsMachineConfig {
+  gate_mm: number
+  run_mode: MsRunMode
+  sizes: number[]
+  per_type: Record<string, { d: number; tol: number }>
+  quantities: Record<string, Record<string, number>>
+}
+
+// POST solve → 202 {task_id, run_name, started_at}
+export interface MsSolveStart {
+  task_id: string
+  run_name: string
+  started_at: string
+}
+
+// 任务状态机：submitted→starting→running→done|stopped|error；
+// orphan = 内存态空 + marker 在场（MS 重启后，可 stop/清理）
+export type MsTaskState = 'submitted' | 'starting' | 'running' | 'done'
+  | 'stopped' | 'error' | 'orphan'
+
+// 轮询期最优解摘要（result.json portfolio.incumbent 投影，控载荷无布局）
+export interface MsIncumbent {
+  density: number | null
+  width_mm: number | null
+  seed: number | null
+  frame_index: number | null
+  elapsed: number | null
+}
+
+// 当前帧（最新 mtime 的 best_frame 边车）
+export interface MsCurrent {
+  seed: number | null
+  density: number | null
+  density_sparrow: number | null
+  ext: boolean
+}
+
+// per_seed 条目（seed 完成后入账；phase 仅策略模式携带：race/screen/extension）
+export interface MsPerSeed {
+  seed: number
+  killed: boolean
+  kill_reason: string | null
+  best_density: number | null
+  elapsed: number | null
+  phase?: string
+}
+
+// GET status（控载荷：无 placed_items）
+export interface MsStatus {
+  state: MsTaskState
+  mode: 'machine'
+  run_mode: MsRunMode
+  total_budget_sec: number | null
+  elapsed_sec: number
+  incumbent: MsIncumbent | null
+  current: MsCurrent | null
+  per_seed: MsPerSeed[]
+  error: string | null
+  exit_code: number | null
+}
+
+export type MsPolygon = [number, number][]
+
+// manifest.pieces 条目（start 快照口径 build_pid_meta）：polygon = erode
+// 后碰撞参考线；raw_polygon = 原始毛版（物理口径渲染锚点——d=0 时 polygon
+// 过 _clean_polygon 仍可能与 raw 不同，渲染取 raw_polygon ?? polygon）；
+// demand = 副本数（前端按 demand 逐条建 N 个节点，绝不按 pid 去重）
+export interface MsPieceMeta {
+  id: string
+  size: number | null
+  color: string
+  area_mm2: number
+  polygon: MsPolygon
+  raw_polygon: MsPolygon
+  d_mm: number
+  label: string | null
+  demand: number
+  net_polygon: MsPolygon
+  // 5 层细节透传（internal_lines/notches/grain_line 形态随 intermediate
+  // 而变，YL 预览暂不消费，按不透明载荷放行）
+  internal_lines: unknown
+  notches: unknown
+  grain_line: unknown
+}
+
+export interface MsManifest {
+  gate_mm: number
+  total_area_mm2: number
+  n_eroded: number
+  pieces: MsPieceMeta[]
+}
+
+// 单条摆放：world = R(rotation)·p + translation（MS 世界系 mm、Y 向上）
+export interface MsPlacedItem {
+  id: string
+  rotation: number
+  translation: [number, number]
+  mirror?: boolean
+}
+
+export interface MsBest {
+  seed: number | null
+  frame_index: number | null
+  elapsed: number | null
+  density: number
+  density_sparrow: number | null
+  width_mm: number | null
+  placed_items: MsPlacedItem[]
+}
+
+export interface MsSummary {
+  per_seed: MsPerSeed[]
+  mode?: string
+  race?: unknown
+  se?: unknown
+  warm?: boolean
+  warm_reason?: string
+}
+
+// GET result（stopped 态由各 best_frame 边车取 density 最大回落）
+export interface MsResult {
+  state: MsTaskState
+  mode: string
+  run_dir: string
+  manifest: MsManifest
+  best: MsBest
+  summary: MsSummary
+}
