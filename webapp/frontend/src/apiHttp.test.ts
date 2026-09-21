@@ -4,7 +4,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  msExport, msResult, msSolveStart, msStatus, msStop, normalizeMsError,
+  msDeleteTask, msExport, msResult, msSolveStart, msStatus, msStop,
+  normalizeMsError,
 } from './apiHttp'
 import type { MsMachineConfig, MsStatus } from './types'
 
@@ -146,6 +147,17 @@ describe('msStatus / msStop / msResult（路径与方法）', () => {
       status: 409, message: '机器排料任务尚未结束',
     })
     expect(fetchMock.mock.calls[0][0]).toBe('/ms/api/machine/solve/m1/result')
+  })
+
+  it('msDeleteTask DELETE .../solve/{id}（结果期关窗 best-effort 回收）', async () => {
+    stubFetch(() => ok({ deleted: true }))
+    await expect(msDeleteTask('m1')).resolves.toBeUndefined()
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/ms/api/machine/solve/m1')
+    expect(init.method).toBe('DELETE')
+    // 非 2xx 仍归一 MsError（调用方 catch 静默——MS 侧 TTL+7 天兜底）
+    stubFetch(() => fail(404, { error: '任务不存在' }))
+    await expect(msDeleteTask('m1')).rejects.toMatchObject({ status: 404 })
   })
 })
 

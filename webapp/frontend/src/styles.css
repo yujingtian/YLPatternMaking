@@ -411,3 +411,23 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .init-option-title .anticon { color: #2c6e49; }
 .init-option-desc { color: #999; font-size: 12px; line-height: 1.6; }
+
+/* ---- 机器排料求解弹窗（NestSolveModal，二期对接 §10.3.2） ---- */
+/* 三态视图轻样式：灰字说明复用 extract-meta 惯例 */
+.nest-field {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+}
+.nest-field label { flex: 0 0 84px; color: #555; }
+.nest-progress-head {
+  display: flex; align-items: center; gap: 12px; color: #555;
+  padding: 8px 0;
+}
+.nest-density {
+  display: flex; align-items: baseline; gap: 10px; margin: 2px 0 10px;
+}
+.nest-density-num {
+  font-size: 30px; font-weight: 600;
+  font-variant-numeric: tabular-nums; color: #2c6e49;
+}
+.nest-sect { margin-top: 10px; }
+.nest-result-line { font-size: 15px; color: #333; }

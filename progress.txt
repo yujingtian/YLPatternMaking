@@ -2,9 +2,10 @@
 Started: Mon, Sep 21, 2026  7:53:26 PM
 
 
-  - 测试: npx tsc --noEmit 零错误；npm test 187 全过（+11）；后端 py -m pytest tests/ -q 1075 passed 无回归
-  - 备注: per_type 键集 = numMap ∪ labels 并集（独有键数量 0）；client_ref 由 US-003 提交层追加不进构建器；下一 Story US-003 useNestSolve 轮询 hook + apiHttp 五函数
-[2026-09-21 20:35] US-003 - useNestSolve 轮询 hook + 五 API 函数 - DONE
-  - 改动: webapp/frontend/src/apiHttp.ts（MS 五函数+normalizeMsError），src/api.ts（re-export+MsError），src/hooks/useNestSolve.ts（新），src/apiHttp.test.ts（新），src/useNestSolve.test.ts（新），.doc/python工程设计.md §10.3.2（US-003 条目）
+
   - 测试: npx tsc --noEmit 零错误；npm test 212 全过（+25）；tsc -b + vite build 成功（引擎未动，zip 未重建）；后端 py -m pytest tests/ -q 1075 passed 无回归
   - 备注: 轮询 setTimeout 链非 setInterval；orphan 归 running 家族继续轮询自然落 error；reset 不删 MS 任务（US-004 弹窗关闭时 best-effort DELETE 需自增 msDeleteTask）；下一 Story US-004 NestSolveModal 弹窗接线
+[2026-09-21 21:00] US-004 - NestSolveModal 弹窗 + 入口 + 弹窗安全 - DONE
+  - 改动: webapp/frontend/src/components/NestSolveModal.tsx(新), NestSolveModal.test.ts(新), NestResultModal.tsx(发送排料按钮), App.tsx(接线+onSessionReset+attach 恢复), apiHttp.ts/api.ts(msDeleteTask 第六端点), hooks/useNestSolve.ts(solveCloseBehavior), useNestSolve.test.ts, apiHttp.test.ts, styles.css, .doc/python工程设计.md §10.3.2
+  - 测试: npx tsc --noEmit 零错误; npm test 220 全过(+8); npm run build 成功; 后端 py -m pytest tests/ -q 1075 passed 无回归; 浏览器 Playwright+chrome 活体验证(真 MS :8010 经 Vite :5175): us004_verify 20/20(单码禁用/配码表/ESC+遮罩不关/进度期关窗后台守望+继续查看重开/终止 stopped 摘要 81.57% 51 片/参数记忆 160/DELETE 200/锚清入口消) + us004_probe2 布局 5/5(760px/两表单项/主题绿 #2c6e49); 验后 Vite 5175 已杀净
+  - 备注: 关闭语义 solveCloseBehavior 三段(进度期=降频守望/结果期=DELETE/idle=纯关); 再次排料走 onSessionReset 结果会话同样回收名额; 坑: 本机 Playwright :text-is 与 getByRole exact 匹配不上 CJK 纯文本按钮(getByText exact 可用)、antd 两字按钮自动插空格(关 闭/重 试)、npm prebuild 的 python 需真 3.11 路径; 下一 Story US-005 NestPreview SVG 自渲染

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { App as AntApp, Alert, Button, ConfigProvider, Segmented, Tag } from 'antd'
 import {
-  DownloadOutlined, FileAddOutlined, LayoutOutlined, PlayCircleOutlined,
+  CheckCircleOutlined, DownloadOutlined, FileAddOutlined, LayoutOutlined,
+  LoadingOutlined, PlayCircleOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import InitGate from './components/InitGate'
@@ -12,9 +13,16 @@ import ExportCenter from './components/ExportCenter'
 import SizeRunDrawer from './components/SizeRunDrawer'
 import ExtractWizard from './components/ExtractWizard'
 import NestResultModal from './components/NestResultModal'
+import NestSolveModal from './components/NestSolveModal'
 import Fitting3DView from './fitting3d/Fitting3DView'
-import type { IssueDetail, SizeRunSpec, Values } from './types'
+import type {
+  IssueDetail, NestResult, SizeRunSpec, Values,
+} from './types'
 import { useDraft } from './hooks/useDraft'
+import {
+  readStoredMsTask, solveCloseBehavior, useNestSolve,
+} from './hooks/useNestSolve'
+import { msDeleteTask } from './api'
 import './styles.css'
 
 // 校验错误/警告条（旧 Toolbar Alert 迁入左栏，紧凑化）：错误优先全量
@@ -82,6 +90,44 @@ function DraftApp() {
   useEffect(() => {
     if (d.nestResult !== null) setNestOpen(true)
   }, [d.nestResult])
+  // 机器排料求解会话（二期 US-004）：useNestSolve 实例由 App 持有——
+  // 跨弹窗开合存活（进度期关窗转 15s 后台守望，任务不中断）；
+  // solveCtx = 发送排料时刻的产物 + 码表快照（NestResultModal 关窗即清
+  // useDraft.nestResult，重试要用所以 App 持有；会话期内改码表不串台）
+  const solve = useNestSolve()
+  const [solveOpen, setSolveOpen] = useState(false)
+  const [solveCtx, setSolveCtx] =
+    useState<{ payload: NestResult; sizes: string[] } | null>(null)
+  // 「继续查看」刷新恢复：锚在 → 后台慢档 attach（首拍轮询自对齐真实终
+  // 态）；弹窗开合同步双档轮询（开 = 在视 2s / 关 = 降频 15s 即时重排）
+  useEffect(() => {
+    const stored = readStoredMsTask()
+    if (stored) solve.attach(stored.taskId)
+    // 仅挂载时执行（attach/setVisible 均 useCallback 稳定引用）
+  }, [])
+  useEffect(() => { solve.setVisible(solveOpen) }, [solveOpen])
+  // 求解弹窗显式关闭（唯一出口）语义分派（solveCloseBehavior）：
+  // 进度期 = 关窗降频后台守望（task_id 已存锚，左栏「排料进度」可重开）；
+  // 结果期 = 停表清锚 + best-effort msDeleteTask 回收 MS 会话名额（失败
+  // 静默，MS 侧 TTL+7 天兜底）；idle/error = 纯重置关窗
+  const closeSolveModal = () => {
+    const behavior = solveCloseBehavior(solve.phase)
+    setSolveOpen(false)
+    if (behavior.background) return
+    const id = solve.taskId
+    solve.reset()
+    setSolveCtx(null)
+    if (behavior.deleteTask && id !== null)
+      void msDeleteTask(id).catch(() => {})
+  }
+  // 回参数态（再次排料/放弃并重排）：结果期会话先回收 MS 名额再清锚
+  //（running 家族〔orphan 放弃〕不删——在飞任务删不掉，交 TTL 兜底）
+  const resetSolveSession = () => {
+    const terminal = solve.phase === 'done' || solve.phase === 'stopped'
+    const id = solve.taskId
+    solve.reset()
+    if (terminal && id !== null) void msDeleteTask(id).catch(() => {})
+  }
   // 右栏主视图切换（2026-09-19 用户口径「默认是整版效果」）：'2d' 高级
   // 编辑（整版调版工作台，默认）↔ '3d' 3D 试穿——Fitting3DView 切入才
   // 挂载，首挂自动试穿在那一刻才发；编辑器内「返回」= 切回 3D
@@ -202,6 +248,19 @@ function DraftApp() {
             >
               排料
             </Button>
+            {/* 机器排料后台守望入口（US-004「继续查看」）：会话在飞/有果
+                未收时露出，点击重开求解弹窗（恢复在视 2s 轮询） */}
+            {(solve.phase === 'submitting' || solve.phase === 'running'
+              || solve.taskId !== null) && !solveOpen && (
+              <Button
+                size="small"
+                icon={solve.phase === 'running' || solve.phase === 'submitting'
+                  ? <LoadingOutlined spin /> : <CheckCircleOutlined />}
+                onClick={() => setSolveOpen(true)}
+              >
+                排料进度
+              </Button>
+            )}
           </div>
         </aside>
         <section className="right-pane">
@@ -295,10 +354,32 @@ function DraftApp() {
       <NestResultModal
         open={nestOpen}
         result={d.nestResult}
+        canSendNest={d.sizeRun !== null}
+        onSendNest={() => {
+          if (d.nestResult === null) return
+          // 内存透传：快照发送时刻的产物 + 码表，随即关 numMap 弹窗并清
+          // useDraft.nestResult（关窗即清原口径不变）；求解在飞时亦允许
+          // 转入（弹窗显示在飞会话，可在其内终止后再「再次排料」）
+          setSolveCtx({
+            payload: d.nestResult,
+            sizes: d.sizeRun?.order ?? [],
+          })
+          setNestOpen(false)
+          d.clearNestResult()
+          setSolveOpen(true)
+        }}
         onClose={() => {
           setNestOpen(false)
           d.clearNestResult()
         }}
+      />
+      <NestSolveModal
+        open={solveOpen}
+        payload={solveCtx?.payload ?? null}
+        sizes={solveCtx?.sizes ?? []}
+        solve={solve}
+        onClose={closeSolveModal}
+        onSessionReset={resetSolveSession}
       />
       <ExtractWizard
         open={extractOpen}

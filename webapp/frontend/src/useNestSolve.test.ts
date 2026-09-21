@@ -5,7 +5,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   MS_TASK_STORAGE_KEY, POLL_FAIL_LIMIT, POLL_FAST_MS, POLL_SLOW_MS,
-  densityPctOf, msStateToPhase, readStoredMsTask, totalSecOf,
+  densityPctOf, msStateToPhase, readStoredMsTask, solveCloseBehavior,
+  totalSecOf,
 } from './hooks/useNestSolve'
 import type { MsRunMode, MsStatus } from './types'
 
@@ -93,6 +94,29 @@ describe('totalSecOf（进度条总时长口径）', () => {
     expect(totalSecOf(mkStatus({
       run_mode: 'x' as unknown as MsRunMode, total_budget_sec: null,
     }))).toBeNull()
+  })
+})
+
+describe('solveCloseBehavior（弹窗显式关闭语义，US-004）', () => {
+  it('进度期家族（submitting/running）→ 后台守望，不回收任务', () => {
+    expect(solveCloseBehavior('submitting'))
+      .toEqual({ background: true, deleteTask: false })
+    expect(solveCloseBehavior('running'))
+      .toEqual({ background: true, deleteTask: false })
+  })
+
+  it('结果期（done/stopped）→ 终结 + best-effort DELETE 回收名额', () => {
+    expect(solveCloseBehavior('done'))
+      .toEqual({ background: false, deleteTask: true })
+    expect(solveCloseBehavior('stopped'))
+      .toEqual({ background: false, deleteTask: true })
+  })
+
+  it('idle/error → 纯重置关窗（无任务可回收）', () => {
+    expect(solveCloseBehavior('idle'))
+      .toEqual({ background: false, deleteTask: false })
+    expect(solveCloseBehavior('error'))
+      .toEqual({ background: false, deleteTask: false })
   })
 })
 

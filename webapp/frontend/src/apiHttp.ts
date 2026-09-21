@@ -192,7 +192,7 @@ export async function fetchAgentHealth(): Promise<{
   }
 }
 
-// ---- MS 机器排料五端点（/ms 前缀；dev=Vite proxy、prod=backend httpx 转发） ----
+// ---- MS 机器排料六端点（/ms 前缀；dev=Vite proxy、prod=backend httpx 转发） ----
 // 纯 HTTP（求解/轮询/取果/停止/PLT 导出全在 MS 服务侧，Pyodide 不做排料），
 // 同 postNest 先例不进 route() 引擎通道。错误体两形态：MS {'error': 中文}
 //（solve 409 重复提交另带 task_id）、YL /ms 代理 {'detail': 中文}（502）——
@@ -273,6 +273,19 @@ export async function msStop(
 ): Promise<{ stopped: boolean; pid: number | null; orphan?: boolean }> {
   return msJson(`/api/machine/solve/${encodeURIComponent(taskId)}/stop`,
     { method: 'POST' })
+}
+
+// 任务清理（DELETE .../solve/{task_id}）：结果期显式关闭时 best-effort
+// 回收 MS 会话名额（并发任务上限）——失败由调用方静默，MS 侧 TTL+7 天
+// 兜底；非 2xx 仍走 normalizeMsError 抛 MsError（调用方 catch 吞掉）
+export async function msDeleteTask(taskId: string): Promise<void> {
+  const res = await fetch(
+    `${MS_BASE}/api/machine/solve/${encodeURIComponent(taskId)}`,
+    { method: 'DELETE' })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw normalizeMsError(res.status, body)
+  }
 }
 
 // PLT 导出（POST /api/machine/export）：请求体仅 {task_id}——fmt 缺省

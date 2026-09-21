@@ -1,9 +1,12 @@
 // 排料 numMap 弹窗（POST /api/nest 成功后呈现，§10.3.2 一期口径：
 // 只拿数据不上传排料系统；不默认下载——DXF 留内存，「下载 DXF」手动取，
-// 用户口径 2026-09-20）。表样式复用提取确认屏的 extract-table（紧凑
-// 清单表），纯函数 nestRows 供测试
-import { Button, Modal } from 'antd'
-import { DownloadOutlined } from '@ant-design/icons'
+// 用户口径 2026-09-20）。二期 US-004 footer 增「发送排料」→ 转入
+// NestSolveModal 求解弹窗（nestResult 由 App 快照内存透传）；单码场景
+// 由 App 前置拦截（canSendNest=false 禁用 + tooltip 说明，同导出中心
+// 推板 DXF「需先配码表」的禁用惯例）。表样式复用提取确认屏的
+// extract-table（紧凑清单表），纯函数 nestRows 供测试
+import { Button, Modal, Tooltip } from 'antd'
+import { DownloadOutlined, SendOutlined } from '@ant-design/icons'
 import type { NestResult } from '../types'
 import { downloadBlobBytes } from '../api'
 
@@ -27,21 +30,22 @@ function gNum(g: string): number {
 }
 
 export default function NestResultModal({
-  open, result, onClose,
+  open, result, onClose, onSendNest, canSendNest = true,
 }: {
   open: boolean
   result: NestResult | null
   onClose: () => void
+  // 发送排料（二期 US-004）：转入机器排料求解弹窗；canSendNest=false
+  //（单码场景）时禁用按钮 + tooltip 拦截说明
+  onSendNest?: () => void
+  canSendNest?: boolean
 }) {
   const rows = result ? nestRows(result) : []
   return (
     <Modal
       title="排料数量清单"
       open={open}
-      okText="关闭"
-      onOk={onClose}
       onCancel={onClose}
-      cancelButtonProps={{ style: { display: 'none' } }}
       footer={[
         // DXF 不默认下载（留在 nestResult 内存）：想留档手动点此落盘
         result ? (
@@ -58,7 +62,26 @@ export default function NestResultModal({
             下载 DXF
           </Button>
         ) : null,
-        <Button key="close" type="primary" onClick={onClose}>
+        // 禁用态 Tooltip 需 span 包裹（disabled 按钮不响应指针事件）
+        onSendNest ? (
+          <Tooltip
+            key="send"
+            title={canSendNest
+              ? null : '机器排料需要推板多码：请先完成推板设置'}
+          >
+            <span>
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                disabled={!canSendNest}
+                onClick={onSendNest}
+              >
+                发送排料
+              </Button>
+            </span>
+          </Tooltip>
+        ) : null,
+        <Button key="close" onClick={onClose}>
           关闭
         </Button>,
       ]}

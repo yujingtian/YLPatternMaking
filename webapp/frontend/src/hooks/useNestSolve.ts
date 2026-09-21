@@ -51,6 +51,27 @@ export function msStateToPhase(s: MsStatus['state']): NestSolvePhase {
   return s === 'done' || s === 'stopped' || s === 'error' ? s : 'running'
 }
 
+// 弹窗显式关闭（唯一出口）的动作语义（US-004 弹窗安全第二则）：
+// - 进度期家族（submitting/running）→ background：关窗降频 15s 后台守望，
+//   不回收任务（task_id 已存锚，可「继续查看」attach 重连）；
+// - done/stopped → deleteTask：会话终结 + best-effort DELETE 回收 MS
+//   会话名额（失败静默，MS 侧 TTL+7 天兜底）；
+// - idle/error → 纯重置关窗（无任务可回收）
+export interface SolveCloseBehavior {
+  background: boolean
+  deleteTask: boolean
+}
+
+export function solveCloseBehavior(
+  phase: NestSolvePhase,
+): SolveCloseBehavior {
+  if (phase === 'submitting' || phase === 'running')
+    return { background: true, deleteTask: false }
+  if (phase === 'done' || phase === 'stopped')
+    return { background: false, deleteTask: true }
+  return { background: false, deleteTask: false }
+}
+
 // 利用率%（物理口径，MS NestLabel 同源：density 分数×100 两位小数）；
 // incumbent（best-so-far 摘要）优先、回落 current（最新帧）
 export function densityPctOf(status: MsStatus): number | null {
