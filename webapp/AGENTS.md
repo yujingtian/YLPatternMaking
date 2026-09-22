@@ -47,3 +47,15 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
   防 attach）。
 - prod 形态冒烟不依赖 Vite：backend 托管 dist + `/ms` httpx 转发一并回归；
   uvicorn spawn 用 `py`（`python` 是 Store 假 alias，SMOKE_PY 可覆盖）。
+
+## 三期 .msn 联调：常驻 MS :8010 是二期旧构建（2026-09-22 US-001 实测）
+
+- 常驻 :8010 **没有 state-file 端点**（`/api/machine/solve/*/state-file` 回
+  `{"detail":"Not Found"}`）——三期联调/冒烟须自起 MS 新实例，**勿杀常驻**：
+  `cd D:/code/MaterialSorting/materialSorting-server && MS_WEB_PORT=8012
+  D:/code/MaterialSorting/.venv/Scripts/python.exe -m materialsorting.web.server`
+  （YL 侧 `backend._MS_BASE` / 环境变量指它；用完 taskkill 该 PID）。
+- 活体提交 solve 的 config 陷阱：`quantities` **外键=g 码、内键=码号字符串**
+  （`{"g01": {"29": 2}}`，写反 MS solver 直接 error「键不是合法 g 码」）。
+- MS gzip mtime 非确定：同一 stopped 任务两次取 state-file 逐字节对拍须同秒
+  内完成，否则比 `A[:4]==B[:4] and A[8:]==B[8:]`（剥 mtime 段）+ 解压载荷。
