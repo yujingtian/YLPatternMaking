@@ -36,8 +36,9 @@ export interface BuildMachineConfigInput {
   sizes: string[]                  // 推板码表（须纯整数字串，如 '29'/'30'）
   gateCm?: number                  // 幅宽 cm（缺省 175）
   runMode?: MsRunMode              // 运行模式（缺省 normal）
-  sets?: Record<string, number>    // 码号 -> 套数（缺键回 1；须 ≥0.5 的
-                                   // 0.5 倍数——2026-09-22 用户口径）
+  sets?: Record<string, number>    // 码号 -> 套数（缺键回 1；须 ≥0 的
+                                   // 0.5 倍数、全 0 不可——0 = 该码不排料，
+                                   // 2026-09-22 用户口径）
 }
 
 // 套数 × 默认数量换算（2026-09-22 用户口径）：numMap 默认数量 = 套数 1 的
@@ -49,17 +50,22 @@ export function multiplySets(base: number, sets: number): number {
   return Math.ceil(base * sets)
 }
 
-// 套数合法性守卫：≥0.5 的 0.5 倍数（输入侧 InputNumber step 0.5 但键盘
-// 可自由键入/清空，构建器独立守卫——可被直接调用/单测，不依赖上游已验；
-// 0.5 步进域二进制浮点精确，1e-9 容差防极端尾差）
+// 套数合法性守卫：≥0 的 0.5 倍数，0 = 该码号不排料（该码全部裁片数量上送
+// 0，MS demand=0 跳过——同 labels 独有键回退 0 语义；输入侧 InputNumber
+// step 0.5 但键盘可自由键入，构建器独立守卫——可被直接调用/单测，不依赖
+// 上游已验；0.5 步进域二进制浮点精确，1e-9 容差防极端尾差）
 function assertValidSets(sizes: string[], sets: Record<string, number>): void {
   for (const s of sizes) {
     const k = sets[s] ?? 1
-    if (!Number.isFinite(k) || k < 0.5
+    if (!Number.isFinite(k) || k < 0
       || Math.abs(k * 2 - Math.round(k * 2)) > 1e-9)
       throw new Error(
-        `码号「${s}」套数非法（${k}）：须为不小于 0.5 的 0.5 倍数（如 1、1.5、2）`)
+        `码号「${s}」套数非法（${k}）：须为不小于 0 的 0.5 倍数（如 0、1、1.5、2）`)
   }
+  // 全 0 不可：全部码号 0 套 = 总需求 0 的空排料任务，响亮拦下（MS 侧
+  // 没有可摆的片，报错口径不可控）
+  if (sizes.every((s) => (sets[s] ?? 1) <= 0))
+    throw new Error('所有码号套数均为 0：至少一个码号套数须大于 0（0 = 该码号不排料）')
 }
 
 // 整数码号守卫（MS sizes 仅接受 int[]；码表 labels 经后端

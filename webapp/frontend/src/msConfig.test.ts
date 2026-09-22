@@ -3,8 +3,9 @@
 // （键集 = numMap ∪ labels）、quantities = numMap 默认数量按各码套数
 // multiplySets 换算展开（内层键 = 数字字符串；缺省各码 1 套 = 旧口径各码
 // 同数量；2026-09-22 套数三分支：整数套直乘/非整数套偶数量直乘/奇数量
-// 向上取整）；缺省 175cm / normal；非法输入（空码表/非整数码/坏幅宽/坏
-// 模式/空清单/坏套数）抛可读中文错误。无单码分支：sizes 必填数组、
+// 向上取整，0 = 该码不排料、全 0 抛错〔（三）口径〕）；缺省 175cm /
+// normal；非法输入（空码表/非整数码/坏幅宽/坏模式/空清单/坏套数）抛
+// 可读中文错误。无单码分支：sizes 必填数组、
 // 空即抛（单码由调用侧前置拦截，不进本函数——二期仅推板多码）。
 
 import { describe, expect, it } from 'vitest'
@@ -118,6 +119,17 @@ describe('buildMachineConfig 套数（sets）展开', () => {
     })
     expect(cfg.quantities.g09).toEqual({ '30': 0 })
   })
+
+  it('0 套 = 该码号全部裁片数量 0（不排料；偶/奇数量同样归 0，2026-09-22（三）口径）', () => {
+    const cfg = buildMachineConfig({
+      numMap: { g01: 2, g08: 1 },
+      sizes: ['29', '30', '31'], sets: { '29': 0, '30': 0.5, '31': 2 },
+    })
+    expect(cfg.quantities).toEqual({
+      g01: { '29': 0, '30': 1, '31': 4 },
+      g08: { '29': 0, '30': 1, '31': 2 },
+    })
+  })
 })
 
 describe('非法输入（可读中文错误；无单码分支）', () => {
@@ -154,12 +166,18 @@ describe('非法输入（可读中文错误；无单码分支）', () => {
       { numMap: {}, labels: {}, sizes: ['30'] })).toThrow('数量清单为空')
   })
 
-  it('坏套数抛错（非 0.5 倍数/小于 0.5/NaN——输入侧键盘可自由键入）', () => {
-    for (const bad of [1.3, 0, -0.5, Number.NaN]) {
+  it('坏套数抛错（非 0.5 倍数/负数/NaN——输入侧键盘可自由键入；0 合法 = 不排料）', () => {
+    for (const bad of [1.3, -0.5, -1, Number.NaN]) {
       expect(() => buildMachineConfig(
         { numMap: { g01: 2 }, sizes: ['30'], sets: { '30': bad } }))
         .toThrow('套数非法')
     }
+  })
+
+  it('全 0 套抛错（空排料任务，至少一个码号须大于 0）', () => {
+    expect(() => buildMachineConfig(
+      { numMap: { g01: 2 }, sizes: ['29', '30'], sets: { '29': 0, '30': 0 } }))
+      .toThrow('所有码号套数均为 0')
   })
 })
 

@@ -2,7 +2,8 @@
 // 「排料」按钮直达——清单弹窗中转已删，App.startNestFlow 快照产物透传），
 // 按 useNestSolve 阶段切三态视图——参数（幅宽/运行模式两项表单，
 // localStorage 记忆 + 码号套数表〔2026-09-22：两行表格——首行码号升序 +
-// 总计表头、次行每码套数输入 0.5 步进默认 1 + 只读总和；替代原「推板 N 码」
+// 总计表头、次行每码套数输入 0.5 步进默认 1（最小 0 = 该码不排料）+
+// 只读总和；替代原「推板 N 码」
 // 小字，码表信息即表格本身，产物缺失/生成中状态提示保留；套数不跨会话
 // 记忆、码表内容变化整表重置全 1，提交经 buildMachineConfig multiplySets
 // 换算 quantities〕）→ 进度（利用率〔物理口径〕+ 进度条 + per_seed 阶段 +
@@ -148,8 +149,9 @@ export default function NestSolveModal({
 
   // 码号套数表（2026-09-22 用户口径）：码号按数字升序展示（solveCtx 码表
   // 快照为用户配置序，MS sizes 顺序无语义）；套数不跨会话记忆——码表内容
-  // （join 键）变化时整表重置全 1，同表重开/再次排料保留已输值。清空输入
-  // 存 0 = 非法哨兵，提交时 buildMachineConfig 套数守卫拦下回表单区显示
+  // （join 键）变化时整表重置全 1，同表重开/再次排料保留已输值。0 = 该码
+  // 不排料（该码全部裁片数量上送 0，MS demand=0 跳过），全 0 由 buildMachine
+  // Config 套数守卫拦下回表单区显示
   const sortedSizes = useMemo(
     () => [...sizes].sort((a, b) => Number(a) - Number(b)), [sizes])
   const sizesKey = sortedSizes.join(',')
@@ -268,8 +270,8 @@ export default function NestSolveModal({
           />
         </div>
         {/* 码号套数表（2026-09-22）：首行码号升序 + 总计表头（首格空），
-            次行套数输入（默认 1、0.5 步进，合法性提交时守卫）+ 只读总和。
-            原「推板 N 码」小字退役——码表信息即本表 */}
+            次行套数输入（默认 1、0.5 步进、最小 0 = 该码不排料，合法性
+            提交时守卫）+ 只读总和。原「推板 N 码」小字退役——码表信息即本表 */}
         <div className="nest-field">
           <label>码号套数</label>
           <div className="nest-sets-wrap">
@@ -285,7 +287,7 @@ export default function NestSolveModal({
                   {sortedSizes.map((s) => (
                     <td key={s}>
                       <InputNumber
-                        size="small" min={0.5} step={0.5}
+                        size="small" min={0} step={0.5}
                         value={sets[s] ?? 1}
                         onChange={(v) => {
                           setSets((p) => ({ ...p, [s]: v ?? 0 }))
