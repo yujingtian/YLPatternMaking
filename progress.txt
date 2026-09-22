@@ -8,10 +8,6 @@ Started: Mon, Sep 21, 2026  7:53:26 PM
 
 
 
-  - 测试: py -m pytest tests/ -q 1083 passed 无回归(test_ms_proxy.py 8->16: gzip 逐字节对拍/6.4MB 大载荷/慢流不缓冲(真 uvicorn TCP 证法)/四错误支路/超时+死端口 502/token 注入与零泄露); 活体对拍真 MS 三期实例(:8012) submit->stop->直连 vs 代理 27KB gzip 逐字节相同+双头逐字节相同+404 中文支路; 无前端改动免 tsc/vitest; 收尾已杀 :8012 自起实例、常驻 :8010 未动
-  - 备注: 新端点 GET /api/nest/tasks/{task_id}/state-file(send stream=True+StreamingResponse 逐块, BackgroundTask 回收); 新环境变量 YLP_MS_TOKEN(服务端注入 X-Machine-Token 不下发); 超时专用 60s 档; 401/404/409 原码+固定中文, 其余/超时/连不上->502 通用文案; 坑1: starlette TestClient 先跑完 ASGI 才出响应, 流式证明须 YL app 另起真 uvicorn; 坑2: 常驻 MS :8010 是二期旧构建无 state-file 端点, US-002 冒烟需自起 MS 新实例(MS_WEB_PORT, 勿杀常驻); MS gzip mtime 非确定, 双取对拍同秒内 raw 相同否则 mod-mtime 比对; MS quantities 外键=g码 内键=码号字符串(首次活体提交写反致 solver 400)
 
-[2026-09-22 11:55] US-002 - 前端「下载状态文件(.msn)」入口与引导 - DONE
-  - 改动: webapp/frontend/src/apiHttp.ts(msStateFile+cdFilename 公共解析器), api.ts(re-export), msBase.ts(MS_WORKBENCH_URL), vite-env.d.ts(构建变量登记), components/NestSolveModal.tsx(MsnDownload 三态入口+引导+doDownloadMsn), apiHttp.test.ts(+4 例), .doc/python工程设计.md(§10.3.2 US-002 条+环境变量表), webapp/AGENTS.md
   - 测试: npx tsc --noEmit 零错误; npm test 242 passed(21 files); py -m pytest tests/ -q 1083 passed 无回归; npm run build 成功; 浏览器取证 us002_verify 20 例(19 过+1 测试设计误设: DELETE 后理应 404 Alert 已由 S5 证)/us002_orphan 6/6(杀 MS 落 error 相重启后 marker 仍可下载)/us002_layout 盒模型 6/7(唯一 fail 是自己断言错期望同行, 实设计为双行); prod 形态 :8042 dist + MS 三期自起 :8012, 收尾已杀双实例
   - 备注: .msn 落盘必须 downloadBlobBytes(gzip 二进制禁 text() 往返); msStateFile 走 /api/nest YL 代理非 /ms; MS 工作台「状态恢复」上传还原的人工冒烟依赖 MS 侧三期 UI; 常驻 :8010/:8000 未动

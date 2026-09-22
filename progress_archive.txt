@@ -29,3 +29,7 @@
   - 备注: 二期 ms-nesting 六故事收口全绿; 首跑 36/37 唯一 FAIL 是我方文件名正则少 machine_<task6>_<rand6> 段(us006 备注 machine_… 是省略写法), 修正后全绿; playwright 跨仓借用 createRequire 回落(SMOKE_PLAYWRIGHT_FROM 可覆盖); 已知边界记录: /ms 转发只透传 content-type, MS 启用 MS_MACHINE_TOKEN 认证前需扩头白名单
 [2026-09-22 11:30] US-001 - 后端 .msn 状态文件透传代理端点 - DONE
   - 改动: webapp/backend/app.py, tests/test_ms_proxy.py, .doc/python工程设计.md
+  - 测试: py -m pytest tests/ -q 1083 passed 无回归(test_ms_proxy.py 8->16: gzip 逐字节对拍/6.4MB 大载荷/慢流不缓冲(真 uvicorn TCP 证法)/四错误支路/超时+死端口 502/token 注入与零泄露); 活体对拍真 MS 三期实例(:8012) submit->stop->直连 vs 代理 27KB gzip 逐字节相同+双头逐字节相同+404 中文支路; 无前端改动免 tsc/vitest; 收尾已杀 :8012 自起实例、常驻 :8010 未动
+  - 备注: 新端点 GET /api/nest/tasks/{task_id}/state-file(send stream=True+StreamingResponse 逐块, BackgroundTask 回收); 新环境变量 YLP_MS_TOKEN(服务端注入 X-Machine-Token 不下发); 超时专用 60s 档; 401/404/409 原码+固定中文, 其余/超时/连不上->502 通用文案; 坑1: starlette TestClient 先跑完 ASGI 才出响应, 流式证明须 YL app 另起真 uvicorn; 坑2: 常驻 MS :8010 是二期旧构建无 state-file 端点, US-002 冒烟需自起 MS 新实例(MS_WEB_PORT, 勿杀常驻); MS gzip mtime 非确定, 双取对拍同秒内 raw 相同否则 mod-mtime 比对; MS quantities 外键=g码 内键=码号字符串(首次活体提交写反致 solver 400)
+[2026-09-22 11:55] US-002 - 前端「下载状态文件(.msn)」入口与引导 - DONE
+  - 改动: webapp/frontend/src/apiHttp.ts(msStateFile+cdFilename 公共解析器), api.ts(re-export), msBase.ts(MS_WORKBENCH_URL), vite-env.d.ts(构建变量登记), components/NestSolveModal.tsx(MsnDownload 三态入口+引导+doDownloadMsn), apiHttp.test.ts(+4 例), .doc/python工程设计.md(§10.3.2 US-002 条+环境变量表), webapp/AGENTS.md
