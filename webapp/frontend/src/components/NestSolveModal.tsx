@@ -1,7 +1,11 @@
 // 机器排料求解弹窗（二期对接 §10.3.2 US-004；2026-09-22 入口收口：左栏
 // 「排料」按钮直达——清单弹窗中转已删，App.startNestFlow 快照产物透传），
 // 按 useNestSolve 阶段切三态视图——参数（幅宽/运行模式两项表单，
-// localStorage 记忆）→ 进度（利用率〔物理口径〕+ 进度条 + per_seed 阶段 +
+// localStorage 记忆 + 码号套数表〔2026-09-22：两行表格——首行码号升序 +
+// 总计表头、次行每码套数输入 0.5 步进默认 1 + 只读总和；替代原「推板 N 码」
+// 小字，码表信息即表格本身，产物缺失/生成中状态提示保留；套数不跨会话
+// 记忆、码表内容变化整表重置全 1，提交经 buildMachineConfig multiplySets
+// 换算 quantities〕）→ 进度（利用率〔物理口径〕+ 进度条 + per_seed 阶段 +
 // 终止 + 「下载状态文件(.msn)」当前最优快照〔三期 US-002〕）→ 结果（摘要行
 // + 「下载 PLT」〔US-006：msExport 最小体 {task_id} → blob 落盘，MS 侧缺省
 // plt-clean + 表格全算〕+ 「下载状态文件(.msn)」主推 + 引导文案〔三期
@@ -11,7 +15,7 @@
 // 关窗降频 15s 后台守望，可点击左栏「排料」按钮继续查看；结果期 = 停表 +
 // best-effort msDeleteTask——由 App 接线执行，关闭前 confirm 二次确认）。
 // useNestSolve 实例由 App 持有跨关窗存活，本组件纯视图零状态机。
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   Alert, Button, InputNumber, Modal, Progress, Select, Space, Spin, Tag,
@@ -142,6 +146,23 @@ export default function NestSolveModal({
   const [msnBusy, setMsnBusy] = useState(false)
   const [msnError, setMsnError] = useState<string | null>(null)
 
+  // 码号套数表（2026-09-22 用户口径）：码号按数字升序展示（solveCtx 码表
+  // 快照为用户配置序，MS sizes 顺序无语义）；套数不跨会话记忆——码表内容
+  // （join 键）变化时整表重置全 1，同表重开/再次排料保留已输值。清空输入
+  // 存 0 = 非法哨兵，提交时 buildMachineConfig 套数守卫拦下回表单区显示
+  const sortedSizes = useMemo(
+    () => [...sizes].sort((a, b) => Number(a) - Number(b)), [sizes])
+  const sizesKey = sortedSizes.join(',')
+  const [sets, setSets] = useState<Record<string, number>>(() =>
+    Object.fromEntries(sizes.map((s) => [s, 1])))
+  useEffect(() => {
+    setSets(Object.fromEntries(
+      sizesKey.split(',').filter(Boolean).map((s) => [s, 1])))
+  }, [sizesKey])
+  const setsTotal = sortedSizes.reduce((acc, s) => acc + (sets[s] ?? 1), 0)
+  const setsTotalLabel = Number.isInteger(setsTotal)
+    ? String(setsTotal) : setsTotal.toFixed(1)
+
   // 提交：buildMachineConfig（校验内置，非法输入回表单区显示）→ base64
   // 解码 DXF 字节 → multipart（client_ref 由 hook 层追加）
   const doSubmit = async () => {
@@ -149,8 +170,8 @@ export default function NestSolveModal({
     let config
     try {
       config = buildMachineConfig({
-        numMap: payload.numMap, labels: payload.labels, sizes,
-        gateCm: params.gateCm, runMode: params.runMode,
+        numMap: payload.numMap, labels: payload.labels, sizes: sortedSizes,
+        sets, gateCm: params.gateCm, runMode: params.runMode,
       })
     } catch (e) {
       setFormError((e as Error).message)
@@ -246,12 +267,49 @@ export default function NestSolveModal({
             style={{ width: 240 }}
           />
         </div>
-        <div className="extract-meta" style={{ marginTop: 4 }}>
-          推板 {sizes.length} 码：{sizes.join(' / ')}
-          {payload ? null : fetchingPayload
-            ? '（正在生成排料数据…）'
-            : '（排料产物缺失，请关闭弹窗后重新点击「排料」生成）'}
+        {/* 码号套数表（2026-09-22）：首行码号升序 + 总计表头（首格空），
+            次行套数输入（默认 1、0.5 步进，合法性提交时守卫）+ 只读总和。
+            原「推板 N 码」小字退役——码表信息即本表 */}
+        <div className="nest-field">
+          <label>码号套数</label>
+          <div className="nest-sets-wrap">
+            <table className="nest-sets-table">
+              <tbody>
+                <tr>
+                  <th aria-label="码号"></th>
+                  {sortedSizes.map((s) => <th key={s}>{s}</th>)}
+                  <th>总计</th>
+                </tr>
+                <tr>
+                  <th>套数</th>
+                  {sortedSizes.map((s) => (
+                    <td key={s}>
+                      <InputNumber
+                        size="small" min={0.5} step={0.5}
+                        value={sets[s] ?? 1}
+                        onChange={(v) => {
+                          setSets((p) => ({ ...p, [s]: v ?? 0 }))
+                          setFormError(null)
+                        }}
+                        style={{ width: 56 }}
+                      />
+                    </td>
+                  ))}
+                  <td className="nest-sets-total">{setsTotalLabel}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
+        {/* 产物状态提示（码表枚举已由套数表承担，仅在产物缺失/生成中
+            出现——否则「开始排料」按钮禁用无解释 */}
+        {payload === null
+          ? <div className="extract-meta" style={{ marginTop: 4 }}>
+              {fetchingPayload
+                ? '正在生成排料数据…'
+                : '排料产物缺失，请关闭弹窗后重新点击「排料」生成'}
+            </div>
+          : null}
         {formError !== null
           ? <Alert type="error" showIcon message={formError}
               style={{ marginTop: 12 }} />

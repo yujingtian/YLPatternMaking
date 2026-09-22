@@ -1,11 +1,12 @@
 // MS 机器排料 config 构建器（二期对接 §10.3.2）：numMap（/api/nest 扁平
-// 数量契约）+ 推板码表 + 幅宽/运行模式 → POST /api/machine/solve 的
-// config JSON。buildMachineConfig 纯函数零副作用——提交载荷口径单一可测，
-// 弹窗层（NestSolveModal）只做输入收集。映射口径：gate_mm = 幅宽 cm × 10；
-// per_type 全 g 码恒 {d:0,tol:0}（= MS 缺省语义全等，三期工艺预设档才启用
-// 非 0）；quantities 按 numMap 展开到每个码（/api/nest 扁平契约：各码数量
-// 相同，内层键 = 数字字符串）。无单码分支——单码场景由调用侧前置拦截
-// （二期仅推板多码），sizes 为空即视为非法输入响亮抛错。
+// 数量契约）+ 推板码表 + 幅宽/运行模式/码号套数 → POST /api/machine/solve
+// 的 config JSON。buildMachineConfig 纯函数零副作用——提交载荷口径单一
+// 可测，弹窗层（NestSolveModal）只做输入收集。映射口径：gate_mm = 幅宽
+// cm × 10；per_type 全 g 码恒 {d:0,tol:0}（= MS 缺省语义全等，三期工艺
+// 预设档才启用非 0）；quantities = numMap 默认数量（套数 1 的量）按各码
+// 套数 multiplySets 换算展开（/api/nest 扁平契约各码同基数，内层键 =
+// 数字字符串；2026-09-22 起各码可异套数）。无单码分支——单码场景由调用
+// 侧前置拦截（二期仅推板多码），sizes 为空即视为非法输入响亮抛错。
 import type { MsMachineConfig, MsRunMode } from './types'
 
 // 运行模式三档（时间烘焙 MS 侧单一真相源：normal = plain --time 180 /
@@ -35,6 +36,30 @@ export interface BuildMachineConfigInput {
   sizes: string[]                  // 推板码表（须纯整数字串，如 '29'/'30'）
   gateCm?: number                  // 幅宽 cm（缺省 175）
   runMode?: MsRunMode              // 运行模式（缺省 normal）
+  sets?: Record<string, number>    // 码号 -> 套数（缺键回 1；须 ≥0.5 的
+                                   // 0.5 倍数——2026-09-22 用户口径）
+}
+
+// 套数 × 默认数量换算（2026-09-22 用户口径）：numMap 默认数量 = 套数 1 的
+// 量；整数套直接相乘（2×2=4、1×2=2）；非整数套时默认数量为偶数直接相乘
+//（偶×半步恒整：2×0.5=1、2×1.5=3）、为奇数相乘后向上取整（半套也裁整片：
+// 1×0.5=1、1×1.5=2——现役奇数量裁片 = 门襟/小表袋各 1）。导出供金标直测
+export function multiplySets(base: number, sets: number): number {
+  if (Number.isInteger(sets) || base % 2 === 0) return base * sets
+  return Math.ceil(base * sets)
+}
+
+// 套数合法性守卫：≥0.5 的 0.5 倍数（输入侧 InputNumber step 0.5 但键盘
+// 可自由键入/清空，构建器独立守卫——可被直接调用/单测，不依赖上游已验；
+// 0.5 步进域二进制浮点精确，1e-9 容差防极端尾差）
+function assertValidSets(sizes: string[], sets: Record<string, number>): void {
+  for (const s of sizes) {
+    const k = sets[s] ?? 1
+    if (!Number.isFinite(k) || k < 0.5
+      || Math.abs(k * 2 - Math.round(k * 2)) > 1e-9)
+      throw new Error(
+        `码号「${s}」套数非法（${k}）：须为不小于 0.5 的 0.5 倍数（如 1、1.5、2）`)
+  }
 }
 
 // 整数码号守卫（MS sizes 仅接受 int[]；码表 labels 经后端
@@ -57,6 +82,7 @@ export function buildMachineConfig(
     throw new Error(`幅宽非法（${gateCm}）：须为正数（cm）`)
   if (!RUN_MODE_OPTIONS.some((o) => o.value === runMode))
     throw new Error(`未知运行模式「${runMode}」：可选 normal/advanced/extreme`)
+  if (input.sets !== undefined) assertValidSets(sizes, input.sets)
 
   // g 码键集 = numMap ∪ labels（后端同一次遍历产出，理论同源；并集兜底，
   // labels 独有键数量回退 0 = MS demand=0 跳过该片，语义安全）
@@ -70,7 +96,8 @@ export function buildMachineConfig(
   for (const g of gCodes) {
     per_type[g] = { d: 0, tol: 0 }
     quantities[g] = {}
-    for (const s of sizes) quantities[g][s] = numMap[g] ?? 0
+    for (const s of sizes)
+      quantities[g][s] = multiplySets(numMap[g] ?? 0, input.sets?.[s] ?? 1)
   }
   return {
     // round 防浮点尾差（175.3×10 = 1752.9999…）；cm 一位小数 ×10 后恒整
