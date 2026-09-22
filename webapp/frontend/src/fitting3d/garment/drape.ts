@@ -117,7 +117,15 @@ export function buildDrape(
       continue
     }
     const top = part.mesh.runs.find((r) => r.role === 'top_chain')
-    if (!top) throw new Error('裁片缺 top_chain（腰口）边——下垂 pin 无支点')
+    if (!top) {
+      // seam 模式（有省育克升格参与片）：纯 back part 的 top 边 role
+      // ='seam'（引擎 role_override，机头下口线 = 缝合边语义）无
+      // top_chain——腰口钉挂由 yoke part 的 top' 顶替，此处放行跳过
+      //（sideHold 刚度带同跳：back part 侧缝顶不邻腰口，由 yokeWeld/
+      // side 缝对连接）
+      if (garment.parts.some((p) => p.key === 'back_yoke')) continue
+      throw new Error('裁片缺 top_chain（腰口）边——下垂 pin 无支点')
+    }
     const loopLen = part.mesh.loop.length
     const last = top.indices[top.indices.length - 1]
     // 整圈全向钉（六期直挂）：前提 = buildFullPair 腰口弧长重参数化把

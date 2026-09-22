@@ -39,6 +39,52 @@ def healthz() -> dict:
     return {"status": "ok", "vlm_configured": configured}
 
 
+@app.post("/api/chat/turn")
+def api_chat_turn(session: str = Form(...), text: str = Form(...),
+                  photos: list[UploadFile] = File(default=[]),
+                  thinking: str | None = Form(default=None),
+                  run_probe: bool = Form(default=True),
+                  run_score: bool = Form(default=True),
+                  max_refeed: int = Form(default=2)) -> dict:
+    """多轮对话一轮（智能体一期，§10.9）：会话 JSON 随请求往返，后端无状态。
+
+    请求：session（上轮返回的会话 JSON 串，首轮 "{}" 或空对象序列化）+
+    text + photos（前端持的全部照片全量重发，后端按指纹去重只送新照片进
+    S2）。响应：{ok, session, card, delivery}——card/deliver 二选一；
+    缺必填不 422，转求援卡（零打扰口径）。
+
+    错误口径同 /api/extract：照片非法 422、会话 JSON 非法 400、
+    VLM 未配置/上游失败 503（原消息，不含 key）。
+    """
+    from .converse import run_turn
+    from .runner import _build_provider, _save_photos
+    from .session import Session as ChatSession
+
+    config_path = resolve_config_path()
+    try:
+        sess = ChatSession.from_json(session)
+    except (ValueError, TypeError, KeyError) as e:
+        raise HTTPException(400, detail=f"会话 JSON 非法：{e}") from None
+    paths, tmp = _save_photos(photos)
+    try:
+        outcome = run_turn(sess, text, paths,
+                           provider=_build_provider(config_path),
+                           thinking=thinking, run_probe=run_probe,
+                           run_score=run_score, max_refeed=max_refeed,
+                           config_path=config_path)
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e)) from None
+    except ExtractError as e:
+        raise HTTPException(503, detail=str(e)) from None
+    except VLMError as e:
+        raise HTTPException(503, detail=str(e)) from None
+    finally:
+        tmp.cleanup()
+    body = outcome.to_dict()
+    body["ok"] = True
+    return body
+
+
 @app.post("/api/extract")
 def api_extract(
     describe: str = Form(...),

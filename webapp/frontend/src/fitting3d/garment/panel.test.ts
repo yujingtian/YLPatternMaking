@@ -11,7 +11,9 @@
 // bottom）；back.cb（裆尖→P0）与 yoke cb 反向段（P0→O）聚合成整条
 // 后浪（长度 = 两链和，drape 后中缝合对沿它配对）；yoke 腰口 top 顶替
 // top_chain；覆盖性/面积比同前身口径。退化：无育克 fixture（信息性
-// warning）/ 有省款守卫拦下（curved fixture）→ hasYoke=false 纯后片。
+// warning）→ 纯后片；有省款（curved fixture）→ seam 模式分流（2026-
+// 09-22）：守卫拦下并集、闭省净样判据命中——育克升格 sim 参与片
+//（yokeHost 翻转宿主 + seamInfo.sCin），宿主 = 纯后片。
 // 夹具 = fixture_fitting_pocket.json（4 片含袋贴）/ fixture_fitting_
 // yoke.json（4 片含育克，无省贴合）/ fixture_fitting_curved_pocket.json
 // （有省款）。
@@ -19,7 +21,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
 import { buildBackPanel, buildFrontPanel } from './panel'
-import { buildClothMesh, type ClothMesh } from './mesh'
+import { buildClothMesh, mergeRuns, type ClothMesh } from './mesh'
 
 const HERE = import.meta.dirname   // src/fitting3d/garment
 
@@ -244,10 +246,25 @@ describe('panel：后身并集净样（后片+育克沿机头下口线缝合）'
     expect(p.host.xy.length).toBe(buildClothMesh(plainBack).xy.length)
   })
 
-  it('退化：有省款（yoke 省闭口净样与整版下口线错位）守卫拦下 → 纯后片宿主', () => {
+  it('有省款（yoke 省闭口净样与整版下口线错位）→ seam 模式分流：育克升格 sim 参与片', () => {
     const p = buildBackPanel(curved)
-    expect(p.hasYoke).toBe(false)
-    expect(p.warnings.length).toBe(1)
-    expect(p.warnings[0]).toContain('不贴合')
+    expect(p.mode).toBe('seam')
+    expect(p.hasYoke).toBe(true)   // 育克离开平铺、升格参与片
+    expect(p.warnings.length).toBe(0)
+    // 宿主 = 纯后片：top 边 role='seam'（引擎 role_override）无 top_chain
+    expect(p.host.runs.some((r) => r.role === 'top_chain')).toBe(false)
+    // 翻转宿主四边链：cb'(P0→O)/top'(O→X，top_chain 顶替腰口)/side'/bottom'
+    const yh = p.yokeHost!
+    expect(yh.runs.find((r) => r.role === 'top_chain')!.name).toBe('top')
+    // 真有省几何账（fixture 实测）：back top = 整版机头下口线直线
+    // L_back 22.07（含省口段不扣）；yoke bottom = 闭省净样 L_yoke 19.68
+    // ——sMouth = L_back − L_yoke ≈ 2.39 = 省口段布量（真实缝前状态）；
+    // 瓣1 [0, 7.81] 与直线逐点重合 perp=0；sCin = C_in 从 P0 侧弧 ≈9.7
+    //（瓣1 末端倒圆中段，seams yokeWaist 闭式收敛映射断点）
+    const bTop = mergeRuns(p.host.runs.filter((r) => r.name === 'top'), p.host.xy)!
+    const yBottom = mergeRuns(yh.runs.filter((r) => r.name === 'bottom'), yh.xy)!
+    expect(bTop.length).toBeCloseTo(22.07, 1)
+    expect(yBottom.length).toBeCloseTo(19.68, 1)
+    expect(p.seamInfo!.sCin).toBeCloseTo(9.76, 1)
   })
 })

@@ -289,7 +289,40 @@ def test_yoke_bottom_matches_back_top():
                     (round(pn.x, 4), round(pn.y, 4))}
 
 
-def test_yoke_curved_waistband_combo():
+def test_yoke_notches_frame_global():
+    """育克 notches 全局坐标帧回归（2026-09-22 修：_piece_entry 漏传
+    piece.frame，rot180 育克被按 reflect_y 逆变换、x 分量镜像错位）：
+    无省款 cb 刀口 = 后中 O-P0 中点；有省款首刀口 = 省位拼合线 C_in
+    （落在机头下口线上、与后片省腿 mark 上端 <0.15cm）。"""
+    p, ctx = _payload(back_yoke=True)
+    yoke = next(pc for pc in p["pieces"] if pc["key"] == "back_yoke")
+    o = ctx.point("back.rise_top_point")
+    p0 = ctx.point("back.yoke_cb_point")
+    n = yoke["notches"][0]
+    assert (n[0], n[1]) == pytest.approx(
+        ((o.x + p0.x) / 2, (o.y + p0.y) / 2), abs=2e-6)
+
+    # 有省几何须真切穿机头上下边界（默认省宽 2.0 在默认机头高度下不分割、
+    # 引擎回退无省提取——参数取 examples/size_draft.toml 口径，与前端
+    # fixture 同源）
+    p2, _ = _payload(back_yoke=True, back_dart=True, back_dart_width=3.76,
+                     back_dart_length=10.5, back_yoke_cb_dist=4.5)
+    yoke2 = next(pc for pc in p2["pieces"] if pc["key"] == "back_yoke")
+    back2 = next(pc for pc in p2["pieces"] if pc["key"] == "back_piece")
+    c_in = yoke2["notches"][0]
+    # C_in 在机头下口线（back.top 直线段）上
+    bt = next(e for e in back2["edges"] if e["name"] == "top")
+    (x0, y0), (x1, y1) = bt["pts"][0], bt["pts"][-1]
+    cross = abs((x1 - x0) * (c_in[1] - y0) - (y1 - y0) * (c_in[0] - x0))
+    assert cross / math.hypot(x1 - x0, y1 - y0) < 1e-3
+    # C_in 与后片省腿 mark 上端（省口内侧腿 ∩ 上口线）互证
+    legs = [mk["pts"] for mk in back2["marks"] if len(mk["pts"]) >= 2]
+    d_min = min(math.hypot(c_in[0] - q[0], c_in[1] - q[1])
+                for leg in legs for q in (leg[0], leg[-1]))
+    assert d_min < 0.15
+
+
+def test_curved_waistband_yoke():
     """弯腰头 + yoke：育克仍入 payload（上口=下腰头线），三片拓扑不变量
     （链闭合/边长守恒由通用用例覆盖）。"""
     p, _ = _payload(back_yoke=True, waistband_type="curved")

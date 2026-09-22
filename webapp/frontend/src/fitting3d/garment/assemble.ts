@@ -35,6 +35,9 @@ export interface Garment {
   parts: GarmentPart[]    // 平铺：payload 逐片展开（成对片 L+R 两 part）
   pos: Float32Array       // 3N 初始位置（静态展示即终态）
   total: number
+  yokeSeam?: { sCin: number }  // seam 模式（有省育克）缝族映射断点：
+                               // C_in 沿 yoke.bottom 从 P0 侧弧长，
+                               // seams.ts yokeWaist 闭式收敛映射消费
 }
 
 // 单片裁片（成对与否除外）——腰头整根/幅样无左右之分，单片原样
@@ -279,15 +282,32 @@ export function buildFullPair(
                                         // ——钉初始即钉在腰地标高度，2026-09-18）
   waistRing?: WaistRing,                // 穿台腰圈钉环（形随体长随衣）；缺省
                                         // 旁挂原口径（保回归零改动）
+  yoke?: { host: ClothMesh; sCin: number } | null,
+                                        // seam 模式育克参与片（2026-09-22
+                                        // 有省闭省净样款，panel.ts
+                                        // yokeSeamHosts 产出）：host = 翻转
+                                        // cycle 宿主（cb'/top'/side'/bottom'），
+                                        // sCin = C_in 沿 bottom 从 P0 侧弧长。
+                                        // 缺省 = union/plain 模式（零回归）
 ): Garment {
   const nF = front.xy.length / 2
   const nB = back.xy.length / 2
+  const nY = yoke ? yoke.host.xy.length / 2 : 0
   const parts: GarmentPart[] = [
     { key: 'front', side: 'L', mesh: front, offset: 0 },
     { key: 'front', side: 'R', mesh: front, offset: nF },
     { key: 'back', side: 'L', mesh: back, offset: 2 * nF },
     { key: 'back', side: 'R', mesh: back, offset: 2 * nF + nB },
   ]
+  // seam 模式：育克升格第 5/6 参与片（yL/yR 共享翻转宿主，九期腰头
+  // 同模式）——offset 续在四基础 part 之后；band 再续其后（Step4.6 改
+  // 按键引用，不再吃 parts[4] 硬编码）
+  if (yoke) {
+    parts.push(
+      { key: 'back_yoke', side: 'L', mesh: yoke.host, offset: 2 * nF + 2 * nB },
+      { key: 'back_yoke', side: 'R', mesh: yoke.host, offset: 2 * nF + 2 * nB + nY },
+    )
+  }
   // 腰环行走（四段腰口弧 → 有序顶点链）：腰头配对（九期）与穿台腰圈
   // 摆位（2026-09-19）共用；坏链时腰头降级无腰头（主展示不炸）、穿台
   // 腰圈硬依赖（waistRing 在而行走失败 = 腰口无法摆位，直接抛）
@@ -312,8 +332,10 @@ export function buildFullPair(
     throw new Error('穿台腰圈摆位缺 top_chain 边（腰环行走失败）')
   }
   // 穿台腰圈映射：fabric 弧（ringWalk 纸样弧）→ 环弧换算 kScale，与左右
-  // 侧缝腰角弧位（fL/bR 段末；角点本体 = 顶链末再走一个边界步——边界
-  // 重采样角点共享规则，角点不在 top run 采样内）
+  // 侧缝腰角弧位（fL/后段 段末；角点本体 = 顶链末再走一个边界步——边界
+  // 重采样角点共享规则，角点不在 top run 采样内）。角检测按 walk.seqParts
+  // 语义取段（seam 模式后段 = yR，part 下标随 parts 实际序变——硬编码
+  // 0/3 会错指）
   const ringMap = !waistRing || !walk ? null : (() => {
     const kScale = waistRing.total / walk.total
     let arcL = 0, arcR = 0
@@ -321,8 +343,8 @@ export function buildFullPair(
       const v = walk.verts[k]
       const nxt = walk.verts[k + 1]
       if (nxt === undefined || nxt.part !== v.part) {
-        if (v.part === 0) arcL = v.arc        // fL 段末 = 左侧缝腰角
-        else if (v.part === 3) arcR = v.arc   // bR 段末 = 右侧缝腰角
+        if (v.part === walk.seqParts[0]) arcL = v.arc   // fL 段末 = 左侧缝腰角
+        else if (v.part === walk.seqParts[2]) arcR = v.arc  // bR/yR 段末 = 右侧缝腰角
       }
     }
     return {
@@ -332,7 +354,7 @@ export function buildFullPair(
     }
   })()
   const nBand = bandPlan ? band!.xy.length / 2 : 0
-  const pos = new Float32Array(3 * (2 * nF + 2 * nB + nBand))
+  const pos = new Float32Array(3 * (2 * nF + 2 * nB + 2 * nY + nBand))
   // ---- 1) 片身基础映射（躯干全局 x→θ / 腿区腿局部圆环绕管）----
   for (const part of parts) {
     const mesh = part.mesh
@@ -375,8 +397,11 @@ export function buildFullPair(
         const [px, py, pz] = legPos()
         pos[i3] = px; pos[i3 + 1] = py; pos[i3 + 2] = pz
       } else {
+        // yoke part 扇区映射：placePoint 只认 front/back 二值扇区分支，
+        // 育克属后身扇区（'back_yoke' 裸传会被判否误走 front 扇区）
+        const sectorKey = (part.key === 'back_yoke' ? 'back' : part.key) as PieceKey
         const [px, py, pz] = placePoint(
-          part.key as PieceKey, part.side, x, y, xMin, xMax, field)
+          sectorKey, part.side, x, y, xMin, xMax, field)
         if (w > 0) {
           const [lx, , lz] = legPos()
           let mx = px + (lx - px) * w
@@ -432,7 +457,9 @@ export function buildFullPair(
         const i = order[k]
         const f = arc[k] / total
         // f=0 中缝腰角落中面（front 0° / back −180°）、f=1 侧缝腰角落 ±90°
-        const thL = part.key === 'back'
+        //（seam 模式 yoke part 同后身扇区；其 cb' run 正序 order[0] = O =
+        // 中缝腰角，与 union 宿主反向腰口段同构）
+        const thL = part.key === 'back' || part.key === 'back_yoke'
           ? -Math.PI + f * (Math.PI / 2)
           : -f * (Math.PI / 2)
         const th = part.side === 'R' ? -thL : thL
@@ -499,7 +526,11 @@ export function buildFullPair(
   // 界重采样共享角点规则；top run 末端只是角点前一步，写它没用）。前后
   // 两角统一摆到平均 y（旁挂 θ=±90°、r = 场(平均 y)+gap；穿台 = 钉环
   // 侧腰角弧位点）——「钉与缝同意」的腰圆闭合收尾
-  for (const [iF, iB] of [[0, 2], [1, 3]] as const) {
+  // seam 模式后身腰角在 yoke part（side' 合链首采样 = X）；back part
+  // 不再参与（其 side 链首已是 PN 非腰角）
+  const snapPairs: ReadonlyArray<readonly [number, number]> =
+    yoke ? [[0, 4], [1, 5]] : [[0, 2], [1, 3]]
+  for (const [iF, iB] of snapPairs) {
     const cornerOf = (p: GarmentPart): { v: number; y: number } => {
       const chain = mergeRuns(
         p.mesh.runs.filter((r) => r.name === 'side'), p.mesh.xy)!
@@ -627,8 +658,8 @@ export function buildFullPair(
   // （环 s=0/P）、中点 u=0.5 落后中（s=P/2，左右半弧镜像相等）----
   if (bandPlan) {
     const { walk, targets } = bandPlan
-    parts.push({ key: 'waistband', side: 'L', mesh: band!,
-      offset: 2 * nF + 2 * nB })
+    const bandOff = 2 * nF + 2 * nB + 2 * nY   // seam 模式 band 续在 yoke 后
+    parts.push({ key: 'waistband', side: 'L', mesh: band!, offset: bandOff })
     // 穿台带顶环（2026-09-19）：腰上方身体围收窄但前腹外凸（base.bin 实测
     // y=98→102.5：周长 69.05→67.11、前 z 14.72→15.55）——带顶边沿用腰站环
     // x,z 会前腹嵌体 0.3~0.6（钉 XZ 冻结救不回）。顶环 = 「环源行+带宽」行
@@ -651,7 +682,7 @@ export function buildFullPair(
     for (let i = 0; i < targets.length; i++) {
       const r = walk.verts[targets[i].ringK]
       const gi = 3 * (parts[r.part].offset + r.idx)
-      const bi = 3 * (parts[4].offset + i)
+      const bi = 3 * (bandOff + i)
       const f = topRing !== null ? targets[i].v / vMax : 0
       if (topRing !== null && f > 0) {
         // 配对底边环顶点的环弧（纸样弧 × kScale）等比例映到顶环
@@ -668,9 +699,73 @@ export function buildFullPair(
       }
     }
   }
+  // ---- 4.7) 育克 bottom' 初摆位（seam 模式，2026-09-22）：逐 bottom'
+  // 顶点从 PN' 端弧长 aY 换回 P0 侧弧 b = L_yoke − aY，经闭式逆映射
+  // （b < sCin → a = b；b ≥ → a = b + sMouth，sMouth = L_back − L_yoke
+  // = 省口段布量——与 seams.ts yokeWaist 正映射互逆，几何账见彼处）
+  // 得 back top 弧 a，沿其已摆位 3D 折线按弧插值（省口段收缩区近似、
+  // 动力学收口）；两端点显式焊对伙伴位保证精确共点：
+  // bottom'[0] = PN' 拷 back side 合链首采样（PN）位、
+  // cb'[0] = P0 拷 back.top[0] 位----
+  if (yoke) {
+    for (const side of ['L', 'R'] as const) {
+      const yp = parts.find((p) => p.key === 'back_yoke' && p.side === side)!
+      const bp = parts.find((p) => p.key === 'back' && p.side === side)!
+      const bTop = mergeRuns(
+        bp.mesh.runs.filter((r) => r.name === 'top'), bp.mesh.xy)
+      const yBottom = mergeRuns(
+        yp.mesh.runs.filter((r) => r.name === 'bottom'), yp.mesh.xy)
+      const yCb = yp.mesh.runs.find((r) => r.name === 'cb')
+      if (!bTop || !yBottom || !yCb) continue
+      const sMouth = bTop.length - yBottom.length
+      // back top 链弧 a 的 3D 位（顶点间线性插值，端点 clamp）
+      const atArc = (a: number): [number, number, number] => {
+        const t = Math.max(0, Math.min(bTop.length, a))
+        let k = 0
+        while (k < bTop.arc.length - 1 && bTop.arc[k + 1] < t) k++
+        const a0 = bTop.arc[k]
+        const a1 = bTop.arc[k + 1] ?? a0 + 1
+        const f = a1 > a0 ? (t - a0) / (a1 - a0) : 0
+        const j = Math.min(k + 1, bTop.indices.length - 1)
+        const i0 = 3 * (bp.offset + bTop.indices[k])
+        const i1 = 3 * (bp.offset + bTop.indices[j])
+        return [
+          pos[i0] + (pos[i1] - pos[i0]) * f,
+          pos[i0 + 1] + (pos[i1 + 1] - pos[i0 + 1]) * f,
+          pos[i0 + 2] + (pos[i1 + 2] - pos[i0 + 2]) * f,
+        ]
+      }
+      for (let k = 0; k < yBottom.indices.length; k++) {
+        const b = yBottom.length - yBottom.arc[k]   // 从 P0 侧弧长
+        const a = b < yoke.sCin ? b : b + sMouth     // 逆映射 back top 弧
+        const [px, py, pz] = atArc(a)
+        const i3 = 3 * (yp.offset + yBottom.indices[k])
+        pos[i3] = px; pos[i3 + 1] = py; pos[i3 + 2] = pz
+      }
+      // PN 焊对：bottom'[0] = PN' 拷 PN 位（角点级覆盖清零弧插值端点残差）
+      const bSide = mergeRuns(
+        bp.mesh.runs.filter((r) => r.name === 'side'), bp.mesh.xy)
+      if (bSide) {
+        const pn = 3 * (bp.offset + bSide.indices[0])
+        const pnY = 3 * (yp.offset + yBottom.indices[0])
+        pos[pnY] = pos[pn]
+        pos[pnY + 1] = pos[pn + 1]
+        pos[pnY + 2] = pos[pn + 2]
+      }
+      // P0 焊对：cb'[0] 拷 back.top[0] 位
+      const p0 = 3 * (bp.offset + bTop.indices[0])
+      const p0Y = 3 * (yp.offset + yCb.indices[0])
+      pos[p0Y] = pos[p0]
+      pos[p0Y + 1] = pos[p0 + 1]
+      pos[p0Y + 2] = pos[p0 + 2]
+    }
+  }
   // ---- 5) 统一抬升 lift（最后施加，含全部钉目标；上方场查询均用
   // 纸样 y，drape collide 按 yLift 回减保持一致。旁挂 = hangLift 抬离
   // 地面；穿台 = anchorLift 腰地标锚——落位下放由 settle 控制器接管）----
   for (let i = 1; i < pos.length; i += 3) pos[i] += lift
-  return { parts, pos, total: 2 * nF + 2 * nB + nBand }
+  return {
+    parts, pos, total: 2 * nF + 2 * nB + 2 * nY + nBand,
+    ...(yoke ? { yokeSeam: { sCin: yoke.sCin } } : {}),
+  }
 }

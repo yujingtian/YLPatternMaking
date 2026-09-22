@@ -1,10 +1,12 @@
 // 启动初始化选择层（2026-09-19，替代 localStorage 静默恢复的知情权缺失）：
-// 每次启动先选参数来源——继续上次草稿 / 款式模板 / 照片提取 / 空白默认，
+// 每次启动先选参数来源——继续上次草稿 / 款式模板 / 智能打版 / 空白默认，
 // 显式选择后才进工作台（App 侧 initialized 门控：选择层期间 header/main
 // 不挂载，3D 视图不发隐藏首挂请求）。中途经 header「新建」重开时
 // 工作台保持挂载，「继续上次」语义切为「返回当前参数」。
-// 遮罩 zIndex 900 < antd Modal 1000：从本层拉起的 ExtractWizard 天然盖上，
-// 取消向导即自然退回本层（initOpen 从未关过，零分支返回路径）。
+// 遮罩 zIndex 900 < antd Modal 1000：从本层拉起的 SmartDraftChat 天然盖上，
+// 关闭对话即自然退回本层（initOpen 从未关过，零分支返回路径）。
+// 智能打版（2026-09-21 二期，原「从照片提取」入口升级）：对话式多轮
+// 参数推断（照片/描述均可，§10.9.2）。
 // 空白默认（2026-09-20 用户口径）：直接载 examples/size_female_zhitong.toml
 // 直筒全特征基样（口袋/袋贴/育克/裤耳全开），不再 schema default 合成；
 // 码表不预填（size_run 段显式丢弃，第三参 null 清空）。
@@ -12,7 +14,7 @@
 import { useState } from 'react'
 import { Button } from 'antd'
 import {
-  CameraOutlined, HistoryOutlined, PlusOutlined,
+  HistoryOutlined, PlusOutlined, RobotOutlined,
 } from '@ant-design/icons'
 import type { SizeRunSpec, Values } from '../types'
 import { fetchTemplateDetail } from '../api'
@@ -25,7 +27,7 @@ type BlankState = 'idle' | 'loading' | 'error'
 
 export default function InitGate({
   hasSavedDraft, initialized,
-  onContinue, onLoadValues, onOpenExtract,
+  onContinue, onLoadValues, onOpenChat,
 }: {
   // 挂载期是否存在有效草稿（useDraft.loadDraft 收紧口径：空对象无效）
   hasSavedDraft: boolean
@@ -35,8 +37,8 @@ export default function InitGate({
   onContinue: () => void
   // 模板与空白默认共用：loadValues + 关层（App 侧包装）
   onLoadValues: (m: Values, o: Values, sizeRun?: SizeRunSpec | null) => void
-  // 拉起照片提取向导（本层保持打开，取消自然退回）
-  onOpenExtract: () => void
+  // 拉起智能打版对话弹层（本层保持打开，关闭自然退回）
+  onOpenChat: () => void
 }) {
   const canContinue = hasSavedDraft || initialized
   const [blank, setBlank] = useState<BlankState>('idle')
@@ -83,12 +85,12 @@ export default function InitGate({
             <TemplatePicker onLoad={onLoadValues} />
           </div>
           <div className="init-option">
-            <div className="init-option-title"><CameraOutlined /> 从照片提取</div>
+            <div className="init-option-title"><RobotOutlined /> 智能打版</div>
             <div className="init-option-desc">
-              照片/款式描述智能识别，确认后预填表单
+              一句话描述需求（可带照片），对话出整版预览，确认后预填表单
             </div>
-            <Button icon={<CameraOutlined />} onClick={onOpenExtract}>
-              打开提取向导
+            <Button icon={<RobotOutlined />} onClick={onOpenChat}>
+              开始对话
             </Button>
           </div>
           <div className="init-option">

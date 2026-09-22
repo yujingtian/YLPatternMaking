@@ -17,7 +17,8 @@
 // · 终态纸样空间穿透零（pos 减 yLift 后 penetrationStats——碰撞按构造
 //   保证，拦 NaN/飞点）
 // 夹具 = 基础款 / 袋贴款 / 育克款（引擎 build_fitting_payload 直出）+
-// 有省款（yoke 守卫拦下退化纯后片宿主，整裤照常成立）。
+// 有省款（seam 参与片模式：育克升格 sim 片缝合——yokeCb/yokeWaist/
+// yokeWeld 三族 + side 跨 part 拼链配对，2026-09-22）。
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { FittingResult } from '../../types'
@@ -48,13 +49,10 @@ const minY = (pos: Float32Array): number => {
   return m
 }
 
-// 整裤通用口径（三夹具 + 退化款共用；degradedSide = 有省退化款放宽
-// side 族阈值——back 宿主缺育克矮 ~4cm，腰口端锚定的 side 缝对固有开口；
-// field 可空 = 自由垂口径〔腰部圆形撑开 + 真实物理垂挂，2026-09-17〕，
-// 穿透查验只在有场时跑）
+// 整裤通用口径（四夹具共用；field 可空 = 自由垂口径〔腰部圆形撑开 +
+// 真实物理垂挂，2026-09-17〕，穿透查验只在有场时跑）
 function assertFullPants(
   sim: DrapeSim, placed: Garment,
-  opts?: { degradedSide?: boolean },
 ): void {
   expect(sim.capped).toBe(false)   // 真静止，非封顶兜底
   expect(sim.frozen).toBe(false)
@@ -78,7 +76,14 @@ function assertFullPants(
       need += (p.mesh.runs.find((r) => r.name === 'top')?.indices.length ?? 0) + 1
       need += bandBottomChain(p.mesh)?.indices.length ?? 0
     } else {
-      need += p.mesh.runs.find((r) => r.role === 'top_chain')!.indices.length + 1
+      const top = p.mesh.runs.find((r) => r.role === 'top_chain')
+      if (!top) {
+        // seam 模式纯 back part：top 边 role='seam' 无 top_chain——腰口钉
+        // 由 yoke top' 顶替（drape 钉收集同款跳过），在场守卫兜底
+        expect(placed.parts.some((q) => q.key === 'back_yoke')).toBe(true)
+      } else {
+        need += top.indices.length + 1
+      }
     }
   }
   expect(sim.pinIdx.length).toBeGreaterThanOrEqual(need)
@@ -89,13 +94,8 @@ function assertFullPants(
     expect(st[name].p95, `${name} p95`).toBeLessThan(0.3)
   }
   for (const name of ['sideL', 'sideR']) {
-    if (opts?.degradedSide) {
-      expect(st[name].avg, `${name} avg（退化开口）`).toBeLessThan(1.0)
-      expect(st[name].p95, `${name} p95（退化开口）`).toBeLessThan(5.0)
-    } else {
-      expect(st[name].avg, `${name} avg`).toBeLessThan(0.15)
-      expect(st[name].p95, `${name} p95`).toBeLessThan(0.5)
-    }
+    expect(st[name].avg, `${name} avg`).toBeLessThan(0.15)
+    expect(st[name].p95, `${name} p95`).toBeLessThan(0.5)
   }
   for (const name of ['inseamL', 'inseamR']) {
     expect(st[name].avg, `${name} avg`).toBeLessThan(0.3)
@@ -110,6 +110,15 @@ function assertFullPants(
   if (st.bandEnds) {
     expect(st.bandEnds.avg, 'bandEnds avg').toBeLessThan(0.3)
     expect(st.bandEnds.p95, 'bandEnds p95').toBeLessThan(1.0)
+  }
+  // seam 模式育克三族（2026-09-22）：yokeCb 镜像（后中缝腰口段）/
+  // yokeWaist 闭式映射（初摆位间隙 ≈0、动力学小松弛）/yokeWeld P0/PN
+  // 角点焊对（初摆位显式共点）——仅 seam 款有（st 无键跳过）
+  for (const name of ['yokeCb', 'yokeWaistL', 'yokeWaistR',
+    'yokeWeldL', 'yokeWeldR']) {
+    if (!st[name]) continue
+    expect(st[name].avg, `${name} avg`).toBeLessThan(0.15)
+    expect(st[name].p95, `${name} p95`).toBeLessThan(0.5)
   }
   // ---- 裆四尖汇集（口径③量化）：tipL/tipR 两对共四顶点两两最大距 ----
   const tips: number[] = []
@@ -166,7 +175,11 @@ const buildPant = (payload: FittingResult): {
   const placed = buildFullPair(frontPanel.host, backPanel.host, field, {
     front: payload.body.points.front_crotch_vertex[1],
     back: payload.body.points.back_crotch_vertex[1],
-  }, buildLegAxis(payload), buildWaistbandMesh(payload))
+  }, buildLegAxis(payload), buildWaistbandMesh(payload), undefined, undefined,
+    // seam 模式（有省闭省净样款）育克参与片；union/plain 款 null 零改动
+    backPanel.mode === 'seam' && backPanel.yokeHost && backPanel.seamInfo
+      ? { host: backPanel.yokeHost, sCin: backPanel.seamInfo.sCin }
+      : null)
   // 全域自由垂（（十一）用户口径「腰头一圈+下面真实物理悬挂」；（九）
   // 混合形态机制保留在 drape 备用——正确度量证实自由垂截面前后基本
   // 对称，山脊=缝尖折痕，由加宽的缝头摊平窗处理）
@@ -207,18 +220,16 @@ describe('drape：整裤缝合芯碰撞解算（八期）——育克款（后�
     })
 })
 
-describe('drape：整裤缝合芯碰撞解算（八期）——有省款退化（yoke 守卫拦下）', () => {
-  // 已知退化形态：back 宿主缺育克矮 ~4cm（top 边升格 top_chain 钉挂），
-  // side 缝对腰口端锚定的前后腰角高差拉不满——sideL/R avg ~0.42/p95
-  // ~3.7 属该款固有（3D 展示侧栏 panelHint 已警示退化原因）
-  it('退化纯后片宿主整裤成立（side 退化开口，其余口径照常）', { timeout: 300000 }, () => {
-    const payload = load('fixture_fitting_curved_pocket.json')
-    expect(buildBackPanel(payload).hasYoke).toBe(false)     // 前置：守卫拦下
-    const { sim, placed } = buildPant(payload)
-    const st = runToSettle(sim)
-    expect(st).toBe('settled')
-    assertFullPants(sim, placed, { degradedSide: true })
-  })
+describe('drape：整裤缝合芯碰撞解算（八期）——有省款（seam 参与片模式）', () => {
+  it('育克升格 sim 参与片整裤成立（yokeCb/yokeWaist/yokeWeld 全族达标）',
+    { timeout: 300000 }, () => {
+      const payload = load('fixture_fitting_curved_pocket.json')
+      expect(buildBackPanel(payload).mode).toBe('seam')  // 前置：闭省净样判据命中
+      const { sim, placed } = buildPant(payload)
+      const st = runToSettle(sim)
+      expect(st).toBe('settled')
+      assertFullPants(sim, placed)
+    })
 })
 
 describe('drape：脚口环带刚度 stamp（2026-09-19（二）脚口前缘脱扣修复）', () => {

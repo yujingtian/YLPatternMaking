@@ -31,6 +31,9 @@ export const fetchTemplateDetail = http.fetchTemplateDetail
 export const postExtract = http.postExtract
 export const fetchAgentHealth = http.fetchAgentHealth
 
+// 多轮对话一轮（智能打版二期 §10.9.2）：同上纯网络调用
+export const postChatTurn = http.postChatTurn
+
 // 本地引擎单命令超时（ms）：超时本次回落 HTTP 并计数，连续 3 次会话降级
 const TIMEOUTS: Record<EngineCmd, number> = {
   sheet: 30_000,

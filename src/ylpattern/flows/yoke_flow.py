@@ -8,7 +8,9 @@ PatternPiece。自含裁片，非 FlowRunner 编排（同 waistband_flow.build_w
 两种提取模式（机头裁片.md §2）：
   - 无省（§2.1）：直接复制四条边界围成的封闭区。
   - 有省（§2.2，仅 1 省）：省（等腰三角）把机头切成左右两片 -> 右片绕省尖旋转
-    闭合拼合 -> 拼合处上下折角 G1 倒圆（§2.2.3）。
+    闭合拼合 -> 拼合处上下折角 G1 倒圆（§2.2.3；退弧量由 PatternOptions
+    .back_yoke_join_fillet 控制：None=自适应 AUTO_SPAN_* 公式（默认）/ 正数=固定 /
+    0=不倒圆；倒圆带弧长补偿，车缝净长不变）。
   2 省或省未穿越机头边界 -> 回退无省提取（告警）。
 
 cutter 负面积约定：净多边形顶点序 P0->PN->X->O（底边->侧缝->腰口->后中）在
@@ -187,13 +189,31 @@ def _trim_start(g: LineSegment | CubicBezier, delta: float):
     return curves.bezier_subrange(g, g.t_at_length(delta), 1.0)
 
 
+# 自适应倒圆公式常量（§2.2.3 折角前后区间重新拟合；back_yoke_join_fillet=None 时生效）：
+# δ_auto = clamp(AUTO_SPAN_RATIO × min(拼合点两侧邻边弧长), AUTO_SPAN_MIN, AUTO_SPAN_MAX)
+# 量级标定：省宽 3.76 / 省​​长 10.5 → 拼合转角 ~20°、邻边 ~8cm → δ≈1.6，转角摊在 ~3.3cm
+# 弧段上肉眼圆顺（固定 0.4 只摊 0.8cm、渲染对比与不倒圆无差别，见决策日志 2026-09-21）。
+AUTO_SPAN_RATIO = 0.2
+AUTO_SPAN_MIN = 1.0
+AUTO_SPAN_MAX = 3.0
+
+
+def _auto_fillet_delta(geom_in: LineSegment | CubicBezier,
+                       geom_out: LineSegment | CubicBezier) -> float:
+    """自适应退弧量：拼合点两侧邻边弧长按 AUTO_SPAN_* 公式取值（§2.2.3）。"""
+    span = AUTO_SPAN_RATIO * min(_geom_length(geom_in), _geom_length(geom_out))
+    return max(AUTO_SPAN_MIN, min(AUTO_SPAN_MAX, span))
+
+
 def _g1_fillet(geom_in: LineSegment | CubicBezier,
                geom_out: LineSegment | CubicBezier, delta: float
                ) -> tuple[LineSegment | CubicBezier, CubicBezier, LineSegment | CubicBezier]:
     """两同族边在连接点（geom_in 末端 == geom_out 首端）处 G1 倒圆（§2.2.3）。
 
     入/出边各沿弧长退 d=delta（钳制不超半长），插三次贝塞尔，端切向与两侧边一致。
-    返回 (收缩后的入边, 倒圆贝塞尔, 收缩后的出边)。d=0 时倒圆退化为连接两点。
+    长度补偿（§2.2.3 第三条）：手柄长 h 二分解出，使倒圆弧长恰等于被 trim 掉的 2d，
+    拼合前后车缝净长不变。返回 (收缩后的入边, 倒圆贝塞尔, 收缩后的出边)。
+    d=0 时倒圆退化为连接两点（h 取极小量避免退化，不做补偿）。
     """
     L_in = _geom_length(geom_in)
     L_out = _geom_length(geom_out)
@@ -204,8 +224,24 @@ def _g1_fillet(geom_in: LineSegment | CubicBezier,
     Q = _geom_start(tout)                           # 出边收缩后首端
     t_in = _tangent_at_arc(geom_in, L_in - d)       # 入边末端切向
     t_out = _tangent_at_arc(geom_out, d)            # 出边首端切向
-    h = d if d > 0 else 0.05                        # 手柄长（d=0 给极小量避免退化）
-    fillet = CubicBezier(P, P + t_in.scale(h), Q + t_out.scale(-h), Q)
+
+    def _fillet(h: float) -> CubicBezier:
+        return CubicBezier(P, P + t_in.scale(h), Q + t_out.scale(-h), Q)
+
+    if d > 0:
+        # h 单调增弧长：h→0 退化为弦（< 2d），h=d 时约等于 2d（差随转角增大）。
+        # 区间 [0, 4d] 二分至弧长 = 2d（容差 1e-4 cm，~50 次收敛）。
+        target = 2.0 * d
+        lo, hi = 0.0, 4.0 * d
+        for _ in range(50):
+            mid = (lo + hi) / 2.0
+            if _fillet(mid).length() < target:
+                lo = mid
+            else:
+                hi = mid
+        fillet = _fillet((lo + hi) / 2.0)
+    else:
+        fillet = _fillet(0.05)
     return tin, fillet, tout
 
 
@@ -272,10 +308,12 @@ def _assemble_no_dart(bottom_chain: list, side_geom: CubicBezier,
 
 
 def _assemble_dart(dart, bottom_chain: list, side_geom: CubicBezier,
-                   top_arc: CubicBezier, cb_geom: LineSegment, delta: float
+                   top_arc: CubicBezier, cb_geom: LineSegment, delta: float | None
                    ) -> tuple[list[tuple[str, object]], list[Point]] | None:
     """有省（1 省）净样边：切开 -> 右片绕省尖旋转闭合 -> 拼合处 G1 倒圆（§2.2）。
 
+    delta：float=固定退弧量；None=逐拼合点自适应（AUTO_SPAN_* 公式，§2.2.3）；
+    0=不倒圆。倒圆带弧长补偿（fillet 弧长 = 2d，车缝净长不变）。
     返回 (edges, notches) 或 None（省腿未穿越上下边界 -> 调用方回退无省）。
     """
     _i, apex, leg_inner, leg_outer = dart
@@ -320,9 +358,14 @@ def _assemble_dart(dart, bottom_chain: list, side_geom: CubicBezier,
     edges: list[tuple[str, object]] = []
 
     def _join(name: str, left_geoms: list, right_geoms: list):
-        """同族边在 join 点 G1 倒圆拼接（delta>0）；delta=0 直接顺接。"""
-        if delta > 0:
-            tin, fillet, tout = _g1_fillet(left_geoms[-1], right_geoms[0], delta)
+        """同族边在 join 点 G1 倒圆拼接（delta>0）；delta=0 直接顺接。
+
+        delta=None 时逐 join 点自适应（两侧邻边弧长按 AUTO_SPAN_* 公式，§2.2.3）。
+        """
+        d_eff = (delta if delta is not None
+                 else _auto_fillet_delta(left_geoms[-1], right_geoms[0]))
+        if d_eff > 0:
+            tin, fillet, tout = _g1_fillet(left_geoms[-1], right_geoms[0], d_eff)
             for g in left_geoms[:-1]:
                 edges.append((name, g))
             edges.append((name, tin))

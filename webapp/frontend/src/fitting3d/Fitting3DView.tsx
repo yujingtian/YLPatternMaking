@@ -389,8 +389,10 @@ export default function Fitting3DView({
 
   // ---- 裁片上屏（八期整裤缝合：单 sim 四 part 自由垂 + 其余平铺）----
   // 前身组 = 前片+袋贴沿 mouth 缝合的并集宿主（panel.ts，守卫失败退化
-  // 纯前片 + 袋贴留平铺）；后身组 = 后片+育克沿机头下口线缝合的并集宿主
-  // （有省款守卫拦下退化纯后片）。八期把两筒合并为**一条完整整裤**单
+  // 纯前片 + 袋贴留平铺）；后身组双轨（2026-09-22）：无省 = 后片+育克
+  // 并集宿主；有省（闭省净样款）= 育克升格 sim 参与片缝合（seam 模式，
+  // yokeWaist/yokeCb/yokeWeld 缝族 + 直渲视图，九期腰头同模式）。八期
+  // 把两筒合并为**一条完整整裤**单
   // sim：buildFullPair 四 part 摆位（腰圆 360° 整圈弧长重参数化 + 侧缝
   // 语义竖直 + 腿局部圆环绕管 + 内缝落腿内侧线）→ seams.buildSeamSet
   // 四族缝合对（前中/后中镜像 + 侧缝/内缝弧长 + 四裆尖焊拢汇集裆交叉
@@ -412,6 +414,7 @@ export default function Fitting3DView({
     let hfv: RiderView | null = null
     let bv: RiderView | null = null
     let byv: RiderView | null = null
+    const yokeViews: { v: SimView; off: number }[] = []   // seam 模式育克直渲
     let wbv: SimView | null = null
     let raf = 0
     try {
@@ -493,7 +496,10 @@ export default function Fitting3DView({
         const waistRing = buildWaistRing(fieldM, waistSt.y, waistLen)
         pair = buildFullPair(panel.host, backPanel.host, fieldM, {
           front: legAxisM.forkY, back: legAxisM.forkY,
-        }, legAxisM, bandMesh, anchorLift, waistRing)
+        }, legAxisM, bandMesh, anchorLift, waistRing,
+          backPanel.mode === 'seam' && backPanel.yokeHost && backPanel.seamInfo
+            ? { host: backPanel.yokeHost, sCin: backPanel.seamInfo.sCin }
+            : null)
         // 落位 = settle 控制器：拉到腰地标 → 前后裆探针驱动钉高独立
         // 缓释（俯仰涌现）→ 零穿透静止出读数（真人「裆不舒服一点点
         // 往下」的仿真翻译，口径见 settle.ts 头注）
@@ -505,6 +511,10 @@ export default function Fitting3DView({
       const hostN = panel.host.xy.length / 2
       const backHostN = backPanel.host.xy.length / 2
       const hasBand = pair.parts.some((p) => p.key === 'waistband')
+      // band 偏移按键查询（seam 模式 parts 序 fL/fR/bL/bR/yL/yR/band——
+      // band 续在育克后，不再恒为 2*hostN+2*backHostN）
+      const bandOffset = pair.parts.find((p) => p.key === 'waistband')?.offset
+        ?? 2 * hostN + 2 * backHostN
       // 贴层视图：前片（径向 0 = 解算位所见）/ 袋贴（内偏衬里侧）；
       // 前宿主 offsets {L:0, R:nF}，后宿主 {L:2nF, R:2nF+nB}
       const frontMesh = buildClothMesh(
@@ -531,7 +541,16 @@ export default function Fitting3DView({
           { side: 'L', hostOffset: 2 * hostN, radialOffset: 0 },
           { side: 'R', hostOffset: 2 * hostN + backHostN, radialOffset: 0 },
         ])
-      if (backPanel.hasYoke) {
+      if (backPanel.mode === 'seam' && backPanel.yokeHost) {
+        // seam 模式（有省闭省净样款）：育克升格 sim 参与片——直渲视图
+        // ×2（L/R 各持 offset，非贴层；绑定并集宿主的 rider 口径已废，
+        // union 模式才走贴层）
+        for (const yp of pair.parts.filter((p) => p.key === 'back_yoke')) {
+          const v = buildSimView(ctx.THREE, 'back_yoke', backPanel.yokeHost)
+          yokeViews.push({ v, off: yp.offset })
+          scene.add(v.group)
+        }
+      } else if (backPanel.hasYoke) {
         const yokeMesh = buildClothMesh(
           data.pieces.find((p) => p.key === 'back_yoke')!)
         byv = buildRiderView(ctx.THREE, 'back_yoke',
@@ -551,6 +570,7 @@ export default function Fitting3DView({
       hfv?.group.position.set(0, 0, 0)
       bv.group.position.set(0, 0, 0)
       byv?.group.position.set(0, 0, 0)
+      for (const { v } of yokeViews) v.group.position.set(0, 0, 0)
       wbv?.group.position.set(0, 0, 0)
       scene.add(hv.group)
       if (hfv) scene.add(hfv.group)
@@ -582,26 +602,28 @@ export default function Fitting3DView({
       hfv?.update(pair.pos)
       bv.update(pair.pos)
       byv?.update(pair.pos)
+      for (const { v, off } of yokeViews) v.update(pair.pos, off)
       if (wbv && hasBand) {
-        wbv.update(pair.pos, 2 * hostN + 2 * backHostN)
+        wbv.update(pair.pos, bandOffset)
       }
       // 热力图：paint/clear 挂 refs 供开关效应即时重着色；
       // 解算中每 HEAT_PRIOR.every 帧刷一层，双停终态刷末帧定格
-      const bandOff = 2 * hostN + 2 * backHostN
       const paintHeat = (mode: HeatMode, s: DrapeSim = sim) => {
         const v = computeHeat(s, mode)
         hv!.heat(v, mode)
         hfv?.heat(v, mode)
         bv!.heat(v, mode)
         byv?.heat(v, mode)
-        wbv?.heat(v, mode, bandOff)
+        for (const { v: yv, off } of yokeViews) yv.heat(v, mode, off)
+        wbv?.heat(v, mode, bandOffset)
       }
       const clearHeat = () => {
         hv!.heat(null, 'gap')
         hfv?.heat(null, 'gap')
         bv!.heat(null, 'gap')
         byv?.heat(null, 'gap')
-        wbv?.heat(null, 'gap', bandOff)
+        for (const { v: yv, off } of yokeViews) yv.heat(null, 'gap', off)
+        wbv?.heat(null, 'gap', bandOffset)
       }
       dressViewsRef.current = { sim, paint: (m) => paintHeat(m), clear: clearHeat }
       if (heatOnRef.current) paintHeat('gap')
@@ -613,8 +635,9 @@ export default function Fitting3DView({
         hfv?.update(sim.pos)
         bv!.update(sim.pos)
         byv?.update(sim.pos)
+        for (const { v, off } of yokeViews) v.update(sim.pos, off)
         if (wbv && hasBand) {
-          wbv.update(sim.pos, 2 * hostN + 2 * backHostN)
+          wbv.update(sim.pos, bandOffset)
         }
         if (heatOnRef.current && frames % HEAT_PRIOR.every === 0) {
           paintHeat('gap')
@@ -648,6 +671,7 @@ export default function Fitting3DView({
       if (hfv) { scene.remove(hfv.group); hfv.dispose() }
       if (bv) { scene.remove(bv.group); bv.dispose() }
       if (byv) { scene.remove(byv.group); byv.dispose() }
+      for (const { v } of yokeViews) { scene.remove(v.group); v.dispose() }
       if (wbv) { scene.remove(wbv.group); wbv.dispose() }
       garmentViewRef.current = null
     }

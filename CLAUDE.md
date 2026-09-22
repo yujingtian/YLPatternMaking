@@ -33,7 +33,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   「生成」按钮 2026-09-12 随 3D payload 消费移除、2026-09-20 回归左栏动作条
 #   （重算当前右栏视图：2D ensureSheet / 3D fitting，3D 侧栏「重新生成」收口），2D 进高级编辑/导出中心时
 #   ensureSheet/ensurePieces 自动补算；启动初始化选择层（2026-09-19）：每次启动
-#   先选参数来源（继续上次草稿/模板/照片提取/空白默认，详见 §10.7）；
+#   先选参数来源（继续上次草稿/模板/智能打版/空白默认，详见 §10.7）；
 #   需 pip install -e ".[web]"）：
 #   uvicorn webapp.backend.app:app 后访问 http://127.0.0.1:8000
 #   二期拖拽调版：整版把手拖动 -> 反解参数回写（flows/adjust.solve_param 数值求根，
@@ -69,12 +69,16 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   役；裤子展示 2026-09-17 八期整裤缝合（单 sim 四 part + 芯碰撞）：前片+袋贴并集宿主
 #   （garment/panel.ts 边手术：front 边链 mouth 段原位替换为 facing 月牙边、袋贴腰口子段命名 waist 同名
 #   相邻聚合；守卫失败退化纯前片+袋贴留平铺）+ 后片+育克后身并集宿主（buildBackPanel：back top 段丢弃
-#   内部化、yoke 余边反向闭环——cb 反向段与 back.cb 同名相邻聚合成整条后浪贯通育克；有省款守卫拦下退化、
-#   退化时 top 边角色升回 top_chain 供钉挂）合并为一条完整整裤：assemble.buildFullPair 四 part 摆位（腰圆
+#   内部化、yoke 余边反向闭环——cb 反向段与 back.cb 同名相邻聚合成整条后浪贯通育克；有省款闭省净样判据
+#   命中走 seam 参与片模式：育克升格 sim 参与片〔yokeCb/yokeWaist/yokeWeld 三族 + side 跨 part 拼链、
+#   闭式收敛映射 sMouth=L_back−L_yoke 省口布量〕、host = 纯后片）合并为一条完整整裤：assemble.buildFullPair
+#   四/seam 六 part 摆位（腰圆
 #   360° 整圈弧长重参数化四段拼闭 + 侧缝语义竖直 + 腿局部圆环绕管〔内缝边落腿内侧线前后宿主相邻共线、
 #   侧缝边落腿外侧线；fork 向上 forkBlend(8) 过渡〕+ 侧缝腰角前后共点 snap + hangLift(10) 抬升）→
 #   seams.buildSeamSet 四族缝合对（前中 rise/后中 cb 镜像族 + 侧缝/内缝跨宿主弧长族〔吃势均匀吸收〕+ 四裆尖
-#   tip 补焊零 rest 闭环自动坍缩裆交叉点；back 宿主 side 双 run 先 mesh.mergeRuns 合链）→ drape verlet
+#   tip 补焊零 rest 闭环自动坍缩裆交叉点；back 宿主 side 双 run 先 mesh.mergeRuns 合链；
+#   有省款增育克三族〔yokeCb 镜像/yokeWaist 闭式收敛映射/yokeWeld P0/PN 角点焊对，
+#   口径 §10.11「有省育克 seam 参与片」条〕）→ drape verlet
 #   解算**全域自由垂**（（十一）现行「腰头一圈+下面真实物理悬挂」；（九）混合形态〔腰臀芯碰撞 collideAboveY〕
 #   留 drape 备用——其 D 形不对称诊断系度量 bug，山脊=缝尖折痕，由宽摊平窗 span 5 处理；（五）原口径：
 #   drape 传 field=null——腰口整圈全向钉 = 圆形撑环 + sideHold(10) 腰头代形刚度带〔本期不含腰头〕，
@@ -106,7 +110,8 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   drape.stampStiffBands 局部刚度带三窗之一）；
 #   其余裁片照旧平铺验证通道（assemble.buildFlatLayout
 #   exclude 前后身组——排除锚且守卫通过时整组离开；STITCH_GROUPS 平面缝合拼合组照旧：机头(back_yoke)+后片、
-#   袋贴+前片，贴合守卫 <0.5cm，有省款 yoke 省闭口错位退独立行）+ render.ts PIECE_COLORS 逐片分色（前蓝/后绿/
+#   袋贴+前片，贴合守卫 <0.5cm，有省款 yoke 平铺守卫拦下退独立行、3D 侧 seam 模式升格 sim 参与片随组
+#   离开平铺）+ render.ts PIECE_COLORS 逐片分色（前蓝/后绿/
 #   腰头橙/育克紫/袋贴青）+ 侧栏图例；band/ease/heatmap/align/useGarment 等旧整裤解算链 2026-09-15 删除
 #   （seams.ts 八期重写为纯拓扑配对函数，非复活）；
 #   引擎 payload schema v1 **零改动**（照旧含第 4 片 back_yoke、第 5 片
@@ -127,8 +132,13 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   POST /api/extract（multipart：describe/photos/thinking/...）-> to_web_payload 契约 + 信封；
 #   缺必填尺寸/照片非法 422、VLM 未配置或失败 503；GET /healthz 查 vlm_configured（只回 bool）；
 #   vlm.toml 路径解析 YLP_VLM_CONFIG > 仓库根 > YLP_VLM_* 环境变量；CLI 与 eval 仍直调 extract 门面
-#   前端接线（一期 2026-09；2026-09-19 入口移启动选择层，header 按钮删）：
-#   向导弹层 -> 确认屏 -> 预填表单；
+#   会话层（智能体多轮一期 2026-09-21，零打扰：多轮是能力、不反问是策略）：
+#   python -m agent chat（一行一轮，:photo 补照 :quit 退出，--draft --staged 出整版
+#   + 三里程碑中间版）+ POST /api/chat/turn（会话 JSON 随请求往返、后端无状态；
+#   缺必填转求援卡不 422）；口径权威 .doc/python工程设计.md §10.9.2
+#   前端接线（一期 2026-09 向导已删；二期 2026-09-21「智能打版」对话壳取代：
+#   多轮 /api/chat/turn + 求援卡 + 交卷卡 = 整版 SVG 预览（SheetPreview 直喂
+#   postSheet 本地引擎直出，参数明细不渲染），入口 = 启动选择层，口径 §10.9.3）；
 #   连通统一 /agent 前缀（dev Vite proxy / prod backend httpx 转发）；
 #   契约/压缩口径/踩坑见 .doc/python工程设计.md §10.9.1
 # 多码推码（尺寸单含 [size_run] 段且 enabled = true 时自动进入：逐码重打版 ->

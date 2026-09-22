@@ -5,6 +5,9 @@
   - 无省（§2.1）：四条边界（底边/侧缝/腰口/后中）围成封闭区，cutter 序 P0->PN->X->O。
   - 有省（§2.2，1 省 2cm）：右片绕省尖旋转闭合 -> 拼合处上下折角 G1 倒圆；
     同族边（bottom/top）内部所有衔接点切向共线（G1）。
+  - 倒圆量 back_yoke_join_fillet（§2.2.3）：None=自适应（默认，逐拼合点
+    clamp(0.2×min 邻边弧长, 1.0, 3.0)）/ 正数=固定 δ / 0=不倒圆；倒圆带弧长
+    补偿（fillet 弧长 = 2δ，拼合前后车缝净长不变）。
   - 镜像折角（§4.2.1）：内缝顶点（bottom×side）与后中底角（bottom×cb）缝份用
     _mirror_point 而非 miter，相邻缝份翻折后与裁片重合；两角独立开关、直角退化即 miter。
     cutter 序后中角以 (cb,bottom) 出现，逆序键命中时交换 _mirror_point 形参。
@@ -190,6 +193,60 @@ def test_dart_g1_smooth_within_groups(ctx_dart):
             ts = _start_tan(geoms[i + 1])
             cross = te.dx * ts.dy - te.dy * ts.dx
             assert abs(cross) < 1e-6, f"{name} 衔接 {i} 切向不共线 cross={cross}"
+
+
+# ---------- 倒圆量语义：None 自适应 / 正数固定 / 0 关闭（§2.2.3）----------
+
+def _build_dart_piece(fillet):
+    """有省（1 省 2cm）固定测量下按 back_yoke_join_fillet 取值建机头裁片。"""
+    o = PatternOptions(delta=1.0, back_yoke=True, back_dart=True,
+                       back_dart_count=1, back_dart_width=2.0,
+                       back_dart_length=10.0, back_yoke_join_fillet=fillet)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    return build_yoke(ctx)[0]
+
+
+def _glen(g):
+    return g.length if isinstance(g, LineSegment) else g.length()
+
+
+def _family(piece, name):
+    return [e.geom for e in piece.net_edges if e.name == name]
+
+
+def test_dart_auto_fillet_default():
+    """缺省（None）自适应倒圆 + 弧长补偿（§2.2.3 折角前后区间拟合 + 长度补偿）。
+
+    金标（M 同 fixture，δ=0 基线族边长手工演算）：
+      bottom 基线 [9.3314, 10.1703] -> δ=clamp(0.2×9.3314, 1.0, 3.0)=1.8663，
+        fillet 弧长 = 2δ = 3.7325；top 基线 [8.7918, 8.7913] -> δ=1.7583、
+        fillet = 3.5165；两族总弧长与 δ=0 基线相等（车缝净长不变，|Δ|≤1e-3）。
+    """
+    p0, pa = _build_dart_piece(0.0), _build_dart_piece(None)
+    for name, d_exp in (("bottom", 1.8663), ("top", 1.7583)):
+        fam0, fama = _family(p0, name), _family(pa, name)
+        assert len(fama) == 3                     # tin + fillet + tout
+        assert _glen(fama[1]) == pytest.approx(2.0 * d_exp, abs=1e-3)
+        assert sum(map(_glen, fama)) == pytest.approx(sum(map(_glen, fam0)),
+                                                     abs=1e-3)
+
+
+def test_dart_fillet_explicit_fixed_value():
+    """显式正数固定 δ：fillet 弧长经补偿恒 = 2δ（0.4 -> 0.800，旧行为 0.795）。"""
+    p4 = _build_dart_piece(0.4)
+    for name in ("bottom", "top"):
+        fam = _family(p4, name)
+        assert len(fam) == 3
+        assert _glen(fam[1]) == pytest.approx(0.8, abs=1e-3)
+
+
+def test_dart_fillet_explicit_zero_off():
+    """显式 0 不倒圆：同族边直接顺接（bottom/top 各 2 条、无 fillet 三件组）。"""
+    p0 = _build_dart_piece(0.0)
+    for name in ("bottom", "top"):
+        fam = _family(p0, name)
+        assert len(fam) == 2
+        _assert_point_approx(_end(fam[0]), _start(fam[1]))
 
 
 def test_dart_join_notches(ctx_dart):

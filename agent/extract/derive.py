@@ -131,6 +131,9 @@ def merge(observation: Observation, measurements: dict[str, float],
             value = observation.entries[key].value
             src, conf, ev = PHOTO, observation.entries[key].confidence, \
                 observation.entries[key].evidence
+        hint = hints.get(key)   # 词典优先于照片（A 表；与轴/开关同款，
+        if hint and hint != value:   # 2026-09-21 会话改口轮依赖此路生效）
+            value, src, conf, ev = hint, DESC, 0.9, f"描述词「{hint}」"
         enums[key] = KeyMeta(key, value, src, conf, ev)
     return MergedView(axes, switches, enums)
 

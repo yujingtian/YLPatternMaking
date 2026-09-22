@@ -153,7 +153,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         back_yoke_side_dist: float = 3.0,
         back_yoke_mid_anchors: list | tuple = (),
         back_yoke_edges: list | tuple = (),
-        back_yoke_join_fillet: float = 0.4,
+        back_yoke_join_fillet: float | None = None,
         back_yoke_seam_allowances: dict | object | None = None,
         back_yoke_side_corner_mirror: bool = True,
         back_yoke_cb_corner_mirror: bool = True,
@@ -364,7 +364,8 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          空 = 全段直线（自动，打版流程.md：无控制点即直线）
         back_yoke_join_fillet
                          有省机头左右片拼合处折角 G1 倒圆量（cm，机头裁片.md §2.2.3；
-                         0 = 不倒圆直接顺接；默认 0.4）
+                         None = 逐拼合点自适应（默认，公式常量 yoke_flow.AUTO_SPAN_*）；
+                         正数 = 固定退弧量；0 = 不倒圆直接顺接）
         back_yoke_seam_allowances
                          机头四边独立缝份 dict {top,bottom,cb,side}（cm，机头裁片.md §4.1；
                          底边埋夹 1.2、腰口/后中/侧缝 1.0；None = 用默认）

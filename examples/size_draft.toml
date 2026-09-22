@@ -1,0 +1,74 @@
+# YLPattern 尺寸单（web 端导出）
+# 可直接用于：python -m ylpattern.cli draft --size 本文件
+
+[measurements]
+waist = 69
+hip = 94
+knee = 46
+hem = 55
+front_rise = 24.5
+back_rise = 36
+outseam = 100
+thigh = 54.5
+
+[options]
+front_pocket = true
+front_pocket_facing = true
+watch_pocket = true
+back_patch = true
+back_yoke = true
+belt_loop = true
+fly = true
+fly_separate = true
+front_patch = false
+back_dart = true
+waistband_type = "straight"
+fit = "loose"
+back_patch_shape = "baker_shield"
+front_pocket_mouth_mode = "bulge"
+front_pocket_facing_mode = "offset"
+watch_pocket_mode = "facing_intersect"
+front_intake_ratio = 0.088
+back_intake = 4
+delta = 1.35
+waist_balance = 0
+rise_adjust = -2.75
+front_crotch_adjust = 0
+crotch_drop_adjust = 0
+knee_adjust = 1
+hem_adjust = 1
+front_pocket_dart_width = 1
+back_dart_count = 1
+back_dart_width = 3.76
+front_pocket_p1_dist = 10
+front_pocket_p2_drop = 5.5
+front_pocket_paring_n = 2
+front_pocket_mouth_bulge = 1.25
+front_pocket_mouth_bulge_at = 0.6
+front_pocket_facing_width = 3.5
+front_pocket_facing_side_w = 3.5
+watch_pocket_width = 5.5
+watch_pocket_taper = 0.2
+watch_pocket_offset_from_top = 1
+watch_pocket_offset_from_side = 2
+watch_pocket_rotate_deg = 8
+back_patch_inset_x = 4.5
+back_patch_drop_y = 3.5
+back_patch_rotate_deg = 3.5
+back_patch_width = 13.5
+back_patch_height = 14
+back_patch_bottom_width = 11.5
+back_patch_tip_depth = 2.25
+back_yoke_cb_dist = 4.5
+back_yoke_side_dist = 3
+back_dart_length = 10.5
+fly_width = 4
+fly_length_ratio = 0.35
+fly_length_base = 2
+fly_corner_inset = 0.5
+belt_loop_width = 1.2
+belt_loop_unit_length = 6
+belt_loop_count = 5
+belt_loop_waste = 3
+waistband_width = 4
+thigh_limit = true

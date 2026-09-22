@@ -132,7 +132,9 @@ def _piece_entry(piece, role_override: dict[str, str] | None = None,
         "bbox": [min(xs), min(ys), max(xs), max(ys)],
         "edges": edges,
         "marks": marks_out,
-        "notches": _pts_out(list(piece.notches), origin),
+        # notches 与 edges/grain 同帧口径（漏传 frame 时 rot180 育克被按
+        # reflect_y 逆变换、x 分量镜像错位 ~14cm——前端省位定位两源互证用）
+        "notches": _pts_out(list(piece.notches), origin, piece.frame),
         "grain": grain,
     }
 

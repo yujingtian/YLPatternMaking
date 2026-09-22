@@ -2,8 +2,9 @@ import type {
   AdjustResult, DraftPayload, FittingResult, IssueDetail, NestResult,
   PiecesResult, Schema, SeedPayload, SeedResult, SheetResult, Values,
 } from './types'
-import type { ExtractResponse } from './types'
+import type { ChatTurnResponse, ExtractResponse } from './types'
 import { AGENT_BASE } from './agentConfig'
+import { normalizeChatError } from './chatPayload'
 import { normalizeExtractError } from './extractPayload'
 
 async function handle<T>(res: Response): Promise<T> {
@@ -188,4 +189,18 @@ export async function fetchAgentHealth(): Promise<{
   } catch {
     return null
   }
+}
+
+// 多轮对话一轮（智能打版二期 §10.9.2）：错误归一走 normalizeChatError
+// （422 照片非法/400 会话非法/503 VLM；缺必填不 422 转 card，无 issues
+// 形态——独立于 postExtract）。响应 session 是**对象**，调用方负责每轮
+// stringify 回传（chatPayload.sessionToJson 单点收口）
+export async function postChatTurn(form: FormData): Promise<ChatTurnResponse> {
+  const res = await fetch(`${AGENT_BASE}/api/chat/turn`,
+    { method: 'POST', body: form })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw normalizeChatError(res.status, body?.detail)
+  }
+  return res.json() as Promise<ChatTurnResponse>
 }

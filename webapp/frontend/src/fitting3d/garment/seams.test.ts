@@ -16,18 +16,30 @@ import { buildClothMesh, mergeRuns, type ClothMesh } from './mesh'
 
 const HERE = import.meta.dirname   // src/fitting3d/garment
 
-// 四 part 合并 Garment（最小构造：seams 只读 parts/mesh，pos 置零即可）
-const mkFull = (front: ClothMesh, back: ClothMesh): Garment => {
+// 四 part 合并 Garment（最小构造：seams 只读 parts/mesh，pos 置零即可）；
+// yoke 在 = seam 模式六 part（back_yoke L/R 续在四基础 part 后）+ yokeSeam
+const mkFull = (front: ClothMesh, back: ClothMesh, yoke?: {
+  host: ClothMesh; sCin: number
+}): Garment => {
   const nF = front.xy.length / 2, nB = back.xy.length / 2
+  const nY = yoke ? yoke.host.xy.length / 2 : 0
+  const parts: Garment['parts'] = [
+    { key: 'front', side: 'L', mesh: front, offset: 0 },
+    { key: 'front', side: 'R', mesh: front, offset: nF },
+    { key: 'back', side: 'L', mesh: back, offset: 2 * nF },
+    { key: 'back', side: 'R', mesh: back, offset: 2 * nF + nB },
+  ]
+  if (yoke) {
+    parts.push(
+      { key: 'back_yoke', side: 'L', mesh: yoke.host, offset: 2 * nF + 2 * nB },
+      { key: 'back_yoke', side: 'R', mesh: yoke.host, offset: 2 * nF + 2 * nB + nY },
+    )
+  }
   return {
-    parts: [
-      { key: 'front', side: 'L', mesh: front, offset: 0 },
-      { key: 'front', side: 'R', mesh: front, offset: nF },
-      { key: 'back', side: 'L', mesh: back, offset: 2 * nF },
-      { key: 'back', side: 'R', mesh: back, offset: 2 * nF + nB },
-    ],
-    pos: new Float32Array(3 * (2 * nF + 2 * nB)),
-    total: 2 * nF + 2 * nB,
+    parts,
+    pos: new Float32Array(3 * (2 * nF + 2 * nB + 2 * nY)),
+    total: 2 * nF + 2 * nB + 2 * nY,
+    ...(yoke ? { yokeSeam: { sCin: yoke.sCin } } : {}),
   }
 }
 
@@ -165,7 +177,7 @@ describe('seams：buildSeamSet 四族 + tip 补焊（yoke 夹具全款）', () =
   })
 })
 
-describe('seams：fly 连裁与有省退化分支', () => {
+describe('seams：fly 连裁与有省 seam 分支', () => {
   it('fly（删 rise 边合成款）：镜像族跳过、tip 走 inseam 环下一点兜底', () => {
     const plain: FittingResult = JSON.parse(
       readFileSync(`${HERE}/fixture_fitting.json`, 'utf8'))
@@ -190,15 +202,29 @@ describe('seams：fly 连裁与有省退化分支', () => {
     expect(names).toContain('cb')
   })
 
-  it('有省款退化纯后片宿主（side 单 run、cb 链短）：全族照跑', () => {
+  it('有省款 seam 模式（育克升格 sim 参与片）：yokeCb/yokeWaist/yokeWeld 三族齐备', () => {
     const curved: FittingResult = JSON.parse(
       readFileSync(`${HERE}/fixture_fitting_curved_pocket.json`, 'utf8'))
     const panel = buildBackPanel(curved)
-    expect(panel.hasYoke).toBe(false)   // 守卫拦下，退化纯后片
+    expect(panel.mode).toBe('seam')   // 闭省净样判据命中（非退化）
     const front = buildClothMesh(curved.pieces.find((p) => p.key === 'front_piece')!)
-    const seam = buildSeamSet(mkFull(front, panel.host))
+    const seam = buildSeamSet(mkFull(front, panel.host,
+      panel.yokeHost && panel.seamInfo
+        ? { host: panel.yokeHost, sCin: panel.seamInfo.sCin } : undefined))
+    // 手工演算：族序 = push 序（镜像 rise/cb/yokeCb → 弧长 side/inseam →
+    // tip → yokeWaist/yokeWeld 按 L/R 交替）
     expect(seam.groups.map((g) => g.name)).toEqual([
-      'rise', 'cb', 'sideL', 'sideR', 'inseamL', 'inseamR', 'tipL', 'tipR',
+      'rise', 'cb', 'yokeCb', 'sideL', 'sideR', 'inseamL', 'inseamR',
+      'tipL', 'tipR', 'yokeWaistL', 'yokeWeldL', 'yokeWaistR', 'yokeWeldR',
     ])
+    // yokeWaist 配对数 = back top 链顶点数（驱动链逐顶点闭式映射）
+    const bTop = mergeRuns(panel.host.runs.filter((r) => r.name === 'top'), panel.host.xy)!
+    expect(seam.groups.find((g) => g.name === 'yokeWaistL')!.pairCount)
+      .toBe(bTop.indices.length)
+    // yokeWeld 每族恰 2 对（P0/PN 角点焊对——弧长族端点只有最近采样级
+    // 覆盖，角点须显式焊）
+    for (const nm of ['yokeWeldL', 'yokeWeldR']) {
+      expect(seam.groups.find((g) => g.name === nm)!.pairCount).toBe(2)
+    }
   })
 })

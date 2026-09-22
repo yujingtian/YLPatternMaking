@@ -25,6 +25,15 @@
 // （drape 挂腰 pin 自动覆盖），yoke 侧缝段与 back 侧缝同名接续。守卫
 // 失败（有省款 yoke 下边是省闭口净样、与整版下口线错位 ~12cm）退化
 // 纯后片宿主，育克留平铺行（Fitting3DView 按 hasYoke 决定 exclude）。
+//
+// seam 参与片模式（2026-09-22 有省育克缝合）：守卫拦下时改判据分流——
+// notches[0]（省位拼合线 C_in）落在 yoke bottom 折线上 < 0.5cm = 闭省
+// 净样款，育克升格 sim 参与片与后片缝对拼接（九期腰头同模式），取代
+// 平面并集（有省款平面上拼不拢：右端 PN 错开 ~5cm、省口段多布——引擎
+// build_yoke 已转省，3D 不做收省建模，按闭省净样直接缝合）。翻转
+// cycle 后边链 cb'(P0→O)/top'(O→X)/side'(X→PN')/bottom'(PN'→P0)，
+// sCin = C_in 沿 yoke.bottom 从 P0 侧弧长（seams.ts yokeWaist 闭式
+// 映射的断点）；投影失败仍退化纯后片。无省款守卫通过照走并集（零回归）。
 import type { FittingEdge, FittingPiece, FittingResult } from '../../types'
 import type { ClothMesh } from './mesh'
 import { buildClothMesh } from './mesh'
@@ -130,8 +139,11 @@ export function buildFrontPanel(payload: FittingResult): FrontPanel {
 }
 
 export interface BackPanel {
-  host: ClothMesh        // 后身整体宿主网格（解算/摆位载体，不渲染）
-  hasYoke: boolean       // 育克成功拼入；false = 退化纯后片宿主
+  host: ClothMesh        // 后身宿主网格（union=并集净样 / seam=纯后片；解算/摆位载体，不渲染）
+  mode: 'union' | 'seam' | 'plain'  // seam = 育克独立 sim 参与片缝合（有省闭省净样款）
+  hasYoke: boolean       // 育克拼入（union）或升格参与片（seam）；false = 纯后片
+  yokeHost?: ClothMesh   // seam 模式育克翻转宿主（L/R 两 part 共享同一网格）
+  seamInfo?: { sCin: number }  // seam 模式 C_in 沿 yoke.bottom 从 P0 侧弧长（缝族映射断点）
   warnings: string[]     // 退化原因（上屏 hint 用）
 }
 
@@ -140,6 +152,41 @@ export interface BackPanel {
 const reversedEdge = (e: FittingEdge): FittingEdge => ({
   ...e, pts: [...e.pts].reverse(),
 })
+
+// seam 模式装配：yoke 全环反向 cycle（cb' P0→O / top' O→X / side' X→PN'
+// / bottom' PN'→P0，同名相邻聚合自动成链——mesh.ts 只按 name 判新 run），
+// 并算 sCin：C_in（notches[0]）沿 bottom' 折线从 PN' 端投影，
+// sCin = 总长 - arcFromPN（= C_in 从 P0 侧的弧长）。notch 缺失或投影
+// 超差返回 null（调用方仍走 degenerate 闭包）
+function yokeSeamHosts(
+  yoke: FittingPiece,
+): { yokeHost: ClothMesh; seamInfo: { sCin: number } } | null {
+  const notch = yoke.notches?.[0]
+  if (!notch) return null
+  const flipped: FittingEdge[] = yoke.edges.map(reversedEdge).reverse()
+  const bEdges = flipped.filter((e) => e.name === 'bottom')
+  if (bEdges.length === 0) return null
+  const pts: [number, number][] = []
+  for (const e of bEdges) {
+    for (const p of e.pts) {
+      const last = pts[pts.length - 1]
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-9) pts.push(p)
+    }
+  }
+  const proj = projectOnPolyline(notch, pts)
+  if (proj.dist > JOIN_TOL) return null
+  let arcFromPN = 0
+  for (let s = 0; s < proj.seg; s++) {
+    arcFromPN += Math.hypot(pts[s + 1][0] - pts[s][0], pts[s + 1][1] - pts[s][1])
+  }
+  arcFromPN += proj.t * Math.hypot(
+    pts[proj.seg + 1][0] - pts[proj.seg][0],
+    pts[proj.seg + 1][1] - pts[proj.seg][1])
+  return {
+    yokeHost: buildClothMesh({ ...yoke, edges: flipped }),
+    seamInfo: { sCin: polylineLen(pts) - arcFromPN },
+  }
+}
 
 export function buildBackPanel(payload: FittingResult): BackPanel {
   const back = payload.pieces.find((p) => p.key === 'back_piece')
@@ -156,6 +203,7 @@ export function buildBackPanel(payload: FittingResult): BackPanel {
         e.name === 'top' && e.role === 'seam'
           ? { ...e, role: 'top_chain' as const } : e),
     }),
+    mode: 'plain',
     hasYoke: false,
     warnings: reason ? [reason] : [],
   })
@@ -165,6 +213,19 @@ export function buildBackPanel(payload: FittingResult): BackPanel {
     return degenerate('无育克片（back_yoke 未开）——后身宿主即纯后片')
   }
   if (!backYokeAligned(back, yoke)) {
+    // 闭省净样判据：C_in 落在 yoke bottom 折线上（无省/2 省回退款
+    // notch[0] = cb 中点离 bottom 远，不误入）→ 育克升格 sim 参与片；
+    // host 保持引擎原样（top 边 seam 角色 = 缝合边语义，drape 腰口钉
+    // 由 yoke top' 顶替）
+    const seam = yokeSeamHosts(yoke)
+    if (seam) {
+      return {
+        host: buildClothMesh(back),
+        mode: 'seam', hasYoke: true,
+        yokeHost: seam.yokeHost, seamInfo: seam.seamInfo,
+        warnings: [],
+      }
+    }
     return degenerate('育克下边与后片上边（机头下口线）不贴合'
       + '（有省款省闭口净样与整版线错位）——并集守卫拦下，退化纯后片')
   }
@@ -195,5 +256,5 @@ export function buildBackPanel(payload: FittingResult): BackPanel {
   const unionPiece: FittingPiece = {
     ...back, key: 'back_panel', name: '后身整体（后片+育克缝合）', edges,
   }
-  return { host: buildClothMesh(unionPiece), hasYoke: true, warnings: [] }
+  return { host: buildClothMesh(unionPiece), mode: 'union', hasYoke: true, warnings: [] }
 }

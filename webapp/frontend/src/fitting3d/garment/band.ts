@@ -36,22 +36,30 @@ export function buildWaistbandMesh(payload: FittingResult): ClothMesh | null {
 // 精确落后中 = 用户口径）
 export interface RingWalk {
   verts: { part: number; idx: number; arc: number }[]   // 环序顶点（part = parts 下标）
+  seqParts: number[]    // 四段 part 下标（fL/后L/后R/fR）——assemble ringMap
+                        // 角检测按段语义取号（seam 模式后段 = back_yoke，
+                        // part 下标随 parts 实际序变）
   total: number                                        // 纸样弧总长 P
 }
 
 export function ringWalk(parts: GarmentPart[]): RingWalk {
   const partOf = (key: string, side: 'L' | 'R') =>
     parts.findIndex((p) => p.key === key && p.side === side)
+  // seam 模式（2026-09-22 有省育克升格参与片）：后身腰口弧由 yoke top'
+  // 顶替——纯 back part 的 top 边 role='seam' 无 top_chain 会直接 throw。
+  // yoke top'（O→X，翻转 cycle 同名聚合）与 union 宿主的反向腰口段
+  // 完全同构，rev 语义不变
+  const backKey = parts.some((p) => p.key === 'back_yoke') ? 'back_yoke' : 'back'
   const seq: { pi: number; rev: boolean }[] = [
     { pi: partOf('front', 'L'), rev: false },
-    { pi: partOf('back', 'L'), rev: true },
-    { pi: partOf('back', 'R'), rev: false },
+    { pi: partOf(backKey, 'L'), rev: true },
+    { pi: partOf(backKey, 'R'), rev: false },
     { pi: partOf('front', 'R'), rev: true },
   ]
   const verts: RingWalk['verts'] = []
   let total = 0
   for (const { pi, rev } of seq) {
-    if (pi < 0) throw new Error('腰环行走缺 part（front/back × L/R）')
+    if (pi < 0) throw new Error('腰环行走缺 part（front/back_yoke × L/R）')
     const run = parts[pi].mesh.runs.find((r) => r.role === 'top_chain')
     if (!run) throw new Error('腰环行走缺 top_chain 边')
     const idxs = rev ? [...run.indices].reverse() : run.indices
@@ -63,7 +71,7 @@ export function ringWalk(parts: GarmentPart[]): RingWalk {
     }
     total += run.length
   }
-  return { verts, total }
+  return { verts, seqParts: seq.map((s) => s.pi), total }
 }
 
 // 环弧长 -> 最近环顶点下标（verts.arc 升序，线性扫——环顶点 ~200、

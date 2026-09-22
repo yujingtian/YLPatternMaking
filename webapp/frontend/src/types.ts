@@ -316,3 +316,64 @@ export interface ExtractResponse {
   probe: ExtractProbe
   score: ExtractScoreItem[]
 }
+
+// ---- agent 多轮对话（智能打版二期，§10.9.2） ----
+// 对齐 agent/converse.py（HelpCard/_build_delivery）+ agent/app.py
+// /api/chat/turn 信封。注意两处形状差：响应 session 是**对象**（请求要串，
+// 前端每轮 stringify——单点收口在 chatPayload.sessionToJson）；delivery
+// 顶层无 ok/model/photo_count（在 summary 里）。交卷卡只消费
+// measurements/options（SheetPreview 整版预览 + 预填）与 review/summary
+// （摘要行），keys/probe/score/ledger 不进前端渲染（2026-09-21（三））。
+
+// 求援卡单项（converse.AskItem）：key=内部键名，label=人话标签
+export interface ChatAsk {
+  key: string
+  label: string
+  why: string
+  example: string
+}
+
+// 求援卡（HelpCard.to_dict）：批量问缺失尺寸，白话文案
+export interface ChatCard {
+  asks: ChatAsk[]
+  want_photos: string[]   // 建议补拍清单（要照片优先于问行话）
+  message: string
+}
+
+// 交卷待确认标注（review 阈值 0.5 与确认屏标黄 0.7 是两套口径，均保留）
+export interface ChatReview {
+  reverted: string[]          // 探针自愈回退键（引擎默认接管，非用户确认值）
+  low_confidence: string[]    // confidence<0.5 且非用户亲说键
+  score_warnings: string[]    // score 表 verdict=warn 的 feature
+}
+
+export interface ChatLedgerRow {
+  value: unknown
+  turn: number
+  evidence?: string
+}
+
+export interface ChatLedger {
+  measurements: Record<string, ChatLedgerRow>
+  size_label: { value: unknown; turn: number } | null
+}
+
+// 交卷体：to_web_payload 六键 + review/ledger/summary
+export interface ChatDelivery {
+  measurements: Record<string, number>
+  options: Values
+  keys: Record<string, ExtractKeyMeta>
+  issues: ExtractIssue[]
+  probe: ExtractProbe
+  score: ExtractScoreItem[]
+  review: ChatReview
+  ledger: ChatLedger
+  summary: { turn: number; model: string; photo_count: number }
+}
+
+export interface ChatTurnResponse {
+  ok: boolean
+  session: Record<string, unknown> | null
+  card: ChatCard | null
+  delivery: ChatDelivery | null   // card/delivery 二选一
+}

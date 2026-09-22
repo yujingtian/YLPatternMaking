@@ -171,8 +171,12 @@ class PatternOptions:
         default_factory=YokeSeamAllowances)
                                            # 机头裁片四边独立缝份（§4.1；缝份不叠加缩水）：
                                            #   底边埋夹 1.2、腰口/后中/侧缝 1.0（阴阳缝份另调）
-    back_yoke_join_fillet: float = 0.4     # 有省拼合处折角 G1 倒圆的退弧量 δ（cm，§2.2.3；
-                                           #   入/出边各退 δ 弧长后插三次贝塞尔圆顺）
+    back_yoke_join_fillet: float | None = None
+                                           # 有省拼合处折角 G1 倒圆的退弧量 δ（cm，§2.2.3；
+                                           #   入/出边各退 δ 弧长后插三次贝塞尔圆顺）。
+                                           #   None=自适应（默认）：逐拼合点 δ=clamp(0.2×
+                                           #   min(入/出邻边弧长), 1.0, 3.0)，公式常量在
+                                           #   yoke_flow.AUTO_SPAN_*；正数=固定 δ；0=不倒圆
     back_yoke_side_corner_mirror: bool = True  # 内缝顶点（bottom×side）缝份镜像折角：侧缝缝份
                                            #   边界取原侧缝切线关于底边缝折线垂线的轴对称镜像，车缝
                                            #   翻折后与裁片重合（机头裁片.md §4.2.1；直角退化即 miter；
@@ -633,8 +637,10 @@ class PatternOptions:
         _check_sa(self.back_yoke_seam_allowances,
                   "back_yoke_seam_allowances", YokeSeamAllowances,
                   "机头", ("top", "bottom", "cb", "side"))
-        if self.back_yoke_join_fillet < 0:
-            raise ValueError(f"机头拼合倒圆量不能为负数，得到 {self.back_yoke_join_fillet}")
+        if self.back_yoke_join_fillet is not None \
+                and self.back_yoke_join_fillet < 0:
+            raise ValueError(f"机头拼合倒圆量不能为负数，得到 "
+                             f"{self.back_yoke_join_fillet}")
         # 专用缩水（None=用全局 shrinkage_warp/weft；非 None 须在 [0, 0.2)）
         _check_shrinkage(self, ("back_yoke_shrinkage_warp",
                                 "back_yoke_shrinkage_weft"),

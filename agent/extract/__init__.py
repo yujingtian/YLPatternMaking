@@ -67,6 +67,12 @@ class ExtractResult:
     # 尺寸逐键来源文案（parse_describe / S1 补漏写）——前端确认屏尺寸行
     # 徽章/依据的数据源（2026-09-03 前端接线补入契约；emit 同源共用）
     measurement_evidence: dict = field(default_factory=dict)
+    # 会话层缝（2026-09-21 智能体一期）：S2 观察快照（VLM 证据缓存载体）
+    # + 最终生效的描述倾向/码号/缩水（会话账本对账用，含种子合并结果）
+    observation: object = None
+    hints: dict = field(default_factory=dict)
+    size_label: int | None = None
+    shrinkage: float | None = None
 
     def options_meta(self) -> dict[str, KeyMeta]:
         """发射键全集（开关 + 派生），emit/report 共用。"""
@@ -145,18 +151,44 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
                        run_probe: bool = True, run_score: bool = True,
                        max_refeed: int = 2,
                        config_path: str | None = None,
-                       progress: Callable[[str], None] | None = None
+                       progress: Callable[[str], None] | None = None,
+                       seed_measurements: dict[str, tuple] | None = None,
+                       seed_hints: dict[str, str] | None = None,
+                       seed_size_label: int | None = None,
+                       seed_shrinkage: float | None = None,
+                       prior_observation=None
                        ) -> ExtractResult:
     """一条龙：描述+照片 -> ExtractResult（size_text/report_text 待写盘）。
 
     progress：阶段性进度回调（一行一句）；缺省静默（HTTP 服务同步等待
     无处展示，CLI 注入 stderr 计时打印）。模型调用是最长环节，发起前后
     各报一条。
+
+    会话层注入缝（2026-09-21 智能体一期，converse.run_turn 专用；单发
+    调用全部缺省，行为与历史逐位一致）：
+    - seed_*：会话账本重放值（多轮累积、后答覆盖先答）。种子优先于本轮
+      parse 的单文本结果——describe 传「全轮拼接」时种子兜住轮次语义；
+    - prior_observation：历史照片批的 S2 观察快照。本轮 photos 只放
+      **未缓存新照片**（调用方按指纹去重）；有新照片时新证据覆盖旧批次
+      同键（后补照片更相关），无新照片时直接复用缓存——零模型调用。
     """
     p = progress or _noop
     parsed = parse_describe(describe)
     measurements: dict[str, float] = dict(parsed.measurements)
     evidence: dict[str, str] = dict(parsed.evidence)
+    hints: dict[str, str] = dict(parsed.hints)
+    size_label: int | None = parsed.size_label
+    shrinkage: float | None = parsed.shrinkage
+    if seed_measurements:
+        for k, (v, ev) in seed_measurements.items():
+            measurements[k] = v
+            evidence[k] = ev
+    if seed_hints:
+        hints.update(seed_hints)
+    if seed_size_label is not None:
+        size_label = seed_size_label
+    if seed_shrinkage is not None:
+        shrinkage = seed_shrinkage
     photo_count = len(photos)
 
     model_name = "（纯描述路径，未调用模型）"
@@ -182,7 +214,7 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
             "描述与模型补漏后仍缺必填尺寸（不编数值）：" + "、".join(missing),
             missing)
 
-    prejudged = prejudge_axes(measurements, parsed.hints, parsed.size_label)
+    prejudged = prejudge_axes(measurements, hints, size_label)
     priors = prior_switches()
 
     obs = Observation()
@@ -194,16 +226,25 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
         p(f"S2 视觉确认：调用 {model_name} 读 {photo_count} 张照片"
           "（最耗时环节，thinking 开启时可达分钟级）…")
         t_vlm = time.monotonic()
-        obs = sanitize(parse_model_json(
+        obs_new = sanitize(parse_model_json(
             provider.complete(prompt, list(photos), thinking)))
         p(f"S2 视觉确认完成（耗时 {time.monotonic() - t_vlm:.1f}s）")
+        if prior_observation is not None:
+            obs = Observation(
+                entries={**prior_observation.entries, **obs_new.entries},
+                dropped=[*prior_observation.dropped, *obs_new.dropped])
+        else:
+            obs = obs_new
+        dropped = list(obs.dropped)
+    elif prior_observation is not None:
+        obs = prior_observation        # 缓存命中：本轮无新照片，零模型调用
         dropped = list(obs.dropped)
 
-    merged = merge(obs, measurements, prejudged, priors, parsed.hints,
-                   parsed.size_label)
+    merged = merge(obs, measurements, prejudged, priors, hints,
+                   size_label)
     dep_notes = enforce_dependencies(merged)
-    derived = derive_all(measurements, merged, parsed.size_label,
-                         parsed.shrinkage)
+    derived = derive_all(measurements, merged, size_label,
+                         shrinkage)
 
     options = {**{k: m.value for k, m in merged.switches.items()},
                **{k: m.value for k, m in derived.items()}}
@@ -257,4 +298,6 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
                          dep_notes=dep_notes, reverted=reverted,
                          size_text=size_text, report_text=report_text,
                          model_name=model_name, photo_count=photo_count,
-                         measurement_evidence=evidence)
+                         measurement_evidence=evidence,
+                         observation=obs, hints=hints,
+                         size_label=size_label, shrinkage=shrinkage)

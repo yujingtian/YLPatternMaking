@@ -60,6 +60,13 @@ export function tipAfterInseam(mesh: Garment['parts'][number]['mesh']): number |
 export function buildSeamSet(garment: Garment): SeamSet {
   const f = hostParts(garment, 'front')
   const b = hostParts(garment, 'back')
+  // seam 模式育克宿主（L/R 共享翻转网格；2026-09-22 有省闭省净样款）：
+  // yokeSeam 字段在 = panel.ts 判定育克升格 sim 参与片；取不到宿主静默
+  // 降级（族整组跳过，不炸主流程）
+  let yh: HostParts | null = null
+  if (garment.yokeSeam) {
+    try { yh = hostParts(garment, 'back_yoke') } catch { yh = null }
+  }
   const pairs: number[] = []
   const groups: SeamGroup[] = []
   const push = (name: string, add: (out: number[]) => void): void => {
@@ -81,6 +88,18 @@ export function buildSeamSet(garment: Garment): SeamSet {
   }
   mirror(f, 'rise')
   mirror(b, 'cb')
+  // seam 模式 yokeCb 镜像族：cb'（P0→O）L/R 同号配对（六期中缝机制）
+  // ——后中缝从 P0 贯通到腰口 O（union 模式靠 cb 同名边聚合成整条后浪，
+  // seam 模式育克分片、镜像族补上腰口段）
+  if (yh) {
+    push('yokeCb', (out) => {
+      const run = yh!.l.mesh.runs.find((r) => r.name === 'cb')
+      if (!run) return
+      for (const i of run.indices) {
+        out.push(yh!.l.offset + i, yh!.r.offset + i)
+      }
+    })
+  }
 
   // 弧长族：驱动链（front）逐顶点 -> 对侧链弧长分数取顶点；L/R 各一族
   const chainOf = (host: HostParts, name: string): EdgeRun | null =>
@@ -96,6 +115,24 @@ export function buildSeamSet(garment: Garment): SeamSet {
         if (!chainF || !chainB) return
         const offF = side === 'L' ? f.l.offset : f.r.offset
         const offB = side === 'L' ? b.l.offset : b.r.offset
+        // seam 模式 side 族：目标链改跨 part 拼链 [yokeSide'(X→PN'，
+        // 弧 0 在 X = 腰角), backSide(PN→脚口)]——纯后片 side 不再含育克
+        // 段，侧缝全长跨两片；t = s·(Ly+Lb) 与驱动链腰角端锚定一致
+        if (name === 'side' && yh) {
+          const ySide = mergeRuns(
+            yh.l.mesh.runs.filter((r) => r.name === 'side'), yh.l.mesh.xy)
+          if (!ySide) return
+          const offY = side === 'L' ? yh.l.offset : yh.r.offset
+          const span = ySide.length + chainB.length
+          for (let k = 0; k < chainF.indices.length; k++) {
+            const t = (chainF.arc[k] / (chainF.length || 1)) * span
+            out.push(offF + chainF.indices[k],
+              t <= ySide.length
+                ? offY + runIndexAt(ySide, t / (ySide.length || 1))
+                : offB + runIndexAt(chainB, (t - ySide.length) / (chainB.length || 1)))
+          }
+          return
+        }
         for (let k = 0; k < chainF.indices.length; k++) {
           const s = chainF.arc[k] / (chainF.length || 1)
           out.push(offF + chainF.indices[k], offB + runIndexAt(chainB, s))
@@ -119,6 +156,50 @@ export function buildSeamSet(garment: Garment): SeamSet {
       out.push((side === 'L' ? f.l.offset : f.r.offset) + fTip,
         (side === 'L' ? b.l.offset : b.r.offset) + bTip)
     })
+  }
+
+  // ---- seam 模式育克两族（2026-09-22 有省闭省净样款）：yokeWaist 分段
+  // 缝合 + P0/PN 角点焊对。几何账（fixture 实测，size_draft 口径真有省
+  // 款）：back top = 整版机头下口线直线（含省口段不扣，L_back 22.07）；
+  // yoke bottom = 闭省净样三段（瓣1 line [0, 7.81] 与直线逐点重合
+  // perp=0 + 倒圆 bezier 跨省口 + 瓣2 line，L_yoke 19.683）——sMouth =
+  // L_back − L_yoke = 2.387 = 省口段布量（真实缝前状态：后片省未收）。
+  // 闭式映射（back 弧 a → yoke 弧 b）：a < sCin 前段 1:1（两链同线）、
+  // 省口段（sCin ≤ a < sCin+sMouth）全体收敛 C_in = 收省口的物理实现、
+  // 右段 b = a − sMouth 1:1（端点对账 a=L_back → b=L_yoke）。目标分数
+  // 换算：bottom' run 从 PN' 起走 → sRun = (L_yoke − b)/L_yoke。弧长
+  // 口径沿用 arclen 族先例（驱动链 chord-arc 分数近似，微差动力学吸收）----
+  if (yh && garment.yokeSeam) {
+    const sCin = garment.yokeSeam.sCin
+    for (const side of ['L', 'R'] as const) {
+      const bp = side === 'L' ? b.l : b.r
+      const yp = side === 'L' ? yh.l : yh.r
+      const bTop = mergeRuns(
+        bp.mesh.runs.filter((r) => r.name === 'top'), bp.mesh.xy)
+      const yBottom = mergeRuns(
+        yp.mesh.runs.filter((r) => r.name === 'bottom'), yp.mesh.xy)
+      const yCb = yp.mesh.runs.find((r) => r.name === 'cb')
+      const bSide = mergeRuns(
+        bp.mesh.runs.filter((r) => r.name === 'side'), bp.mesh.xy)
+      if (!bTop || !yBottom || !yCb || !bSide) continue
+      const sMouth = bTop.length - yBottom.length
+      push(`yokeWaist${side}`, (out) => {
+        for (let k = 0; k < bTop.indices.length; k++) {
+          const a = bTop.arc[k]
+          const bv = a < sCin ? a : (a < sCin + sMouth ? sCin : a - sMouth)
+          const sRun = (yBottom.length - bv) / (yBottom.length || 1)
+          out.push(bp.offset + bTop.indices[k],
+            yp.offset + runIndexAt(yBottom, sRun))
+        }
+      })
+      // P0/PN 角点焊对（×2/侧）：弧长族对两端只有最近采样级覆盖，角点
+      // 须显式焊（tip 补焊同款动机）——P0 = back.top[0] ↔ yoke.cb'[0]、
+      // PN = back side 合链首 ↔ yoke.bottom'[0]
+      push(`yokeWeld${side}`, (out) => {
+        out.push(bp.offset + bTop.indices[0], yp.offset + yCb.indices[0])
+        out.push(bp.offset + bSide.indices[0], yp.offset + yBottom.indices[0])
+      })
+    }
   }
 
   // 腰头两族（九期腰头立体化，用户口径「腰头两边是前中线、腰头中点是

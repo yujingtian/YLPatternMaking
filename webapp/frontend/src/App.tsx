@@ -10,11 +10,12 @@ import CoreParams from './components/CoreParams'
 import AdvancedEditor from './components/AdvancedEditor'
 import ExportCenter from './components/ExportCenter'
 import SizeRunDrawer from './components/SizeRunDrawer'
-import ExtractWizard from './components/ExtractWizard'
+import SmartDraftChat from './components/SmartDraftChat'
 import NestResultModal from './components/NestResultModal'
 import Fitting3DView from './fitting3d/Fitting3DView'
 import type { IssueDetail, SizeRunSpec, Values } from './types'
 import { useDraft } from './hooks/useDraft'
+import { useSmartDraft } from './hooks/useSmartDraft'
 import './styles.css'
 
 // 校验错误/警告条（旧 Toolbar Alert 迁入左栏，紧凑化）：错误优先全量
@@ -71,9 +72,10 @@ function DraftApp() {
   const [dragging, setDragging] = useState(false)
   // 推板设置抽屉开合（导出中心「推板设置」/未配置引导均转到此处）
   const [sizeRunOpen, setSizeRunOpen] = useState(false)
-  // 提取向导弹层开合（2026-09-19 起唯一入口 = 启动选择层「从照片提取」，
-  // header 按钮已随入口收口删除；取消自然退回选择层）
-  const [extractOpen, setExtractOpen] = useState(false)
+  // 智能打版对话弹层（2026-09-21 二期，原「从照片提取」向导升级）：
+  // 状态在 useSmartDraft（挂本层，弹层关开不丢）；入口 = 启动选择层
+  // 「智能打版」，关闭自然退回选择层
+  const chat = useSmartDraft()
   // 导出中心弹层开合（勾选产物 -> 逐项串行下载）
   const [exportOpen, setExportOpen] = useState(false)
   // 排料 numMap 弹窗开合：产物到达即开（download('nest') 成功置
@@ -116,9 +118,9 @@ function DraftApp() {
       <>
       <header className="app-header">
         <h1>YLPattern 牛仔裤打版</h1>
-        {/* 新建：重开启动选择层（继续上次/模板/提取/出厂），参数可整体换源。
-            模板/照片提取 2026-09-19 起不再各设 header 入口——参数来源选择
-            统一收口到选择层，避免同一动作两个入口 */}
+        {/* 新建：重开启动选择层（继续上次/模板/智能打版/出厂），参数可整体
+            换源。模板/智能打版 2026-09-19 起不再各设 header 入口——参数来源
+            选择统一收口到选择层，避免同一动作两个入口 */}
         <Button
           size="small"
           icon={<FileAddOutlined />}
@@ -250,14 +252,14 @@ function DraftApp() {
       </main>
       </>
       )}
-      {/* 启动/重开选择层：工作台之上遮罩（zIndex 900，向导 Modal 盖其上） */}
+      {/* 启动/重开选择层：工作台之上遮罩（zIndex 900，对话 Modal 盖其上） */}
       {initOpen && (
         <InitGate
           hasSavedDraft={d.hasSavedDraft}
           initialized={initialized}
           onContinue={finishInit}
           onLoadValues={initLoadValues}
-          onOpenExtract={() => setExtractOpen(true)}
+          onOpenChat={() => chat.setOpen(true)}
         />
       )}
       <ExportCenter
@@ -300,10 +302,8 @@ function DraftApp() {
           d.clearNestResult()
         }}
       />
-      <ExtractWizard
-        open={extractOpen}
-        onClose={() => setExtractOpen(false)}
-        schema={d.schema}
+      <SmartDraftChat
+        chat={chat}
         onConfirm={(m, o) => {
           // 第三参必须显式传：loadValues 缺省 null 会清空推板码表
           d.loadValues(m, o, d.sizeRun)
@@ -311,6 +311,7 @@ function DraftApp() {
           setDraftEpoch((e) => e + 1)
           // 确认即完成初始化关层（中途经「新建」重开时 initialized 已真，
           // finishInit 无副作用）
+          chat.setOpen(false)
           finishInit()
         }}
       />
