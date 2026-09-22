@@ -15,6 +15,13 @@ export default defineConfig({
         target: 'http://localhost:8001',
         rewrite: (p) => p.replace(/^\/agent/, ''),
       },
+      // MS 排料服务（MaterialSorting，缺省 8010）同源化：/ms/api/machine/* ->
+      // 8010 /api/machine/*（生产无 Vite，由 webapp backend 的 /ms/{path}
+      // httpx 转发兜同款前缀；base 单点见 src/msBase.ts）
+      '/ms': {
+        target: 'http://127.0.0.1:8010',
+        rewrite: (p) => p.replace(/^\/ms/, ''),
+      },
     },
   },
 })

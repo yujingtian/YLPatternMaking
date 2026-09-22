@@ -14,7 +14,8 @@ import {
   LoadingOutlined, SettingOutlined,
 } from '@ant-design/icons'
 import type {
-  DownloadKind, IssueDetail, PiecesResult, SheetResult, SizeRunSpec, Snapshot,
+  DownloadKind, IssueDetail, NestResult, PiecesResult, SheetResult,
+  SizeRunSpec, Snapshot,
 } from '../types'
 import { downloadBlob } from '../api'
 
@@ -57,8 +58,9 @@ export default function ExportCenter({
   errors: IssueDetail[]
   ensureSheet: () => Promise<Snapshot<SheetResult> | null>
   ensurePieces: () => Promise<Snapshot<PiecesResult> | null>
+  // nest 分支返回产物（本面板无 nest 项，返回值不被消费——类型随 useDraft）
   download: (kind: DownloadKind, opts?: { sizeRun?: SizeRunSpec | null }) =>
-    Promise<void>
+    Promise<NestResult | undefined>
   onOpenSizeRun: () => void
 }) {
   const { message } = App.useApp()

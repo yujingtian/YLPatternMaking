@@ -61,14 +61,11 @@ export interface DraftState {
   // 快照缺失或 stale 才重跑，新鲜直接复用；读 ref 规避闭包旧值
   ensureSheet: () => Promise<Snapshot<SheetResult> | null>
   ensurePieces: () => Promise<Snapshot<PiecesResult> | null>
-  // opts.sizeRun：抽屉「保存+导出」同 tick 的显式覆盖（规避闭包旧值竞态）
+  // opts.sizeRun：抽屉「保存+导出」同 tick 的显式覆盖（规避闭包旧值竞态）；
+  // nest 分支返回排料产物（清单弹窗删除后由调用方直接消费 + console 打印，
+  // 2026-09-22），其余分支返回 undefined
   download: (kind: DownloadKind, opts?: { sizeRun?: SizeRunSpec | null }) =>
-    Promise<void>
-  // 排料对接产物（download('nest') 成功后置）：numMap 弹窗数据源；
-  // 关弹窗即清（产物只属于当次点击，不留快照——排料 DXF 不参与
-  // 版本过期门控，重新点击即重取）
-  nestResult: NestResult | null
-  clearNestResult: () => void
+    Promise<NestResult | undefined>
   // 二期拖拽调版：反解回写（显式载荷重生成整版）/ 撤销 / 面板高亮
   applyAdjust: (param: string, value: number, base: DraftPayload) => Promise<void>
   beginDrag: (param: string, prevValue: number) => void
@@ -100,6 +97,26 @@ export interface DraftState {
 interface DraftWarning {
   param: string | null
   message: string
+}
+
+// 排料清单行集（numMap + labels -> 可读行，g 码数字升序）：排料数量清单
+// 弹窗删除后（2026-09-22 入口收口）供 console.table 排查打印；labels 与
+// numMap 键集理论上同源（后端同一次遍历产出），回退仅兜底
+export interface NestRow {
+  g: string        // g 码（g01…）
+  label: string    // 裁片中文名（labels 缺键回退「裁片」）
+  qty: number      // 数量（各码相同，numMap 扁平）
+}
+
+function gNum(g: string): number {
+  const n = parseInt(g.replace(/^g/i, ''), 10)
+  return Number.isNaN(n) ? Number.MAX_SAFE_INTEGER : n
+}
+
+export function nestRows(r: NestResult): NestRow[] {
+  return Object.entries(r.numMap)
+    .map(([g, qty]) => ({ g, label: r.labels[g] ?? '裁片', qty }))
+    .sort((a, b) => gNum(a.g) - gNum(b.g))
 }
 
 export function useDraft(): DraftState {
@@ -157,7 +174,6 @@ export function useDraft(): DraftState {
   const fittingBusyRef = useRef(false)
   fittingBusyRef.current = fittingBusy
   const [dlBusy, setDlBusy] = useState<DownloadKind | null>(null)
-  const [nestResult, setNestResult] = useState<NestResult | null>(null)
   const [lastDrag, setLastDrag] = useState<{ param: string; prevValue: number } | null>(null)
   const [adjustInfo, setAdjustInfo] = useState<{ param: string; ts: number } | null>(null)
   const [engineState, setEngineState] = useState<UiEngineState>('loading')
@@ -408,11 +424,11 @@ export function useDraft(): DraftState {
                            'size_run.dxf')
       } else if (kind === 'nest') {
         // 排料对接（§10.3.2）：JSON 响应只拿数据不落盘（用户口径
-        // 2026-09-20：不要默认下载），numMap 置 nestResult 开弹窗，
-        // DXF 留在内存由弹窗「下载 DXF」按钮手动取；载荷口径同 toml
-        // （有码表才带段）
+        // 2026-09-20：不要默认下载），产物直接返回调用方消费（console
+        // 清单打印 + 求解弹窗参数页内存快照，2026-09-22 清单弹窗删除）；
+        // 载荷口径同 toml（有码表才带段）
         const res = await postNest(sr ? { ...base, size_run: sr } : base)
-        setNestResult(res)
+        return res
       } else {
         await downloadFile('/api/toml',
                            sr ? { ...base, size_run: sr } : base,
@@ -428,15 +444,12 @@ export function useDraft(): DraftState {
     }
   }, [measurements, options, sizeRun, dlBusy])
 
-  const clearNestResult = useCallback(() => setNestResult(null), [])
-
   return {
     schema, measurements, options, sizeRun,
     setMeasurement, setOption, setSizeRun, loadValues,
     seedShape,
     generateSheet, generatePieces, generateFitting, ensureSheet, ensurePieces,
     download,
-    nestResult, clearNestResult,
     applyAdjust, beginDrag, undoLastDrag, lastDrag, adjustInfo,
     sheet, pieces, fitting,
     sheetReady: sheet !== null, sheetStale,

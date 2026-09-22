@@ -42,9 +42,15 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   前端 sizeRun.ts 档差<->band 转换、首码并入首段免疫孤儿校验）-> /api/dxf?kind=size_run
 #   （引擎 api.size_run_from_dict/run_size_run_groups 内存核心）与 /api/toml 带 [size_run]
 #   段（直喂 CLI 复现）；转换金标 vitest：cd webapp/frontend && npm test（详见 §10.7）
-#   排料对接（2026-09-20 一期）：左栏「排料」按钮 -> POST /api/nest 出带 g 码编号 DXF
+#   排料对接（2026-09-20 一期；2026-09-22 入口收口）：左栏「排料」按钮状态化单入口
+#   （空闲=取产物清单 console.table 打印后直达机器排料求解弹窗、在飞=「排料中」可点击
+#   回看进度、有会话=回看结果；单码 message 拦截）-> POST /api/nest 出带 g 码编号 DXF
 #   （块名 {NAME}-G{NN}-{码}，排料系统 materialSorting 方式 A 解析）+ numMap 数量；
-#   DXF 渲染默认全量带编号（embed_codes），裤耳不进排料产物；口径 §10.3.2
+#   DXF 渲染默认全量带编号（embed_codes），裤耳不进排料产物；结果期关闭 confirm 二次确认；
+#   参数页码号套数表（2026-09-22：每码 0.5 步进套数默认 1、最小 0=该码不排料、
+#   不跨会话记忆，提交 quantities 按套数 multiplySets 换算——整数套/偶数量
+#   直乘、奇数量向上取整）；
+#   口径 §10.3.2
 #   本地引擎（2026-08）：整版/裁片/反解默认在浏览器内 Pyodide worker 跑同一份引擎源码
 #   （前端 npm run build:engine 打内容 hash zip + manifest 到 public/engine，predev/prebuild
 #    自动执行，改引擎代码后手动重跑；api.ts 引擎优先、失败透明回落 HTTP，DXF/下载仍走后端；

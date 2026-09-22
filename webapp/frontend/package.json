@@ -10,7 +10,8 @@
     "prebuild": "npm run build:engine",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke:ms-nest": "node scripts/smoke_ms_nest.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",

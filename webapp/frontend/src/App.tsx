@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { App as AntApp, Alert, Button, ConfigProvider, Segmented, Tag } from 'antd'
 import {
-  DownloadOutlined, FileAddOutlined, LayoutOutlined, PlayCircleOutlined,
+  CheckCircleOutlined, DownloadOutlined, FileAddOutlined, LayoutOutlined,
+  LoadingOutlined, PlayCircleOutlined, WarningOutlined,
 } from '@ant-design/icons'
 import zhCN from 'antd/locale/zh_CN'
 import InitGate from './components/InitGate'
@@ -11,11 +12,17 @@ import AdvancedEditor from './components/AdvancedEditor'
 import ExportCenter from './components/ExportCenter'
 import SizeRunDrawer from './components/SizeRunDrawer'
 import SmartDraftChat from './components/SmartDraftChat'
-import NestResultModal from './components/NestResultModal'
+import NestSolveModal from './components/NestSolveModal'
 import Fitting3DView from './fitting3d/Fitting3DView'
-import type { IssueDetail, SizeRunSpec, Values } from './types'
-import { useDraft } from './hooks/useDraft'
+import type {
+  IssueDetail, NestResult, SizeRunSpec, Values,
+} from './types'
+import { nestRows, useDraft } from './hooks/useDraft'
 import { useSmartDraft } from './hooks/useSmartDraft'
+import {
+  readStoredMsTask, solveCloseBehavior, useNestSolve,
+} from './hooks/useNestSolve'
+import { msDeleteTask } from './api'
 import './styles.css'
 
 // 校验错误/警告条（旧 Toolbar Alert 迁入左栏，紧凑化）：错误优先全量
@@ -68,6 +75,9 @@ function IssueStrip({
 
 function DraftApp() {
   const d = useDraft()
+  // antd 上下文版 message/modal（ExportCenter 同款先例）：单码拦截提示、
+  // 结果期关闭 confirm
+  const { message, modal } = AntApp.useApp()
   // 拖拽进行中：暂隐"已过期"角标（每次回写都重生成，松手后必然同步）
   const [dragging, setDragging] = useState(false)
   // 推板设置抽屉开合（导出中心「推板设置」/未配置引导均转到此处）
@@ -78,12 +88,97 @@ function DraftApp() {
   const chat = useSmartDraft()
   // 导出中心弹层开合（勾选产物 -> 逐项串行下载）
   const [exportOpen, setExportOpen] = useState(false)
-  // 排料 numMap 弹窗开合：产物到达即开（download('nest') 成功置
-  // nestResult），关窗即清产物（不留快照，重点击重取）
-  const [nestOpen, setNestOpen] = useState(false)
+  // 机器排料求解会话（二期 US-004；2026-09-22 入口收口：清单弹窗删除，
+  // 左栏「排料」按钮经 startNestFlow 直达本弹窗参数页）：useNestSolve
+  // 实例由 App 持有——跨弹窗开合存活（进度期关窗转 15s 后台守望，任务
+  // 不中断）；solveCtx = 会话期产物 + 码表快照（error 重试/再次排料重取
+  // 要用所以 App 持有；会话期内改码表不串台）
+  const solve = useNestSolve()
+  const [solveOpen, setSolveOpen] = useState(false)
+  const [solveCtx, setSolveCtx] =
+    useState<{ payload: NestResult; sizes: string[] } | null>(null)
+  // 「继续查看」刷新恢复：锚在 → 后台慢档 attach（首拍轮询自对齐真实终
+  // 态）；弹窗开合同步双档轮询（开 = 在视 2s / 关 = 降频 15s 即时重排）
   useEffect(() => {
-    if (d.nestResult !== null) setNestOpen(true)
-  }, [d.nestResult])
+    const stored = readStoredMsTask()
+    if (stored) solve.attach(stored.taskId)
+    // 仅挂载时执行（attach/setVisible 均 useCallback 稳定引用）
+  }, [])
+  useEffect(() => { solve.setVisible(solveOpen) }, [solveOpen])
+  // 排料入口（2026-09-22 收口）：单码拦截（机器排料需推板多码）→
+  // POST /api/nest 取产物 → console 清单打印（排查口径）→ 快照 solveCtx
+  // → 直达求解弹窗参数页。码表先取局部快照（await 后闭包值不漂移）；
+  // 失败已入 IssueStrip，关窗露出左栏错误条（「再次排料」入口下弹窗
+  // 可能开着）；undefined = dlBusy 串行闸让位（其它下载在跑），静默
+  const startNestFlow = async () => {
+    const sr = d.sizeRun
+    if (sr === null) {
+      message.warning('机器排料需要推板多码：请先完成推板设置')
+      return
+    }
+    try {
+      const res = await d.download('nest')
+      if (!res) return
+      console.log(`[nest] 排料产物 ${res.filename}（码表 ${sr.order.join('/')}）`)
+      console.table(nestRows(res))
+      setSolveCtx({ payload: res, sizes: sr.order })
+      setSolveOpen(true)
+    } catch {
+      setSolveOpen(false)
+    }
+  }
+  // 求解弹窗显式关闭（唯一出口）语义分派（solveCloseBehavior）：
+  // 进度期 = 关窗降频后台守望（task_id 已存锚，左栏「排料」按钮可重开）；
+  // 结果期 = 先 confirm 二次确认（关闭即清空——防误关丢 3min~2h 求解
+  // 成果，2026-09-22 用户口径），确认后停表清锚 + best-effort
+  // msDeleteTask 回收 MS 会话名额（失败静默，MS 侧 TTL+7 天兜底）；
+  // idle/error = 纯重置关窗（无结果可丢，不确认）
+  const doCloseSolveModal = () => {
+    const behavior = solveCloseBehavior(solve.phase)
+    setSolveOpen(false)
+    if (behavior.background) return
+    const id = solve.taskId
+    solve.reset()
+    setSolveCtx(null)
+    if (behavior.deleteTask && id !== null)
+      void msDeleteTask(id).catch(() => {})
+  }
+  const closeSolveModal = () => {
+    if (solve.phase === 'done' || solve.phase === 'stopped') {
+      modal.confirm({
+        title: '关闭后排料结果将清空',
+        content: '关闭弹窗会结束本次排料会话并回收排料服务任务；'
+          + '如需保留结果，请先下载 PLT 或状态文件(.msn)。',
+        okText: '确定关闭',
+        cancelText: '再看看',
+        onOk: doCloseSolveModal,
+      })
+      return
+    }
+    doCloseSolveModal()
+  }
+  // 回参数态（再次排料/放弃并重排）：结果期会话先回收 MS 名额再清锚
+  //（running 家族〔orphan 放弃〕不删——在飞任务删不掉，交 TTL 兜底）；
+  // 产物快照随之重取（刷新恢复的会话 solveCtx 已丢，不重取会卡「产物
+  // 缺失」；单码被清则拦截不动会话，2026-09-22）
+  const resetSolveSession = () => {
+    if (d.sizeRun === null) {
+      message.warning('机器排料需要推板多码：请先完成推板设置')
+      return
+    }
+    const terminal = solve.phase === 'done' || solve.phase === 'stopped'
+    const id = solve.taskId
+    solve.reset()
+    setSolveCtx(null)
+    if (terminal && id !== null) void msDeleteTask(id).catch(() => {})
+    void startNestFlow()
+  }
+  // 排料按钮状态投影（2026-09-22 收口，原「排料进度」按钮并入）：在飞 =
+  // submitting/running（文案「排料中」，点击重开看进度不重新取数）；有
+  // 会话 = taskId 非空且非在飞（后台守望跑完的 done/stopped 或 error，
+  // 点击重开回看）；否则空闲（点击走 startNestFlow 新流程）
+  const nestInFlight = solve.phase === 'submitting' || solve.phase === 'running'
+  const nestSessionHeld = solve.taskId !== null && !nestInFlight
   // 右栏主视图切换（2026-09-19 用户口径「默认是整版效果」）：'2d' 高级
   // 编辑（整版调版工作台，默认）↔ '3d' 3D 试穿——Fitting3DView 切入才
   // 挂载，首挂自动试穿在那一刻才发；编辑器内「返回」= 切回 3D
@@ -195,14 +290,24 @@ function DraftApp() {
             >
               导出
             </Button>
-            {/* 排料对接（§10.3.2）：POST /api/nest 出带 g 码编号 DXF +
-                numMap——下载文件 + 弹窗展示数量；失败入全局 IssueStrip */}
+            {/* 排料对接（§10.3.2）：状态化单入口（2026-09-22 收口，原
+                「排料进度」按钮并入）——空闲 = 取产物直达求解弹窗参数页
+                （清单数据 console 打印）；在飞 = 「排料中」，点击重开弹窗
+                看进度（刻意不用 loading prop——loading 禁点，与「可点击
+                查看进度」诉求冲突；取数窗口另由 dlBusy 转圈防重点）；
+                有会话 = 点击重开回看结果/错误 */}
             <Button
-              icon={<LayoutOutlined />}
+              icon={nestInFlight ? <LoadingOutlined spin />
+                : nestSessionHeld ? (solve.phase === 'error'
+                  ? <WarningOutlined /> : <CheckCircleOutlined />)
+                : <LayoutOutlined />}
               loading={d.dlBusy === 'nest'}
-              onClick={() => void d.download('nest').catch(() => {})}
+              onClick={() => {
+                if (nestInFlight || nestSessionHeld) setSolveOpen(true)
+                else void startNestFlow()
+              }}
             >
-              排料
+              {nestInFlight ? '排料中' : '排料'}
             </Button>
           </div>
         </aside>
@@ -294,13 +399,14 @@ function DraftApp() {
             .catch(() => {})
         }}
       />
-      <NestResultModal
-        open={nestOpen}
-        result={d.nestResult}
-        onClose={() => {
-          setNestOpen(false)
-          d.clearNestResult()
-        }}
+      <NestSolveModal
+        open={solveOpen}
+        payload={solveCtx?.payload ?? null}
+        sizes={solveCtx?.sizes ?? []}
+        solve={solve}
+        fetchingPayload={d.dlBusy === 'nest'}
+        onClose={closeSolveModal}
+        onSessionReset={resetSolveSession}
       />
       <SmartDraftChat
         chat={chat}

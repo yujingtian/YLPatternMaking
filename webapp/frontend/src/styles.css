@@ -461,3 +461,80 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .init-option-title .anticon { color: #2c6e49; }
 .init-option-desc { color: #999; font-size: 12px; line-height: 1.6; }
+
+/* ---- 机器排料求解弹窗（NestSolveModal，二期对接 §10.3.2） ---- */
+/* 三态视图轻样式：灰字说明复用 extract-meta 惯例 */
+.nest-field {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+}
+.nest-field label { flex: 0 0 84px; color: #555; }
+/* 码号套数表（2026-09-22）：两行紧凑表——首行码号升序表头（首格空）+
+   「总计」列、次行套数输入 + 只读总和；多码时横向滚动不撑破弹窗 */
+.nest-sets-wrap { flex: 1; overflow-x: auto; }
+.nest-sets-table {
+  border-collapse: collapse; font-variant-numeric: tabular-nums;
+}
+.nest-sets-table th, .nest-sets-table td {
+  border: 1px solid #d9d9d9; padding: 2px 6px; text-align: center;
+  font-size: 13px; color: #333; min-width: 44px; white-space: nowrap;
+}
+.nest-sets-table th { background: #fafafa; font-weight: 600; }
+.nest-sets-total { font-weight: 600; color: #2c6e49; }
+.nest-progress-head {
+  display: flex; align-items: center; gap: 12px; color: #555;
+  padding: 8px 0;
+}
+.nest-density {
+  display: flex; align-items: baseline; gap: 10px; margin: 2px 0 10px;
+}
+.nest-density-num {
+  font-size: 30px; font-weight: 600;
+  font-variant-numeric: tabular-nums; color: #2c6e49;
+}
+.nest-sect { margin-top: 10px; }
+.nest-result-line { font-size: 15px; color: #333; }
+/* 结果区动作行（US-006「下载 PLT」）：按钮 + 侧注灰字 */
+.nest-result-actions {
+  display: flex; align-items: center; gap: 10px; margin-top: 8px;
+}
+
+/* ---- 排料结果布局图（NestPreview，二期 US-005；复刻 MS 超排三件套观感） ---- */
+/* 外框卡片：顶标签（MS nest-label 深色条）+ 画布体（相对定位锚，图例 overlay
+   压在其上）+ 信息条。画布底色 #eef0f3 与 viewBox bg 同色——留白区观感无缝 */
+.nest-preview {
+  margin-top: 12px; border: 1px solid #d9d9d9; border-radius: 4px;
+  overflow: hidden;
+}
+.nest-preview-label {
+  padding: 4px 8px; font-size: 12px; color: #cdd; background: #1c1d22;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+.nest-preview-body { position: relative; }
+.nest-preview-svg {
+  display: block; width: 100%; height: 380px;
+  background: #eef0f3;
+}
+/* 尺码图例（MS size-legend 同款：画布右上 overlay，压浅色画布上；
+   pointer-events none 不挡目检；无有效尺码时组件不渲染） */
+.nest-size-legend {
+  position: absolute; top: 8px; right: 8px;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid #8a8a8a; border-radius: 4px;
+  font-size: 11px; color: #333;
+  pointer-events: none;
+}
+.nest-size-legend-title { font-weight: 600; margin-bottom: 2px; }
+.nest-size-legend-row {
+  display: flex; align-items: center; gap: 6px; line-height: 1.2;
+}
+.nest-size-legend-swatch {
+  width: 10px; height: 10px; border-radius: 2px;
+  border-style: solid; border-width: 1px; opacity: 0.8;
+}
+.nest-preview-info {
+  padding: 5px 8px; font-size: 12px; color: #555;
+  background: #fafafa; border-top: 1px solid #eee;
+  font-variant-numeric: tabular-nums;
+}

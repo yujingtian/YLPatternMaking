@@ -1,0 +1,13 @@
+# Ralph Progress Log
+Started: Mon, Sep 21, 2026  7:53:26 PM
+
+
+
+
+
+
+
+
+
+  - 测试: npx tsc --noEmit 零错误; npm test 242 passed(21 files); py -m pytest tests/ -q 1083 passed 无回归; npm run build 成功; 浏览器取证 us002_verify 20 例(19 过+1 测试设计误设: DELETE 后理应 404 Alert 已由 S5 证)/us002_orphan 6/6(杀 MS 落 error 相重启后 marker 仍可下载)/us002_layout 盒模型 6/7(唯一 fail 是自己断言错期望同行, 实设计为双行); prod 形态 :8042 dist + MS 三期自起 :8012, 收尾已杀双实例
+  - 备注: .msn 落盘必须 downloadBlobBytes(gzip 二进制禁 text() 往返); msStateFile 走 /api/nest YL 代理非 /ms; MS 工作台「状态恢复」上传还原的人工冒烟依赖 MS 侧三期 UI; 常驻 :8010/:8000 未动

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -372,6 +372,107 @@ async def agent_forward(path: str, request: Request) -> Response:
                  "可用环境变量 YLP_AGENT_BASE 覆盖）")
     return Response(resp.content, status_code=resp.status_code,
                     media_type=resp.headers.get("content-type", ""))
+
+
+# MS（MaterialSorting 排料服务）同源转发（二期机器排料对接 §10.3.2，复刻
+# /agent 先例）：前端永不直连 MS——dev 由 Vite proxy /ms -> 8010，生产（dist
+# 由本进程托管）无 Vite，故此处 httpx 原样字节透传，dev/prod 同构、零 CORS。
+# 机器端点面（MS web/machine.py）：POST /api/machine/solve（multipart 母版
+# DXF ≤20MB 直传）、GET .../status | .../result、POST .../stop、POST
+# /api/machine/export（PLT 文件流）、DELETE .../solve/{task_id}。超时分档：
+# solve 提交（上传+parse+commit）/ export（PLT 生成）/ result（MB 级多边形
+# 载荷）重端点 120s，status（2s 级轮询）与其余轻端点 30s；Content-Disposition
+# （导出文件名）/ Cache-Control（首页探针）响应头原样透传；MS 未启动 -> 502
+#（中文消息，前端弹层直显）。
+_MS_BASE = os.environ.get("YLP_MS_BASE", "http://127.0.0.1:8010")
+_MS_SLOW_SUFFIXES = ("/solve", "/export", "/result")   # 重端点：120s
+
+
+def _ms_timeout_sec(path: str) -> float:
+    """超时分档：solve 提交 / export / result 重端点 120s；status 轮询、
+    stop、DELETE、首页探针等轻端点 30s。"""
+    return 120.0 if f"/{path}".lower().endswith(_MS_SLOW_SUFFIXES) else 30.0
+
+
+@app.api_route("/ms/{path:path}", methods=["GET", "POST", "DELETE"])
+async def ms_forward(path: str, request: Request) -> Response:
+    import httpx   # 懒加载（同 agent_forward 先例）：未装 httpx 只影响本路由
+    target = f"/{path}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    try:
+        async with httpx.AsyncClient(base_url=_MS_BASE,
+                                     timeout=_ms_timeout_sec(path)) as client:
+            resp = await client.request(
+                request.method, target, content=await request.body(),
+                headers={"content-type": request.headers.get("content-type", "")})
+    except httpx.HTTPError:
+        raise HTTPException(
+            502, "MS 排料服务未启动或不可达（默认 http://127.0.0.1:8010，"
+                 "可用环境变量 YLP_MS_BASE 覆盖）")
+    passthrough = {k: resp.headers[k] for k in
+                   ("cache-control", "content-disposition") if k in resp.headers}
+    return Response(resp.content, status_code=resp.status_code,
+                    media_type=resp.headers.get("content-type", ""),
+                    headers=passthrough)
+
+
+# .msn 状态文件透传代理（三期机器对接 US-001，tasks/prd-machine-state-file-yl.md）：
+# 专用端点而非 /ms/{path} 通配——通配不带 MS token，本端点服务端注入
+# X-Machine-Token（新环境变量 YLP_MS_TOKEN，与 YLP_MS_BASE 同族命名），token
+# 永不出现在响应/日志/任何前端可达面（安全边界 = 服务端持有不下发）。YL 是
+# 纯搬运工：.msn 为不透明 gzip 字节流，不解析、不感知 MS schema 升级；client
+# 流式转发（不落盘、不整体读入内存，典型几百 KB~几 MB），Content-Type 与
+# Content-Disposition（.msn 文件名）原样透传保证浏览器落盘名与 MS 侧一致。
+# 错误映射（MS 结构化 {"error":...} 按 status 归一为固定中文提示，原文案不透传）：
+# 401/404/409 原码 + 专属文案，其余/超时/连接失败 -> 502 通用文案。鉴权按 YL
+# 现状（本地工具无用户会话体系）不新增。超时 60s 专用档（MS 生成秒级留裕量，
+# 不落 _ms_timeout_sec 的 30s 轻端点档）。
+_MS_TOKEN = os.environ.get("YLP_MS_TOKEN", "")
+_MS_STATE_TIMEOUT_SEC = 60.0
+_MS_STATE_ERR = {
+    401: "排料服务认证失败，请联系管理员",
+    404: "任务不存在或已清理",
+    409: "任务数据已不可得，请重新提交排料",
+}
+_MS_STATE_ERR_DEFAULT = "排料服务暂不可用，请稍后重试"
+
+
+@app.get("/api/nest/tasks/{task_id}/state-file")
+async def nest_state_file(task_id: str) -> StreamingResponse:
+    """MS 机器任务 .msn 状态文件透传：task_id 即 YL 求解会话中的 MS 任务号
+    （薄壳无任务落库，前端直接携带）。send(stream=True) + StreamingResponse
+    逐块转发；连接回收放 BackgroundTask（async with 会在返回前先关流）。"""
+    import httpx   # 懒加载（同 ms_forward 先例）
+    from starlette.background import BackgroundTask
+
+    client = httpx.AsyncClient(base_url=_MS_BASE,
+                               timeout=_MS_STATE_TIMEOUT_SEC)
+    try:
+        resp = await client.send(
+            client.build_request(
+                "GET", f"/api/machine/solve/{task_id}/state-file",
+                headers={"X-Machine-Token": _MS_TOKEN} if _MS_TOKEN else None),
+            stream=True)
+    except httpx.HTTPError:       # 连接失败/超时 -> 502 通用文案
+        await client.aclose()
+        raise HTTPException(502, _MS_STATE_ERR_DEFAULT)
+    if resp.status_code != 200:
+        status = resp.status_code
+        await resp.aclose()
+        await client.aclose()
+        raise HTTPException(
+            status if status in _MS_STATE_ERR else 502,
+            _MS_STATE_ERR.get(status, _MS_STATE_ERR_DEFAULT))
+    passthrough = {k: resp.headers[k] for k in
+                   ("content-type", "content-disposition") if k in resp.headers}
+
+    async def _release() -> None:
+        await resp.aclose()
+        await client.aclose()
+
+    return StreamingResponse(resp.aiter_bytes(), headers=passthrough,
+                             background=BackgroundTask(_release))
 
 
 @app.get("/")

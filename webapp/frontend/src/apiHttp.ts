@@ -1,10 +1,12 @@
 import type {
-  AdjustResult, DraftPayload, FittingResult, IssueDetail, NestResult,
+  AdjustResult, DraftPayload, FittingResult, IssueDetail, MsMachineConfig,
+  MsResult, MsSolveStart, MsStatus, NestResult,
   PiecesResult, Schema, SeedPayload, SeedResult, SheetResult, Values,
 } from './types'
 import type { ChatTurnResponse, ExtractResponse } from './types'
 import { AGENT_BASE } from './agentConfig'
 import { normalizeChatError } from './chatPayload'
+import { MS_BASE } from './msBase'
 import { normalizeExtractError } from './extractPayload'
 
 async function handle<T>(res: Response): Promise<T> {
@@ -203,4 +205,160 @@ export async function postChatTurn(form: FormData): Promise<ChatTurnResponse> {
     throw normalizeChatError(res.status, body?.detail)
   }
   return res.json() as Promise<ChatTurnResponse>
+}
+
+// ---- MS 机器排料六端点（/ms 前缀；dev=Vite proxy、prod=backend httpx 转发） ----
+// 纯 HTTP（求解/轮询/取果/停止/PLT 导出全在 MS 服务侧，Pyodide 不做排料），
+// 同 postNest 先例不进 route() 引擎通道。错误体两形态：MS {'error': 中文}
+//（solve 409 重复提交另带 task_id）、YL /ms 代理 {'detail': 中文}（502）——
+// normalizeMsError 归一成可读中文；网络级失败是原生 TypeError（不归一），
+// 由调用方（useNestSolve）按「可重试」处理。
+
+// MS 错误归一产物：带 HTTP status（404/400 等不可重试判定用）与 409 带回的
+// 既有 task_id（幂等冲突提示用）
+export interface MsError extends Error {
+  status: number
+  taskId?: string
+}
+
+// status 兜底文案：仅在错误体缺失/非字符串时启用（MS 侧消息本就是可读
+// 中文，优先透传）
+const MS_ERROR_FALLBACK: Record<number, string> = {
+  400: '请求无效（载荷或参数不合法）',
+  401: 'MS 认证失败（服务端已启用 X-Machine-Token 认证）',
+  404: '任务不存在或已被清理（可能已删除或 MS 服务重启）',
+  409: '任务冲突（重复提交或运行尚未结束）',
+  413: '母版 DXF 超过大小上限（20MB）',
+  422: '母版 DXF 解析失败',
+  502: 'MS 排料服务未启动或不可达',
+}
+
+export function normalizeMsError(status: number, body: unknown): MsError {
+  const b = typeof body === 'object' && body !== null
+    ? body as Record<string, unknown> : {}
+  const raw = typeof b.error === 'string' && b.error ? b.error
+    : typeof b.detail === 'string' && b.detail ? b.detail : null
+  const err = new Error(raw ?? MS_ERROR_FALLBACK[status]
+    ?? `MS 请求失败（HTTP ${status}）`) as MsError
+  err.status = status
+  if (typeof b.task_id === 'string' && b.task_id) err.taskId = b.task_id
+  return err
+}
+
+// 五端点公共壳：非 2xx → 错误体归一抛 MsError
+async function msJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${MS_BASE}${path}`, init)
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw normalizeMsError(res.status, body)
+  }
+  return res.json() as Promise<T>
+}
+
+// 提交求解（POST /api/machine/solve → 202 {task_id, run_name, started_at}）：
+// multipart file（母版 DXF 字节，filename 保留 .dxf 后缀——MS 侧校验）+
+// config（JSON 字符串，client_ref 由提交层 useNestSolve 追加）。勿手设
+// Content-Type（浏览器补 multipart boundary，代理透传依赖它）
+export async function msSolveStart(
+  file: Blob, filename: string,
+  config: MsMachineConfig & { client_ref?: string },
+): Promise<MsSolveStart> {
+  const form = new FormData()
+  form.append('file', file, filename)
+  form.append('config', JSON.stringify(config))
+  return msJson<MsSolveStart>('/api/machine/solve', { method: 'POST', body: form })
+}
+
+// 状态轮询（GET .../status：控载荷 {state, incumbent, current, per_seed, …}）
+export async function msStatus(taskId: string): Promise<MsStatus> {
+  return msJson<MsStatus>(
+    `/api/machine/solve/${encodeURIComponent(taskId)}/status`)
+}
+
+// 终态取果（GET .../result：{manifest, best, summary}；running → 409）
+export async function msResult(taskId: string): Promise<MsResult> {
+  return msJson<MsResult>(
+    `/api/machine/solve/${encodeURIComponent(taskId)}/result`)
+}
+
+// 终止（POST .../stop：在飞树杀 → {'stopped': true, pid}；orphan marker
+// 清理带 orphan: true；已终态 400）
+export async function msStop(
+  taskId: string,
+): Promise<{ stopped: boolean; pid: number | null; orphan?: boolean }> {
+  return msJson(`/api/machine/solve/${encodeURIComponent(taskId)}/stop`,
+    { method: 'POST' })
+}
+
+// 任务清理（DELETE .../solve/{task_id}）：结果期显式关闭时 best-effort
+// 回收 MS 会话名额（并发任务上限）——失败由调用方静默，MS 侧 TTL+7 天
+// 兜底；非 2xx 仍走 normalizeMsError 抛 MsError（调用方 catch 吞掉）
+export async function msDeleteTask(taskId: string): Promise<void> {
+  const res = await fetch(
+    `${MS_BASE}/api/machine/solve/${encodeURIComponent(taskId)}`,
+    { method: 'DELETE' })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw normalizeMsError(res.status, body)
+  }
+}
+
+// PLT 导出（POST /api/machine/export）：请求体仅 {task_id}——fmt 缺省
+// plt-clean、表格缺省服务端全算（零格式/表格参数，全在 MS 侧烘焙）；返回
+// blob + 文件名（Content-Disposition 优先，ASCII/UTF-8 双形态；缺头本地
+// 合成）。落盘时机由调用方（结果区「下载 PLT」按钮）决定
+export async function msExport(
+  taskId: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${MS_BASE}/api/machine/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id: taskId }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw normalizeMsError(res.status, body)
+  }
+  return {
+    blob: await res.blob(),
+    filename: cdFilename(res, `yl-nest-${taskId}.plt`),
+  }
+}
+
+// .msn 状态文件下载（三期机器对接 US-002，tasks/prd-machine-state-file-yl.md）：
+// 走 YL 后端专用代理端点而非 /ms 直连（US-001：代理服务端注入 MS token，
+// token 永不下发前端）——GET /api/nest/tasks/{id}/state-file 返回 gzip 附件。
+// blob 零解析（.msn 对前端是不透明字节流，不感知 MS schema 升级）；文件名
+// 与 msExport 共用 cdFilename 解析器（Content-Disposition 优先，缺头本地
+// 合成 yl-nest-{taskId}.msn）。错误体 {'detail': 中文}（US-001 映射文案）
+// 经 normalizeMsError 原样透出不重写
+export async function msStateFile(
+  taskId: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(
+    `/api/nest/tasks/${encodeURIComponent(taskId)}/state-file`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw normalizeMsError(res.status, body)
+  }
+  return {
+    blob: await res.blob(),
+    filename: cdFilename(res, `yl-nest-${taskId}.msn`),
+  }
+}
+
+// Content-Disposition 文件名解析：RFC 5987 filename*=UTF-8''<pct-encoded>
+// 优先（中文真名）、退 filename="..."（ASCII）——MS 侧中文/ASCII 双写同款；
+// 缺头/坏编码回落调用方给的本地合成名（.plt/.msn 后缀随通道）
+function cdFilename(res: Response, fallback: string): string {
+  const cd = res.headers.get('content-disposition')
+  if (cd) {
+    const star = /filename\*=(?:UTF-8|utf-8)''([^;\s]+)/.exec(cd)
+    if (star) {
+      try { return decodeURIComponent(star[1]) } catch { /* 坏编码走回落 */ }
+    }
+    const plain = /filename="([^"]+)"/.exec(cd)
+    if (plain) return plain[1]
+  }
+  return fallback
 }
