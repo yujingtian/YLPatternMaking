@@ -1,24 +1,27 @@
 // 机器排料求解弹窗（二期对接 §10.3.2 US-004）：NestResultModal「发送排料」
 // 转入，按 useNestSolve 阶段切三态视图——参数（幅宽/运行模式两项表单，
 // localStorage 记忆）→ 进度（利用率〔物理口径〕+ 进度条 + per_seed 阶段 +
-// 终止）→ 结果（摘要行 + 「下载 PLT」〔US-006：msExport 最小体 {task_id} →
-// blob 落盘，MS 侧缺省 plt-clean + 表格全算〕+ 布局图 NestPreview 三件套
-// 〔US-005〕）。弹窗安全（PRD FR-4）：maskClosable/keyboard 全程禁（点遮罩/ESC
-// 均不关闭），唯一出口 = 显式关闭按钮（右上 X / footer 关闭），语义随期别
-// 分派 solveCloseBehavior（进度期 = 关窗降频 15s 后台守望，可从左栏
-// 「排料进度」继续查看；结果期 = 停表 + best-effort msDeleteTask——由 App
-// 接线执行）。useNestSolve 实例由 App 持有跨关窗存活，本组件纯视图零状态机。
+// 终止 + 「下载状态文件(.msn)」当前最优快照〔三期 US-002〕）→ 结果（摘要行
+// + 「下载 PLT」〔US-006：msExport 最小体 {task_id} → blob 落盘，MS 侧缺省
+// plt-clean + 表格全算〕+ 「下载状态文件(.msn)」主推 + 引导文案〔三期
+// US-002〕+ 布局图 NestPreview 三件套〔US-005〕）。弹窗安全（PRD FR-4）：
+// maskClosable/keyboard 全程禁（点遮罩/ESC 均不关闭），唯一出口 = 显式关闭
+// 按钮（右上 X / footer 关闭），语义随期别分派 solveCloseBehavior（进度期 =
+// 关窗降频 15s 后台守望，可从左栏「排料进度」继续查看；结果期 = 停表 +
+// best-effort msDeleteTask——由 App 接线执行）。useNestSolve 实例由 App
+// 持有跨关窗存活，本组件纯视图零状态机。
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   Alert, Button, InputNumber, Modal, Progress, Select, Space, Spin, Tag,
 } from 'antd'
 import {
-  DownloadOutlined, SendOutlined, StopOutlined,
+  DownloadOutlined, FileZipOutlined, SendOutlined, StopOutlined,
 } from '@ant-design/icons'
 import type { MsPerSeed, MsRunMode, NestResult } from '../types'
 import type { NestSolveState } from '../hooks/useNestSolve'
-import { downloadBlob, msExport } from '../api'
+import { downloadBlob, downloadBlobBytes, msExport, msStateFile } from '../api'
+import { MS_WORKBENCH_URL } from '../msBase'
 import {
   DEFAULT_GATE_CM, DEFAULT_RUN_MODE, RUN_MODE_OPTIONS, buildMachineConfig,
 } from '../msConfig'
@@ -51,6 +54,40 @@ function saveNestSolveParams(p: NestSolveParams): void {
   try {
     localStorage.setItem(NEST_PARAMS_STORAGE_KEY, JSON.stringify(p))
   } catch { /* 静默：记忆丢失不阻塞主流程 */ }
+}
+
+// .msn 状态文件下载入口（三期机器对接 US-002，PRD FR-4）：三态共用——
+// done/stopped 结果区主推（PLT 动作行下）、running 标注「当前最优快照」、
+// error 标注「无求解结果，仅含配置」（note 随期别由调用方给文案；结果区
+// note 兼容引导文案 ReactNode 带 MS 工作台链接）。可见性 = taskId 存在即可
+// 点（MS state-file 只读幂等，任何态下载无副作用、不动终态）；失败 Alert
+// 与「下载 PLT」错误链同构（US-001 映射文案经 normalizeMsError 已透出，
+// 原样展示不重写，可重按重试）
+function MsnDownload({
+  taskId, busy, error, note, onDownload,
+}: {
+  taskId: string | null
+  busy: boolean
+  error: string | null
+  note: ReactNode
+  onDownload: () => void
+}) {
+  return (
+    <>
+      <div className="nest-result-actions">
+        <Button icon={<FileZipOutlined />} loading={busy}
+          disabled={taskId === null} onClick={onDownload}>
+          下载状态文件(.msn)
+        </Button>
+        <span className="extract-meta">{note}</span>
+      </div>
+      {error !== null
+        ? <Alert type="error" showIcon
+          message={`状态文件下载失败：${error}`}
+          style={{ marginTop: 8 }} />
+        : null}
+    </>
+  )
 }
 
 // per_seed 阶段标签（seed 完成后入账；current.seed 命中且未杀 = 在跑高亮）
@@ -98,6 +135,8 @@ export default function NestSolveModal({
   const [formError, setFormError] = useState<string | null>(null)
   const [pltBusy, setPltBusy] = useState(false)
   const [pltError, setPltError] = useState<string | null>(null)
+  const [msnBusy, setMsnBusy] = useState(false)
+  const [msnError, setMsnError] = useState<string | null>(null)
 
   // 提交：buildMachineConfig（校验内置，非法输入回表单区显示）→ base64
   // 解码 DXF 字节 → multipart（client_ref 由 hook 层追加）
@@ -140,6 +179,27 @@ export default function NestSolveModal({
       setPltError((e as Error).message)
     } finally {
       setPltBusy(false)
+    }
+  }
+
+  // 下载 .msn 状态文件（三期 US-002）：msStateFile 走 YL 代理端点（US-001，
+  // MS token 服务端注入）→ blob 字节直存 downloadBlobBytes。落盘刻意不走
+  // PLT 的 blob.text() 字符串通道——.msn 是 gzip 二进制，UTF-8 解码往返即
+  // 毁字节（PLT 纯 ASCII 才安全）；内容零解析（对前端不透明）。MS 端点只读
+  // 幂等：任何态（running 快照 / error 纯配置档）可按，失败不动终态可重试
+  const doDownloadMsn = async () => {
+    if (solve.taskId === null) return
+    setMsnBusy(true)
+    setMsnError(null)
+    try {
+      const { blob, filename } = await msStateFile(solve.taskId)
+      const bytes: Uint8Array<ArrayBuffer> =
+        new Uint8Array(await blob.arrayBuffer())
+      downloadBlobBytes(bytes, filename, 'application/gzip')
+    } catch (e) {
+      setMsnError((e as Error).message)
+    } finally {
+      setMsnBusy(false)
     }
   }
 
@@ -240,6 +300,13 @@ export default function NestSolveModal({
           关闭弹窗后任务在后台继续求解（15s 轮询守望），
           可从左栏「排料进度」重新打开查看。
         </div>
+        {/* .msn 快照取件（三期 US-002 / PRD FR-4 running 档）：MS 语义 =
+            best-so-far 快照（幂等只读，稍后可再取更新版） */}
+        <MsnDownload
+          taskId={solve.taskId} busy={msnBusy} error={msnError}
+          note="当前最优快照（求解继续进行，稍后可再取更新版）"
+          onDownload={() => void doDownloadMsn()}
+        />
       </div>
     )
   } else if (phase === 'done' || phase === 'stopped') {
@@ -269,6 +336,17 @@ export default function NestSolveModal({
                 毛版 + 唛架信息表格（plt-clean，直接交付裁床）
               </span>
             </div>
+            {/* .msn 主推入口（三期 US-002）：「一个任务一个取件区」——PLT
+                动作行下方；引导文案一处（PRD FR-5）附 MS 工作台入口链接 */}
+            <MsnDownload
+              taskId={solve.taskId} busy={msnBusy} error={msnError}
+              note={<>下载后可在排料系统(MS)『状态恢复』中打开，继续调整
+                布局、微调、改数量重解或导出图纸（
+                <a href={MS_WORKBENCH_URL} target="_blank" rel="noreferrer">
+                  打开 MS 工作台
+                </a>）</>}
+              onDownload={() => void doDownloadMsn()}
+            />
             {pltError !== null
               ? <Alert type="error" showIcon
                 message={`PLT 导出失败：${pltError}`}
@@ -282,18 +360,44 @@ export default function NestSolveModal({
             />
           </>
         ) : solve.error !== null ? (
-          <Alert type="error" showIcon
-            message={`取回结果失败：${solve.error}`} />
+          <>
+            <Alert type="error" showIcon
+              message={`取回结果失败：${solve.error}`} />
+            <MsnDownload
+              taskId={solve.taskId} busy={msnBusy} error={msnError}
+              note="无求解结果，仅含配置"
+              onDownload={() => void doDownloadMsn()}
+            />
+          </>
         ) : (
-          <div className="extract-meta">正在取回结果…</div>
+          <>
+            {/* 极早终止（result 在场但无 best 帧）会停在此分支：.msn 纯配置
+                档仍可取（PRD FR-4 error 档文案同款） */}
+            <div className="extract-meta">正在取回结果…</div>
+            <MsnDownload
+              taskId={solve.taskId} busy={msnBusy} error={msnError}
+              note="无求解结果，仅含配置"
+              onDownload={() => void doDownloadMsn()}
+            />
+          </>
         )}
       </div>
     )
   } else {
     body = (
-      <Alert
-        type="error" showIcon message="排料失败"
-        description={solve.error ?? '未知错误'} />
+      <div>
+        <Alert
+          type="error" showIcon message="排料失败"
+          description={solve.error ?? '未知错误'} />
+        {/* 提交即失败 taskId 仍空 → 无可下载（MS 侧无任务）；轮询期失败
+            （404/连续失联等）taskId 在场 → 纯配置档 .msn 仍可取（FR-4） */}
+        {solve.taskId !== null
+          ? <MsnDownload
+              taskId={solve.taskId} busy={msnBusy} error={msnError}
+              note="无求解结果，仅含配置"
+              onDownload={() => void doDownloadMsn()} />
+          : null}
+      </div>
     )
   }
 

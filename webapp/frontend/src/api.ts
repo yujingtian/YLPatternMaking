@@ -33,13 +33,16 @@ export const fetchAgentHealth = http.fetchAgentHealth
 
 // MS 机器排料六端点（二期对接 §10.3.2）：纯网络调用（求解/轮询/取果/停止/
 // DELETE 清理/PLT 导出全在 MS 服务侧），不进 route() 引擎通道（同 postNest
-// 先例）；MsError 供 useNestSolve 按 status 判「不可重试」（404/400）
+// 先例）；MsError 供 useNestSolve 按 status 判「不可重试」（404/400）。
+// msStateFile（三期 US-002）同族纯 HTTP，但走 YL 后端专用代理端点
+// /api/nest/tasks/{id}/state-file（US-001：MS token 服务端注入不下发前端）
 export const msSolveStart = http.msSolveStart
 export const msStatus = http.msStatus
 export const msResult = http.msResult
 export const msStop = http.msStop
 export const msDeleteTask = http.msDeleteTask
 export const msExport = http.msExport
+export const msStateFile = http.msStateFile
 export type { MsError } from './apiHttp'
 
 // 本地引擎单命令超时（ms）：超时本次回落 HTTP 并计数，连续 3 次会话降级

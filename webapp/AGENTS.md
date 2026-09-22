@@ -58,4 +58,12 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
 - 活体提交 solve 的 config 陷阱：`quantities` **外键=g 码、内键=码号字符串**
   （`{"g01": {"29": 2}}`，写反 MS solver 直接 error「键不是合法 g 码」）。
 - MS gzip mtime 非确定：同一 stopped 任务两次取 state-file 逐字节对拍须同秒
+- US-002（前端 .msn 入口 2026-09-22）实测口径：`msStateFile` 走 **YL 后端代理
+  端点 `/api/nest/tasks/{id}/state-file`（非 /ms）**——token 在代理侧注入；
+  .msn 是 gzip 二进制，落盘必须 `downloadBlobBytes`（`blob.text()` UTF-8 往返
+  毁字节，PLT 纯 ASCII 才可 text 通道）；orphan 剧本（out/us002_orphan.mjs）：
+  杀 MS → 2s 档轮询连败 3 次落 error 相（taskId 保留）→ 重启 MS → marker 在
+  state-file 仍 200 可下载；**Node spawn 的 MS 子进程随脚本退出而死**，长活
+  服务仍须 bash 起并记 PID；批量取证脚本命令过长会被截断（heredoc 追加式
+  写入）。
   内完成，否则比 `A[:4]==B[:4] and A[8:]==B[8:]`（剥 mtime 段）+ 解压载荷。

@@ -2,16 +2,10 @@
   "branchName": "ralph/ms-nesting-integration",
   "stories": [
     {
-      "id": "US-001",
-      "title": "后端 .msn 状态文件透传代理端点",
-      "description": "YL 用户点击「下载状态文件」拿到 .msn 文件，交付版师在 MS 排料系统继续调整（机器对接三期 YL 侧，PRD：tasks/prd-machine-state-file-yl.md）。YL 为纯搬运工：.msn 是不透明 gzip 字节流，不解析、不感知 schema 升级；实现模式克隆既有 PLT 导出通道，差异 = 专用端点 + 服务端注入 MS token。\n\n具体任务：\n1. webapp/backend/app.py — 新增专用代理端点 GET /api/nest/tasks/{task_id}/state-file（task_id 直取 YL 求解会话中的 MS 任务号——YL 现状为薄壳无任务落库，路由命名随自家风格可微调，PRD 不强约）。不走既有 /ms/{path} 通配代理（它不带 token）：\n   - 服务端 httpx 流式转发 MS GET {YLP_MS_BASE}/api/machine/solve/{task_id}/state-file：client.stream + StreamingResponse 逐块转发，不落盘、不解析、不整体读入内存（.msn 典型几百 KB~几 MB gzip）；\n   - MS 200 → YL 200 原样透传 Content-Type（application/gzip）与 Content-Disposition（含 .msn 文件名），保证浏览器落盘文件名/扩展与 MS 侧一致；\n   - 新增环境变量 YLP_MS_TOKEN（与 YLP_MS_BASE 同族命名，即 PRD「与 PLT 导出通道同一配置项」在 YL 侧的服务端配置落点——现状 PLT 通道无 token 配置项，故新建）：已配置则向 MS 请求注入 X-Machine-Token 头，未配置不发；token 永不出现在响应、日志与任何前端可达面；\n   - 超时 ≥30s（MS 生成秒级留裕量，建议 60s，勿落 _ms_timeout_sec 的 30s 轻端点档）；\n   - 错误映射（MS 结构化 {\"error\":...}，YL 转中文用户提示）：401→「排料服务认证失败，请联系管理员」；404→「任务不存在或已清理」；409→「任务数据已不可得，请重新提交排料」；其它/超时/连接失败→「排料服务暂不可用，请稍后重试」。鉴权按 YL 现状：本地工具无用户会话体系，不新增鉴权层，安全边界 = MS token 服务端持有不下发。\n2. tests/test_ms_proxy.py（或同族新文件）— 后端测试：透传不变形（对拍 MS 原始响应字节与响应头）、错误映射 401/404/409/其它四支路、X-Machine-Token 注入且不泄露到响应/日志。\n\n验收标准：\n- 代理转发响应字节、Content-Type、Content-Disposition 与 MS 原始响应完全一致（逐字节对拍）\n- 401/404/409/超时四支路各自返回指定中文文案\n- YLP_MS_TOKEN 未配置不发头、配置后服务端注入；token 不出现在任何前端可达面（网络面板/日志/构建产物）\n- 流式转发：大文件不整体驻留内存\n- python -m pytest tests/test_ms_proxy.py -q 通过",
-      "passes": true
-    },
-    {
       "id": "US-002",
       "title": "前端「下载状态文件(.msn)」入口与引导",
       "description": "YL 用户在任务结果页看到「下载状态文件(.msn)」入口并理解文件用途，完成「机器排料 → 人工精调」交接（PRD：tasks/prd-machine-state-file-yl.md，依赖 US-001 代理端点）。\n\n具体任务：\n1. webapp/frontend/src/apiHttp.ts — 新增 msStateFile(taskId)（msExport 同构先例）：GET /api/nest/tasks/{taskId}/state-file，返回 {blob, filename}（Content-Disposition 优先解析文件名，ASCII/UTF-8 filename* 双形态，缺头本地合成 yl-nest-{taskId}.msn 兜底）；blob 内容零解析（.msn 对前端不透明）；错误体归一（normalizeMsError 同族），US-001 中文映射文案原样透出、不重写。webapp/frontend/src/api.ts 按先例 re-export。\n2. webapp/frontend/src/components/NestSolveModal.tsx — 结果区「下载 PLT」同区域新增「下载状态文件(.msn)」按钮（「一个任务一个取件区」心智，实际摆放随结果区结构）：\n   - 可见性 = taskId 存在即可点：done/stopped 主推；running 态可点、文案标注「当前最优快照」；error 态可点、文案「无求解结果，仅含配置」；\n   - 下载落盘复用 downloadBlob 先例（fetch→blob→a[download]，文件内容零解析）；\n   - 引导文案一处（按钮旁 tooltip 或说明行）：「下载后可在排料系统(MS)『状态恢复』中打开，继续调整布局、微调、改数量重解或导出图纸」，附 MS 工作台入口链接（版师日常访问地址，前端常量）；\n   - 后端错误提示原样展示、不重写（与「下载 PLT」按钮错误链同构，失败不动终态可重按）。\n3. webapp/frontend/src/apiHttp.test.ts — 前端测试：请求路径/方法、文件名解析双形态（msExport 先例）、错误文案透出。\n\n验收标准：\n- done 任务点击按钮浏览器落盘 .msn 文件，文件名与 MS 侧 Content-Disposition 一致\n- running/error 态按钮可点且文案区分（当前最优快照 / 无求解结果，仅含配置）\n- 引导文案 + MS 工作台入口链接可见\n- 前端错误弹层原样展示 US-001 映射中文文案\n- 端到端冒烟：提交排料任务至终态 → 下载 .msn → MS 工作台「状态恢复」上传还原，画布布局与 YL 结果页一致（依赖 MS 侧三期，条件允许时手工验证）\n- cd webapp/frontend && npm test 通过",
-      "passes": false
+      "passes": true
     }
   ]
 }

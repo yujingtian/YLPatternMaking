@@ -43,6 +43,12 @@
         "title": "文档增补 + 端到端冒烟",
         "description": "作为开发者，需要二期接线文档与自动化冒烟，使回归有护栏。\n\n具体任务：\n1. .doc/python工程设计.md §10.3.2 — 增补调用链图/config 映射表/端口与环境变量/运行模式语义区分（YL「高级/极限」= MS race/extreme 求解模式，非时长别名）\n2. webapp/frontend/scripts/smoke_ms_nest.mjs — Playwright 冒烟脚本（镜像 MS scripts/smoke_*.mjs 套路：上传→生成→排料→发送（time 短档夹具）→轮询→预览→PLT 下载 + 异常分支 409/终止/502/误关防护）\n\n验收标准：\n- 冒烟脚本全绿（含四条异常分支）\n- 文档增补段完整（含 per_type 全 0 = 缺省语义全等注记、密度物理口径警示）\n- npm run build + npm test + npx tsc --noEmit + 后端 python -m pytest tests/ -q 全部通过",
         "passes": true
+      },
+      {
+        "id": "US-001",
+        "title": "后端 .msn 状态文件透传代理端点",
+        "description": "YL 用户点击「下载状态文件」拿到 .msn 文件，交付版师在 MS 排料系统继续调整（机器对接三期 YL 侧，PRD：tasks/prd-machine-state-file-yl.md）。YL 为纯搬运工：.msn 是不透明 gzip 字节流，不解析、不感知 schema 升级；实现模式克隆既有 PLT 导出通道，差异 = 专用端点 + 服务端注入 MS token。\n\n具体任务：\n1. webapp/backend/app.py — 新增专用代理端点 GET /api/nest/tasks/{task_id}/state-file（task_id 直取 YL 求解会话中的 MS 任务号——YL 现状为薄壳无任务落库，路由命名随自家风格可微调，PRD 不强约）。不走既有 /ms/{path} 通配代理（它不带 token）：\n   - 服务端 httpx 流式转发 MS GET {YLP_MS_BASE}/api/machine/solve/{task_id}/state-file：client.stream + StreamingResponse 逐块转发，不落盘、不解析、不整体读入内存（.msn 典型几百 KB~几 MB gzip）；\n   - MS 200 → YL 200 原样透传 Content-Type（application/gzip）与 Content-Disposition（含 .msn 文件名），保证浏览器落盘文件名/扩展与 MS 侧一致；\n   - 新增环境变量 YLP_MS_TOKEN（与 YLP_MS_BASE 同族命名，即 PRD「与 PLT 导出通道同一配置项」在 YL 侧的服务端配置落点——现状 PLT 通道无 token 配置项，故新建）：已配置则向 MS 请求注入 X-Machine-Token 头，未配置不发；token 永不出现在响应、日志与任何前端可达面；\n   - 超时 ≥30s（MS 生成秒级留裕量，建议 60s，勿落 _ms_timeout_sec 的 30s 轻端点档）；\n   - 错误映射（MS 结构化 {\"error\":...}，YL 转中文用户提示）：401→「排料服务认证失败，请联系管理员」；404→「任务不存在或已清理」；409→「任务数据已不可得，请重新提交排料」；其它/超时/连接失败→「排料服务暂不可用，请稍后重试」。鉴权按 YL 现状：本地工具无用户会话体系，不新增鉴权层，安全边界 = MS token 服务端持有不下发。\n2. tests/test_ms_proxy.py（或同族新文件）— 后端测试：透传不变形（对拍 MS 原始响应字节与响应头）、错误映射 401/404/409/其它四支路、X-Machine-Token 注入且不泄露到响应/日志。\n\n验收标准：\n- 代理转发响应字节、Content-Type、Content-Disposition 与 MS 原始响应完全一致（逐字节对拍）\n- 401/404/409/超时四支路各自返回指定中文文案\n- YLP_MS_TOKEN 未配置不发头、配置后服务端注入；token 不出现在任何前端可达面（网络面板/日志/构建产物）\n- 流式转发：大文件不整体驻留内存\n- python -m pytest tests/test_ms_proxy.py -q 通过",
+        "passes": true
       }
     ]
   }

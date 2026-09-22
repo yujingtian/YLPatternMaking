@@ -1,11 +1,12 @@
-// apiHttp MS 段金标（vitest node env，fetch 全程 stub 不触网）：五函数
-// URL/方法/载荷口径 + normalizeMsError 两形态归一。MS_BASE 取缺省 '/ms'
+// apiHttp MS 段金标（vitest node env，fetch 全程 stub 不触网）：六函数
+// URL/方法/载荷口径 + normalizeMsError 两形态归一（msStateFile 走 YL 代理
+// 端点 /api/nest 前缀，非 /ms）。MS_BASE 取缺省 '/ms'
 //（vitest 无 VITE_MS_BASE 构建变量）。
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  msDeleteTask, msExport, msResult, msSolveStart, msStatus, msStop,
-  normalizeMsError,
+  msDeleteTask, msExport, msResult, msSolveStart, msStateFile, msStatus,
+  msStop, normalizeMsError,
 } from './apiHttp'
 import type { MsMachineConfig, MsStatus } from './types'
 
@@ -197,6 +198,59 @@ describe('msExport（{task_id} 最小体 + 文件名解析）', () => {
     stubFetch(() => fail(404, { error: '任务不存在（task_id=m9）' }))
     await expect(msExport('m9')).rejects.toMatchObject({
       status: 404, message: '任务不存在（task_id=m9）',
+    })
+  })
+})
+
+describe('msStateFile（YL 代理端点 + .msn 文件名解析）', () => {
+  // gzip 魔数 1f 8b 起头的二进制体——钉死「blob 零解析透传」口径（.msn
+  // 对前端不透明，严禁 text() 字符串通道在别处复活）
+  function okMsn(cd: string | null) {
+    return {
+      ok: true, status: 200,
+      json: async () => ({}),
+      blob: async () => new Blob([new Uint8Array([0x1f, 0x8b, 0x08, 0x00])]),
+      headers: { get: (k: string) => (k === 'content-disposition' ? cd : null) },
+    }
+  }
+
+  it('GET /api/nest/tasks/{id}/state-file（YL 代理非 /ms 直连）；UTF-8 filename* 优先解码中文真名；blob 二进制原样透出', async () => {
+    stubFetch(() => okMsn('attachment; filename="machine_m1.msn"; '
+      + "filename*=UTF-8''%E6%8E%92%E6%96%99.msn"))
+    const res = await msStateFile('m1')
+    expect(res.filename).toBe('排料.msn')
+    expect(res.blob.size).toBe(4)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/nest/tasks/m1/state-file')
+    expect(init).toBeUndefined()   // 纯 GET：无方法/载荷/头
+  })
+
+  it('仅 ASCII filename="…" 亦可用；缺头 → 本地合成 yl-nest-{id}.msn', async () => {
+    stubFetch(() => okMsn('attachment; filename="machine_m1.msn"'))
+    expect((await msStateFile('m1')).filename).toBe('machine_m1.msn')
+    stubFetch(() => okMsn(null))
+    expect((await msStateFile('m9')).filename).toBe('yl-nest-m9.msn')
+  })
+
+  it('taskId 特殊字符走 encodeURIComponent（路径安全闸，同 msStatus）', async () => {
+    stubFetch(() => fail(404, { detail: '任务不存在或已清理' }))
+    await expect(msStateFile('a/b c')).rejects.toMatchObject({ status: 404 })
+    expect(fetchMock.mock.calls[0][0])
+      .toBe('/api/nest/tasks/a%2Fb%20c/state-file')
+  })
+
+  it('非 2xx → US-001 映射中文文案经 detail 原样透出（不重写）', async () => {
+    stubFetch(() => fail(404, { detail: '任务不存在或已清理' }))
+    await expect(msStateFile('m9')).rejects.toMatchObject({
+      status: 404, message: '任务不存在或已清理',
+    })
+    stubFetch(() => fail(409, { detail: '任务数据已不可得，请重新提交排料' }))
+    await expect(msStateFile('m9')).rejects.toMatchObject({
+      status: 409, message: '任务数据已不可得，请重新提交排料',
+    })
+    stubFetch(() => fail(502, { detail: '排料服务暂不可用，请稍后重试' }))
+    await expect(msStateFile('m9')).rejects.toMatchObject({
+      status: 502, message: '排料服务暂不可用，请稍后重试',
     })
   })
 })

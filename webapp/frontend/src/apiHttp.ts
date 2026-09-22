@@ -304,12 +304,38 @@ export async function msExport(
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
   }
-  return { blob: await res.blob(), filename: exportFilename(res, taskId) }
+  return {
+    blob: await res.blob(),
+    filename: cdFilename(res, `yl-nest-${taskId}.plt`),
+  }
+}
+
+// .msn 状态文件下载（三期机器对接 US-002，tasks/prd-machine-state-file-yl.md）：
+// 走 YL 后端专用代理端点而非 /ms 直连（US-001：代理服务端注入 MS token，
+// token 永不下发前端）——GET /api/nest/tasks/{id}/state-file 返回 gzip 附件。
+// blob 零解析（.msn 对前端是不透明字节流，不感知 MS schema 升级）；文件名
+// 与 msExport 共用 cdFilename 解析器（Content-Disposition 优先，缺头本地
+// 合成 yl-nest-{taskId}.msn）。错误体 {'detail': 中文}（US-001 映射文案）
+// 经 normalizeMsError 原样透出不重写
+export async function msStateFile(
+  taskId: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(
+    `/api/nest/tasks/${encodeURIComponent(taskId)}/state-file`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw normalizeMsError(res.status, body)
+  }
+  return {
+    blob: await res.blob(),
+    filename: cdFilename(res, `yl-nest-${taskId}.msn`),
+  }
 }
 
 // Content-Disposition 文件名解析：RFC 5987 filename*=UTF-8''<pct-encoded>
-// 优先（中文真名）、退 filename="..."（ASCII）——MS 侧中文/ASCII 双写同款
-function exportFilename(res: Response, taskId: string): string {
+// 优先（中文真名）、退 filename="..."（ASCII）——MS 侧中文/ASCII 双写同款；
+// 缺头/坏编码回落调用方给的本地合成名（.plt/.msn 后缀随通道）
+function cdFilename(res: Response, fallback: string): string {
   const cd = res.headers.get('content-disposition')
   if (cd) {
     const star = /filename\*=(?:UTF-8|utf-8)''([^;\s]+)/.exec(cd)
@@ -319,5 +345,5 @@ function exportFilename(res: Response, taskId: string): string {
     const plain = /filename="([^"]+)"/.exec(cd)
     if (plain) return plain[1]
   }
-  return `yl-nest-${taskId}.plt`
+  return fallback
 }
