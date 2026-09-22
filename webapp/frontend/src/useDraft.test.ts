@@ -1,10 +1,12 @@
-// 排料 numMap 弹窗纯逻辑金标（vitest；风格对齐 extractPayload.test.ts）。
+// 排料 numMap 清单纯逻辑金标（vitest；风格对齐 useNestSolve.test.ts）。
 // 口径：后端 /api/nest 返回扁平 numMap {g码: 数量} + labels {g码: 中文名}
-// （§10.3.2）；nestRows 排序 = g 码数字升序、labels 缺键回退「裁片」
+// （§10.3.2）；nestRows 排序 = g 码数字升序、labels 缺键回退「裁片」。
+// 2026-09-22 入口收口：清单弹窗（NestResultModal）删除，nestRows 迁至
+// useDraft 导出、供 startNestFlow 的 console.table 排查打印消费
 
 import { describe, expect, it } from 'vitest'
-import { nestRows } from './NestResultModal'
-import type { NestResult } from '../types'
+import { nestRows } from './hooks/useDraft'
+import type { NestResult } from './types'
 
 function mk(numMap: Record<string, number>,
            labels: Record<string, string> = {}): NestResult {

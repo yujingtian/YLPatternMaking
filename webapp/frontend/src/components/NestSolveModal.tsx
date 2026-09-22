@@ -1,5 +1,6 @@
-// 机器排料求解弹窗（二期对接 §10.3.2 US-004）：NestResultModal「发送排料」
-// 转入，按 useNestSolve 阶段切三态视图——参数（幅宽/运行模式两项表单，
+// 机器排料求解弹窗（二期对接 §10.3.2 US-004；2026-09-22 入口收口：左栏
+// 「排料」按钮直达——清单弹窗中转已删，App.startNestFlow 快照产物透传），
+// 按 useNestSolve 阶段切三态视图——参数（幅宽/运行模式两项表单，
 // localStorage 记忆）→ 进度（利用率〔物理口径〕+ 进度条 + per_seed 阶段 +
 // 终止 + 「下载状态文件(.msn)」当前最优快照〔三期 US-002〕）→ 结果（摘要行
 // + 「下载 PLT」〔US-006：msExport 最小体 {task_id} → blob 落盘，MS 侧缺省
@@ -7,9 +8,9 @@
 // US-002〕+ 布局图 NestPreview 三件套〔US-005〕）。弹窗安全（PRD FR-4）：
 // maskClosable/keyboard 全程禁（点遮罩/ESC 均不关闭），唯一出口 = 显式关闭
 // 按钮（右上 X / footer 关闭），语义随期别分派 solveCloseBehavior（进度期 =
-// 关窗降频 15s 后台守望，可从左栏「排料进度」继续查看；结果期 = 停表 +
-// best-effort msDeleteTask——由 App 接线执行）。useNestSolve 实例由 App
-// 持有跨关窗存活，本组件纯视图零状态机。
+// 关窗降频 15s 后台守望，可点击左栏「排料」按钮继续查看；结果期 = 停表 +
+// best-effort msDeleteTask——由 App 接线执行，关闭前 confirm 二次确认）。
+// useNestSolve 实例由 App 持有跨关窗存活，本组件纯视图零状态机。
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -117,15 +118,18 @@ function SeedTags({
 }
 
 export default function NestSolveModal({
-  open, payload, sizes, solve, onClose, onSessionReset,
+  open, payload, sizes, solve, fetchingPayload, onClose, onSessionReset,
 }: {
   open: boolean
-  // 发送排料时刻的 /api/nest 产物快照（App 持有：NestResultModal 关窗即清
-  // useDraft.nestResult，重试要用所以不直接消费它）；null = 无排料产物
+  // 会话期的 /api/nest 产物快照（App 的 solveCtx 持有：再次排料重取、
+  // error 重试都要用）；null = 无排料产物
   payload: NestResult | null
-  // 发送时刻的推板码表快照（同上：会话期内用户改码表不影响本会话）
+  // 会话期的推板码表快照（同上：会话期内用户改码表不影响本会话）
   sizes: string[]
   solve: NestSolveState
+  // App 侧正在（重新）获取排料产物（dlBusy==='nest'）：参数页 null 占位
+  // 文案从「产物缺失」切「正在生成」（2026-09-22 再次排料自动重取）
+  fetchingPayload?: boolean
   onClose: () => void
   // 回参数态（再次排料/放弃并重排）：App 侧包装 reset——结果期会话先
   // best-effort DELETE 回收 MS 名额再清锚（否则旧任务泄漏到 TTL）
@@ -244,7 +248,9 @@ export default function NestSolveModal({
         </div>
         <div className="extract-meta" style={{ marginTop: 4 }}>
           推板 {sizes.length} 码：{sizes.join(' / ')}
-          {payload ? null : '（排料产物缺失，请重新点击「排料」生成）'}
+          {payload ? null : fetchingPayload
+            ? '（正在生成排料数据…）'
+            : '（排料产物缺失，请关闭弹窗后重新点击「排料」生成）'}
         </div>
         {formError !== null
           ? <Alert type="error" showIcon message={formError}
@@ -298,7 +304,7 @@ export default function NestSolveModal({
         </div>
         <div className="extract-meta" style={{ marginTop: 12 }}>
           关闭弹窗后任务在后台继续求解（15s 轮询守望），
-          可从左栏「排料进度」重新打开查看。
+          可点击左栏「排料」按钮重新打开查看。
         </div>
         {/* .msn 快照取件（三期 US-002 / PRD FR-4 running 档）：MS 语义 =
             best-so-far 快照（幂等只读，稍后可再取更新版） */}

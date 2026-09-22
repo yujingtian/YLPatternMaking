@@ -15,18 +15,21 @@
 //
 // 相位总览：
 //   [M 主链路] 空白默认基样载入（参数来源，代替上传）→ 工作台挂载（整版按需
-//      生成）→ 单码拦截（一期接线仍在）→ 配推板码表 29/30/31 → 排料 → 发送
-//      排料 → 参数弹窗（time 短档夹具 = 普通运行 180s，config 不接受 time 键、
-//      三档预算 MS 侧烘焙，冒烟不空等自然完成而是走终止）→ 开始排料 → 轮询
-//      进度（status 请求 ≥2 次 + 利用率物理口径）。
+//      生成）→ 单码拦截（message 提示不开弹窗、不发 POST，2026-09-22 入口
+//      收口）→ 配推板码表 29/30/31 → 排料（POST /api/nest 直达参数弹窗，
+//      清单数据走 console.table）→ 参数弹窗（time 短档夹具 = 普通运行
+//      180s，config 不接受 time 键、三档预算 MS 侧烘焙，冒烟不空等自然完成
+//      而是走终止）→ 开始排料 → 轮询进度（status 请求 ≥2 次 + 利用率物理
+//      口径）。
 //   [W 误关防护] ESC / 遮罩点击均不关（maskClosable/keyboard 全程禁）→ 进度期
-//      显式关窗转后台守望（「排料进度」入口露出）→ 重开在视 → F5 刷新走
-//      localStorage 锚 attach 重连（taskId 不变）。
+//      显式关窗转后台守望（「排料」按钮转「排料中」态）→ 点击重开在视 →
+//      F5 刷新走 localStorage 锚 attach 重连（taskId 不变）。
 //   [T 终止→预览→PLT] 等 incumbent 密度 → 终止 → stopped 摘要（物理口径）→
 //      NestPreview 三件套（顶标签与 result 逐字符一致 / DOM 多边形 = placed
 //      条数）→ 下载 PLT（请求体仅 {task_id} / filename* 中文真名 / IN; 头 /
-//      PU/PD 笔画 / 表格区 max_x 超出唛架 width_mm）→ 结果期关闭 best-effort
-//      DELETE 200 + 锚清 + 入口退场。
+//      PU/PD 笔画 / 表格区 max_x 超出唛架 width_mm）→ 结果期关闭先 confirm
+//      二次确认（关闭即清空告知；取消留场无 DELETE）→ 确认后 best-effort
+//      DELETE 200 + 锚清 + 按钮回空闲「排料」。
 //   [F 502 分支]（backend B 死链）注入 A 页 localStorage 草稿免重走码表 →
 //      开始排料 → /ms 代理 httpx 连接失败 → 502 中文错误 Alert（排料失败）。
 //   [C 409 分支]（backend A + 真 MS）context.route 改写 solve multipart 里
@@ -212,12 +215,11 @@ async function setupSizeRun(p) {
   await visBtnOf(p, '导出', '关 闭').click()
   await sleep(600)
 }
-/** 排料 → 数量清单 → 发送排料 → 机器排料弹窗（返回弹窗定位器） */
+/** 排料 → POST /api/nest → 直达机器排料参数弹窗（返回弹窗定位器；
+ *  2026-09-22 入口收口：清单弹窗中转已删，须先配好推板码表） */
 async function openSolveModal(p) {
   await barBtnOf(p, '排料').click()
-  await visModalOf(p, '排料数量清单').waitFor({ timeout: 60_000 })
-  await visBtnOf(p, '排料数量清单', '发送排料').click()
-  await visModalOf(p, '机器排料').waitFor()
+  await visModalOf(p, '机器排料').waitFor({ timeout: 60_000 })
   return visModalOf(p, '机器排料')
 }
 
@@ -229,6 +231,12 @@ try {
   pageA.setDefaultTimeout(30_000)
   const netA = []
   tapMs(pageA, netA)
+  // console 清单打印取证（2026-09-22 入口收口：排料数据清单走 console.table
+  // 排查通道，捕获 [nest] 前缀行）
+  const nestConsoleLogs = []
+  pageA.on('console', (msg) => {
+    if (msg.text().includes('[nest]')) nestConsoleLogs.push(msg.text())
+  })
   // PLT 导出请求体取证（断言请求体仅 {task_id}）
   let exportBody = null
   pageA.on('request', (req) => {
@@ -242,18 +250,24 @@ try {
   await pageA.waitForSelector('.app-header')
   check('M1 工作台挂载（基样载入 + 整版按需生成入口就绪）', true)
 
-  // 单码拦截：一期接线回归锁（无码表时发送排料禁用）
+  // 单码拦截：入口收口回归锁（2026-09-22：清单弹窗删除，拦截前置到点击
+  // 时刻——message 提示 + 不开机器排料弹窗）
   await barBtnOf(pageA, '排料').click()
-  await visModalOf(pageA, '排料数量清单').waitFor({ timeout: 60_000 })
-  check('M2 单码拦截：发送排料禁用（需推板多码）',
-    await visBtnOf(pageA, '排料数量清单', '发送排料').isDisabled())
-  await visBtnOf(pageA, '排料数量清单', '关 闭').click()
-  await sleep(600)
+  await pageA.locator('.ant-message-notice',
+    { hasText: '机器排料需要推板多码' }).waitFor({ timeout: 3000 })
+  const m2NoModal = !(await visModalOf(pageA, '机器排料')
+    .isVisible().catch(() => false))
+  check('M2 单码拦截：message 提示且不开机器排料弹窗', m2NoModal)
+  await sleep(3200)   // 等 message 3s 自动消失，不干扰后续弹窗断言
 
   await setupSizeRun(pageA)
   check('M3 推板码表 29/30/31 已保存（3 码 · 基码 29）', true)
 
   const modalM = await openSolveModal(pageA)
+  check('M4 排料数据清单已 console 打印（[nest] 产物行，排查通道）',
+    nestConsoleLogs.length >= 1
+    && nestConsoleLogs.some((t) => t.includes('nest_size_run') || t.includes('.dxf')),
+    nestConsoleLogs.join(' | ').slice(0, 120) || '无 [nest] 输出')
   const gateVal = await pageA.locator('.nest-field input').first().inputValue()
   check('M4 幅宽默认 175（cm → gate_mm×10 提交口径）', parseFloat(gateVal) === 175, gateVal)
   check('M4 运行模式默认普通档 = time 短档夹具（180s，config 不接受 time 键）',
@@ -285,11 +299,11 @@ try {
     await visModalOf(pageA, '机器排料').isVisible())
   await visBtnOf(pageA, '机器排料', '关 闭').click()
   await sleep(600)
-  check('W2 进度期显式关窗 → 后台守望入口「排料进度」露出',
-    await barBtnOf(pageA, '排料进度').isVisible())
-  await barBtnOf(pageA, '排料进度').click()
+  check('W2 进度期显式关窗 → 排料按钮转「排料中」态（后台守望）',
+    await barBtnOf(pageA, '排料中').isVisible())
+  await barBtnOf(pageA, '排料中').click()
   await visModalOf(pageA, '机器排料').getByText('当前利用率（物理口径）').waitFor()
-  check('W3 「排料进度」重开在视进度（15s 慢档提速回 2s）', true)
+  check('W3 「排料中」点击重开在视进度（15s 慢档提速回 2s）', true)
   await pageA.reload({ waitUntil: 'load' })
   await sleep(1500)
   // 刷新后启动选择层重开：草稿防抖已落盘，「继续上次草稿」恢复参数与码表
@@ -298,7 +312,7 @@ try {
   const anchor2 = await anchorOf(pageA)
   check('W4 刷新后锚仍在且 taskId 不变（attach 重连依据）',
     anchor2 !== null && anchor2.taskId === taskId, anchor2 ? anchor2.taskId : 'null')
-  await barBtnOf(pageA, '排料进度').click()
+  await barBtnOf(pageA, '排料中').click()
   await visModalOf(pageA, '机器排料').getByText('当前利用率（物理口径）')
     .waitFor({ timeout: 30_000 })
   check('W4 刷新后 attach 重连进度视图（首拍轮询自对齐）', true)
@@ -366,16 +380,33 @@ try {
     maxX > ms.best.width_mm + 40, 'max_x=' + maxX + ' width_mm=' + ms.best.width_mm)
   await pageA.screenshot({ path: OUT + '/t_plt_downloaded.png' })
 
-  // 结果期显式关闭：best-effort DELETE 回收名额 + 锚清 + 入口退场
+  // 结果期显式关闭（2026-09-22 用户口径）：先 confirm 二次确认——「再
+  // 看看」取消留场（无 DELETE、结果弹窗不动）；「确定关闭」才回收
   netA.length = 0
   await visBtnOf(pageA, '机器排料', '关 闭').click()
+  await pageA.locator('.ant-modal-confirm',
+    { hasText: '关闭后排料结果将清空' }).waitFor()
+  check('T5 结果期关闭 → confirm 二次确认（关闭即清空告知）', true)
+  await pageA.locator('.ant-modal-confirm')
+    .getByText('再看看', { exact: true }).click()
+  await sleep(800)
+  check('T5 confirm 取消 → 留在结果页（无 DELETE 发出、锚仍在）',
+    await visModalOf(pageA, '机器排料').isVisible()
+    && netA.filter((r) => r.method === 'DELETE').length === 0
+    && (await anchorOf(pageA)) !== null)
+  await visBtnOf(pageA, '机器排料', '关 闭').click()
+  await pageA.locator('.ant-modal-confirm',
+    { hasText: '关闭后排料结果将清空' }).waitFor()
+  await pageA.locator('.ant-modal-confirm')
+    .getByText('确定关闭', { exact: true }).click()
   await sleep(1500)
   const dels = netA.filter((r) => r.method === 'DELETE')
-  check('T5 结果期关闭 → DELETE 走 /ms 且回收 200',
+  check('T5 confirm 确认 → DELETE 走 /ms 且回收 200',
     dels.length === 1 && dels[0].status === 200, JSON.stringify(dels))
   check('T5 锚已清除', (await anchorOf(pageA)) === null)
-  check('T5 守望入口退场',
-    !(await barBtnOf(pageA, '排料进度').isVisible().catch(() => false)))
+  check('T5 排料按钮回空闲态（文案「排料」，会话已弃）',
+    await barBtnOf(pageA, '排料').isVisible()
+    && !(await barBtnOf(pageA, '排料中').isVisible().catch(() => false)))
 
   // ==================== F 502 分支（backend B 死链夹具） ====================
   // 注入 A 页草稿 localStorage（免重走码表；剔除任务锚防 B 页挂载期 attach）
