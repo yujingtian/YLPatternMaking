@@ -38,6 +38,11 @@ export interface Garment {
   yokeSeam?: { sCin: number }  // seam 模式（有省育克）缝族映射断点：
                                // C_in 沿 yoke.bottom 从 P0 侧弧长，
                                // seams.ts yokeWaist 闭式收敛映射消费
+  pinArcs?: Map<number, number>  // 钉环弧位（2026-09-23 P2 钉环随行重投影）：
+                               // 全局顶点号 → 环弧 s（构建期腰圆摆位弧，
+                               // 与 buildWaistRing 环序同源——各参考环 C 恒定
+                               // 下 s 直通）。缺项 = 该钉 XZ 冻结（旧口径）；
+                               // 仅穿台分支填充（旁挂不重投影）
 }
 
 // 单片裁片（成对与否除外）——腰头整根/幅样无左右之分，单片原样
@@ -354,6 +359,10 @@ export function buildFullPair(
     }
   })()
   const nBand = bandPlan ? band!.xy.length / 2 : 0
+  // 钉环弧位登记（P2 穿台）：ringMap 在 = 穿台分支，逐钉记录构建期环弧 s
+  //（三源：Step2 身片顶链摆位弧 / Step3 snap 角 cornerArc / Step4.6 带顶点
+  // 配对环顶点弧）。旁挂不建（null = 无重投影）
+  const pinArcMap = ringMap ? new Map<number, number>() : null
   const pos = new Float32Array(3 * (2 * nF + 2 * nB + 2 * nY + nBand))
   // ---- 1) 片身基础映射（躯干全局 x→θ / 腿区腿局部圆环绕管）----
   for (const part of parts) {
@@ -427,12 +436,14 @@ export function buildFullPair(
     // 中缝/侧缝腰角由弧长自然落位（扁截面下侧缝腰角前移是布量分布的
     // 真实几何，不再钉死 0°/±90°）
     for (const v of walk.verts) {
-      const p = ringPointAt(waistRing, v.arc * ringMap.kScale)
+      const s = v.arc * ringMap.kScale
+      const p = ringPointAt(waistRing, s)
       const part = parts[v.part]
       const i3 = 3 * (part.offset + v.idx)
       pos[i3] = p.x
       pos[i3 + 1] = part.mesh.xy[2 * v.idx + 1]
       pos[i3 + 2] = p.z
+      pinArcMap!.set(part.offset + v.idx, s)   // P2 源①：顶链钉弧位
     }
   } else {
     for (const part of parts) {
@@ -560,6 +571,12 @@ export function buildFullPair(
         pos[i3 + 1] = yAvg
         pos[i3 + 2] = r * Math.cos(th)
       }
+      // P2 源②：snap 角钉弧位（前后角同摆一个环位点 = 同弧；旁挂跳过）
+      if (cp !== null && pinArcMap) {
+        pinArcMap.set(p.offset + c.v,
+          (parts[iF].side === 'L' ? ringMap!.cornerArcL : ringMap!.cornerArcR)
+            * ringMap!.kScale)
+      }
     }
     // 高差渐变（（十）腰头侧缝不平整）：角点两侧 waistBlendSpan 弧内的
     // 顶链顶点 y 向 snap 高度渐变——只平均角点会在缝口两侧留台阶，腰头
@@ -683,6 +700,11 @@ export function buildFullPair(
       const r = walk.verts[targets[i].ringK]
       const gi = 3 * (parts[r.part].offset + r.idx)
       const bi = 3 * (bandOff + i)
+      // P2 源③：带钉弧位 = 配对环顶点弧（带列 XZ 沿底/顶环同弧位渐变，
+      // 顶环 total 与底环同为 C → 比例 1，弧位即列弧位）
+      if (pinArcMap && ringMap) {
+        pinArcMap.set(bandOff + i, r.arc * ringMap.kScale)
+      }
       const f = topRing !== null ? targets[i].v / vMax : 0
       if (topRing !== null && f > 0) {
         // 配对底边环顶点的环弧（纸样弧 × kScale）等比例映到顶环
@@ -767,5 +789,6 @@ export function buildFullPair(
   return {
     parts, pos, total: 2 * nF + 2 * nB + 2 * nY + nBand,
     ...(yoke ? { yokeSeam: { sCin: yoke.sCin } } : {}),
+    ...(pinArcMap && pinArcMap.size ? { pinArcs: pinArcMap } : {}),
   }
 }

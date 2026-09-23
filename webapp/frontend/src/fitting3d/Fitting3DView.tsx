@@ -56,17 +56,19 @@ import { buildFlatLayout, buildFullPair, type Garment } from './garment/assemble
 import {
   buildBodyField, buildLegAxisFromRings, buildWaistRing, shiftPositionsY,
 } from './garment/placement'
-import { buildDrape, stepDrape, type DrapeSim } from './garment/drape'
+import { buildDrape, type DrapeSim } from './garment/drape'
 import {
-  buildSettle, buildCrotchProbeIdx,
-  type CrotchContact, type DressReport, type SettleController,
+  buildCrotchProbeIdx, type CrotchContact, type DressReport,
 } from './garment/settle'
 import { buildClothMesh } from './garment/mesh'
 import { buildBackPanel, buildFrontPanel } from './garment/panel'
 import { bindRider } from './garment/rider'
 import { bandBottomChain, buildWaistbandMesh } from './garment/band'
-import { FIELD_PRIOR, FLAT_PRIOR, HANG_PRIOR, HEAT_PRIOR } from './garment/priors'
-import { computeHeat, type HeatMode } from './garment/heatmap'
+import { FIELD_PRIOR, FLAT_PRIOR, HANG_PRIOR } from './garment/priors'
+import { computeHeat } from './garment/heatmap'
+// worker 协议（type-only：dressWorker 有模块级副作用，运行时不得引入主线程）
+import type { WorkerOut } from './garment/dressWorker'
+import { toSolveState, transferBuffers } from './garment/solvestate'
 import {
   buildGarmentView, buildRiderView, buildSimView, pieceColor,
   type GarmentView, type RiderView, type SimView,
@@ -190,14 +192,18 @@ export default function Fitting3DView({
   const [dressReport, setDressReport] = useState<DressReport | null>(null)
   const dressRunW = useRef<MeshWeights | null>(null)
   // 热力图（2026-09-18 双通道 → 2026-09-19 应变通道移除，恒间隙通道）：
-  // 开关只重着色当前帧不重跑仿真——heatOnRef 镜像供解算 tick 与开关
-  // 效应读取（不进大效应 deps，避免重跑重解算）
+  // 开关只重着色当前帧不重跑仿真——heatOnRef 镜像供开关效应与解算 init
+  // 透传（不进大效应 deps，避免重跑重解算）。Worker 化（2026-09-23）后
+  // 着色语义三路：setHeat = 走 worker 通道（解算中后续节拍帧带 heat +
+  // 立即回传当前帧一层；终态即时重算回传）、applyHeat = worker 回传数组
+  // 就地重着色、clear = 本地恢复分色
   const [heatOn, setHeatOn] = useState(false)
   const heatOnRef = useRef(false)
   const dressViewsRef = useRef<{
-    sim: DrapeSim
-    /** 对当前帧按 mode 重着色（不重跑仿真） */
-    paint: (mode: HeatMode) => void
+    /** 热力图开：worker 通道重算回传（帧内节拍/终态/即时三层） */
+    setHeat: (on: boolean) => void
+    /** worker 回传 heat 数组 → 当前帧重着色 */
+    applyHeat: (v: Float32Array) => void
     /** 恢复分色材质 */
     clear: () => void
   } | null>(null)
@@ -378,12 +384,13 @@ export default function Fitting3DView({
   }, [sliders, heightW])
 
   // ---- 热力图开关：只对当前帧重着色（refs 即时读，不重跑仿真）。
-  // 穿台大效应重建（重试穿）时 startup 已按 heatOnRef 补画 ----
+  // 穿台大效应重建（重试穿）时 startup 已按 heatOnRef 补画；
+  // Worker 化后开 = worker 通道即时回传一层 ----
   useEffect(() => {
     heatOnRef.current = heatOn
     const dv = dressViewsRef.current
     if (!dv) return
-    if (heatOn) dv.paint('gap')
+    if (heatOn) dv.setHeat(true)
     else dv.clear()
   }, [heatOn])
 
@@ -417,6 +424,7 @@ export default function Fitting3DView({
     const yokeViews: { v: SimView; off: number }[] = []   // seam 模式育克直渲
     let wbv: SimView | null = null
     let raf = 0
+    let worker: Worker | null = null   // 解算 worker（try 内创建；cleanup terminate）
     try {
       const data = fitting.data
       if (data.pieces.length === 0) throw new Error('fitting payload 缺裁片')
@@ -448,7 +456,8 @@ export default function Fitting3DView({
       // 人台 morph 环场碰撞 + settle 落位） ----
       let pair!: Garment
       let sim!: DrapeSim
-      let ctrl: SettleController | null
+      let probeIdx: { front: number[]; back: number[] }
+      let jam: { ringTotal: number; rowY: number }
       let flatX: number
       {
         // 锚定（θ 两系同构只 Y 平移）：纸样腰站 y ↔ 人台腰地标×身高因子
@@ -502,9 +511,16 @@ export default function Fitting3DView({
             : null)
         // 落位 = settle 控制器：拉到腰地标 → 前后裆探针驱动钉高独立
         // 缓释（俯仰涌现）→ 零穿透静止出读数（真人「裆不舒服一点点
-        // 往下」的仿真翻译，口径见 settle.ts 头注）
+        // 往下」的仿真翻译，口径见 settle.ts 头注）。Worker 化（2026-09-23）
+        // 后控制器不在主线程建——dressDriver 在 worker 侧重建（闭包快照读
+        // pinIdx/pinTarget，构造后自洽），主线程只备好 probeIdx/jam 随 init
+        // 消息透传
         sim = buildDrape(pair, fieldM, anchorLift)
-        ctrl = buildSettle(sim, buildCrotchProbeIdx(pair))
+        // 挂胯判据（2026-09-23 P1）：钉环（总长 = 成衣腰长）候选行截面
+        // 周长超环长×(1+jamMargin) 即卡停——治掉裆把刚性环拽进体围更大
+        // 下行行的嵌体/深褶/波浪（口径 .claude/plans/穿台落位修复方案.md §二）
+        probeIdx = buildCrotchProbeIdx(pair)
+        jam = { ringTotal: waistRing.total, rowY: waistRing.y }
         // 组位 = 原点套轴（sim 系锚世界系：anchorLift 即世界腰高）
         flatX = bodyHalfW + HANG_PRIOR.clearance + FLAT_PRIOR.clearance
       }
@@ -596,8 +612,8 @@ export default function Fitting3DView({
         ctx.controls.update()
         camShiftRef.current = cx
       }
-      // 初摆位出画，然后解算循环（一帧一步 ~60Hz；settle/capped/frozen
-      // 终态自然停——末帧已回填已渲染，画面保留）
+      // 初摆位出画（解算启动前的零帧画面）——此后主线程不再碰 sim（pos
+      // buffer 随 init transfer 进 worker），全部视图回填走 worker 帧消息
       hv.update(pair.pos)
       hfv?.update(pair.pos)
       bv.update(pair.pos)
@@ -606,16 +622,25 @@ export default function Fitting3DView({
       if (wbv && hasBand) {
         wbv.update(pair.pos, bandOffset)
       }
-      // 热力图：paint/clear 挂 refs 供开关效应即时重着色；
-      // 解算中每 HEAT_PRIOR.every 帧刷一层，双停终态刷末帧定格
-      const paintHeat = (mode: HeatMode, s: DrapeSim = sim) => {
-        const v = computeHeat(s, mode)
-        hv!.heat(v, mode)
-        hfv?.heat(v, mode)
-        bv!.heat(v, mode)
-        byv?.heat(v, mode)
-        for (const { v: yv, off } of yokeViews) yv.heat(v, mode, off)
-        wbv?.heat(v, mode, bandOffset)
+      // 视图回填（worker 帧驱动）：帧消息（transfer 的 pos 副本）落地 →
+      // rAF 合流绘制（worker 步进 ~20Hz 慢于 rAF 60Hz 天然合并不排队）
+      const applyPos = (pos: Float32Array) => {
+        hv!.update(pos)
+        hfv?.update(pos)
+        bv!.update(pos)
+        byv?.update(pos)
+        for (const { v, off } of yokeViews) v.update(pos, off)
+        if (wbv && hasBand) wbv.update(pos, bandOffset)
+      }
+      // 热力图着色：worker 回传数组（节拍帧/setHeat 即时/终态末帧三层）
+      // 就地重着色；clear 本地恢复分色
+      const applyHeat = (v: Float32Array) => {
+        hv!.heat(v, 'gap')
+        hfv?.heat(v, 'gap')
+        bv!.heat(v, 'gap')
+        byv?.heat(v, 'gap')
+        for (const { v: yv, off } of yokeViews) yv.heat(v, 'gap', off)
+        wbv?.heat(v, 'gap', bandOffset)
       }
       const clearHeat = () => {
         hv!.heat(null, 'gap')
@@ -625,38 +650,67 @@ export default function Fitting3DView({
         for (const { v: yv, off } of yokeViews) yv.heat(null, 'gap', off)
         wbv?.heat(null, 'gap', bandOffset)
       }
-      dressViewsRef.current = { sim, paint: (m) => paintHeat(m), clear: clearHeat }
-      if (heatOnRef.current) paintHeat('gap')
-      let frames = 0
-      const tick = () => {
-        const st = stepDrape(sim)
-        const ph = ctrl ? ctrl.step(sim) : 'done'
-        hv!.update(sim.pos)
-        hfv?.update(sim.pos)
-        bv!.update(sim.pos)
-        byv?.update(sim.pos)
-        for (const { v, off } of yokeViews) v.update(sim.pos, off)
-        if (wbv && hasBand) {
-          wbv.update(sim.pos, bandOffset)
-        }
-        if (heatOnRef.current && frames % HEAT_PRIOR.every === 0) {
-          paintHeat('gap')
-        }
-        frames++
+      // ---- 解算 Worker 化（2026-09-23，取代 rAF tick 主线程解算）：
+      // 构建（buildDrape 等）留主线程一次性跑完，toSolveState 投影
+      // transfer 零拷贝进 worker——此后 stepDrape/settle 控制器全在
+      // worker（MessageChannel 每宏任务一步全速推进，不受 rAF 节拍钳），
+      // 主线程只收帧消息回填视图：解算期间取景/滑杆交互 60fps 零阻塞。
+      // done 后 worker 常驻（setHeat 终态重着色走通道）；重穿 epoch/
+      // 组件卸载由 cleanup terminate ----
+      worker = new Worker(
+        new URL('./garment/dressWorker.ts', import.meta.url), { type: 'module' })
+      let pendingPos: Float32Array | null = null
+      let pendingHeat: Float32Array | null = null
+      let drawRaf = false
+      const draw = () => {
+        drawRaf = false
+        const pos = pendingPos
+        if (pos === null) return
+        const heat = pendingHeat
+        pendingPos = null
+        pendingHeat = null
+        applyPos(pos)
+        if (heat !== null) applyHeat(heat)
         ctx.render()
-        // 续跑：sim 在跑，或穿台控制器未 done（hold/lowering 中 wake 会
-        // 反复续命 settled；停走只认控制器 settle 相位真实静止）。双停
-        // → 终帧出读数（report 一次性）+ 热力末帧定格
-        if (st === 'running' || (ctrl !== null && ph !== 'done')) {
-          raf = requestAnimationFrame(tick)
-        } else if (ctrl !== null) {
-          if (heatOnRef.current) {
-            paintHeat('gap')
+      }
+      worker.onmessage = (e: MessageEvent<WorkerOut>) => {
+        const m = e.data
+        if (m.type === 'ready') {
+          // ready 握手：模块 worker 脚本加载完成前的消息会被浏览器丢弃
+          //（2026-09-23 实测：创建后立刻 post 的 init 石沉大海，worker 无
+          // 异常无回帧、重发即正常）——等 ready 才发 init
+          worker!.postMessage(init, transferBuffers(init))
+          return
+        }
+        if (m.type === 'frame' || m.type === 'done') {
+          pendingPos = m.pos
+          // 节拍帧才带 heat；非节拍帧保留上帧着色（颜色随顶点走）
+          if (m.heat !== null) pendingHeat = m.heat
+          if (m.type === 'done') setDressReport(m.report)
+          if (!drawRaf) {
+            drawRaf = true
+            raf = requestAnimationFrame(draw)
           }
-          setDressReport(ctrl.report(sim))
+        } else if (m.type === 'heat') {
+          // setHeat 即时回包：按当前帧重算一层就地重着色（解算中/终态皆可）
+          applyHeat(m.heat)
+          ctx.render()
+        } else if (m.type === 'error') {
+          setGarmentError(m.message)
         }
       }
-      raf = requestAnimationFrame(tick)
+      worker.onerror = (ev) => {
+        setGarmentError(`解算 worker 异常：${ev.message}`)
+      }
+      // 初态热力：init transfer 前主线程就地算末层（此后 sim 归 worker）
+      if (heatOnRef.current) applyHeat(computeHeat(sim, 'gap'))
+      dressViewsRef.current = {
+        setHeat: (on) => worker!.postMessage({ type: 'setHeat', on }),
+        applyHeat,
+        clear: clearHeat,
+      }
+      const init = toSolveState(sim, probeIdx, jam, heatOnRef.current)
+      // init 的发送在 onmessage 的 ready 分支（握手协议，见上）
       ctx.render()
     } catch (e) {
       console.error('[fitting3d] 裁片构建失败', e)
@@ -665,6 +719,7 @@ export default function Fitting3DView({
     }
     return () => {
       cancelAnimationFrame(raf)
+      worker?.terminate()   // 解算 worker 随效应卸载/重穿 epoch 终结
       dressViewsRef.current = null
       if (gv) { scene.remove(gv.group); gv.dispose() }
       if (hv) { scene.remove(hv.group); hv.dispose() }
@@ -825,6 +880,13 @@ export default function Fitting3DView({
                     {dressReport.worstPen.toFixed(1)} cm @ 高度 ~{dressReport.worstPenY.toFixed(0)}
                   </span>
                 </div>
+                {(dressReport.jamF || dressReport.jamB) && (
+                  <div className="f3d-hint">
+                    卡胯停（{dressReport.jamF ? '前' : ''}
+                    {dressReport.jamF && dressReport.jamB ? '/' : ''}
+                    {dressReport.jamB ? '后' : ''}）：该截面套不进（偏小读数）
+                  </div>
+                )}
                 {dressReport.tooSmall && (
                   <div className="f3d-hint">
                     偏小信号——读数提示，不改版型（独立原则）

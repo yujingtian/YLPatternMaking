@@ -21,6 +21,9 @@ export interface SliceRing {
 }
 
 export class BodyField {
+  // 行闭弦周长惰性缓存（rowPerimeter 用；行索引 → 值，缺项 = 未算）
+  private readonly perimCache = new Map<number, number>()
+
   constructor(
     readonly table: Float32Array,   // rows × thetaBins
     readonly rows: number,
@@ -46,6 +49,27 @@ export class BodyField {
     const r = Math.max(0, Math.min(this.rows - 1,
       Math.round((y - this.yMin) / this.rowStep)))
     return this.slices[r] ?? []
+  }
+
+  /** 行截面环闭弦周长合计（2026-09-23 P1 挂胯判据）：行夹取同 loopsAt，
+   * Σ 该行全部环 pts 闭弦长（躯干行单环；多环防御性求和），按行索引惰性
+   * 缓存。空行返回 0 → 0 ≥ C×(1+jamMargin) 恒 false = 无几何信息不拦
+   * （安全缺省）。弦 vs 弧差 ~0.1% 量级，远小于挂胯余量 2% */
+  rowPerimeter(y: number): number {
+    const r = Math.max(0, Math.min(this.rows - 1,
+      Math.round((y - this.yMin) / this.rowStep)))
+    const hit = this.perimCache.get(r)
+    if (hit !== undefined) return hit
+    let s = 0
+    for (const ring of this.slices[r] ?? []) {
+      const n = ring.pts.length / 2
+      for (let k = 0; k < n; k++) {
+        const a = 2 * k, b = 2 * ((k + 1) % n)
+        s += Math.hypot(ring.pts[b] - ring.pts[a], ring.pts[b + 1] - ring.pts[a + 1])
+      }
+    }
+    this.perimCache.set(r, s)
+    return s
   }
 
   radiusAt(y: number, th: number): number {
@@ -206,16 +230,143 @@ export function shiftPositionsY(
 // 最近截面环边界 + 外法线（drape.collide 与穿台裆探针/终态穿透扫共口径，
 // 2026-09-18 从 collide 内联扫描提取）：跨全部环找最近边界段；margin =
 // quick reject 包围圆余量（collide 传 CORE_SKIN；探针要量间隙须放大）。
-// null = 距全部环边界 > margin。性能口径：Math.hypot 慢一个量级，用 sqrt
+// null = 全部环被包围圆 quick reject。性能口径：Math.hypot 慢一个量级，用 sqrt。
+// out 出参（2026-09-23 无损提速 1b）：命中时复用调用方 RingHit 对象逐次
+// 消灭分配（collide/probeCrotch/report/computeHeat 单线程串行调用，安全；
+// 未命中返回 null，out 不动）
 export interface RingHit {
   d: number              // 到最近边界距离（≥0）
   px: number; pz: number // 边界最近点
   nx: number; nz: number // 外法线（段垂线，背离环质心）
 }
+// ---- 角度分箱（2026-09-23 无损提速 1b）：精确剪枝取代逐段全扫 ----
+// 环段按「弦中点方位角」入 RING_BINS 扇区箱（模块级 WeakMap 惰性构建——
+// SliceRing 内容在 BodyField 生命周期内不变）；查询自所在箱向两侧交替
+// 外扩，以「无限楔距离下界」整箱剪枝：段沿其走向的方位角单调连续（弦
+// 中点角落在段角域内），段覆盖域 ⊂ 以中点角为中心的 [±span/2] 区间，
+// span ≤ slack（环内最大段角跨度）→ 箱内段全部位于方位角
+// [binCenter − (Δ+slack)/2, binCenter + (Δ+slack)/2] 的无限楔内；楔内任
+// 意点 p 满足 |q−p| ≥ |q−c|·sin(clamp(φ))（φ = 查询角到箱角域的最近角
+// 距），下界**严格大于**当前最优即整箱跳过（≥ 会藏等距 tie 段——见下）
+// ；楔距沿侧内外扩单调 → 侧内首箱被剪即止该侧（后续箱下界只增不减，
+// 严格更劣无 tie）。**精确无漏**（剪的是可证下界；段穿质心的退化情形
+// 实际覆盖两反向角、按区间假设成超集仍安全）。
+// tie 规范化（与暴力参考位级恒等的要害）：查询点最近边界恰是**顶点**
+// 时相邻两段位级同 d 同点、法线各异（顶点法扇是二维区域，非测度零）
+// ——两实现统一 tie-break「d2 位级最小、同值取段号小者」（剪枝严格 >
+// 保证等距段不被整箱跳过），分箱/暴力输出恒等，等价金标可断言位级同
+const RING_BINS = 16
+interface RingBins {
+  bins: number[][]        // B 箱：段索引（环序升序；空箱跳过）
+  halfSpan: number        // Δ/2 + slack/2：箱角半宽（剪枝用）
+}
+const ringBinsCache = new WeakMap<SliceRing, RingBins>()
+function ringBinsOf(ring: SliceRing): RingBins {
+  let cached = ringBinsCache.get(ring)
+  if (cached) return cached
+  const n = ring.pts.length / 2
+  const angAt = (k: number): number =>
+    Math.atan2(ring.pts[2 * k + 1] - ring.cz, ring.pts[2 * k] - ring.cx)
+  let slack = 0
+  for (let s = 0; s < n; s++) {
+    let span = Math.abs(angAt(s) - angAt((s + 1) % n))
+    if (span > Math.PI) span = 2 * Math.PI - span
+    if (span > slack) slack = span
+  }
+  const bins: number[][] = Array.from({ length: RING_BINS }, () => [])
+  for (let s = 0; s < n; s++) {
+    const b2 = 2 * ((s + 1) % n)
+    const mx = (ring.pts[2 * s] + ring.pts[b2]) / 2
+    const mz = (ring.pts[2 * s + 1] + ring.pts[b2 + 1]) / 2
+    bins[Math.floor(
+      ((Math.atan2(mz - ring.cz, mx - ring.cx) / (2 * Math.PI) + 1) % 1)
+      * RING_BINS)].push(s)
+  }
+  cached = { bins, halfSpan: Math.PI / RING_BINS + slack / 2 }
+  ringBinsCache.set(ring, cached)
+  return cached
+}
 export function nearestRingBoundary(
+  rings: SliceRing[], x: number, z: number, margin: number, out?: RingHit,
+): RingHit | null {
+  let found = false
+  let bd2 = 0, bd = 0, bseg = 0, bx = 0, bz = 0, bnx = 0, bnz = 0
+  for (const ring of rings) {
+    const dxc = x - ring.cx, dzc = z - ring.cz
+    const rr = ring.r + margin
+    const qc2 = dxc * dxc + dzc * dzc
+    if (qc2 > rr * rr) continue
+    const { bins, halfSpan } = ringBinsOf(ring)
+    const qc = Math.sqrt(qc2)
+    const qi = Math.floor(
+      ((Math.atan2(dzc, dxc) / (2 * Math.PI) + 1) % 1) * RING_BINS)
+    const n = ring.pts.length / 2
+    // 单箱处理：楔距下界严格大于当前最优 → 剪（侧内后续箱楔距只增不减
+    // 且严格更劣，返 true 止该侧）；否则全段细扫。返回是否剪枝
+    const scanBin = (bi: number): boolean => {
+      const segs = bins[bi]
+      if (segs.length === 0) return false
+      if (found) {
+        let ad = Math.atan2(dzc, dxc)
+          - ((bi + 0.5) / RING_BINS) * 2 * Math.PI
+        if (ad > Math.PI) ad -= 2 * Math.PI
+        if (ad < -Math.PI) ad += 2 * Math.PI
+        const phi = Math.abs(ad) - halfSpan
+        if (phi > 0) {
+          const lb = qc * Math.sin(Math.min(phi, Math.PI / 2))
+          if (lb > bd) return true
+        }
+      }
+      for (const s of segs) {
+        const a2 = 2 * s, b2 = 2 * ((s + 1) % n)
+        const ax = ring.pts[a2], az = ring.pts[a2 + 1]
+        const ex = ring.pts[b2] - ax, ez = ring.pts[b2 + 1] - az
+        const l2 = ex * ex + ez * ez
+        const t = l2 > 1e-12
+          ? Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / l2)) : 0
+        const px = ax + ex * t, pz = az + ez * t
+        const dxp = x - px, dzp = z - pz
+        const d2 = dxp * dxp + dzp * dzp
+        if (!found || d2 < bd2 || (d2 === bd2 && s < bseg)) {
+          bd2 = d2; bd = Math.sqrt(d2); bseg = s; found = true
+          bx = px; bz = pz
+          // 外法线 = 段垂线，背离环质心
+          const len = Math.sqrt(l2) || 1
+          let nx = -ez / len, nz = ex / len
+          if (nx * (ring.cx - px) + nz * (ring.cz - pz) > 0) {
+            nx = -nx; nz = -nz
+          }
+          bnx = nx; bnz = nz
+        }
+      }
+      return false
+    }
+    scanBin(qi)   // 自所在箱（角距 ≤ Δ/2 ≤ halfSpan → 永不剪）
+    // 两侧交替外扩；k = B/2 对径箱两侧重合，只扫一次（归 + 侧）
+    const half = RING_BINS / 2
+    let stopL = false, stopR = false
+    for (let k = 1; k <= half && !(stopL && stopR); k++) {
+      if (!stopR && scanBin((qi + k) % RING_BINS)) stopR = true
+      if (k < half && !stopL
+        && scanBin((qi - k + RING_BINS) % RING_BINS)) stopL = true
+    }
+  }
+  if (!found) return null
+  if (out) {
+    out.d = bd; out.px = bx; out.pz = bz; out.nx = bnx; out.nz = bnz
+    return out
+  }
+  return { d: bd, px: bx, pz: bz, nx: bnx, nz: bnz }
+}
+
+// 暴力参考（等价金标专用，dressfield.test 对照；运行时勿用——逐段全扫）。
+// tie-break 与分箱版同规（d2 位级最小、同值取段号小者；升序扫描天然满足
+// ——首个达最小值者段号最小，显式条件保持口径自文档），比较全程用 d2
+// 位级值（不经过 sqrt 回乘的舍入回环）
+export function nearestRingBoundaryBrute(
   rings: SliceRing[], x: number, z: number, margin: number,
 ): RingHit | null {
-  let bd = Infinity, bx = 0, bz = 0, bnx = 0, bnz = 0
+  let bd2 = Infinity, bseg = 0, bx = 0, bz = 0, bnx = 0, bnz = 0
   for (const ring of rings) {
     const dxc = x - ring.cx, dzc = z - ring.cz
     const rr = ring.r + margin
@@ -231,9 +382,8 @@ export function nearestRingBoundary(
       const px = ax + ex * t, pz = az + ez * t
       const dxp = x - px, dzp = z - pz
       const d2 = dxp * dxp + dzp * dzp
-      if (d2 < bd * bd) {
-        bd = Math.sqrt(d2); bx = px; bz = pz
-        // 外法线 = 段垂线，背离环质心
+      if (d2 < bd2 || (d2 === bd2 && s < bseg)) {
+        bd2 = d2; bseg = s; bx = px; bz = pz
         const len = Math.sqrt(l2) || 1
         let nx = -ez / len, nz = ex / len
         if (nx * (ring.cx - px) + nz * (ring.cz - pz) > 0) {
@@ -243,8 +393,8 @@ export function nearestRingBoundary(
       }
     }
   }
-  return bd === Infinity ? null
-    : { d: bd, px: bx, pz: bz, nx: bnx, nz: bnz }
+  return bd2 === Infinity ? null
+    : { d: Math.sqrt(bd2), px: bx, pz: bz, nx: bnx, nz: bnz }
 }
 
 // ---- 上表面竖直支撑（2026-09-20 长裤穿台「脚背盖布」）----

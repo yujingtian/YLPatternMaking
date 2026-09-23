@@ -1,11 +1,14 @@
 // 穿台落位控制器（2026-09-18）：真人穿裤行为模型的仿真翻译——「拉到腰
 // （人台腰地标锚定）→ 裆顶住就一点点往下 → 前后裆零穿透即停」。
-// 力学口径：向上唯一硬止点是裆（浪长不可伸长）、向下无几何卡点（真人不
-// 掉裤靠摩擦/腰带/胯骨——人台刚体无摩擦，支撑问题换成钉扎问题）→ 最终
-// 穿着高度 = min(锚定腰位, 裆零穿透最高位)；向下没有反向力学信号（掉裆
+// 力学口径：向上唯一硬止点是裆（浪长不可伸长）、向下的几何卡点是胯
+// （2026-09-23 P1 挂胯判据：不可伸长闭环套不进周长 > 环长的截面——真人
+// 裤子滑到胯骨滑不动即停 = 该约束的力平衡形态，钉在卡停行冻结 = 支撑
+// 反力的运动学等价）→ 最终穿着高度 = min(锚定腰位, 裆零穿透最高位,
+// 挂胯卡停行)，前/后独立先到者即终态；向下没有反向力学信号（掉裆
 // 是观感读数）→ 单程搜索。前后裆是两根独立探针（前浪顶耻骨/后浪贴尾
-// 骨），hF/hB 独立下放 = 俯仰自然涌现；钉 X/Z 不动（全钉保 XZ 刚度，
-// 穿台收敛战红线——Y-only 钉锁不住环向滑移模态）。
+// 骨），hF/hB 独立下放 = 俯仰自然涌现；钉 XZ（2026-09-23 P2 前冻结、
+// 现沿参考环重投影——环弧 s 直通保持钉位对应，是「全钉保 XZ 刚度防环向
+// 滑移」红线的后继口径：形状随行、弧位不游移；无弧位钉照旧冻结）。
 // 单次仿真内准静态缓释钉高（用户拍板口径），非外层搜索重跑。停走判据
 // 只认 settle 相位全粒子真实静止（下放瞬态 vs 泵的区分红线：穿透清除后
 // 速度仍持续 = 泵）；下放中钉速被全粒子 avgSpeed 均值稀释出的假 settled
@@ -13,8 +16,11 @@
 import type { DrapeSim } from './drape'
 import type { Garment } from './assemble'
 import { CORE_SKIN } from './core'
-import { DRESSING_PRIOR } from './priors'
-import { nearestRingBoundary, pointInRings } from './placement'
+import { DRAPE_PRIOR, DRESSING_PRIOR, FIELD_PRIOR } from './priors'
+import {
+  buildWaistRing, nearestRingBoundary, pointInRings, ringPointAt,
+  type RingHit, type WaistRing,
+} from './placement'
 import { tipAfterInseam } from './seams'
 
 export type SettlePhase = 'hold' | 'lowering' | 'settle' | 'done'
@@ -30,6 +36,9 @@ export interface DressReport {
   worstPen: number               // cm：终态全粒子壳穿透最差（0=无）
   worstPenY: number              // 最差点 y（sim 系 = 世界高度，穿台锚定同源）
   tooSmall: boolean              // 偏小信号（裆穿透未解或全身穿透超阈值）
+  jamF: boolean; jamB: boolean   // 挂胯卡停（2026-09-23 P1）：环套不进候选
+                                 // 行截面停在下放途中（与 fault=预算尽、capped
+                                 // =非真实静止三分，各自独立读数）
   capped: boolean                // 非真实静止收束（预算尽/硬顶）
   frames: number
 }
@@ -37,6 +46,10 @@ export interface DressReport {
 export interface SettleOptions {
   /** 探针注入（测试用；缺省 probeCrotch 实测） */
   probe?: (sim: DrapeSim, side: 'front' | 'back') => { worst: number; best: number }
+  /** 挂胯判据（2026-09-23 P1）：ringTotal = 钉环总长 C（成衣腰长）、
+   * rowY = 环源截面行（纸样系，同 fieldM 坐标系直接喂 loopsAt）；候选档
+   * 行周长 ≥ C×(1+jamMargin) → 该侧卡停不下放。缺省不启用 */
+  jam?: { ringTotal: number; rowY: number }
   holdFrames?: number; dropRate?: number; deadZone?: number; maxDrop?: number
   confirmFrames?: number; settleMaxFrames?: number; maxTotalFrames?: number
 }
@@ -98,13 +111,15 @@ export function probeCrotch(
   const field = sim.field
   if (!field) return { worst, best }
   const margin = CORE_SKIN + DRESSING_PRIOR.probeMargin
+  // scratch 出参（1b 提速）：逐探针命中复用（d 立即消费，安全）
+  const hit: RingHit = { d: 0, px: 0, pz: 0, nx: 0, nz: 0 }
   for (const gi of idx) {
     const i3 = 3 * gi
     const x = sim.pos[i3], y = sim.pos[i3 + 1], z = sim.pos[i3 + 2]
     const rings = field.loopsAt(y - sim.yLift)
     if (rings.length === 0) continue
-    const hit = nearestRingBoundary(rings, x, z, margin)
-    const v = !hit ? -DRESSING_PRIOR.probeMargin
+    const got = nearestRingBoundary(rings, x, z, margin, hit)
+    const v = !got ? -DRESSING_PRIOR.probeMargin
       : pointInRings(x, z, rings) ? CORE_SKIN + hit.d : CORE_SKIN - hit.d
     if (v > worst) worst = v
     if (v < best) best = v
@@ -117,7 +132,8 @@ export function buildSettle(
   opts: SettleOptions = {},
 ): SettleController {
   const {
-    probe, holdFrames = DRESSING_PRIOR.holdFrames,
+    probe, jam,
+    holdFrames = DRESSING_PRIOR.holdFrames,
     dropRate = DRESSING_PRIOR.dropRate,
     deadZone = DRESSING_PRIOR.deadZone,
     maxDrop = DRESSING_PRIOR.maxDrop,
@@ -142,9 +158,15 @@ export function buildSettle(
     frames: 0,
     confirm: 0,
     faultF: false, faultB: false,
+    jamF: false, jamB: false,
     settleStart: 0,
     capped: false,
   }
+  // 挂胯判据（P1）：候选档行周长 ≥ 环长×(1+jamMargin) → 卡停。未配 jam /
+  // 无场 / 空行（周长 0）恒 false 不拦（安全缺省——无 pen 侧本就不评估）
+  const jammed = (h2: number): boolean => !!jam && !!sim.field
+    && sim.field.rowPerimeter(jam.rowY + h2)
+      >= jam.ringTotal * (1 + DRESSING_PRIOR.jamMargin)
   // 假 settled 对策（红线：下放瞬态 vs 泵——停走只认 settle 相位真实
   // 静止）：动钉/进 settle 时清 settled 并续帧预算
   const wake = (s: DrapeSim): void => {
@@ -153,11 +175,67 @@ export function buildSettle(
     s.capped = false
     s.maxFrames = Math.max(s.maxFrames, s.stepCount + settleMaxFrames)
   }
-  // 钉目标下放写回：y = baseY + lerp(hF, hB, f)；X/Z 钉不动
+  // 钉目标下放写回（2026-09-23 P2 钉环随行重投影）：Y 照旧
+  // y = baseY + lerp(hF, hB, f)；XZ 不再冻结——有弧位的钉沿参考环重投影：
+  // 参考环 = buildWaistRing(field, 该钉参考行, C)（C = jam.ringTotal 恒定
+  // → s 直通 ringPointAt(ref, s)，弧位对应稳定防钉游移）。参考行 = 钉自身
+  // 当前目标行（纸样系 yPat = yT − yLift），**下钳到腰站行 + 同 lerp 下放量**
+  // （对照数字证伪裸逐钉行：腰口是斜切身体的整圈闭曲线——前中下垂 ~1.1cm，
+  // 逐钉水平行环在前中把钉挤进 P(y_pat)−C 达 0.67cm 的截面，斜切真量只
+  // ~0.15；钳下限 = 腰口整圈按腰站环走 XZ、高于腰站行的钉〔带顶〕随自身
+  // 行 = 形随体长随衣。连续性：钳位边界 max() 连续）。按 rowStep 档缓存 +
+  // 档间线性插值（dropRate 0.08 → 每 ~6 帧换档，准静态无下放瞬态）。
+  // 重投影语义：环长恒 C、形状随行——浅掉裆贴身；行周长 > C 的深行
+  // δ<0 均匀嵌体 = 诚实读数（偏小不顶开红线不动）。多环/空行档
+  // （loopsAt length !== 1）不重建 → 双档皆无环的钉保持当前 XZ（防御性
+  // 兜底；P1 封顶后深行到不了）。激活门槛 sim.pinArcs && jam（旁挂/旧
+  // 用例零改动）
+  const arcs = sim.pinArcs ?? null
+  const C = jam ? jam.ringTotal : 0
+  const ringCache = new Map<number, WaistRing | null>()
+  const ringAt = (notch: number): WaistRing | null => {
+    const hit = ringCache.get(notch)
+    if (hit !== undefined) return hit
+    let ring: WaistRing | null = null
+    if (sim.field) {
+      const y = sim.field.yMin + notch * FIELD_PRIOR.rowStep
+      if (sim.field.loopsAt(y).length === 1) {
+        try { ring = buildWaistRing(sim.field, y, C) } catch { ring = null }
+      }
+    }
+    ringCache.set(notch, ring)
+    return ring
+  }
+  const ringPointAt0 = (
+    ring: WaistRing | null, s: number,
+  ): { x: number; z: number } | null =>
+    ring !== null ? ringPointAt(ring, s) : null
   const applyDrop = (): void => {
     for (let k = 0; k < nPin; k++) {
-      sim.pinTarget[3 * k + 1] =
-        baseY[k] + state.hF * (1 - fArr[k]) + state.hB * fArr[k]
+      const yDrop = state.hF * (1 - fArr[k]) + state.hB * fArr[k]
+      const yT = baseY[k] + yDrop
+      sim.pinTarget[3 * k + 1] = yT
+      if (arcs === null || jam === undefined || Number.isNaN(arcs[k])) continue
+      // 参考行下钳：腰口整圈按腰站环走 XZ（斜切闭曲线的正确几何），
+      // 高于腰站行的钉（带顶）随自身行（形随体长随衣）
+      const yRef = Math.max(
+        yT - sim.yLift,
+        jam.rowY + yDrop,
+      )
+      const t = (yRef - (sim.field?.yMin ?? 0)) / FIELD_PRIOR.rowStep
+      const n0 = Math.floor(t), fr = t - n0
+      const p0 = ringPointAt0(ringAt(n0), arcs[k])
+      const p1 = fr > 0 ? ringPointAt0(ringAt(n0 + 1), arcs[k]) : null
+      if (p0 !== null && p1 !== null) {
+        sim.pinTarget[3 * k] = p0.x + (p1.x - p0.x) * fr
+        sim.pinTarget[3 * k + 2] = p0.z + (p1.z - p0.z) * fr
+      } else if (p0 !== null) {
+        sim.pinTarget[3 * k] = p0.x
+        sim.pinTarget[3 * k + 2] = p0.z
+      } else if (p1 !== null) {
+        sim.pinTarget[3 * k] = p1.x
+        sim.pinTarget[3 * k + 2] = p1.z
+      }
     }
   }
   const measure = (side: 'front' | 'back'): { worst: number; best: number } =>
@@ -178,29 +256,40 @@ export function buildSettle(
         return state.phase
       }
       if (state.phase === 'hold') {
-        // 不动钉持锚松弛（启动序列红线：先让布静止再动钉）
-        if (state.frames >= holdFrames) state.phase = 'lowering'
+        // 不动钉持锚松弛（启动序列红线：先让布静止再动钉）。提前转
+        // （2026-09-23 提速 1c）：布已达全局唯一静止判据（settledFrames 与
+        // settle 相位同源——settleSpeed/settleFrames 一套常数零新常数）即转
+        // lowering，holdFrames 退居上限；「静止」定义三相位一致
+        if (state.frames >= holdFrames
+          || s.settledFrames >= DRAPE_PRIOR.settleFrames) state.phase = 'lowering'
         return state.phase
       }
       if (state.phase === 'lowering') {
         const pF = measure('front'), pB = measure('back')
         let changed = false
-        // 单侧下放：穿透超死区且未到底 → 降 dropRate；到底仍穿 = fault
-        // 停放（偏小读数路径，不与碰撞无限拔河）；入区 → 待确认
+        // 单侧下放：穿透超死区且未到底 → 降 dropRate；候选档挂胯（环套不
+        // 进该行截面）→ jam 卡停不下放（不动钉无需 wake）；到底仍穿 =
+        // fault 停放（偏小读数路径，不与碰撞无限拔河——jam 未拦 = 行周长
+        // 可容，fault 路径不受 jam 影响）；入区 → 待确认。h′=0 即 jam
+        // （腰围偏小款 pen 驱动第一档就拦）= 合法终态 drop=0
         const penF = pF.worst > deadZone, penB = pB.worst > deadZone
         if (penF && !state.faultF) {
           if (state.hF > -maxDrop) {
-            state.hF = Math.max(-maxDrop, state.hF - dropRate); changed = true
+            const h2 = Math.max(-maxDrop, state.hF - dropRate)
+            if (jammed(h2)) state.jamF = true
+            else { state.hF = h2; changed = true }
           } else state.faultF = true
         }
         if (penB && !state.faultB) {
           if (state.hB > -maxDrop) {
-            state.hB = Math.max(-maxDrop, state.hB - dropRate); changed = true
+            const h2 = Math.max(-maxDrop, state.hB - dropRate)
+            if (jammed(h2)) state.jamB = true
+            else { state.hB = h2; changed = true }
           } else state.faultB = true
         }
-        // 双侧完成（入区或 fault）连续 confirmFrames → settle（钉冻结）
-        const doneF = !penF || state.faultF
-        const doneB = !penB || state.faultB
+        // 双侧完成（入区、fault 或 jam）连续 confirmFrames → settle（钉冻结）
+        const doneF = !penF || state.faultF || state.jamF
+        const doneB = !penB || state.faultB || state.jamB
         state.confirm = doneF && doneB ? state.confirm + 1 : 0
         if (changed) { applyDrop(); wake(s) }
         if (state.confirm >= confirmFrames) {
@@ -235,12 +324,13 @@ export function buildSettle(
       // 终态全粒子壳穿透扫（report 期一次性，成本同 seamStats 量级）
       let worst = 0, worstY = 0
       if (s.field) {
+        // scratch 出参（1b 提速）：d 即读即用
+        const hit: RingHit = { d: 0, px: 0, pz: 0, nx: 0, nz: 0 }
         for (let i3 = 0; i3 < s.pos.length; i3 += 3) {
           const x = s.pos[i3], y = s.pos[i3 + 1], z = s.pos[i3 + 2]
           const rings = s.field.loopsAt(y - s.yLift)
           if (rings.length === 0) continue
-          const hit = nearestRingBoundary(rings, x, z, CORE_SKIN)
-          if (!hit) continue
+          if (!nearestRingBoundary(rings, x, z, CORE_SKIN, hit)) continue
           const v = pointInRings(x, z, rings)
             ? CORE_SKIN + hit.d : CORE_SKIN - hit.d
           if (v > worst) { worst = v; worstY = y }
@@ -253,6 +343,7 @@ export function buildSettle(
         worstPen: worst, worstPenY: worstY,
         tooSmall: contactF.kind === 'pen' || contactB.kind === 'pen'
           || worst > DRESSING_PRIOR.tooSmallPen,
+        jamF: state.jamF, jamB: state.jamB,
         capped: state.capped,
         frames: state.frames,
       }

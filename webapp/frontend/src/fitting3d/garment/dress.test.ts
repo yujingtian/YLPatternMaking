@@ -13,6 +13,13 @@
 // · 跑至 done：无 NaN、裆四尖两两 <1.0、dropF/dropB ∈ [0, maxDrop]、
 //   下摆离地；**同输入双跑 DressReport 逐字段相等**（确定性——单跑
 //   比较无意义红线）
+// · 挂胯卡停（2026-09-23 P1）：掉裆从穿透驱动 7.8/8.3 塌到 jam 卡停
+//   ~1.7——钉环恰停行周长 < C×1.02 的最深可容档（jamF/jamB=true、
+//   contact 留 pen、tooSmall——差的布长 = 裆部绷紧，偏小是读数不是错误）
+// · 钉环随行重投影（2026-09-23 P2）：钉弧位三源登记全覆盖（缺项 = 该钉
+//   退冻结旧口径）；下放后钉 XZ 沿参考环随行（参考行钳腰站行——裸逐钉
+//   行把前中钉挤进 P(y_pat)−C 达 0.67 的截面已证伪），正面腰口 gap med
+//   −0.07 贴身（冻结口径 +0.53 = 正面腰头悬空主诉）
 // · 脚口前缘挂扣（2026-09-19（二））：脚口环带刚度（priors
 //   hemBandStiffness，真实双折卷边硬圈）保持前缘挂在脚背上——脚口
 //   前向 z ≥7（挂扣态 ~7.9，脱扣态 ~3 = 前缘滑过脚背冠到脚后）；根因
@@ -118,7 +125,11 @@ function runDress(
     front: legAxisM.forkY, back: legAxisM.forkY,
   }, legAxisM, bandMesh, anchorLift, waistRing)
   const sim = buildDrape(pair, fieldM, anchorLift)
-  const ctrl = buildSettle(sim, buildCrotchProbeIdx(pair))
+  // 挂胯判据（2026-09-23 P1，与视图 dress 分支同源）：钉环套不进候选行
+  // 截面即卡停
+  const ctrl = buildSettle(sim, buildCrotchProbeIdx(pair), {
+    jam: { ringTotal: waistRing.total, rowY: waistRing.y },
+  })
   let ph: SettlePhase = ctrl.phase
   const frames = opts?.maxFrames ?? DRESSING_PRIOR.maxTotalFrames + 10
   for (let k = 0; k < frames && ph !== 'done'; k++) {
@@ -284,26 +295,30 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     expect(out1.ph).toBe('done')
     expectFinite(out1.sim.pos)
     expect(tipWorstDist(out1.sim)).toBeLessThan(1.0)
-    // 掉裆：前裆锚腰后顶入 → 旧拉伸口径 ~7；strain limiting 后布不可
-    // 伸长、需降更深才裆接触，实测 7.8/8.3；域 [0, maxDrop]
-    expect(out1.report.dropF).toBeGreaterThanOrEqual(2.0)
+    // 掉裆（挂胯卡停 P1 2026-09-23）：旧口径穿透驱动掉到 7.8/8.3——刚性
+    // 钉环被拽进体围大得多的下行行（嵌体/深褶/波浪根因）；jam 判据后掉裆
+    // 塌到 ~1.7——钉环（总长 70.10）恰停行 y=96.5（P=71.07 < 71.50 =
+    // C×1.02 最深可容档）、候选行 y=96.0（P=71.98）套不进即卡停。
+    // contactF/B 留 pen（差的布长 = 裆部绷紧勒住，tooSmall 偏小读数）
+    expect(out1.report.jamF).toBe(true)
+    expect(out1.report.jamB).toBe(true)
+    expect(out1.report.dropF).toBeGreaterThanOrEqual(1.0)
+    expect(out1.report.dropF).toBeLessThanOrEqual(3.0)
+    expect(out1.report.dropB).toBeGreaterThanOrEqual(1.0)
+    expect(out1.report.dropB).toBeLessThanOrEqual(3.0)
     expect(out1.report.dropF).toBeLessThanOrEqual(DRESSING_PRIOR.maxDrop + 1e-6)
-    expect(out1.report.dropB).toBeGreaterThanOrEqual(-1e-6)
     expect(out1.report.dropB).toBeLessThanOrEqual(DRESSING_PRIOR.maxDrop + 1e-6)
-    // 下摆：掉裆 ~7cm 后裤脚可及地（腰锚 7.64 − 前掉 ≈7 → 地面网钳 0——
-    // 真人掉裆裤脚拖地的对应；旁挂 hangLift 12 才有离地余量），只把门
-    // 地面网不破（无穿透到地下）
+    // 下摆：掉裆收窄到 ~1.7（旧 7.8 时裤脚及地、地面网钳 0）→ 下摆离地
+    // 实测 ~2.4；把门地面网不破（无穿透到地下）
     let minY = Infinity
     for (let i = 1; i < out1.sim.pos.length; i += 3) {
       minY = Math.min(minY, out1.sim.pos[i])
     }
     expect(minY).toBeGreaterThanOrEqual(-1e-6)
     // ---- 脚口前缘位置（2026-09-19（三）strain limiting 重定标 → 2026-09-20
-    // 等距外偏再定标）：布不可伸长后整裤垂长变短，脚口带（纸样 y∈[−1,1]）
-    // 落前脚区；腰圈钉环间隙均匀化后布量沿环重排（前侧间隙 0.22→0.17、
-    // 后侧 0.04→0.17），钉位 ~0.1cm 级扰动经 settle 动力放大，前缘实测
-    // 3.25（旧缩放口径 4.5）——挂扣余量变薄，把门 ≥3.2（滑脱到脚后的
-    // 脱扣态 ~3 仍可分）----
+    // 等距外偏再定标 → 2026-09-23 P1 挂胯再定标）：掉裆从 7.8 收窄到 ~1.7
+    // 后整裤高挂，脚口带（纸样 y∈[−1,1]）前缘实测 8.14（旧 3.25）——
+    // 挂扣余量转厚；把门 ≥6（滑脱到脚后的脱扣态 ~3 仍可分）----
     let frontRim = -Infinity
     for (const part of out1.pair.parts) {
       if (part.key === 'waistband') continue
@@ -314,11 +329,51 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
         frontRim = Math.max(frontRim, out1.sim.pos[3 * gi + 2])
       }
     }
-    expect(frontRim).toBeGreaterThan(3.2)
+    expect(frontRim).toBeGreaterThan(6.0)
+    // ---- P2 钉环随行重投影（2026-09-23）：钉弧位全覆盖 + 正面腰口贴身 ----
+    // 弧位覆盖：穿台分支三源登记（身片顶链走样 + 终点角 + 腰头带列全顶点）
+    // 应覆盖全部钉——缺项 = 该钉 XZ 冻结退旧口径，静默缺 = 回归。注意
+    // pinArcs 是钉集超集（带列非钉顶点也登记，源③整列循环不筛），size
+    // 不能与 pinIdx.length 判等，覆盖性以 has 逐钉为准（实测 146 钉全中）
+    expect(out1.pair.pinArcs).toBeDefined()
+    expect(out1.pair.pinArcs!.size).toBeGreaterThanOrEqual(out1.sim.pinIdx.length)
+    for (const gi of out1.sim.pinIdx) {
+      expect(out1.pair.pinArcs!.has(gi), `pin ${gi} 弧位缺失`).toBe(true)
+    }
+    // 终态钉 gap 扇区读数：正面（f<0.25）腰口贴身——冻结口径 med +0.53
+    //（正面腰头悬空主诉）、裸逐钉行 −0.47（前中过挤）先后证伪；参考行
+    // 钳腰站行口径实测 med −0.07、嵌体下探 −0.19。后扇区 med +0.27 主体
+    // 是带顶钉随自身行的诚实浮空（上段体围 < 环长 → δ_top ~+0.3..0.45）
+    // ——腰口闭合差已消除，扇区差不作把门
+    const pinGapAt = (gi: number): number => {
+      const field = out1.sim.field as NonNullable<DrapeSim['field']>
+      const x = out1.sim.pos[3 * gi]
+      const y = out1.sim.pos[3 * gi + 1] - out1.sim.yLift
+      const z = out1.sim.pos[3 * gi + 2]
+      const rings = field.loopsAt(y)
+      if (rings.length === 0) return NaN
+      const hit = nearestRingBoundary(rings, x, z, 5)
+      if (hit === null) return NaN
+      return (x - hit.px) * hit.nx + (z - hit.pz) * hit.nz
+    }
+    const fSd: number[] = []
+    for (const gi of out1.sim.pinIdx) {
+      const f = Math.abs(
+        Math.atan2(out1.sim.pos[3 * gi], out1.sim.pos[3 * gi + 2])) / Math.PI
+      if (f >= 0.25) continue
+      const sd = pinGapAt(gi)
+      if (Number.isFinite(sd)) fSd.push(sd)
+    }
+    fSd.sort((p, q) => p - q)
+    const fMed = fSd[Math.floor(fSd.length / 2)]
+    expect(fMed).toBeGreaterThanOrEqual(-0.25)
+    expect(fMed).toBeLessThanOrEqual(0.15)
+    expect(Math.min(...fSd)).toBeGreaterThan(-0.30)
     // ---- 同输入双跑 DressReport 逐字段相等（确定性红线）----
     const out2 = runDress(a, data, {})
     const r1 = out1.report, r2 = out2.report
-    for (const key of ['dropF', 'dropB', 'worstPen', 'worstPenY', 'frames'] as const) {
+    for (const key of ['dropF', 'dropB', 'worstPen', 'worstPenY', 'frames',
+      'jamF', 'jamB'] as const) {
       expect(r2[key], key).toBe(r1[key])
     }
     expect(r2.contactF).toEqual(r1.contactF)
@@ -326,9 +381,10 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     expect(r2.tooSmall).toBe(r1.tooSmall)
     expect(r2.capped).toBe(r1.capped)
     expect(Array.from(out2.sim.pos)).toEqual(Array.from(out1.sim.pos))
-    // 单跑 ~230s；全量并行负载下实测 286s——超时裕度给到 480s（双跑含
-    // 两遍 maxTotalFrames 全解算，是全仓最重用例）
-  }, 480_000)
+    // 2026-09-23 提速（1a sqrt + 1b 分箱 + 1c 帧数压缩）后实测 58s（含
+    // 双跑全解算；提速前 ~230s 单跑/286s 并行）。超时裕度 3× 给到 180s
+    //（双跑两遍全解算，仍是全仓最重用例）
+  }, 180_000)
 
   it('hips+ 负松量探索例：不炸、收敛、读数在值域（宽松）', () => {
     const a = loadBodyFromDisk()
@@ -340,7 +396,7 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     expect(out.report.dropF).toBeLessThanOrEqual(DRESSING_PRIOR.maxDrop + 1e-6)
     expect(out.report.dropB).toBeLessThanOrEqual(DRESSING_PRIOR.maxDrop + 1e-6)
     // 偏小（穿透未解/fault）是读数不是错误——本例只验不炸不飞
-  }, 300_000)
+  }, 120_000)
 
   it('偏小款穿不进：钉环 δ<0 整圈均匀嵌体 + 热力图 gap 红区（只摆位快检）', () => {
     const a = loadBodyFromDisk()
@@ -393,6 +449,10 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     expect(out.report.dropF).toBeLessThanOrEqual(DRESSING_PRIOR.maxDrop + 1e-6)
     expect(out.report.dropB).toBeGreaterThanOrEqual(-1e-6)
     expect(out.report.dropB).toBeLessThanOrEqual(DRESSING_PRIOR.maxDrop + 1e-6)
+    // P1 挂胯零变化回归：contact gap → 无 pen 不评估下放，jam 不触发
+    //（由构造保证——长裤问题全在脚区，掉裆机制零改动）
+    expect(out.report.jamF).toBe(false)
+    expect(out.report.jamB).toBe(false)
     // 踝下（幕帘域，踝上 1cm 缓冲）全粒子穿脚环深度 >0.3 计数 = 0
     const field = out.sim.field as NonNullable<DrapeSim['field']>
     const anklePat = a.landmarks.ankle! * stationFactor(a.heightInfo, 0)
@@ -434,5 +494,5 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     expect(hemFront.length).toBeGreaterThan(20)
     expect(hemFront[Math.floor(hemFront.length / 2)]).toBeGreaterThan(2.0)
     expect(hemOverToe).toBeGreaterThan(10)
-  }, 300_000)
+  }, 120_000)
 })

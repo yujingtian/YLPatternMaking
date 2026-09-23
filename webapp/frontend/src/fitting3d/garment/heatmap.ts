@@ -11,7 +11,7 @@
 //   移除留 git 史；HEAT_PRIOR.strainMax 暂留防误删依赖）
 import type { DrapeSim } from './drape'
 import { CORE_SKIN } from './core'
-import { nearestRingBoundary } from './placement'
+import { nearestRingBoundary, type RingHit } from './placement'
 import { HEAT_PRIOR } from './priors'
 
 export type HeatMode = 'gap'
@@ -22,12 +22,13 @@ export function computeHeat(sim: DrapeSim, _mode: HeatMode): Float32Array {
   const out = new Float32Array(n)
   if (sim.field === null) return out
   const margin = CORE_SKIN + HEAT_PRIOR.gapMax
+  // scratch 出参（1b 提速）：d/px/nx 即读即用，逐粒子复用同一对象
+  const hit: RingHit = { d: 0, px: 0, pz: 0, nx: 0, nz: 0 }
   for (let i = 0; i < n; i++) {
     const x = sim.pos[3 * i], y = sim.pos[3 * i + 1], z = sim.pos[3 * i + 2]
     const rings = sim.field.loopsAt(y - sim.yLift)
     if (rings.length === 0) { out[i] = HEAT_PRIOR.gapMax; continue }
-    const hit = nearestRingBoundary(rings, x, z, margin)
-    if (hit === null) {
+    if (!nearestRingBoundary(rings, x, z, margin, hit)) {
       out[i] = HEAT_PRIOR.gapMax
     } else {
       // 带符号距离：p−最近边界点 在外法线上的投影（体外正/体内负）

@@ -6,8 +6,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   BodyField, buildFootCurtain, buildLegAxisFromRings, curtainAt,
-  nearestRingBoundary, pointInRings, shiftPositionsY, topSupportY,
-  type SliceRing,
+  nearestRingBoundary, nearestRingBoundaryBrute, pointInRings,
+  shiftPositionsY, topSupportY, type RingHit, type SliceRing,
 } from './placement'
 import { CORE_SKIN, type LegAxis } from './core'
 import { HANG_PRIOR } from './priors'
@@ -69,6 +69,75 @@ describe('nearestRingBoundary（最近边界+外法线，collide/探针共口径
     expect(hl).not.toBeNull()
     expect(hl!.px).toBeLessThan(-0.9)
     expect(hl!.nx).toBeGreaterThan(0)
+  })
+})
+
+// ---- 分箱等价（2026-09-23 无损提速 1b）：角度分箱剪枝版 nearestRingBoundary
+// vs 暴力全扫 nearestRingBoundaryBrute。环故意非对称非等段（椭圆基形 +
+// 径向噪声 + 质数段数——段不与分箱边界对齐、剪枝路径全覆盖）；种子 LCG
+// 查询网格混环内/环外/顶点本体（d=0 边界 + 顶点法扇区 = 二维 tie 域，逼
+// tie-break）/远点（null 同判）。两实现 tie 规范化同规（d2 位级最小、同值
+// 取段号小者；剪枝严格 > 不藏等距段）→ 输出位级恒等，断言全字段 toBe ----
+describe('nearestRingBoundary 分箱等价（vs nearestRingBoundaryBrute）', () => {
+  const lcg = (seed: number) => () =>
+    (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32
+
+  it('种子随机查询网格：全字段位级一致、null 同判、out 出参同值', () => {
+    const rand = lcg(20260923)
+    const jagged = (cx: number, cz: number, ra: number, rb: number): SliceRing => {
+      const n = 37   // 质数段数：段界与 16 分箱恒不对齐
+      const pts = new Float64Array(2 * n)
+      for (let k = 0; k < n; k++) {
+        const th = (k / n) * 2 * Math.PI + (rand() - 0.5) * 0.04
+        const r = (ra + (rb - ra) * (0.5 + 0.5 * Math.sin(2.3 * k + rand())))
+          * (0.85 + 0.3 * rand())
+        pts[2 * k] = cx + r * Math.cos(th)
+        pts[2 * k + 1] = cz + r * Math.sin(th)
+      }
+      let mx = 0, mz = 0
+      for (let k = 0; k < n; k++) { mx += pts[2 * k]; mz += pts[2 * k + 1] }
+      mx /= n; mz /= n
+      let rMax = 0
+      for (let k = 0; k < n; k++) {
+        rMax = Math.max(rMax, Math.hypot(pts[2 * k] - mx, pts[2 * k + 1] - mz))
+      }
+      return { pts, cx: mx, cz: mz, r: rMax }
+    }
+    const rings = [jagged(-4, 1, 2.5, 4.2), jagged(4.5, -0.5, 2.0, 3.6)]
+    const MARGIN = 2.0
+    // 查询集：确定性网格 + 随机点 + 顶点本体（d=0）+ 远点（null）
+    const qs: Array<[number, number]> = []
+    for (let gx = -10; gx <= 10; gx += 1.3) {
+      for (let gz = -8; gz <= 8; gz += 1.1) qs.push([gx, gz])
+    }
+    for (let k = 0; k < 400; k++) qs.push([-12 + 24 * rand(), -10 + 20 * rand()])
+    for (const rg of rings) {
+      const n = rg.pts.length / 2
+      for (let k = 0; k < n; k += 5) qs.push([rg.pts[2 * k], rg.pts[2 * k + 1]])
+    }
+    qs.push([100, 100], [-100, 0])
+    const scratch: RingHit = { d: 0, px: 0, pz: 0, nx: 0, nz: 0 }
+    for (const [x, z] of qs) {
+      const b = nearestRingBoundaryBrute(rings, x, z, MARGIN)
+      const f = nearestRingBoundary(rings, x, z, MARGIN)
+      if (b === null) {
+        expect(f).toBeNull()
+        continue
+      }
+      expect(f).not.toBeNull()
+      expect(f!.d).toBe(b.d)
+      expect(f!.px).toBe(b.px)
+      expect(f!.pz).toBe(b.pz)
+      expect(f!.nx).toBe(b.nx)
+      expect(f!.nz).toBe(b.nz)
+      const o = nearestRingBoundary(rings, x, z, MARGIN, scratch)
+      expect(o).toBe(scratch)   // out 复用同一对象（1b 零分配口径）
+      expect(o!.d).toBe(b.d)
+      expect(o!.px).toBe(b.px)
+      expect(o!.pz).toBe(b.pz)
+      expect(o!.nx).toBe(b.nx)
+      expect(o!.nz).toBe(b.nz)
+    }
   })
 })
 

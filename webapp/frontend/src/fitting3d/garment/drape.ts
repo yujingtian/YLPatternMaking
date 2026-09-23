@@ -19,10 +19,19 @@
 import type { Garment } from './assemble'
 import { CORE_SKIN } from './core'
 import type { BodyField } from './placement'
-import { pointInRings, nearestRingBoundary, topSupportY } from './placement'
+import { pointInRings, nearestRingBoundary, topSupportY, type RingHit } from './placement'
 import { DRAPE_PRIOR, HANG_PRIOR } from './priors'
 import { buildSeamSet, type SeamGroup } from './seams'
 import { bandBottomChain } from './band'
+
+// 求解器消费的网格子集（stepDrape/strainLimit 唯三读取 dist/bend/bendKArr；
+// 2026-09-23 Worker 化：parts.mesh 收窄到此——ClothMesh 结构性满足（含
+// locate 闭包的全量对象可赋入），solvestate 投影/再水化按此收口）
+export interface SolverPartMesh {
+  dist: Float32Array
+  bend: Float32Array
+  bendKArr?: Float32Array
+}
 
 export interface DrapeSim {
   pos: Float32Array       // 全粒子当前位置（解算本体；garment.pos 是初摆位）
@@ -32,13 +41,18 @@ export interface DrapeSim {
   pinTarget: Float32Array // 3×pin 目标位（初始摆位处，全向硬钉 = 悬挂支点）
   pinFlag: Uint8Array     // 顶点级钉查询表（0/1）：strain limiting 逆质量 0 +
                           // collide 豁免共用——钉 = 刚性腰口边界条件（2026-09-19）
+  pinArcs?: Float64Array  // 钉环弧位（2026-09-23 P2 钉环随行重投影）：与
+                          // pinIdx 同序的环弧 s（构建期腰圆弧，参考环 C 恒定
+                          // 下跨行直通）；NaN = 该钉无弧位（XZ 冻结旧口径）。
+                          // settle lowering 据此沿参考环重投影钉 XZ；旁挂/
+                          // 无 jam 不消费
   seamIdx: Uint32Array    // 2S 全族缝合对（八期 buildSeamSet：rise/cb 镜像
                           // + side/inseam 弧长 + tip 补焊，全 rest=0 同一求解）
   seamGroups: SeamGroup[] // 分族切片（金标分族统计用）
   yLift: number           // 摆位整体抬升（collide 场查询按此回纸样空间）
   holdIdx: Uint32Array    // 裆尖短时硬钉粒子（crotchHold>0 fallback 旋钮用）
   holdTarget: Float32Array
-  parts: { offset: number; mesh: Garment['parts'][number]['mesh'] }[]
+  parts: { offset: number; mesh: SolverPartMesh }[]
   field: BodyField | null   // null = 自由垂（无撑型芯径向碰撞，仅地面）
   collideAboveY: number    // 碰撞生效的纸样 y 下限（-∞ = 全程；混合形态：
                             // 躯干段撑开、腿段自由垂——(九) 山脊修复）
@@ -160,6 +174,15 @@ export function buildDrape(
   // 顶点级钉查询表：strain limiting（钉逆质量 0）与 collide（钉豁免）共用
   const pinFlag = new Uint8Array(garment.pos.length / 3)
   for (const gi of pinIdx) pinFlag[gi] = 1
+  // 钉环弧位转译（P2）：Garment 稀疏 Map（全局顶点号 → s）→ pinIdx 同序
+  // 稠密数组；缺项 NaN = 该钉 XZ 冻结（旧口径）
+  const pinArcs = new Float64Array(pinIdx.length).fill(NaN)
+  if (garment.pinArcs) {
+    for (let k = 0; k < pinIdx.length; k++) {
+      const s = garment.pinArcs.get(pinIdx[k])
+      if (s !== undefined) pinArcs[k] = s
+    }
+  }
   // 全族缝合对（八期 buildSeamSet）：六期「parts[0] 单一 rise|cb 链同号
   // 配对」的泛化——rise/cb 镜像族同机制、side/inseam 跨宿主弧长配对、
   // 四裆尖 tip 补焊，全族 rest=0 进同一扁平数组（求解循环零改动）
@@ -209,6 +232,7 @@ export function buildDrape(
     pinIdx: new Uint32Array(pinIdx),
     pinTarget,
     pinFlag,
+    pinArcs,
     seamIdx: seam.pairs,
     seamGroups: seam.groups,
     yLift,
@@ -336,6 +360,8 @@ function collide(sim: DrapeSim): void {
   const { pos, prev, field, pinFlag } = sim
   if (!field) return
   const fr = DRAPE_PRIOR.friction
+  // scratch 出参（1b）：逐粒子命中复用同一 RingHit，消灭 ~17k 次/步分配
+  const hit: RingHit = { d: 0, px: 0, pz: 0, nx: 0, nz: 0 }
   for (let i3 = 0; i3 < pos.length; i3 += 3) {
     // 钉豁免（2026-09-19）：钉 = 刚性腰口边界条件，人台不顶开腰环——
     // 穿台审计实测 collide 在 projectPins 之后覆写嵌体钉（漂移 max 1.57，
@@ -365,10 +391,9 @@ function collide(sim: DrapeSim): void {
     const rings = field.loopsAt(patY)
     if (rings.length === 0) continue
     // 最近边界（跨全部环，quick reject 余量 = skin；2026-09-18 扫描体
-    // 提取为 placement.nearestRingBoundary，与穿台裆探针共口径，迭代序
-    // 不变）
-    const hit = nearestRingBoundary(rings, x, z, CORE_SKIN)
-    if (!hit) continue
+    // 提取为 placement.nearestRingBoundary，与穿台裆探针共口径；2026-09-23
+    // 起内部走角度分箱精确剪枝，迭代序不变式退役——等价由 dressfield 金标把门）
+    if (!nearestRingBoundary(rings, x, z, CORE_SKIN, hit)) continue
     if (hit.d >= CORE_SKIN) {
       // 远离边界：只在某环包围圆内（可能深穿）才做射线判内兜底——正常
       // 挂相布在壳外起步，此分支零命中（v1 细龙骨穿膛教训的守门）
@@ -428,7 +453,9 @@ function strainLimit(sim: DrapeSim): void {
       const a = 3 * ia, b = 3 * ib
       const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
       const dz = pos[b + 2] - pos[a + 2]
-      const d = Math.hypot(dx, dy, dz)
+      // hypot 慢 ~2.7×（NaN/overflow 语义税）；求解热点统一 sqrt（与
+      // seamPass/dist/bend 同批，ulp 差 → 盆地重掷由金标重定标吸收）
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
       if (d < 1e-9 || d <= dist[c + 2] * lim) continue
       const fa = pinFlag[ia] ? 0 : 1
       const fb = pinFlag[ib] ? 0 : 1
@@ -449,7 +476,7 @@ function seamPass(sim: DrapeSim): void {
     const a = 3 * seamIdx[c], b = 3 * seamIdx[c + 1]
     const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
     const dz = pos[b + 2] - pos[a + 2]
-    const d = Math.hypot(dx, dy, dz)
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
     if (d < 1e-9) continue
     const k = 0.5 * DRAPE_PRIOR.seamStiffness
     pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
@@ -485,7 +512,7 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
           const a = 3 * (off + dist[c]), b = 3 * (off + dist[c + 1])
           const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
           const dz = pos[b + 2] - pos[a + 2]
-          const d = Math.hypot(dx, dy, dz)
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
           if (d < 1e-9) continue
           const k = ((d - dist[c + 2]) / d) * 0.5
           pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
@@ -498,7 +525,7 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
           const a = 3 * (off + bend[c]), b = 3 * (off + bend[c + 1])
           const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
           const dz = pos[b + 2] - pos[a + 2]
-          const d = Math.hypot(dx, dy, dz)
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
           if (d < 1e-9) continue
           const k = ((d - bend[c + 2]) / d) * 0.5
             * (bendK ? bendK[c / 3] : p.bendStiffness)

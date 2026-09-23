@@ -189,7 +189,7 @@ const buildPant = (payload: FittingResult): {
 
 describe('drape：整裤缝合芯碰撞解算（八期）——基础款', () => {
   it('600 帧内真收敛、整圈钉恒守、四族缝达标、裆汇集、不拖地、穿透零',
-    { timeout: 300000 }, () => {
+    { timeout: 120000 }, () => {
       const { sim, placed } = buildPant(load('fixture_fitting.json'))
       const st = runToSettle(sim)
       expect(st).toBe('settled')
@@ -198,7 +198,7 @@ describe('drape：整裤缝合芯碰撞解算（八期）——基础款', () =>
 })
 
 describe('drape：整裤缝合芯碰撞解算（八期）——袋贴款（前身并集宿主）', () => {
-  it('袋贴月牙带并入宿主后整裤全部口径照旧', { timeout: 300000 }, () => {
+  it('袋贴月牙带并入宿主后整裤全部口径照旧', { timeout: 120000 }, () => {
     const payload = load('fixture_fitting_pocket.json')
     expect(buildFrontPanel(payload).hasFacing).toBe(true)   // 前置：并集成功
     const { sim, placed } = buildPant(payload)
@@ -210,7 +210,7 @@ describe('drape：整裤缝合芯碰撞解算（八期）——袋贴款（前�
 
 describe('drape：整裤缝合芯碰撞解算（八期）——育克款（后身并集宿主）', () => {
   it('育克拼入后整裤全部口径照旧（后浪贯通 + side 双 run 合链配对）',
-    { timeout: 300000 }, () => {
+    { timeout: 120000 }, () => {
       const payload = load('fixture_fitting_yoke.json')
       expect(buildBackPanel(payload).hasYoke).toBe(true)    // 前置：并集成功
       const { sim, placed } = buildPant(payload)
@@ -222,7 +222,7 @@ describe('drape：整裤缝合芯碰撞解算（八期）——育克款（后�
 
 describe('drape：整裤缝合芯碰撞解算（八期）——有省款（seam 参与片模式）', () => {
   it('育克升格 sim 参与片整裤成立（yokeCb/yokeWaist/yokeWeld 全族达标）',
-    { timeout: 300000 }, () => {
+    { timeout: 120000 }, () => {
       const payload = load('fixture_fitting_curved_pocket.json')
       expect(buildBackPanel(payload).mode).toBe('seam')  // 前置：闭省净样判据命中
       const { sim, placed } = buildPant(payload)

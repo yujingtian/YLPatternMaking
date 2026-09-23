@@ -178,7 +178,10 @@ export const DRAPE_PRIOR = {
 // 试穿结果是读数，不是自动调版闭环
 export const DRESSING_PRIOR = {
   holdFrames: 240,       // 帧：上身后持锚先松弛（布贴身、缝对闭拢）再开始
-                         // 下放（启动序列勿盲调红线——先让布静止再动钉）
+                         // 下放（启动序列勿盲调红线——先让布静止再动钉）。
+                         // 上限而已（2026-09-23 提速 1c）：settledFrames 先达
+                         // 全局静止判据即提前转 lowering（零新常数，「静止」
+                         // 定义与 settle 相位同源；实测基础款 ~80 帧即静）
   dropRate: 0.08,        // cm/帧：钉目标下放速率（准静态 ≈4.8cm/s @60Hz；
                          // 过快 = 下放瞬态与碰撞拔河）
   deadZone: 0.3,         // cm：裆接触死区（探针 |穿透/间隙| ≤ 本值视为贴合
@@ -190,9 +193,17 @@ export const DRESSING_PRIOR = {
   maxDrop: 15,           // cm：单侧最大掉裆（到顶仍穿 = 偏小 fault 停放，
                          // 不与碰撞无限拔河——偏小是读数不是错误）
   confirmFrames: 30,     // 帧：双侧入区（或 fault）确认帧数 → 进 settle
-  settleMaxFrames: 480,  // 帧：settle 相位独立预算（wake 续 maxFrames 用）
+  settleMaxFrames: 200,  // 帧：settle 相位独立预算（wake 续 maxFrames 用）。
+                         // 480→200（2026-09-23 提速 1c）：挂胯判据 P1 后
+                         // settle 段主要在消缓释残差，200 帧实测足够收敛；
+                         // 预算尽 capped 读数如实呈现（「预算尽收束」提示）
   maxTotalFrames: 1800,  // 帧：控制器硬顶（hold+lowering+settle 总计兜底）
   forkSearch: 6,         // cm：自裆地标向下搜首个双腿分离行的窗口
+  jamMargin: 0.02,       // 挂胯判据余量（2026-09-23 P1）：候选档行周长 ≥
+                         // 环长×(1+本值) → 卡停不下放——不可伸长闭环（总长
+                         // C）套不进周长 > C 的截面是精确几何事实，余量只对应
+                         // 布的弹性（丹宁实穿下限；0% 过紧、4% 偏松，1% 差 ≈
+                         // 卡停行 ~0.4cm 位移不敏感）
   tooSmallPen: 0.5,      // cm：终态全粒子壳穿透最差 > 本值 → 偏小读数
   waistRingStep: 0.25,   // cm：腰圈钉环等弧长重采样步长（buildWaistRing；
                          // 弧长映射精度——步长越短钉间距=纸样边长越精确，
