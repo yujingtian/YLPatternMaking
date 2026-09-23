@@ -199,11 +199,14 @@ function DraftApp() {
     setInitialized(true)
     setInitOpen(false)
   }
-  // 选择层「载入即完成」：模板/空白默认共用（第三参语义各自成立——
-  // 模板带码表、出厂 fresh start 显式 null）
-  const initLoadValues = (m: Values, o: Values, sr?: SizeRunSpec | null) => {
+  // 换源收口（模板/空白默认/智能打版确认共用）：整体替换参数 + 状态
+  // 还原——loadValues 清旧产物快照、draftEpoch +1 重挂编辑器（挂载期
+  // ensureSheet 按新参数重发）、右栏切回高级编辑（2026-09-23 用户口径：
+  // 换源后停在 3D 观感仍是上一份配置）
+  const switchDraftSource = (m: Values, o: Values, sr?: SizeRunSpec | null) => {
     d.loadValues(m, o, sr)
     setDraftEpoch((e) => e + 1)
+    setViewMode('2d')
     finishInit()
   }
 
@@ -363,7 +366,7 @@ function DraftApp() {
           hasSavedDraft={d.hasSavedDraft}
           initialized={initialized}
           onContinue={finishInit}
-          onLoadValues={initLoadValues}
+          onLoadValues={switchDraftSource}
           onOpenChat={() => chat.setOpen(true)}
         />
       )}
@@ -411,14 +414,11 @@ function DraftApp() {
       <SmartDraftChat
         chat={chat}
         onConfirm={(m, o) => {
-          // 第三参必须显式传：loadValues 缺省 null 会清空推板码表
-          d.loadValues(m, o, d.sizeRun)
-          // 换源纪元 +1（同 initLoadValues：确认预填 = 整体换参数）
-          setDraftEpoch((e) => e + 1)
-          // 确认即完成初始化关层（中途经「新建」重开时 initialized 已真，
-          // finishInit 无副作用）
+          // 第三参必须显式传：loadValues 缺省 null 会清空推板码表；
+          // switchDraftSource 内已 finishInit（重开时 initialized 已真，
+          // 无副作用），确认即完成初始化关层
+          switchDraftSource(m, o, d.sizeRun)
           chat.setOpen(false)
-          finishInit()
         }}
       />
     </div>

@@ -226,6 +226,21 @@ export function useDraft(): DraftState {
     setOptions(o)
     setSizeRunState(sizeRun)
     bump()
+    // 整体换源状态还原（2026-09-23 用户口径：新建换源后上一草稿的裁片/
+    // 3D 不许残留）：旧产物快照只标 stale 不清空，编辑器重挂后仍渲染上
+    // 一份裁片、3D 侧仍消费上一份 fitting——换源即作废清空（sheetRef/
+    // piecesRef 同步置空，防 ensure*「已新鲜」误判复用），编辑器重挂的
+    // ensureSheet 与 3D 重挂的首挂自动试穿按新参数重发；拖拽撤销基线与
+    // 校验条同属旧草稿残留，一并清
+    sheetRef.current = null
+    piecesRef.current = null
+    setSheet(null)
+    setPieces(null)
+    setFitting(null)
+    setLastDrag(null)
+    setAdjustInfo(null)
+    setErrors([])
+    setWarnings([])
   }, [bump])
 
   const sheetStale = sheet !== null && sheet.version !== version
