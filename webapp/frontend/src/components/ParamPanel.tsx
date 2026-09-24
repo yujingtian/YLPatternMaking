@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
-  Gate, GroupSpec, IssueDetail, SectionSpec, SeedResult, SeedPayload, Values,
+  GroupSpec, IssueDetail, SectionSpec, SeedResult, SeedPayload, Values,
 } from '../types'
 import { Input, Collapse, Badge } from 'antd'
-import ParamInput, { flyTypeOf, pocketTypeOf } from './ParamInput'
+import ParamInput, { flyTypeOf, gateOn, pocketTypeOf } from './ParamInput'
 import { PARAM_ZH } from '../paramZh'
 
 interface Props {
@@ -19,15 +19,6 @@ interface Props {
   highlight: { param: string; ts: number } | null
 }
 
-// 参数级 gate 判定：字符串 = 布尔开关键；对象 = 枚举参数值匹配
-// （形态联动；requires 布尔开关须同时全真，如前贴袋形态参数复合开关）
-function gateOn(gate: Gate, options: Values): boolean {
-  if (typeof gate === 'string') return Boolean(options[gate])
-  if (!(gate.requires ?? []).every((k) => Boolean(options[k]))) return false
-  const v = options[gate.param]
-  return v != null && gate.values.includes(String(v))
-}
-
 function errorMap(errors: IssueDetail[]): Map<string, string> {
   const m = new Map<string, string>()
   for (const e of errors) if (e.param) m.set(e.param, e.message)
@@ -40,13 +31,18 @@ export default function ParamPanel({
 }: Props) {
   const [search, setSearch] = useState('')
   const errs = useMemo(() => errorMap(errors), [errors])
-  // 参数默认值表：编辑器侧直读 options 的功能（open 链近似锚点）兜底用
+  // 参数默认值表：编辑器侧直读 options 的功能（open 链近似锚点）兜底用；
+  // gateVals 再供 gate 判定——options state 只存碰过的键，枚举模式键
+  // （如袋口线模式）未手改时缺失，须回落 schema 默认值否则三模式参数
+  // 全被误隐藏（面板值显示本就走 options ?? default，gate 同口径）
   const defaults = useMemo(() => {
     const m: Record<string, unknown> = {}
     for (const s of sections) for (const g of s.groups) for (const p of g.params)
       m[p.key] = p.default
     return m
   }, [sections])
+  const gateVals = useMemo(() => ({ ...defaults, ...options }),
+    [defaults, options])
   const qs = search.trim().toLowerCase()
   const rootRef = useRef<HTMLDivElement>(null)
   // 受控折叠（原 defaultActiveKey 语义不变；二期拖拽高亮需程序化展开目标组）
@@ -110,7 +106,7 @@ export default function ParamPanel({
             const gates = Array.isArray(p.visible_if)
               ? p.visible_if : [p.visible_if]
             // gate：字符串=布尔开关，对象=枚举值匹配（形态联动）
-            return gates.some((g) => gateOn(g, options))
+            return gates.some((g) => gateOn(g, gateVals))
           }))
     if (params.length === 0) return null
 

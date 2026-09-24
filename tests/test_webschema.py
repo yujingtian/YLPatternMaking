@@ -17,7 +17,7 @@ import pytest
 
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.params import Measurements, PatternOptions
-from ylpattern.webschema import (ADJUSTABLES, build_schema, handles,
+from ylpattern.webschema import (ADJUSTABLES, build_schema, gate_on, handles,
                                  seed_shape)
 
 ADJ_M = dict(waist=70, hip=96, knee=46, hem=36,
@@ -158,6 +158,80 @@ def test_adjustable_points_kind_t_pairing():
             assert p["t"] is not None
         else:
             assert p["kind"] == "point" and p["t"] is None
+
+
+# ---------- 模式互斥参数显隐（2026-09-24：下拉选到对应模式才显示） ----------
+
+def test_mode_param_gates():
+    """模式互斥参数 gate 金标：袋口线/袋贴内边三模式参数、小表袋
+    facing_intersect 专属参数、sa 字段级 gate（前片 fly_* 三边随连裁
+    门襟、后片上边互补）。steps 各分支单出口消费对应参数（前口袋
+    绘制.md §二/§三.3、seam_allowances.py docstring），非当前模式的
+    参数在面板不显示。"""
+    schema = build_schema()
+    specs = {p["key"]: p for s in schema["sections"]
+             for g in s["groups"] for p in g["params"]}
+    # 袋口线模式：bulge 双参 / tangent 双柄长 / polyline 折角列表；
+    # 组无 visible_if（承载类型下拉）故 gate 复合 requires front_pocket
+    bulge = {"param": "front_pocket_mouth_mode", "values": ["bulge"],
+             "requires": ["front_pocket"]}
+    assert specs["front_pocket_mouth_bulge"]["visible_if"] == bulge
+    assert specs["front_pocket_mouth_bulge_at"]["visible_if"] == bulge
+    tangent = {**bulge, "values": ["tangent"]}
+    assert specs["front_pocket_mouth_h1"]["visible_if"] == tangent
+    assert specs["front_pocket_mouth_h2"]["visible_if"] == tangent
+    assert specs["front_pocket_mouth_corners"]["visible_if"] == {
+        **bulge, "values": ["polyline"]}
+    # 袋贴内边模式：tangent 双柄长 / bulge 双参（offset 沿袋口净线等距
+    # 偏置无专属参数）；requires 复合袋贴开关
+    ft = {"param": "front_pocket_facing_mode", "values": ["tangent"],
+          "requires": ["front_pocket_facing"]}
+    assert specs["front_pocket_facing_h1"]["visible_if"] == ft
+    assert specs["front_pocket_facing_h2"]["visible_if"] == ft
+    fb = {**ft, "values": ["bulge"]}
+    assert specs["front_pocket_facing_bulge"]["visible_if"] == fb
+    assert specs["front_pocket_facing_bulge_at"]["visible_if"] == fb
+    # 袋贴组参数级 gate：宽/侧深/模式随袋贴开关，开关本身豁免
+    assert specs["front_pocket_facing_width"]["visible_if"] \
+        == "front_pocket_facing"
+    assert specs["front_pocket_facing_mode"]["visible_if"] \
+        == "front_pocket_facing"
+    assert "visible_if" not in specs["front_pocket_facing"]
+    # 小表袋：袋口宽/收拢仅 facing_intersect（custom 净形全由锚点偏移 +
+    # points/edges 决定，不消费）；组级 gate 已覆盖两开关
+    wi = {"param": "watch_pocket_mode", "values": ["facing_intersect"]}
+    assert specs["watch_pocket_width"]["visible_if"] == wi
+    assert specs["watch_pocket_taper"]["visible_if"] == wi
+    # sa 字段级 gate：前片 fly_* 三边仅连裁消费（fly 且非 fly_separate，
+    # 独立门襟 fly_separate 优先——基样模板两开关同 true 按独立判）；
+    # mouth 随挖削口袋；后片上边互补（top=有育克、waist=无机头）；
+    # 独立门襟 bottom 仅双排
+    fly_gate = {"requires": ["fly"], "not": ["fly_separate"]}
+    assert specs["front_piece_seam_allowances"]["sa_field_gates"] == {
+        "mouth": "front_pocket",
+        "fly_top": fly_gate, "fly_outer": fly_gate, "fly_bottom": fly_gate}
+    assert specs["back_piece_seam_allowances"]["sa_field_gates"] == {
+        "top": "back_yoke", "waist": {"not": ["back_yoke"]}}
+    assert specs["fly_seam_allowances"]["sa_field_gates"] == {
+        "bottom": "fly_sep_double"}
+
+
+def test_gate_on_not_semantics():
+    """gate_on not 语义（互补开关）：not 键须全假才真；requires/not/
+    param 组合按序判定（前端 ParamInput.gateOn 同口径）。"""
+    assert gate_on({"not": ["back_yoke"]}, PatternOptions()) is True
+    assert gate_on({"not": ["back_yoke"]},
+                   PatternOptions.from_dict({"back_yoke": True})) is False
+    combo = {"requires": ["front_pocket"], "not": ["front_patch"],
+             "param": "front_pocket_mouth_mode", "values": ["bulge"]}
+    assert gate_on(combo, PatternOptions.from_dict(
+        {"front_pocket": True})) is True
+    # requires 假 / not 真 / 枚举不匹配 三路各拦截
+    assert gate_on(combo, PatternOptions()) is False
+    assert gate_on(combo, PatternOptions.from_dict(
+        {"front_pocket": True, "front_patch": True})) is False
+    assert gate_on(combo, PatternOptions.from_dict(
+        {"front_pocket": True, "front_pocket_mouth_mode": "tangent"})) is False
 
 
 # ---------- 把手自门控（引擎直调口径同 test_web_adjust.py） ----------

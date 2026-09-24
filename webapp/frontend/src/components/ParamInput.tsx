@@ -5,9 +5,22 @@
 import { useState } from 'react'
 import { Input, InputNumber, Select, Switch } from 'antd'
 import type {
-  EdgeSpec, ParamSpec, SeedPayload, SeedResult, Values,
+  EdgeSpec, Gate, ParamSpec, SeedPayload, SeedResult, Values,
 } from '../types'
 import CustomShapeEditor from './CustomShapeEditor'
+
+// 参数级 gate 判定（ParamPanel 参数显隐 / sa 字段级显隐共用；与引擎
+// webschema.gate_on 同语义）：字符串 = 布尔开关键；对象 = requires
+// 布尔开关须全真 + not 布尔开关须全假（互补开关）+ 枚举值匹配
+// （省略 param = 只判开关）
+export function gateOn(gate: Gate, options: Values): boolean {
+  if (typeof gate === 'string') return Boolean(options[gate])
+  if (!(gate.requires ?? []).every((k) => Boolean(options[k]))) return false
+  if ((gate.not ?? []).some((k) => Boolean(options[k]))) return false
+  if (gate.param == null) return true
+  const v = options[gate.param]
+  return v != null && (gate.values ?? []).includes(String(v))
+}
 
 export interface ParamInputProps {
   spec: ParamSpec
@@ -149,9 +162,17 @@ export default function ParamInput({
       break
     case 'sa': {
       const sa = (value ?? spec.default) as Record<string, number>
+      // 字段级 gate（schema sa_field_gates）：不消费的语义边不显示
+      // （如前片 fly_* 三边在连裁门襟关闭时隐藏）。gate 读值回落 schema
+      // 默认（options 只存碰过的键，未手改的开关键缺失——与 ParamPanel
+      // gateVals 同口径）
+      const fieldGates = spec.sa_field_gates
+      const gateVals = { ...defaults, ...options }
+      const fields = Object.entries(sa).filter(
+        ([k]) => fieldGates?.[k] == null || gateOn(fieldGates[k], gateVals))
       control = (
         <div className="sa-grid">
-          {Object.entries(sa).map(([k, v]) => (
+          {fields.map(([k, v]) => (
             <span key={k} className="sa-item">
               <em title={SA_EDGE_ZH[k] ? `${k} · ${SA_EDGE_ZH[k]}` : k}>
                 {SA_EDGE_ZH[k] ?? k}

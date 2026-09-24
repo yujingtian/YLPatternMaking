@@ -149,10 +149,29 @@ export function useDraft(): DraftState {
   // 做快照竞态判定（拖拽高频回写，不能等 state 落地）
   const versionRef = useRef(0)
   const [version, setVersion] = useState(0)
+  // 整版影响参数版本（双版本 2026-09-24）：裁片段（schema pieces 段）参数
+  // 只进裁切链（缝份/缩水/刀口/裁片工艺），改动不 bump——整版快照不判
+  // 过期、高级编辑「裁片生成」不被置灰，可直接按新工艺参数重出裁片；
+  // 其余参数两版本同步 bump。sheet 快照记录 sheetVersion，先画后裁门控
+  // 与 ensureSheet 均按它判新鲜；pieces/fitting 仍按总 version 判
+  const sheetVersionRef = useRef(0)
+  const [sheetVersion, setSheetVersion] = useState(0)
   const bump = useCallback(() => {
     versionRef.current += 1
     setVersion(versionRef.current)
   }, [])
+  const bumpSheet = useCallback(() => {
+    sheetVersionRef.current += 1
+    setSheetVersion(sheetVersionRef.current)
+  }, [])
+  // 裁片专属参数键集：schema pieces 段运行时派生（新增工艺参数自动归类）；
+  // schema 加载前空集 = 全按整版参数处理（安全方向：多标过期不误放行）
+  const pieceOnlyRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const pieces = schema?.sections.find((s) => s.key === 'pieces')
+    pieceOnlyRef.current = new Set(
+      pieces?.groups.flatMap((g) => g.params.map((p) => p.key)) ?? [])
+  }, [schema])
   // 拖拽回写的参数基线（undo/下次生成用，规避闭包旧值）
   const measRef = useRef(measurements)
   measRef.current = measurements
@@ -211,15 +230,19 @@ export function useDraft(): DraftState {
     return () => clearTimeout(t)
   }, [measurements, options, sizeRun])
 
-  // 参数修改即过版本：已有预览保留但标"已过期"，DXF 下载随之禁用
+  // 参数修改即过版本：已有预览保留但标"已过期"，DXF 下载随之禁用。
+  // 测量值恒影响整版几何（双 bump）；选项键按 pieceOnlyRef 分流——
+  // 裁片专属参数只过总版本（裁片/3D 过期），整版保持新鲜
   const setMeasurement = useCallback((key: string, value: unknown) => {
     setMeasurements((prev) => ({ ...prev, [key]: value }))
     bump()
-  }, [bump])
+    bumpSheet()
+  }, [bump, bumpSheet])
   const setOption = useCallback((key: string, value: unknown) => {
     setOptions((prev) => ({ ...prev, [key]: value }))
     bump()
-  }, [bump])
+    if (!pieceOnlyRef.current.has(key)) bumpSheet()
+  }, [bump, bumpSheet])
   // 推板码表不 bump version（见 DraftState.sizeRun 注释）
   const setSizeRun = useCallback((s: SizeRunSpec | null) => {
     setSizeRunState(s)
@@ -245,7 +268,7 @@ export function useDraft(): DraftState {
     setAdjustInfo(null)
     setErrors([])
     setWarnings([])
-  }, [bump])
+  }, [bump, bumpSheet])
 
   // 整体还原（「新建」确认后）：重读 localStorage 草稿回到启动初态（选项
   // 缺键补口袋族默认与首挂同口径）——不空置参数，保证选择层「继续上次
@@ -268,9 +291,12 @@ export function useDraft(): DraftState {
     setAdjustInfo(null)
     setErrors([])
     setWarnings([])
-  }, [bump])
+  }, [bump, bumpSheet])
 
-  const sheetStale = sheet !== null && sheet.version !== version
+  // sheetStale 按整版版本判（sheetVersion 回落 version：无字段旧快照），
+  // piecesStale/fittingStale 按总版本判（任何参数改动都需重出）
+  const sheetStale = sheet !== null
+    && (sheet.sheetVersion ?? sheet.version) !== sheetVersion
   const piecesStale = pieces !== null && pieces.version !== version
   const fittingStale = fitting !== null && fitting.version !== version
 
@@ -286,6 +312,8 @@ export function useDraft(): DraftState {
     const opts = { ...base.options, [param]: v }
     versionRef.current += 1
     const ver = versionRef.current
+    // 拖拽绑定的都是整版几何参数（ADJUSTABLES 白名单），整版版本同步过
+    bumpSheet()
     setOptions(opts)
     setVersion(ver)
     setAdjustInfo({ param, ts: Date.now() })
@@ -306,7 +334,7 @@ export function useDraft(): DraftState {
     } finally {
       setSheetBusy(false)
     }
-  }, [])
+  }, [bumpSheet])
 
   // 每次拖拽开始记录 {参数, 拖前值}（双击复位同口径：复位也可撤销）
   const beginDrag = useCallback((param: string, prevValue: number) => {
@@ -335,7 +363,8 @@ export function useDraft(): DraftState {
     setErrors([])
     try {
       const res = await postSheet(payload)
-      const snap = { data: res, version: ver }
+      const snap = { data: res, version: ver,
+                     sheetVersion: sheetVersionRef.current }
       sheetRef.current = snap      // 先同步 ref：紧随其后的 ensurePieces 门控可读
       setSheet(snap)
       setWarnings(res.warnings.map((w) => ({ param: w.param, message: w.message })))
@@ -354,10 +383,13 @@ export function useDraft(): DraftState {
   }, [])
 
   const generatePieces = useCallback(async () => {
-    // 先画后裁（UI 门控）：整版未生成/已过期/生成中均不开裁片
+    // 先画后裁（UI 门控）：整版未生成/整版影响参数已改/生成中均不开裁片。
+    // 新鲜度按整版版本判（sheetVersion）——裁片专属参数（缝份/缩水等）
+    // 改动不锁门：整版几何没变，直接按新工艺参数重出裁片
     const s = sheetRef.current
     if (piecesBusyRef.current || sheetBusyRef.current
-        || !s || s.version !== versionRef.current) return null
+        || !s || (s.sheetVersion ?? s.version) !== sheetVersionRef.current)
+      return null
     const ver = versionRef.current
     const payload = { measurements: measRef.current, options: optsRef.current }
     setPiecesBusy(true)
@@ -412,12 +444,13 @@ export function useDraft(): DraftState {
     }
   }, [])
 
-  // 按需补算：新鲜（快照存在且 version 一致）直接复用，否则重跑对应
+  // 按需补算：新鲜（快照存在且整版版本一致）直接复用，否则重跑对应
   // 生成动作；generate* 内部已同步 ref，ensurePieces 紧随 ensureSheet
   // 的门控（先画后裁）天然通过。供高级编辑进入与导出中心复用
   const ensureSheet = useCallback(async () => {
     const s = sheetRef.current
-    if (s && s.version === versionRef.current) return s
+    if (s && (s.sheetVersion ?? s.version) === sheetVersionRef.current)
+      return s
     return generateSheet()
   }, [generateSheet])
 
