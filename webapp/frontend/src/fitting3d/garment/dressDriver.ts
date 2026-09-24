@@ -32,10 +32,13 @@ export function createDressRun(
   sim: DrapeSim, probeIdx: CrotchProbeIdx,
   jam: NonNullable<SettleOptions['jam']>, heatOn: boolean,
   sink: DressSink,
+  pinned = false,
 ): DressRun {
   // ctrl 宿主侧重建（闭包快照 fArr/baseY 读 sim.pinIdx/pinTarget，构造后
-  // 即自洽——序列化不携 ctrl 的原因，见 solvestate.ts 头注）
-  const ctrl = buildSettle(sim, probeIdx, { jam })
+  // 即自洽——序列化不携 ctrl 的原因，见 solvestate.ts 头注）；pinned 随
+  // init 透传（指定穿位：摆位层整组下移、钉初始即终位，lowering 旁路
+  // 直通 settle）
+  const ctrl = buildSettle(sim, probeIdx, { jam, pinned })
   let on = heatOn
   let frames = 0
   let finished = false

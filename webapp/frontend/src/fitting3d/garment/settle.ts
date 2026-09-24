@@ -9,6 +9,12 @@
 // 骨），hF/hB 独立下放 = 俯仰自然涌现；钉 XZ（2026-09-23 P2 前冻结、
 // 现沿参考环重投影——环弧 s 直通保持钉位对应，是「全钉保 XZ 刚度防环向
 // 滑移」红线的后继口径：形状随行、弧位不游移；无弧位钉照旧冻结）。
+// 指定穿位（2026-09-24；当日二次修正 = 摆位层整组下移）：WaistRing 是
+// 纯 XZ 环、环行下移不携带 Y——钉 Y 不在本控制器写（首版渐进下放被用户
+// 否决：要切档瞬间出图），摆位层把整裤 pos 连同钉目标源整体下移所选
+// cm、钉环建在所选行，钉初始即终位：lowering 不探不降直通 settle（hold
+// 静止即收，秒出口径）；掉裆/jam 读数退场（hF/hB 恒 0），裆接触/全身
+// 穿透照实报（选得过高 = 接触 pen + 热力图红区诚实暴露）。
 // 单次仿真内准静态缓释钉高（用户拍板口径），非外层搜索重跑。停走判据
 // 只认 settle 相位全粒子真实静止（下放瞬态 vs 泵的区分红线：穿透清除后
 // 速度仍持续 = 泵）；下放中钉速被全粒子 avgSpeed 均值稀释出的假 settled
@@ -52,6 +58,10 @@ export interface SettleOptions {
   jam?: { ringTotal: number; rowY: number }
   holdFrames?: number; dropRate?: number; deadZone?: number; maxDrop?: number
   confirmFrames?: number; settleMaxFrames?: number; maxTotalFrames?: number
+  /** 指定穿位（2026-09-24）：true = 钉环初始即终位（摆位层整裤下移所选
+   * cm、钉环建所选行），lowering 跳过探针下放直通 settle；hF/hB 恒 0、
+   * jam 恒 false，掉裆读数退场——视图层按「穿位」语义显示 */
+  pinned?: boolean
 }
 
 export interface SettleController {
@@ -140,6 +150,7 @@ export function buildSettle(
     confirmFrames = DRESSING_PRIOR.confirmFrames,
     settleMaxFrames = DRESSING_PRIOR.settleMaxFrames,
     maxTotalFrames = DRESSING_PRIOR.maxTotalFrames,
+    pinned = false,
   } = opts
   // frontness + 钉基线（build 时一次性快照）：f = |atan2(x,z)|/π——
   // 0=前中(θ=0,+Z) → 0.5=侧(±90°) → 1=后中(±180°)；身片腰环/带顶带底
@@ -265,6 +276,15 @@ export function buildSettle(
         return state.phase
       }
       if (state.phase === 'lowering') {
+        // 指定穿位旁路：钉初始即终位（摆位层整裤下移所选 cm、钉环建所选
+        // 行）——不探不降不等 confirm，直通 settle；settled 已真（hold
+        // 提前转路径）则 settle 首帧即 done。无 wake：钉未动过，静止判据
+        // 原样有效
+        if (pinned) {
+          state.phase = 'settle'
+          state.settleStart = state.frames
+          return state.phase
+        }
         const pF = measure('front'), pB = measure('back')
         let changed = false
         // 单侧下放：穿透超死区且未到底 → 降 dropRate；候选档挂胯（环套不

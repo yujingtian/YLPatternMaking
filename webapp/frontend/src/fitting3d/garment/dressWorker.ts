@@ -19,7 +19,8 @@ import type { SettleOptions } from './settle'
 
 export type WorkerIn =
   | { type: 'init'; state: SolveState; probeIdx: CrotchProbeIdx;
-    jam: NonNullable<SettleOptions['jam']>; heatOn: boolean }
+    jam: NonNullable<SettleOptions['jam']>; heatOn: boolean;
+    pinned?: boolean }
   | { type: 'setHeat'; on: boolean }
 
 export type WorkerOut =
@@ -78,7 +79,7 @@ ctx.onmessage = (e: MessageEvent<WorkerIn>) => {
       onError: (err) => {
         post({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       },
-    })
+    }, msg.pinned ?? false)   // 指定穿位：随 init 透传（缺省 false = 自动落位）
     schedule()
   } else if (msg.type === 'setHeat') {
     run?.setHeat(msg.on)

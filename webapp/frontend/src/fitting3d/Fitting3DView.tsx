@@ -36,9 +36,12 @@
 // 腰 → 前后裆探针驱动钉高独立缓释 → 零穿透静止 = 真人「裆不舒服一点点
 // 往下」的仿真翻译），读数 = 掉裆/裆接触/最差穿透（tooSmall 偏小信号——
 // 读数不是自动调版闭环；独立原则不变：滑杆不改 payload，重穿走
-// 「重新试穿」按钮）。
+// 「重新试穿」按钮）。穿位双模式（2026-09-24）：自动落位（现行）|
+// 指定穿位（pinned——摆位层整组下移所选 cm、钉初始即终位，lowering
+// 旁路秒出；掉裆/jam 读数退场，接触/穿透照实报，见 settle.ts 指定
+// 穿位条）。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Empty, Slider, Spin, Switch } from 'antd'
+import { Button, Empty, Segmented, Slider, Spin, Switch } from 'antd'
 import {
   CameraOutlined, EyeInvisibleOutlined, EyeOutlined, RedoOutlined,
   UndoOutlined,
@@ -191,6 +194,18 @@ export default function Fitting3DView({
   const [dressStale, setDressStale] = useState(false)
   const [dressReport, setDressReport] = useState<DressReport | null>(null)
   const dressRunW = useRef<MeshWeights | null>(null)
+  // 穿位（2026-09-24）：自动落位（现行——探针驱动缓释下放，掉裆/卡胯
+  // 涌现读数）| 指定穿位（pinned——摆位层整组下移所选腰下高度、钉初始
+  // 即终位，lowering 旁路秒出；读数换语义：掉裆/jam 退场，接触/穿透
+  // 照实报）。切档/滑杆松手即重穿（交互可承受）
+  const [wearMode, setWearMode] = useState<'auto' | 'pinned'>('auto')
+  const [wearDrop, setWearDrop] = useState(2)
+  const wearModeRef = useRef(wearMode)
+  wearModeRef.current = wearMode
+  const wearDropRef = useRef(wearDrop)
+  wearDropRef.current = wearDrop
+  // 本次穿台的穿位快照（报表卡显示语义 + 解算中占位文案）
+  const dressRunWear = useRef<{ pinned: boolean; drop: number } | null>(null)
   // 热力图（2026-09-18 双通道 → 2026-09-19 应变通道移除，恒间隙通道）：
   // 开关只重着色当前帧不重跑仿真——heatOnRef 镜像供开关效应与解算 init
   // 透传（不进大效应 deps，避免重跑重解算）。Worker 化（2026-09-23）后
@@ -502,13 +517,24 @@ export default function Fitting3DView({
         if (waistLen == null) {
           throw new Error('缺成衣腰长（腰头带底净长/腰站 girth_finished 均缺）——穿台无法定腰圈钉环')
         }
-        const waistRing = buildWaistRing(fieldM, waistSt.y, waistLen)
+        // 穿位快照（报表/占位文案消费）：指定穿位 = 摆位层整组下移所选
+        // cm——钉环建在所选行（XZ 随行），buildFullPair 后整裤 pos 连同
+        // 钉目标源整体 −drop（钉初始即终位，WaistRing 纯 XZ 环不携带 Y、
+        // Y 必须在这里平移；非钉粒子 XZ 采样行差由 collide 松弛吸收），
+        // lowering 旁路秒出；自动落位 drop=0 走现行探针缓释
+        const wearPinned = wearModeRef.current === 'pinned'
+        const wearDropCm = wearPinned ? wearDropRef.current : 0
+        dressRunWear.current = { pinned: wearPinned, drop: wearDropCm }
+        const waistRing = buildWaistRing(fieldM, waistSt.y - wearDropCm, waistLen)
         pair = buildFullPair(panel.host, backPanel.host, fieldM, {
           front: legAxisM.forkY, back: legAxisM.forkY,
         }, legAxisM, bandMesh, anchorLift, waistRing,
           backPanel.mode === 'seam' && backPanel.yokeHost && backPanel.seamInfo
             ? { host: backPanel.yokeHost, sCin: backPanel.seamInfo.sCin }
             : null)
+        if (wearDropCm > 0) {
+          for (let i = 1; i < pair.pos.length; i += 3) pair.pos[i] -= wearDropCm
+        }
         // 落位 = settle 控制器：拉到腰地标 → 前后裆探针驱动钉高独立
         // 缓释（俯仰涌现）→ 零穿透静止出读数（真人「裆不舒服一点点
         // 往下」的仿真翻译，口径见 settle.ts 头注）。Worker 化（2026-09-23）
@@ -709,7 +735,9 @@ export default function Fitting3DView({
         applyHeat,
         clear: clearHeat,
       }
-      const init = toSolveState(sim, probeIdx, jam, heatOnRef.current)
+      const init = toSolveState(
+        sim, probeIdx, jam, heatOnRef.current,
+        dressRunWear.current?.pinned ?? false)
       // init 的发送在 onmessage 的 ready 分支（握手协议，见上）
       ctx.render()
     } catch (e) {
@@ -820,6 +848,42 @@ export default function Fitting3DView({
               重新试穿
             </Button>
           </div>
+          {/* 穿位（2026-09-24）：自动落位 = 现行物理涌现（掉裆/卡胯读数
+              权威）；指定穿位 = 整裤直接钉在所选高度，无滑落搜索秒出，
+              造型预览口径——切档/松手即重穿 */}
+          <div className="f3d-row">
+            <span>穿位</span>
+            <Segmented size="small"
+              value={wearMode}
+              options={[
+                { label: '自动落位', value: 'auto' },
+                { label: '指定穿位', value: 'pinned' },
+              ]}
+              onChange={(v) => {
+                setWearMode(v as 'auto' | 'pinned')
+                setDressEpoch((e) => e + 1)
+              }} />
+          </div>
+          {wearMode === 'pinned' && (
+            <>
+              <div className="f3d-slider">
+                <div className="f3d-slider-head">
+                  <span>腰下高度</span>
+                  <span className="f3d-slider-val">
+                    <code>{wearDrop.toFixed(1)} cm</code>
+                  </span>
+                </div>
+                <Slider min={0} max={12} step={0.5} value={wearDrop}
+                  onChange={setWearDrop}
+                  onAfterChange={() => setDressEpoch((e) => e + 1)} />
+              </div>
+              <div className="f3d-hint">
+                指定穿位：裤子直接钉在所选高度（腰下 {wearDrop.toFixed(1)}
+                cm），不模拟滑落——瞬间出图；掉裆/卡胯不适用（位置已定），
+                裆接触/穿透照实报（选太高会顶住报穿透）
+              </div>
+            </>
+          )}
           {dressStale && (
             <div className="f3d-row">
               <span>人台已调，穿着待更新</span>
@@ -860,12 +924,19 @@ export default function Fitting3DView({
             <div className="f3d-card-title">穿台读数</div>
             {dressReport ? (
               <>
-                <div className="f3d-row">
-                  <span>掉裆（相对腰地标）</span>
-                  <span>
-                    前 {dressReport.dropF.toFixed(1)} / 后 {dressReport.dropB.toFixed(1)} cm
-                  </span>
-                </div>
+                {dressRunWear.current?.pinned ? (
+                  <div className="f3d-row">
+                    <span>穿位（指定）</span>
+                    <span>腰下 {dressRunWear.current.drop.toFixed(1)} cm</span>
+                  </div>
+                ) : (
+                  <div className="f3d-row">
+                    <span>掉裆（相对腰地标）</span>
+                    <span>
+                      前 {dressReport.dropF.toFixed(1)} / 后 {dressReport.dropB.toFixed(1)} cm
+                    </span>
+                  </div>
+                )}
                 <div className="f3d-row">
                   <span>前裆接触</span>
                   <span>{contactText(dressReport.contactF)}</span>
@@ -897,10 +968,16 @@ export default function Fitting3DView({
                     预算尽收束（非真实静止，数值仅供参考）
                   </div>
                 )}
+                <div className="f3d-row">
+                  <span>解算帧数</span>
+                  <span>{dressReport.frames} 帧</span>
+                </div>
               </>
             ) : (
               <div className="f3d-hint">
-                穿台解算中：拉到腰 → 裆顶住逐步下放 → 静止后出读数
+                {dressRunWear.current?.pinned
+                  ? '指定穿位：摆位 → 松弛 → 读数（无滑落搜索）'
+                  : '穿台解算中：拉到腰 → 裆顶住逐步下放 → 静止后出读数'}
               </div>
             )}
           </div>

@@ -562,3 +562,63 @@ describe('钉环随行重投影（P2，合成参考环场）', () => {
     expect(sim.pinTarget[5]).toBeCloseTo(startB.z + 1, 4)
   })
 })
+
+// ---- 指定穿位（2026-09-24；当日二次修正 = 摆位层整组下移）：钉初始即
+// 终位（摆位层把整裤 pos 连同钉目标源整体下移所选 cm、钉环建所选行），
+// lowering 不探不降不等 confirm 直通 settle——切档秒出；掉裆/jam 退场 ----
+describe('指定穿位（pinned）', () => {
+  it('迹线 hold → settle 直通：探针不咨询、钉目标全程不动、hF/hB 恒 0', () => {
+    const sim = mkSim(PINS)
+    const y0 = new Float32Array(sim.pinTarget)
+    const ctrl = buildSettle(sim, { front: [], back: [] }, {
+      ...FAST, pinned: true,
+      // 探针被咨询即炸——证明 lowering 旁路不碰探针（下放逻辑全退场）
+      probe: () => { throw new Error('pinned 不咨询探针') },
+    })
+    ctrl.step(sim); ctrl.step(sim)
+    expect(ctrl.phase).toBe('hold')
+    ctrl.step(sim)                     // frames=3 ≥ holdFrames → lowering
+    expect(ctrl.phase).toBe('lowering')
+    ctrl.step(sim)                     // pinned 旁路：直通 settle（无 confirm 等待）
+    expect(ctrl.phase).toBe('settle')
+    expect(ctrl.hF).toBe(0); expect(ctrl.hB).toBe(0)
+    expect([...sim.pinTarget]).toEqual([...y0])   // applyDrop 从未执行
+    sim.settled = true
+    ctrl.step(sim)                     // settled 已真 → done（无 wake 重测）
+    expect(ctrl.phase).toBe('done')
+  })
+
+  it('报表语义：drop 恒 0、jam 恒 false、裆接触终态照实读', () => {
+    const sim = mkSim(PINS)
+    const ctrl = buildSettle(sim, { front: [], back: [] }, {
+      ...FAST, pinned: true,
+      probe: (_s, side) => side === 'front'
+        ? { worst: 0.1, best: -0.1 } : { worst: -1.2, best: -1.2 },
+    })
+    for (let k = 0; k < 6; k++) ctrl.step(sim)   // hold 3 + 旁路转 settle + settle
+    sim.settled = true
+    ctrl.step(sim)
+    expect(ctrl.phase).toBe('done')
+    const rep = ctrl.report(sim)
+    // drop = −hF：hF=0 时取负得 −0，toBe(0) 会败——量值断言用近似
+    expect(rep.dropF).toBeCloseTo(0, 10); expect(rep.dropB).toBeCloseTo(0, 10)
+    expect(rep.jamF).toBe(false); expect(rep.jamB).toBe(false)
+    expect(rep.contactF.kind).toBe('touch')      // 前 0.1 ≤ deadZone 贴合
+    expect(rep.contactB.kind).toBe('gap')        // 后 1.2 净空
+    expect(rep.tooSmall).toBe(false)
+  })
+
+  it('hold 提前静止 + pinned：settled 判据即收，帧数下限 3（秒出口径）', () => {
+    const sim = mkSim(PINS)
+    const ctrl = buildSettle(sim, { front: [], back: [] }, { ...FAST, pinned: true })
+    sim.settledFrames = DRAPE_PRIOR.settleFrames   // 布已静（全局真值判据）
+    sim.settled = true
+    ctrl.step(sim)   // hold 提前转 lowering（settledFrames 先达，holdFrames 退居上限）
+    expect(ctrl.phase).toBe('lowering')
+    ctrl.step(sim)   // pinned 直通 settle
+    expect(ctrl.phase).toBe('settle')
+    ctrl.step(sim)   // settled 已真 → done：共 3 帧
+    expect(ctrl.phase).toBe('done')
+    expect(ctrl.report(sim).frames).toBe(3)
+  })
+})

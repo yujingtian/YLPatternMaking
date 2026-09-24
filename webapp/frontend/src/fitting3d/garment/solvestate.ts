@@ -78,12 +78,14 @@ export interface DressInit {
   probeIdx: CrotchProbeIdx
   jam: NonNullable<SettleOptions['jam']>
   heatOn: boolean
+  pinned?: boolean   // 指定穿位（2026-09-24）：摆位层整组下移，lowering 旁路直通 settle
 }
 
 /** sim → 可克隆投影（mesh 收窄去 locate；field 展平构造参数） */
 export function toSolveState(
   sim: DrapeSim, probeIdx: CrotchProbeIdx,
   jam: NonNullable<SettleOptions['jam']>, heatOn: boolean,
+  pinned = false,
 ): DressInit {
   const f = sim.field
   const field: FieldState | null = f === null ? null : {
@@ -111,7 +113,7 @@ export function toSolveState(
       avgSpeed: sim.avgSpeed, failStreak: sim.failStreak,
       lastGood: sim.lastGood,
     },
-    probeIdx, jam, heatOn,
+    probeIdx, jam, heatOn, pinned,
   }
 }
 
