@@ -148,9 +148,10 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   python -m agent chat（一行一轮，:photo 补照 :quit 退出，--draft --staged 出整版
 #   + 三里程碑中间版）+ POST /api/chat/turn（会话 JSON 随请求往返、后端无状态；
 #   缺必填转求援卡不 422）；口径权威 .doc/python工程设计.md §10.9.2
-#   前端接线（一期 2026-09 向导已删；二期 2026-09-21「智能打版」对话壳取代：
-#   多轮 /api/chat/turn + 求援卡 + 交卷卡 = 整版 SVG 预览（SheetPreview 直喂
-#   postSheet 本地引擎直出，参数明细不渲染），入口 = 启动选择层，口径 §10.9.3）；
+#   前端接线（一期 2026-09 向导已删；二期 2026-09-21「智能打版」对话壳取代、
+#   2026-09-24 弹层升独立界面：左对话右可缩放整版预览〔SheetPreview 复用
+#   SheetView 的 viewBox 滚轮缩放/拖曳平移方案〕，多轮 /api/chat/turn +
+#   求援卡 + 交卷摘要行，确认进工作台，入口 = 启动选择层，口径 §10.9.3）；
 #   连通统一 /agent 前缀（dev Vite proxy / prod backend httpx 转发）；
 #   契约/压缩口径/踩坑见 .doc/python工程设计.md §10.9.1
 # 多码推码（尺寸单含 [size_run] 段且 enabled = true 时自动进入：逐码重打版 ->

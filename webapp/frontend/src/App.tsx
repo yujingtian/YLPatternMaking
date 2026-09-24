@@ -11,7 +11,7 @@ import CoreParams from './components/CoreParams'
 import AdvancedEditor from './components/AdvancedEditor'
 import ExportCenter from './components/ExportCenter'
 import SizeRunDrawer from './components/SizeRunDrawer'
-import SmartDraftChat from './components/SmartDraftChat'
+import SmartDraftView from './components/SmartDraftView'
 import NestSolveModal from './components/NestSolveModal'
 import Fitting3DView from './fitting3d/Fitting3DView'
 import type {
@@ -82,9 +82,9 @@ function DraftApp() {
   const [dragging, setDragging] = useState(false)
   // 推板设置抽屉开合（导出中心「推板设置」/未配置引导均转到此处）
   const [sizeRunOpen, setSizeRunOpen] = useState(false)
-  // 智能打版对话弹层（2026-09-21 二期，原「从照片提取」向导升级）：
-  // 状态在 useSmartDraft（挂本层，弹层关开不丢）；入口 = 启动选择层
-  // 「智能打版」，关闭自然退回选择层
+  // 智能打版独立界面（2026-09-21 二期；2026-09-24 弹层升全幅「左对话
+  // 右可缩放整版预览」界面）：状态在 useSmartDraft（挂本层，界面关开
+  // 不丢）；入口 = 启动选择层「智能打版」，返回自然退回选择层
   const chat = useSmartDraft()
   // 导出中心弹层开合（勾选产物 -> 逐项串行下载）
   const [exportOpen, setExportOpen] = useState(false)
@@ -411,16 +411,20 @@ function DraftApp() {
         onClose={closeSolveModal}
         onSessionReset={resetSolveSession}
       />
-      <SmartDraftChat
-        chat={chat}
-        onConfirm={(m, o) => {
-          // 第三参必须显式传：loadValues 缺省 null 会清空推板码表；
-          // switchDraftSource 内已 finishInit（重开时 initialized 已真，
-          // 无副作用），确认即完成初始化关层
-          switchDraftSource(m, o, d.sizeRun)
-          chat.setOpen(false)
-        }}
-      />
+      {/* 独立界面按需挂载（chat.open 门控）：卸载不清状态——会话/照片/
+          消息全在 useSmartDraft（App 层持有），重开即续 */}
+      {chat.open && (
+        <SmartDraftView
+          chat={chat}
+          onConfirm={(m, o) => {
+            // 第三参必须显式传：loadValues 缺省 null 会清空推板码表；
+            // switchDraftSource 内已 finishInit（重开时 initialized 已真，
+            // 无副作用），确认即完成初始化关层
+            switchDraftSource(m, o, d.sizeRun)
+            chat.setOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }

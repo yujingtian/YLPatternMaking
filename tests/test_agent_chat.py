@@ -63,6 +63,24 @@ def test_missing_card_then_answer_delivers():
     assert len(vlm.calls) == 1                         # 第 2 轮零新增调用
 
 
+def test_missing_card_no_photo_nudge_with_cached_evidence():
+    """清池口径（2026-09-24）：会话 vlm_cache 已有照片观测时，缺项卡
+    不再建议补拍——照片已提交过，本轮不重发也 counts as has_photos。"""
+    vlm = FakeVLM(['{"back_rise": null}'])
+    session = Session()
+    session.vlm_cache = {
+        "entries": {"waistband_type": {"value": "curved",
+                                       "confidence": 0.85,
+                                       "evidence": "腰头上口下凹弧线"}},
+        "dropped": [],
+        "photos": ["abc123"],
+    }
+    out = run_turn(session, _DESC_MISSING, (), provider=vlm)
+    assert out.card is not None
+    assert out.card.want_photos == []                  # 有证据：不劝补拍
+    assert "也可以补一张平铺照片" not in out.card.message
+
+
 def test_correction_later_turn_wins():
     """改口：第 2 轮「腰围75」覆盖第 1 轮 74，账本记 turn=2。"""
     vlm = FakeVLM([])

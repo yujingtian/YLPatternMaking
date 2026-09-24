@@ -74,8 +74,12 @@ _AXIS_FALLBACK = {"waist_position": ("mid", "无 front_rise 锚点，按惯例�
 # 逐条同源——改判据先改手册、后同步此处，金标测试 test_extract_schema 校验）
 _CRITERIA: dict[str, list[str]] = {
     "waistband_type": [
-        "straight 直腰头：腰头是等宽直条，侧缝处上口平齐，腰头与裤身缝线分明。",
-        "curved 弯腰头：腰头上口在侧缝处呈下凹弧线，腰头与裤身一体顺接、无硬折角。",
+        "straight 直腰头：腰头是等宽直条，上口整体走平——门襟顶、侧缝、后中大致同高。",
+        "curved 弯腰头：腰头上口沿腰弧下凹——前中呈下凹弧线、顺门襟 V 尖下落，后中随后弧下落，"
+        "侧缝处反而是整条腰头的最高点（低腰款最常见）。",
+        "判读口诀：一看门襟顶——上口顺 V 尖下落=curved、走平=straight；二看后中——上口下落=curved。"
+        "侧缝不作判据（弯腰头侧缝处平直且最高，看侧缝必误判成 straight）；"
+        "腰头是否独立缝线、有无裤耳、有无硬 V 折角均不作判据，只认上口前后中走向。",
     ],
     "front_pocket_mouth_mode": [
         "bulge 弧线袋口：袋口为一道弯月弧线（弧深三档见 front_pocket_mouth_depth）。",

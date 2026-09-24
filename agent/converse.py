@@ -119,9 +119,10 @@ def run_turn(session: Session, text: str, photos: tuple | list = (), *,
              progress=None) -> TurnOutcome:
     """一轮对话：append 用户事件 → 管线重跑 → 求援卡或交卷。
 
-    photos：调用方持有的**全部**照片路径（CLI 跨轮累积 / 前端全量重发），
-    本函数按 vlm_cache 指纹去重，只把未识别的新照片送进 S2——
-    「VLM 证据一次识别永久入账本」的落点。
+    photos：本轮随请求的照片路径（CLI 跨轮全量累积；前端提交成功即清
+    上传池、只发本轮新增，2026-09-24——已识别证据在 session.vlm_cache，
+    后续轮零照片也安全），本函数按 vlm_cache 指纹去重，只把未识别的新
+    照片送进 S2——「VLM 证据一次识别永久入账本」的落点。
     """
     turn = session.events[-1].turn + 1 if session.events else 1
     digests = [_digest_file(p) for p in photos]
@@ -154,7 +155,10 @@ def run_turn(session: Session, text: str, photos: tuple | list = (), *,
     except ExtractError as e:
         if not e.missing:
             raise                 # 配置类（无 missing 清单）→ 上层 503 口径
-        card = _missing_card(e.missing, has_photos=bool(digests))
+        # 有照片证据 = 本轮带了照片，或会话 vlm_cache 已有照片观测
+        #（前端清池口径 2026-09-24：照片已提交但本轮未重发，不再建议补拍）
+        card = _missing_card(e.missing,
+                             has_photos=bool(digests) or prior is not None)
         session.events.append(Event(turn, "agent", "card", data=card.to_dict()))
         return TurnOutcome(session, card, None)
 
