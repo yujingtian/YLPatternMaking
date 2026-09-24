@@ -4,6 +4,7 @@ import type {
 } from '../types'
 import { Input, Collapse, Badge } from 'antd'
 import ParamInput, { flyTypeOf, pocketTypeOf } from './ParamInput'
+import { PARAM_ZH } from '../paramZh'
 
 interface Props {
   sections: SectionSpec[]
@@ -98,7 +99,8 @@ export default function ParamPanel({
       ? g.params.filter(
           (p) => !p.hidden &&
             (p.key.toLowerCase().includes(qs) ||
-              p.label.toLowerCase().includes(qs)))
+              // 中文显示名（全部页签标签已翻译）同样可搜；无翻译回落 label
+              (PARAM_ZH[p.key] ?? p.label).toLowerCase().includes(qs)))
       : g.params.filter(
           // 参数级联动：visible_if 为单键=该开关开才显示；
           // 为数组=任一开关开即显示（如口袋缩水率 gate 挖削/贴袋双形态）
@@ -119,7 +121,7 @@ export default function ParamPanel({
         <span className="count">{params.length}</span>
         {gate ? null : (
           <span className="gate-hint">
-            （依赖 {gates.join(' + ')}）
+            （依赖 {gates.map((k) => PARAM_ZH[k] ?? k).join(' + ')}）
           </span>
         )}
       </span>
@@ -153,6 +155,7 @@ export default function ParamPanel({
                 err={err}
                 options={options}
                 defaults={defaults}
+                zhMap={PARAM_ZH}
                 setOption={onOption}
                 onSeed={onSeed}
                 onChange={(v) =>

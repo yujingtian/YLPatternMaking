@@ -19,7 +19,8 @@ export interface ParamInputProps {
   // 只有 touched 键有值，未手输的锚点参数须回落 schema 默认而非 0）
   defaults?: Record<string, unknown>
   // 暂时中文口径（2026-09-19）：键->中文名，仅覆盖标签与枚举下拉的显示，
-  // 值/搜索/校验不受影响；不传 = 英文键原样（全部参数页签现状）
+  // 值/搜索/校验不受影响；不传 = 英文键原样。核心页签传 CORE_PARAM_ZH、
+  // 全部页签传全量 PARAM_ZH（2026-09-24 起）
   zhMap?: Record<string, string>
   setOption: (key: string, value: unknown) => void
   onSeed: (kind: SeedPayload['kind'], shape: string) =>
@@ -40,11 +41,24 @@ export function flyTypeOf(options: Values): string {
   return '无'
 }
 
+// 缝份对象（sa 类型）的语义边名 -> 中文（2026-09-24）：与参数键/枚举值
+// 分表维护——边名与参数键同名异物（hem=裤口/脚口边、waist=腰围/腰口），
+// 并入一张表会串义；title 同款「英文 · 中文」双名
+const SA_EDGE_ZH: Record<string, string> = {
+  top: '上边', bottom: '下边', left_end: '左端', right_end: '右端',
+  cb: '后中', side: '侧缝', waist: '腰口', inner: '内边',
+  inseam: '下裆缝', hem: '脚口', mouth: '袋口', fold: '对折边',
+  rise: '前浪', outer: '外边',
+  fly_top: '门襟顶', fly_outer: '门襟外边', fly_bottom: '门襟底',
+}
+
 export default function ParamInput({
   spec, value, onChange, err, options, defaults, zhMap, setOption, onSeed,
 }: ParamInputProps) {
   const [jsonText, setJsonText] = useState<string | null>(null)
   const [jsonBad, setJsonBad] = useState(false)
+  // 中文名 + 双名 title（字段名 · 中文；无翻译回落英文键单名）
+  const zh = zhMap?.[spec.key]
 
   // custom_shape 虚拟参数：整行块布局（编辑器自带双表 + 预览），
   // 直写 points/edges 两真实键（同 pocket_type 写多开关的先例）
@@ -52,7 +66,10 @@ export default function ParamInput({
     return (
       <div className={`param shape-param${err ? ' param-error' : ''}`}
            data-param={spec.key}>
-        <div className="shape-label">{spec.label}</div>
+        <div className="shape-label"
+             title={zh ? `${spec.key} · ${zh}` : spec.key}>
+          {zh ?? spec.label}
+        </div>
         <CustomShapeEditor
           kind={spec.kind!}
           vPositive={spec.v_positive ?? 'down'}
@@ -136,7 +153,9 @@ export default function ParamInput({
         <div className="sa-grid">
           {Object.entries(sa).map(([k, v]) => (
             <span key={k} className="sa-item">
-              <em>{k}</em>
+              <em title={SA_EDGE_ZH[k] ? `${k} · ${SA_EDGE_ZH[k]}` : k}>
+                {SA_EDGE_ZH[k] ?? k}
+              </em>
               <InputNumber
                 size="small"
                 style={{ width: 72 }}
@@ -209,8 +228,9 @@ export default function ParamInput({
   return (
     <div className={`param${err ? ' param-error' : ''}`} data-param={spec.key}>
       <div className="param-head">
-        <span className="param-label" title={spec.key}>
-          {zhMap?.[spec.key] ?? spec.label}
+        <span className="param-label"
+              title={zh ? `${spec.key} · ${zh}` : spec.key}>
+          {zh ?? spec.label}
         </span>
         {control}
       </div>
