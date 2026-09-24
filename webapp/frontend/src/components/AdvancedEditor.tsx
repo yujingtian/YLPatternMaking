@@ -3,10 +3,12 @@
 // 进入时自动补算（sheet 缺失/过期 -> ensureSheet，Spin 兜底）；拖拽回写
 // applyAdjust 链路零改动（左栏参数面板保持可见，高亮定位闭环不变）。
 // 撤销/裁片生成自旧 Toolbar 收编至此；裁片生成保持先画后裁门控。
+// 2026-09-24 工具栏「返回 3D」按钮移除（用户口径）：切视图统一走右栏
+// Segmented（高级编辑 | 3D 试穿），工具栏不再带导航。
 import { useEffect, useState } from 'react'
 import { Button, Empty, Spin, Tabs, Tag, Tooltip } from 'antd'
 import {
-  ArrowLeftOutlined, PlayCircleOutlined, UndoOutlined, WarningOutlined,
+  PlayCircleOutlined, UndoOutlined, WarningOutlined,
 } from '@ant-design/icons'
 import type {
   DraftPayload, PiecesResult, Schema, SheetResult, Snapshot,
@@ -36,7 +38,7 @@ function StaleFlag({ tip, children }: { tip: string | null; children: JSX.Elemen
 export default function AdvancedEditor({
   sheet, pieces, schema, base, onApplyAdjust, onBeginDrag, onDragChange,
   sheetBusy, piecesBusy, sheetStale, piecesStale,
-  onEnsureSheet, onGeneratePieces, canUndo, onUndo, onExit, dragging,
+  onEnsureSheet, onGeneratePieces, canUndo, onUndo, dragging,
 }: {
   sheet: Snapshot<SheetResult> | null
   pieces: Snapshot<PiecesResult> | null
@@ -53,7 +55,6 @@ export default function AdvancedEditor({
   onGeneratePieces: () => void
   canUndo: boolean
   onUndo: () => void
-  onExit: () => void
   dragging: boolean
 }) {
   const [tab, setTab] = useState('sheet')
@@ -101,9 +102,6 @@ export default function AdvancedEditor({
   return (
     <div className="adv-editor">
       <div className="adv-toolbar">
-        <Button size="small" icon={<ArrowLeftOutlined />} onClick={onExit}>
-          返回 3D
-        </Button>
         <StaleFlag tip={sheetStaleTip}>
           <Button
             size="small"

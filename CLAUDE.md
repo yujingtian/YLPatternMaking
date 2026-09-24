@@ -34,6 +34,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   （重算当前右栏视图：2D ensureSheet / 3D fitting，3D 侧栏「重新生成」收口），2D 进高级编辑/导出中心时
 #   ensureSheet/ensurePieces 自动补算；启动初始化选择层（2026-09-19）：每次启动
 #   先选参数来源（继续上次草稿/模板/智能打版/空白默认，详见 §10.7）；
+#   header「新建」= 二次确认后整体还原回选择层（2026-09-24，详见 §10.7）；
 #   需 pip install -e ".[web]"）：
 #   uvicorn webapp.backend.app:app 后访问 http://127.0.0.1:8000
 #   二期拖拽调版：整版把手拖动 -> 反解参数回写（flows/adjust.solve_param 数值求根，
@@ -62,6 +63,10 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #    Vite 代理 /api；后端为薄壳，全部计算走引擎内存渲染，不落盘）
 #   3D 人台（2026-09-13 定型 = MakeHuman 下半身切割+站直 target 滑杆试验场）：右栏 Segmented
 #   切到「3D 试穿」才挂载（2026-09-20 前常驻主视图口径退役），three 惰性分包；fitting3d/ = Fitting3DView + bodymesh/
+#   （2026-09-24 模特设置弹框化：首次切入 3D 自动弹 BodySetupModal 引导自设
+#   模特〔确认前不执行穿台、确认后才发首挂试穿〕、3D 侧栏「设置模特」按钮
+#   重开；体型状态 App 持有切 2D/3D 不丢；同日 2D 工具栏「返回 3D」按钮移除
+#   ——切视图统一右栏 Segmented；详见 §10.7 模特设置弹框条）；
 #   {bin,morph,types,slice,height}——loadBodyMesh 拉取 base.bin（vendor 切割+站直姿势链产物：
 #   官方 rigs 骨架+蒙皮权重 clean-room LBS 站直〔大腿/小腿/脚逐关节角度，髋/膝/踝
 #   铅垂；--pose apose 退回 A-pose〕、粗裁去臂、精裁腰+15、水密封盖；官方 14 场 =

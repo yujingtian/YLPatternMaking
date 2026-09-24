@@ -46,6 +46,10 @@ export interface DraftState {
   setOption: (key: string, value: unknown) => void
   setSizeRun: (s: SizeRunSpec | null) => void
   loadValues: (m: Values, o: Values, sizeRun?: SizeRunSpec | null) => void
+  // 整体还原（header「新建」确认后，2026-09-24）：参数重读 localStorage 回
+  // 启动初态（与首挂同源——启动选择层「继续上次草稿」= 找回口），产物
+  // 快照/拖拽基线/校验条全清（口径同 loadValues 换源还原段）
+  reset: () => void
   // 从形态导入（custom_shape 编辑器：贴袋/袋布）：预设形态 -> custom 初始点/边。
   // 返回判别结果、不进全局 errors——非生成动作，失败内联显示在编辑器里
   seedShape: (kind: SeedPayload['kind'], shape: string) =>
@@ -232,6 +236,29 @@ export function useDraft(): DraftState {
     // piecesRef 同步置空，防 ensure*「已新鲜」误判复用），编辑器重挂的
     // ensureSheet 与 3D 重挂的首挂自动试穿按新参数重发；拖拽撤销基线与
     // 校验条同属旧草稿残留，一并清
+    sheetRef.current = null
+    piecesRef.current = null
+    setSheet(null)
+    setPieces(null)
+    setFitting(null)
+    setLastDrag(null)
+    setAdjustInfo(null)
+    setErrors([])
+    setWarnings([])
+  }, [bump])
+
+  // 整体还原（「新建」确认后）：重读 localStorage 草稿回到启动初态（选项
+  // 缺键补口袋族默认与首挂同口径）——不空置参数，保证选择层「继续上次
+  // 草稿」恢复的是最近一次暂存；产物快照/拖拽基线/校验条清空口径同
+  // loadValues 换源还原段
+  const reset = useCallback(() => {
+    const savedNow = loadDraft()
+    const o: Values = { ...(savedNow?.options ?? {}) }
+    for (const k of PRODUCT_POCKET_KEYS) if (!(k in o)) o[k] = true
+    setMeasurements(savedNow?.measurements ?? {})
+    setOptions(o)
+    setSizeRunState(normalizeSizeRun(savedNow?.size_run).spec)
+    bump()
     sheetRef.current = null
     piecesRef.current = null
     setSheet(null)
@@ -461,7 +488,7 @@ export function useDraft(): DraftState {
 
   return {
     schema, measurements, options, sizeRun,
-    setMeasurement, setOption, setSizeRun, loadValues,
+    setMeasurement, setOption, setSizeRun, loadValues, reset,
     seedShape,
     generateSheet, generatePieces, generateFitting, ensureSheet, ensurePieces,
     download,

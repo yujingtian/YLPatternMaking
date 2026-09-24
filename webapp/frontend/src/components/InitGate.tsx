@@ -1,8 +1,9 @@
 // 启动初始化选择层（2026-09-19，替代 localStorage 静默恢复的知情权缺失）：
 // 每次启动先选参数来源——继续上次草稿 / 款式模板 / 智能打版 / 空白默认，
 // 显式选择后才进工作台（App 侧 initialized 门控：选择层期间 header/main
-// 不挂载，3D 视图不发隐藏首挂请求）。中途经 header「新建」重开时
-// 工作台保持挂载，「继续上次」语义切为「返回当前参数」。
+// 不挂载，3D 视图不发隐藏首挂请求）。header「新建」2026-09-24 起为二次
+// 确认后整体还原（工作台卸载、initialized 复位），本层恒以「继续上次草稿」
+// 出现——原「中途重开不卸载 + 返回当前参数」分支随还原语义退役删除。
 // 遮罩 zIndex 900 < 智能打版独立界面 950 < antd Modal 1000：从本层进入的
 // SmartDraftView 天然盖上，返回即自然退回本层（initOpen 从未关过，
 // 零分支返回路径）。
@@ -28,21 +29,19 @@ const BLANK_TEMPLATE = 'size_female_zhitong.toml'
 type BlankState = 'idle' | 'loading' | 'error'
 
 export default function InitGate({
-  hasSavedDraft, initialized,
-  onContinue, onLoadValues, onOpenChat,
+  hasSavedDraft, onContinue, onLoadValues, onOpenChat,
 }: {
   // 挂载期是否存在有效草稿（useDraft.loadDraft 收紧口径：空对象无效）
   hasSavedDraft: boolean
-  // 已进过工作台（中途重开）：「返回当前参数」恒可用
-  initialized: boolean
-  // 继续上次 / 返回当前：直接关层（state 初值本就静默恢复过）
+  // 继续上次：直接关层（state 本就是暂存草稿恢复态——启动初值静默恢复，
+  // 「新建」还原后 d.reset() 重读同源）
   onContinue: () => void
   // 模板与空白默认共用：loadValues + 关层（App 侧包装）
   onLoadValues: (m: Values, o: Values, sizeRun?: SizeRunSpec | null) => void
   // 进入智能打版独立界面（本层保持打开，返回自然退回）
   onOpenChat: () => void
 }) {
-  const canContinue = hasSavedDraft || initialized
+  const canContinue = hasSavedDraft
   const [blank, setBlank] = useState<BlankState>('idle')
 
   async function loadBlank() {
@@ -67,12 +66,10 @@ export default function InitGate({
           <div className="init-option">
             <div className="init-option-title">
               <HistoryOutlined />
-              {initialized ? '返回当前参数' : '继续上次草稿'}
+              继续上次草稿
             </div>
             <div className="init-option-desc">
-              {initialized
-                ? '保持当前参数不动，直接回到工作台'
-                : '恢复最近一次会话的全部参数与推板码表'}
+              恢复最近一次会话的全部参数与推板码表
             </div>
             <Button type="primary" autoFocus disabled={!canContinue}
                     onClick={onContinue}>

@@ -14,6 +14,7 @@ import SizeRunDrawer from './components/SizeRunDrawer'
 import SmartDraftView from './components/SmartDraftView'
 import NestSolveModal from './components/NestSolveModal'
 import Fitting3DView from './fitting3d/Fitting3DView'
+import { zeroBody, type BodyModel } from './fitting3d/bodyModel'
 import type {
   IssueDetail, NestResult, SizeRunSpec, Values,
 } from './types'
@@ -181,13 +182,30 @@ function DraftApp() {
   const nestSessionHeld = solve.taskId !== null && !nestInFlight
   // 右栏主视图切换（2026-09-19 用户口径「默认是整版效果」）：'2d' 高级
   // 编辑（整版调版工作台，默认）↔ '3d' 3D 试穿——Fitting3DView 切入才
-  // 挂载，首挂自动试穿在那一刻才发；编辑器内「返回」= 切回 3D
+  // 挂载，首挂自动试穿在那一刻才发
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d')
+  // 模特（人台）体型与设置弹框（2026-09-24 用户口径「进 3D 先自设模特」）：
+  // 体型 App 持有——切 2D 卸载 Fitting3DView 不丢设置；首次切入 3D 自动弹
+  // 设置（bodySetupSeen 单向闩锁，确认/关闭即记已设不再打扰），3D 侧栏
+  // 「设置模特」按钮随时重开改；首挂试穿等弹框收起才发（门控在
+  // Fitting3DView autoTried 效应）
+  const [bodyModel, setBodyModel] = useState<BodyModel>(zeroBody)
+  const [bodySetupOpen, setBodySetupOpen] = useState(false)
+  const [bodySetupSeen, setBodySetupSeen] = useState(false)
+  useEffect(() => {
+    if (viewMode === '3d' && !bodySetupSeen) setBodySetupOpen(true)
+  }, [viewMode, bodySetupSeen])
+  const closeBodySetup = () => {
+    setBodySetupSeen(true)
+    setBodySetupOpen(false)
+  }
   // 左栏参数分层：核心参数（白名单 17 控件）/ 全部参数（原全量面板）
   const [paramTab, setParamTab] = useState<'core' | 'all'>('core')
-  // 启动初始化选择层（2026-09-19）：initialized 单向闩锁——首次选择前
-  // 工作台不挂载（Fitting3DView 不发隐藏首挂请求），中途重开不卸载
-  // （3D 场景不重建、fitting 快照不丢）；initOpen 遮罩可重开（header 新建）
+  // 启动初始化选择层（2026-09-19）：initialized 单向闩锁——选择前工作台
+  // 不挂载（Fitting3DView 不发隐藏首挂请求）。2026-09-24 起 header「新建」
+  // = 二次确认后**整体还原**（resetWorkspace：initialized 放开工作台卸载，
+  // 原「中途重开不卸载（3D 场景不重建、fitting 快照不丢）」口径随还原
+  // 语义退役）——选择层恒以「继续上次草稿」出现
   const [initialized, setInitialized] = useState(false)
   const [initOpen, setInitOpen] = useState(true)
   // 整体换源纪元：loadValues 整体替换参数时 +1，作 AdvancedEditor 的
@@ -209,6 +227,37 @@ function DraftApp() {
     setViewMode('2d')
     finishInit()
   }
+  // 「新建」整体还原（2026-09-24 用户口径：新建前二次提醒、确认后所有
+  // 东西还原）：d.reset() 参数重读暂存草稿回启动初态（「继续上次草稿」=
+  // 找回口）+ 产物/拖拽/校验清空；App 侧 initialized 放开——工作台整体
+  // 卸载（3D 场景/编辑器/穿台状态全灭）、模特体型与首挂引导闩锁复位
+  // （下次进 3D 重新弹设置）、视图/页签/弹层复位、智能打版会话清空。
+  // 排料求解会话不随动（服务端任务自有生命周期与关闭确认口，非草稿内容）
+  const resetWorkspace = () => {
+    d.reset()
+    setInitialized(false)
+    setInitOpen(true)
+    setBodyModel(zeroBody())
+    setBodySetupSeen(false)
+    setBodySetupOpen(false)
+    setViewMode('2d')
+    setParamTab('core')
+    setExportOpen(false)
+    setSizeRunOpen(false)
+    chat.setOpen(false)
+    chat.reset()
+  }
+  const confirmNewDraft = () => {
+    modal.confirm({
+      title: '新建将还原所有内容',
+      content: '当前参数与已生成的整版、裁片、3D 试穿、模特设置、推板码表'
+        + '将全部还原为初始状态，页面回到启动选择层。最近草稿仍自动暂存，'
+        + '可从「继续上次草稿」找回。',
+      okText: '还原并新建',
+      cancelText: '取消',
+      onOk: resetWorkspace,
+    })
+  }
 
   return (
     <div className="app">
@@ -216,13 +265,13 @@ function DraftApp() {
       <>
       <header className="app-header">
         <h1>YLPattern 牛仔裤打版</h1>
-        {/* 新建：重开启动选择层（继续上次/模板/智能打版/出厂），参数可整体
-            换源。模板/智能打版 2026-09-19 起不再各设 header 入口——参数来源
-            选择统一收口到选择层，避免同一动作两个入口 */}
+        {/* 新建：二次确认后整体还原回启动选择层（resetWorkspace——所有
+            东西还原，2026-09-24 用户口径；取消不动）。模板/智能打版
+            2026-09-19 起不设 header 入口——参数来源统一收口选择层 */}
         <Button
           size="small"
           icon={<FileAddOutlined />}
-          onClick={() => setInitOpen(true)}
+          onClick={confirmNewDraft}
         >
           新建
         </Button>
@@ -344,7 +393,6 @@ function DraftApp() {
                 onGeneratePieces={() => void d.generatePieces()}
                 canUndo={d.lastDrag !== null}
                 onUndo={d.undoLastDrag}
-                onExit={() => setViewMode('3d')}
                 dragging={dragging}
               />
             ) : (
@@ -353,6 +401,11 @@ function DraftApp() {
                 fittingStale={d.fittingStale}
                 fittingBusy={d.fittingBusy}
                 onGenerateFitting={() => void d.generateFitting()}
+                body={bodyModel}
+                onBody={setBodyModel}
+                setupOpen={bodySetupOpen}
+                onSetupOpen={() => setBodySetupOpen(true)}
+                onSetupClose={closeBodySetup}
               />
             )}
           </div>
@@ -360,11 +413,12 @@ function DraftApp() {
       </main>
       </>
       )}
-      {/* 启动/重开选择层：工作台之上遮罩（zIndex 900，对话 Modal 盖其上） */}
+      {/* 启动/新建还原后选择层：工作台之上遮罩（zIndex 900，对话 Modal 盖
+          其上）。新建 2026-09-24 起确认即还原（initialized 已 false），本层
+          恒「继续上次草稿」 */}
       {initOpen && (
         <InitGate
           hasSavedDraft={d.hasSavedDraft}
-          initialized={initialized}
           onContinue={finishInit}
           onLoadValues={switchDraftSource}
           onOpenChat={() => chat.setOpen(true)}

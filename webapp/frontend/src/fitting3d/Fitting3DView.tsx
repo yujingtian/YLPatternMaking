@@ -8,6 +8,14 @@
 // 测量驱动、不假设官方 macro 混合约定），拖动实时重 morph + 站点围度实时读数
 // （站高取 vendor 地标检测值 × 身高因子；场会微移站高，极端权重下读数有轻微
 // 口径偏差，试验场可接受；原生场固有缺陷如 thigh 膝上死区属作者化行为，原样呈现）。
+// 形体设置 2026-09-24 弹框化（BodySetupModal，用户口径「进 3D 先自设模特」）：
+// 首次切入 3D 自动弹引导设置（确认后才发首挂试穿），侧栏「设置模特」按钮
+// 重开改；体型状态（bodyModel.ts BodyModel）App 持有，切 2D 卸载本视图不丢。
+// 同日口径收敛「模特没设置不执行穿台、确定后执行」：确认（闩锁）前不发
+// 首挂试穿（autoTried 效应门控 setupOpen——弹框开着不发，确认/X 关闭记
+// 闩锁后补发；穿台解算效应依赖 fitting 数据自然不跑，弹框遮罩下左栏
+//「生成」不可点无旁路）；3D 场景/人台照常渲染作弹框幕后实时预览（拖杆即
+// morph）；morph 效应 mesh 可选化——围度读数纯 asset 计算不经场景渲染。
 // 坐标口径：顶点 cm、Y-up、脚底 y=0（bin.ts 头注）。
 // 衣片展示（2026-09-15 三期平铺验证 → 2026-09-16 四期前身缝合立起 →
 // 同日五期前身自由垂 → 同日六期后身缝合 + 同日「拉直」整圈钉直挂）：
@@ -44,7 +52,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Empty, Segmented, Slider, Spin, Switch } from 'antd'
 import {
   CameraOutlined, EyeInvisibleOutlined, EyeOutlined, RedoOutlined,
-  UndoOutlined,
+  UserOutlined,
 } from '@ant-design/icons'
 import type * as ThreeT from 'three'
 import type { OrbitControls as OrbitControlsT } from 'three/examples/jsm/controls/OrbitControls.js'
@@ -53,7 +61,9 @@ import { loadBodyMesh } from './bodymesh/bin'
 import { readGirth } from './bodymesh/slice'
 import type { MeshWeights } from './bodymesh/morph'
 import { morphPositions } from './bodymesh/morph'
-import { heightCm, stationFactor, weightFor } from './bodymesh/height'
+import { stationFactor } from './bodymesh/height'
+import BodySetupModal from './BodySetupModal'
+import { SITES, weightsFrom, type BodyModel, type Site } from './bodyModel'
 import type { FittingResult, Snapshot } from '../types'
 import { buildFlatLayout, buildFullPair, type Garment } from './garment/assemble'
 import {
@@ -80,25 +90,6 @@ import {
 type ThreeMod = typeof import('three')
 type OrbitControlsCtor = typeof import('three/examples/jsm/controls/OrbitControls.js').OrbitControls
 
-// 滑杆部位 <-> base.bin target 槽位（SLOT_ORDER 固定序里的 6 对场）
-type Site = 'waist' | 'hips' | 'thigh' | 'knee' | 'calf' | 'ankle'
-const SITES: { key: Site; label: string }[] = [
-  { key: 'waist', label: '腰' },
-  { key: 'hips', label: '臀' },
-  { key: 'thigh', label: '大腿' },
-  { key: 'knee', label: '膝' },
-  { key: 'calf', label: '小腿' },
-  { key: 'ankle', label: '踝' },
-]
-type Sliders = Record<Site, number>
-
-// 预设体型芯片（cm）：权重按 meta.height 实测 ΔH 换算（height.ts weightFor）
-const PRESET_CM = [155, 160, 165, 170] as const
-// 身高滑杆窗（cm）：官方 macro 域极宽（±1 实测跨 130.7~239.4cm，极端是卡通
-// 身高），滑杆钳在常人域 150~185 连续可调（可停任意身高如 162.3）；芯片值
-// 全部落在窗内，不受钳制影响
-const HEIGHT_SLIDER = { min: 150, max: 185, step: 0.1 }
-
 // 平铺图例中文名（片 key -> 中文；色板在 garment/render.ts PIECE_COLORS）
 const CN_PIECE_NAMES: Record<string, string> = {
   front_piece: '前片',
@@ -112,20 +103,6 @@ const CN_PIECE_NAMES: Record<string, string> = {
 const PIECE_LEGEND_ORDER = [
   'front_piece', 'back_piece', 'waistband', 'back_yoke', 'front_facing',
 ]
-
-// 滑杆/身高 -> morph 场权重（morph 效应、穿台效应、stale 判定三处同源；
-// 正推 site+、负推 site−，两场独立作者化非反对称；身高同构 height±）
-const weightsFrom = (sliders: Sliders, heightW: number): MeshWeights => {
-  const w: MeshWeights = {}
-  for (const { key } of SITES) {
-    const v = sliders[key]
-    if (v > 0) w[`${key}+`] = v
-    else if (v < 0) w[`${key}-`] = -v
-  }
-  if (heightW > 0) w['height+'] = heightW
-  else if (heightW < 0) w['height-'] = -heightW
-  return w
-}
 
 // 穿台读数接触文案（pen 穿透 / touch 贴合 / gap 间隙）
 const contactText = (c: CrotchContact): string =>
@@ -147,10 +124,21 @@ interface Fitting3DProps {
   fittingStale: boolean
   fittingBusy: boolean
   onGenerateFitting: () => void
+  /** 模特（人台）体型（2026-09-24 弹框化）：App 持有——3D 切 2D 卸载本
+   *  视图不丢，设置弹框与 morph/穿台效应同源消费 */
+  body: BodyModel
+  onBody: (b: BodyModel) => void
+  /** 设置弹框开合（App 持有）：首次切入 3D 自动弹（onSetupClose 记闩锁），
+   *  3D 侧栏「模特设置」按钮重开；setupOpen 期间不发首挂试穿——模特没
+   *  设置不执行穿台、确定后执行（2026-09-24 用户口径） */
+  setupOpen: boolean
+  onSetupOpen: () => void
+  onSetupClose: () => void
 }
 
 export default function Fitting3DView({
   fitting, fittingStale, fittingBusy, onGenerateFitting,
+  body, onBody, setupOpen, onSetupOpen, onSetupClose,
 }: Fitting3DProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const ctxRef = useRef<SceneCtx | null>(null)
@@ -172,10 +160,9 @@ export default function Fitting3DView({
     { THREE: ThreeMod; OrbitControls: OrbitControlsCtor } | null>(null)
   const [asset, setAsset] = useState<BodyMeshAsset | null>(null)
   const [assetError, setAssetError] = useState<string | null>(null)
-  const [sliders, setSliders] = useState<Sliders>(
-    { waist: 0, hips: 0, thigh: 0, knee: 0, calf: 0, ankle: 0 })
-  // 身高场权重（−1..+1；与围度滑杆同构的双极权重，0 = 基础身高 ~167.4）
-  const [heightW, setHeightW] = useState(0)
+  // 模特体型（六部位双极滑杆 + 身高场权重）：App 持有经 props 下传
+  //（2026-09-24 弹框化——切换 2D/3D 视图卸载本视图不丢设置）
+  const { sliders, heightW } = body
   const [girths, setGirths] = useState<Record<Site, number | null>>(
     { waist: null, hips: null, thigh: null, knee: null, calf: null, ankle: null })
   // ---- M2/M3 状态 ----
@@ -349,20 +336,25 @@ export default function Fitting3DView({
     return m
   }, [asset])
 
-  // ---- 滑杆 -> 实时重 morph + 围度读数（in-place 写 position attr） ----
+  // ---- 滑杆 -> 实时重 morph + 围度读数（in-place 写 position attr）。
+  // mesh 可选（2026-09-24）：围度读数纯 asset 计算（morphPositions +
+  // readGirth 不经场景），模特未确认（舞台遮板期/场景未就绪）弹框读数
+  // 照常供 ----
   useEffect(() => {
     const ctx = ctxRef.current
-    const mesh = meshRef.current
     const a = assetRef.current
-    if (!ctx || !mesh || !a) return
+    if (!ctx || !a) return
     // 双极值 -> 场权重（weightsFrom 同源：morph/穿台/stale 三处一致）
     const w = weightsFrom(sliders, heightW)
     const pos = morphPositions(a, w)
-    const attr = mesh.geometry.getAttribute('position') as ThreeT.BufferAttribute
-    ;(attr.array as Float32Array).set(pos)
-    attr.needsUpdate = true
-    mesh.geometry.computeVertexNormals()
-    ctx.render()
+    const mesh = meshRef.current
+    if (mesh) {
+      const attr = mesh.geometry.getAttribute('position') as ThreeT.BufferAttribute
+      ;(attr.array as Float32Array).set(pos)
+      attr.needsUpdate = true
+      mesh.geometry.computeVertexNormals()
+      ctx.render()
+    }
     // 站点围度：站高随身高因子缩放（身高场近似等比，比例近似口径）
     const sf = stationFactor(a.heightInfo, heightW)
     const read: Record<Site, number | null> = {
@@ -390,13 +382,29 @@ export default function Fitting3DView({
     ctx.render()
   }, [bodyView, asset])
 
-  // ---- 穿台 stale 判定：滑杆/身高 vs 本次穿台权重快照（独立原则：不自动
-  // 重穿，提示用户点「重新试穿」——试穿是读数不是闭环） ----
+  // ---- 穿台 stale 判定：滑杆/身高 vs 本次穿台权重快照（弹框开着时提示
+  // 「确定后自动重穿」；手动改参数后仍走「重新试穿」——试穿是读数不是
+  // 闭环） ----
   useEffect(() => {
     if (dressRunW.current === null) return
     setDressStale(JSON.stringify(weightsFrom(sliders, heightW))
       !== JSON.stringify(dressRunW.current))
   }, [sliders, heightW])
+
+  // ---- 弹框确定自动重穿（2026-09-24 用户口径：设置模特确定后穿台要跟上
+  // 所选体型）：弹框收起（setupOpen false）且已穿过（dressRunW 有快照）、
+  // 体型权重较本次穿台有变（同 stale 判据，未变不白跑）即 dressEpoch+1
+  // 重穿——拖杆中仍不重跑解算（防连调重算不变），改的是「确定」这一显式
+  // 提交点收口；首穿不走此路（dressRunW 尚 null，由首挂门控发） ----
+  useEffect(() => {
+    if (setupOpen) return
+    const ran = dressRunW.current
+    if (ran === null) return
+    if (JSON.stringify(weightsFrom(slidersRef.current, heightWRef.current))
+        !== JSON.stringify(ran)) {
+      setDressEpoch((e) => e + 1)
+    }
+  }, [setupOpen])
 
   // ---- 热力图开关：只对当前帧重着色（refs 即时读，不重跑仿真）。
   // 穿台大效应重建（重试穿）时 startup 已按 heatOnRef 补画；
@@ -760,14 +768,16 @@ export default function Fitting3DView({
     }
   }, [fitting, asset, dressEpoch])
 
-  // ---- 自动首挂（仅一次）：进系统即有衣服；失败不自动重试（按钮兜底） ----
+  // ---- 自动首挂（仅一次）：进系统即有衣服；失败不自动重试（按钮兜底）。
+  // 2026-09-24 起等模特设置弹框收起才发（首次进 3D 先自设模特、确认后按
+  // 所选体型首挂；闩锁在弹框开着时不落，收起后本效应重跑补发） ----
   useEffect(() => {
-    if (autoTried.current) return
+    if (autoTried.current || setupOpen) return
     if (fitting === null && !fittingBusy) {
       autoTried.current = true
       onGenerateFitting()
     }
-  }, [fitting, fittingBusy, onGenerateFitting])
+  }, [fitting, fittingBusy, onGenerateFitting, setupOpen])
 
   // ---- 视角预设（球面插值 ~300ms；OrbitControls 随时可继续自由拖） ----
   // 机位 x 以场景中心居中（人台+悬挂筒 ↔ 平铺组，hangXRef 即中心）
@@ -808,11 +818,6 @@ export default function Fitting3DView({
   }
 
   const loading = threeMod === null || (!asset && !assetError)
-  const fmt = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`
-  // 当前身高（cm）：芯片高亮判据（换算回算精确，滑杆拖到同值同样命中）
-  const curHeightCm = asset ? heightCm(asset.heightInfo, heightW) : null
-  const presetActive = (cm: number) =>
-    curHeightCm !== null && Math.abs(curHeightCm - cm) < 0.05
 
   return (
     <div className="fitting3d">
@@ -886,7 +891,7 @@ export default function Fitting3DView({
           )}
           {dressStale && (
             <div className="f3d-row">
-              <span>人台已调，穿着待更新</span>
+              <span>人台已调，确定后自动重穿</span>
             </div>
           )}
           {flatKeys.length > 0 && (
@@ -1006,85 +1011,21 @@ export default function Fitting3DView({
           </div>
         )}
 
+        {/* 模特设置入口（2026-09-24 弹框化）：原「预设体型」「形体滑杆」两卡
+            内容提出独立弹框——首次进 3D 已自动弹过引导设置，这里按钮重开改 */}
         <div className="f3d-card">
-          <div className="f3d-card-title">预设体型</div>
-          <div className="f3d-presets">
-            {PRESET_CM.map((cm) => (
-              <Button key={cm} size="small"
-                type={presetActive(cm) ? 'primary' : 'default'}
-                disabled={!asset}
-                onClick={() => {
-                  setHeightW(weightFor(asset!.heightInfo, cm))
-                }}>
-                {cm}
-              </Button>
-            ))}
-            <Button size="small"
-              type={heightW === 0 ? 'primary' : 'default'}
+          <div className="f3d-card-title">模特</div>
+          <div className="f3d-row">
+            <span>人台体型</span>
+            <Button size="small" icon={<UserOutlined />}
               disabled={!asset}
-              onClick={() => {
-                setHeightW(0)
-              }}>
-              默认
+              onClick={onSetupOpen}>
+              设置模特
             </Button>
           </div>
           <div className="f3d-hint">
-            芯片 = 快捷身高档（按实测 ΔH 换算权重）；身高连续可调见下方滑杆
-          </div>
-        </div>
-
-        <div className="f3d-card">
-          <div className="f3d-card-title">
-            形体滑杆（MakeHuman targets）
-          </div>
-          {SITES.map(({ key, label }) => (
-            <div key={key} className="f3d-slider">
-              <div className="f3d-slider-head">
-                <span>{label}</span>
-                <span className="f3d-slider-val">
-                  {girths[key] !== null
-                    ? `${girths[key]!.toFixed(1)} cm` : ''}
-                  <code>{fmt(sliders[key])}</code>
-                </span>
-              </div>
-              <Slider
-                min={-1} max={1} step={0.05}
-                value={sliders[key]}
-                disabled={!asset}
-                onChange={(v) => {
-                  setSliders((s) => ({ ...s, [key]: v }))
-                }}
-              />
-            </div>
-          ))}
-          <div className="f3d-slider">
-            <div className="f3d-slider-head">
-              <span>身高</span>
-              <span className="f3d-slider-val">
-                {curHeightCm !== null ? `${curHeightCm.toFixed(1)} cm` : ''}
-              </span>
-            </div>
-            <Slider
-              min={HEIGHT_SLIDER.min} max={HEIGHT_SLIDER.max}
-              step={HEIGHT_SLIDER.step}
-              value={curHeightCm ?? HEIGHT_SLIDER.min}
-              disabled={!asset}
-              onChange={(cm) => {
-                setHeightW(weightFor(asset!.heightInfo, cm))
-              }}
-            />
-          </div>
-          <Button size="small" icon={<UndoOutlined />}
-            disabled={!asset}
-            onClick={() => {
-              setSliders(
-                { waist: 0, hips: 0, thigh: 0, knee: 0, calf: 0, ankle: 0 })
-              setHeightW(0)
-            }}>
-            全部归零
-          </Button>
-          <div className="f3d-hint">
-            正/负 = 增/减场权重（w=1 为 MakeHuman 作者化上限）；身高滑杆 cm 连续
+            预设身高档 + 六部位形体滑杆（调整实时生效；「确定」后按新体型
+            自动重新试穿）
           </div>
         </div>
 
@@ -1108,6 +1049,16 @@ export default function Fitting3DView({
           </Button>
         </div>
       </div>
+      {/* 模特设置弹框（App 持开合/体型状态；围度读数用本视图 morph 效应
+          同源一份）。未确认前首挂试穿不发（setupOpen 门控） */}
+      <BodySetupModal
+        open={setupOpen}
+        onClose={onSetupClose}
+        asset={asset}
+        body={body}
+        girths={girths}
+        onChange={onBody}
+      />
     </div>
   )
 }
