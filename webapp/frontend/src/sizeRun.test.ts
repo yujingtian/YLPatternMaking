@@ -6,8 +6,8 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  absoluteValues, emptySteps, fromGradeTable, normalizeSizeRun, rebaseTable,
-  toGradeTable, validateTable, type GradeTable,
+  absoluteValues, defaultSteps, emptySteps, fromGradeTable, insertRowAfter,
+  normalizeSizeRun, rebaseTable, toGradeTable, validateTable, type GradeTable,
 } from './sizeRun'
 import type { MeasureKey, SizeRunSpec } from './types'
 
@@ -170,5 +170,71 @@ describe('validateTable', () => {
     expect(validateTable(table([['30', steps()]], 0, '订单ABC')))
       .toContainEqual(expect.stringContaining('ASCII'))
     expect(validateTable(table([['30', steps()]], 0, ''))).toEqual([])
+  })
+})
+
+describe('insertRowAfter（插入行默认值预填）', () => {
+  it('金标：单行基码表插入 -> 工厂档差缺省 + 标签 +1', () => {
+    // 手工演算：表仅基码 30（steps 恒 0 无信息、无邻行可沿用）->
+    //   defaultSteps（zhitong 同源 2.5/2.5/1.3/1.0/0.3/0.5/1.2/1.3）；
+    //   标签无邻可参照 -> 30+1 = 31；锚不动（插入位 1 > baseIndex 0）
+    const t = insertRowAfter(table([['30', steps()]], 0), 0)
+    expect(t.rows).toHaveLength(2)
+    expect(t.rows[1].label).toBe('31')
+    expect(t.rows[1].steps).toEqual(defaultSteps())
+    expect(t.rows[1].steps.waist).toBe(2.5)
+    expect(t.baseIndex).toBe(0)
+  })
+
+  it('金标：基码行下插入 -> 档差取下方首行 + 标签延续 +1 补缺码', () => {
+    // 手工演算：28/29(基)/31，锚行 steps 恒 0 -> 沿用下行 31 的 2.5；
+    //   标签步进取上一对 (28,29) 差 1 -> 29+1 = 30（恰补缺码）；
+    //   锚不动（插入位 2 > baseIndex 1）
+    const t = insertRowAfter(table(
+      [['28', steps({ waist: 2.5 })], ['29', steps()],
+       ['31', steps({ waist: 2.5 })]], 1), 1)
+    expect(t.rows).toHaveLength(4)
+    expect(t.rows[2].label).toBe('30')
+    expect(t.rows[2].steps.waist).toBe(2.5)
+    expect(t.baseIndex).toBe(1)
+  })
+
+  it('金标：末行下插入 -> 档差沿用本行 + 标签延续相邻步进', () => {
+    // 手工演算：SPEC 表（27-32、基 30）末行 32 下插入：档差沿用 32 行
+    //   2.5；标签步进 32-31=1 -> 33
+    const t = insertRowAfter(toGradeTable(SPEC, '30'), 5)
+    expect(t.rows).toHaveLength(7)
+    expect(t.rows[6].label).toBe('33')
+    expect(t.rows[6].steps.waist).toBe(2.5)
+    expect(t.baseIndex).toBe(3)
+  })
+
+  it('步进延续非 1：155/160/165 末插 -> 170', () => {
+    // 手工演算：末行 165 无下行、上邻 160 -> 步进 5 -> 165+5 = 170
+    const t = insertRowAfter(table(
+      [['155', steps({ waist: 4 })], ['160', steps({ waist: 4 })],
+       ['165', steps({ waist: 4 })]], 0), 2)
+    expect(t.rows[3].label).toBe('170')
+  })
+
+  it('非数值码不猜标签：留空待填、档差照常沿用', () => {
+    const t = insertRowAfter(table(
+      [['S', steps()], ['M', steps({ waist: 2.5 })]], 0), 1)
+    expect(t.rows[2].label).toBe('')
+    expect(t.rows[2].steps.waist).toBe(2.5)
+  })
+
+  it('金标：插入点在锚上方 -> baseIndex 随行 +1、基码行仍是锚', () => {
+    // 手工演算：27/28/30(基)/31 在行 1（28）下插入：新行落位 2、标签
+    //   步进取上一对 (27,28) 差 1 -> 29（补缺码）；基码 30 被顶到位 3
+    //   -> 锚 2->3，锚行 steps 仍恒 0；导出 canonical base 仍 30
+    const t = insertRowAfter(table(
+      [['27', steps({ waist: 2.5 })], ['28', steps({ waist: 2.5 })],
+       ['30', steps()], ['31', steps({ waist: 2.5 })]], 2), 1)
+    expect(t.baseIndex).toBe(3)
+    expect(t.rows[2].label).toBe('29')
+    expect(t.rows[3].label).toBe('30')
+    expect(t.rows[3].steps.waist).toBe(0)
+    expect(fromGradeTable(t).base).toBe('30')
   })
 })

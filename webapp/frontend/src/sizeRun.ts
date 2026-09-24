@@ -185,6 +185,55 @@ export function rebaseTable(t: GradeTable, newBase: number): GradeTable {
            baseIndex: nb, style: t.style }
 }
 
+/** 工厂常用档差缺省（examples/size_female_zhitong.toml [size_run] 同源：
+ *  27-32 单段）——插入行无任何可沿用档差（如单行基码表）时的预填默认。 */
+export function defaultSteps(): GradeSteps {
+  return { waist: 2.5, hip: 2.5, knee: 1.3, hem: 1.0, front_rise: 0.3,
+           back_rise: 0.5, outseam: 1.2, thigh: 1.3 }
+}
+
+function numLabel(label: string): number | null {
+  const t = label.trim()
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : null
+}
+
+function fmtLabel(v: number): string {
+  return String(Number.isInteger(v) ? v : Math.round(v * 10) / 10)
+}
+
+/** 新行码标签推算：数值码延续递增——步进取相邻数值码对（上一对优先、
+ *  无则下一对、皆无取 1；码由 1 递增的常规尺码天然 +1），新标签 =
+ *  本行 + 步进；非数值码（S/M/L 等）不猜、留空待填。连续码中段插入
+ *  的延续值可能与下行撞码（连续 +1 无中间码），由前端校验拦下待改。 */
+function nextLabel(rows: GradeRow[], i: number): string {
+  const cur = numLabel(rows[i]?.label ?? '')
+  if (cur === null) return ''
+  const next = i + 1 < rows.length ? numLabel(rows[i + 1].label) : null
+  const prev = i > 0 ? numLabel(rows[i - 1].label) : null
+  const pace = prev !== null && cur - prev > 0 ? cur - prev
+    : next !== null && next - cur > 0 ? next - cur : 1
+  return fmtLabel(cur + pace)
+}
+
+/**
+ * 行 i 下插入新码（预填默认值，免逐格手填）：档差沿用最近非基码行
+ * （本行 -> 下行 -> 上行；基码行 steps 恒 0 无信息），全表仅基码时用
+ * 工厂档差缺省（defaultSteps）；码标签按相邻数值码推算（nextLabel）。
+ * 插入点在锚位或其上方时 baseIndex 随行 +1（基码逻辑行被顶下一格；
+ * 插入行恒不落锚位，锚位 steps 恒 0 不变式保持）。档差跟行走口径
+ * 不变（码序重组所见即所得，仅插入点两侧邻行解读随行、按需微调）。
+ */
+export function insertRowAfter(t: GradeTable, i: number): GradeTable {
+  const at = Math.min(Math.max(i, 0), t.rows.length - 1)
+  const src = [at, at + 1, at - 1]
+    .find((k) => k >= 0 && k < t.rows.length && k !== t.baseIndex)
+  const steps = src === undefined ? defaultSteps() : { ...t.rows[src].steps }
+  const rows = [...t.rows]
+  rows.splice(at + 1, 0, { label: nextLabel(t.rows, at), steps })
+  const baseIndex = at + 1 <= t.baseIndex ? t.baseIndex + 1 : t.baseIndex
+  return { ...t, rows, baseIndex }
+}
+
 /**
  * 灰字换算：各码绝对值 = 自基码（面板值）沿档差双向走表；
  * 基码 thigh=0 时全码 thigh=0（引擎特例同式）。

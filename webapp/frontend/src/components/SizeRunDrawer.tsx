@@ -4,7 +4,9 @@
 // 时由 canonical 重建、取消即弃；底部主按钮「导出推板 DXF」= 保存 + 下载
 // 一步完成（onExport 回传 canonical，App 侧以显式覆盖参传 download 规避
 // 闭包旧值）。换基码走 rebaseTable 重投影（放码关系不变）；行插入/删除/
-// 换位档差跟行走（码序重组，灰字所见即所得）。转换/校验纯函数在 src/sizeRun.ts。
+// 换位档差跟行走（码序重组，灰字所见即所得）；插入行预填默认值
+// （insertRowAfter：档差沿用最近非基码行/工厂缺省 + 数值码标签自动
+// 推算，免逐格手填）。转换/校验纯函数在 src/sizeRun.ts。
 
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Drawer, Input, InputNumber, Radio, Space, Tag } from 'antd'
@@ -15,8 +17,8 @@ import {
   MEASURE_KEYS, type MeasureKey, type SizeRunSpec, type Values,
 } from '../types'
 import {
-  absoluteValues, emptySteps, fromGradeTable, rebaseTable, toGradeTable,
-  validateTable, type GradeRow, type GradeTable,
+  absoluteValues, emptySteps, fromGradeTable, insertRowAfter, rebaseTable,
+  toGradeTable, validateTable, type GradeRow, type GradeTable,
 } from '../sizeRun'
 
 const MEASURE_LABELS: Record<MeasureKey, string> = {
@@ -62,13 +64,9 @@ export default function SizeRunDrawer({
   const setStep = (i: number, key: MeasureKey, v: number | null) =>
     setTable((t) => ({ ...t, rows: t.rows.map((r, k) =>
       (k === i ? { ...r, steps: { ...r.steps, [key]: v ?? 0 } } : r)) }))
-  // 行下插入：档差沿用上一行（连续放码最常见），标签留待填写
-  const insertAfter = (i: number) =>
-    setTable((t) => {
-      const rows = [...t.rows]
-      rows.splice(i + 1, 0, { label: '', steps: { ...t.rows[i].steps } })
-      return { ...t, rows }
-    })
+  // 行下插入（纯函数 insertRowAfter）：预填默认值——档差沿用最近非基码
+  // 行（全表仅基码用工厂档差缺省）、码标签按相邻数值码推算，免逐格手填
+  const insertAfter = (i: number) => setTable((t) => insertRowAfter(t, i))
   const removeRow = (i: number) =>
     setTable((t) => {
       if (t.rows.length <= 1) return t
@@ -102,6 +100,7 @@ export default function SizeRunDrawer({
           <span className="sr-step-empty">—</span>
         ) : (
           <InputNumber size="small" step={0.1} value={row.steps[k]}
+                       style={{ width: 72 }}
                        disabled={thighOff && k === 'thigh'}
                        onChange={(v) => setStep(i, k, v)} />
         )}
