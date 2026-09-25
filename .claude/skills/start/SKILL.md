@@ -1,6 +1,6 @@
 ---
 name: start
-description: 启动（或重启）YLPatternMaking 牛仔裤打版项目：后端 uvicorn（默认 :8000，被外部进程占用时回落 :8010）+ 前端 Vite dev（:5173）。支持 dev（默认，Vite 跑源码 HMR 热更）/prod（后端 serve 已构建 dist）模式、单端启动、重启。每次执行都先 npm run build 刷新 dist（后端同源 serve 的产物保持新鲜）。改 Python 后自动触发重启，改引擎源码自动重打引擎 zip。
+description: 启动（或重启）YLPatternMaking 牛仔裤打版项目：后端 uvicorn（默认 :8000，被外部进程占用时回落 :8010）+ agent 智能打版服务（:8001，VLM 提取/多轮对话）+ 前端 Vite dev（:5173）。支持 dev（默认，Vite 跑源码 HMR 热更）/prod（后端 serve 已构建 dist）模式、单端启动、重启。每次执行都先 npm run build 刷新 dist（后端同源 serve 的产物保持新鲜）。改 Python 后自动触发重启，改引擎源码自动重打引擎 zip。
 allowed-tools: Bash
 ---
 
@@ -11,21 +11,24 @@ allowed-tools: Bash
 - 后端：`py -m uvicorn webapp.backend.app:app`（**必须在仓库根运行**——webapp 是根级顶层包，从子目录起报 `ModuleNotFoundError: webapp`）。路由：`GET /` 出 `webapp/frontend/dist/index.html`、`/api/*`（schema/draft/adjust/dxf/toml/templates）、`/engine/*`（浏览器 Pyodide 本地引擎资产）、`/agent/*`（httpx 转发 8001 提取服务）。**未开 `--reload`**，改 Python 代码后必须重启才生效。
 - 端口：默认 **8000**（Vite dev 代理硬编码 `/api → localhost:8000`，见 vite.config.ts）。8000 被非本项目进程占用时回落 **8010**（本机 8000 常被「排料可视化工作台」等其他项目占用——身份验证不过**绝不杀**）。
 - Python 解释器：本机无 `python` 命令（WindowsApps stub 报错），用 `py`（3.11）。npm 脚本（predev/prebuild 里的 build:engine）调 `python` → 需 py shim（步骤 0）。
-- 依赖：首次或缺 fastapi 时 `py -m pip install -e ".[web]"`。
+- 依赖：首次或缺 fastapi 时 `py -m pip install -e ".[web]"`；起 agent 服务还需 `py -m pip install -e ".[agent]"`（fastapi/uvicorn/pydantic/python-multipart）。
 - 前端 prod：`webapp/frontend/dist` 由后端同源 serve，**无独立前端进程**。**每次 /start 都先 `npm run build` 刷新 dist**（步骤 0d；prebuild 自动跑 build:engine 打引擎 zip + 拷 pyodide 运行时到 public）。
 - 前端 dev：`cd webapp/frontend && npm run dev`（Vite :5173，proxy `/api`→:8000、`/agent`→:8001，HMR 热更）。predev 同样跑 build:engine。
-- 启动顺序：先起后端。dev 模式前端依赖后端 :8000 在线（代理目标硬编码，后端回落 8010 时 /api 会 502，见步骤 1）。
+- 智能打版 agent 服务：`py -m uvicorn agent.app:app`（**同样必须在仓库根**——agent 是根级顶层包，VLM 提取/多轮对话全在此；**无 --reload**，改代码须重启）。默认 **8001**：Vite proxy `/agent` 与 webapp 后端 `_AGENT_BASE` 均指向 8001（后端侧可 `YLP_AGENT_BASE` 覆盖），被外部占用**不回落**、如实报告（智能打版 502，其余功能不受影响）。`GET /healthz` 回 `{status, vlm_configured}`；vlm.toml 每请求现载、改完即生效无需重启；vlm_configured=false 时照片路径 503、纯描述路径仍可用。
+- 启动顺序：先起后端，agent/前端随后。dev 模式前端依赖后端 :8000 在线（代理目标硬编码，后端回落 8010 时 /api 会 502，见步骤 1）。
 
 ## 端口 → PID 探测与身份验证（Windows Git Bash）
 ```bash
 # 监听 <PORT> 的 PID（IPv4 127.0.0.1:PORT / IPv6 [::1]:PORT 都命中；可能多行或空）
 netstat -ano | grep -E ":<PORT>[[:space:]]" | grep -i LISTENING | awk '{print $NF}' | sort -u
-# 身份验证：本项目 index.html 标题固定含 "YLPattern"（prod dist 与 Vite dev 同源）
+# 身份验证（web 端口）：本项目 index.html 标题固定含 "YLPattern"（prod dist 与 Vite dev 同源）
 curl -s --max-time 3 http://127.0.0.1:<PORT>/ | grep -q YLPattern && echo OURS || echo NOT_OURS
+# 身份验证（agent :8001）：纯 API 无 HTML，用 /healthz 的 JSON 指纹
+curl -s --max-time 3 http://127.0.0.1:8001/healthz | grep -q vlm_configured && echo OURS || echo NOT_OURS
 ```
 
 ## 解析意图（从用户消息 / args）
-- 目标端：`backend` / `frontend` / `all`（默认 `all`；prod 模式下 frontend 无独立进程，等价 backend）
+- 目标端：`backend` / `agent` / `frontend` / `all`（默认 `all`；prod 模式下 frontend 无独立进程，等价 backend）
 - 模式：`prod` / `dev`（默认）
 - 动作：`start`（默认）/ `restart`（= 先停目标端再起）
 
@@ -33,8 +36,9 @@ curl -s --max-time 3 http://127.0.0.1:<PORT>/ | grep -q YLPattern && echo OURS |
 
 ### 0. 前置检查
 ```bash
-# a) Python 依赖自检（缺则装）
+# a) Python 依赖自检（缺则装；第二行目标含 agent 时才需要）
 py -c "import fastapi, uvicorn" 2>/dev/null || py -m pip install -e ".[web]"
+py -m pip show python-multipart >/dev/null 2>&1 || py -m pip install -e ".[agent]"
 # b) py shim：本机无 python 命令时，让 npm 脚本里的 build:engine 能跑（幂等）
 if ! python --version >/dev/null 2>&1; then
   mkdir -p /tmp/pyshim
@@ -54,6 +58,7 @@ PATH="/tmp/pyshim:$PATH" npm run build
 ### 1. 探测现状，选端口 / 决定是否先停
 ```bash
 netstat -ano | grep -E ":8000[[:space:]]" | grep -qi LISTENING && echo P8000_UP || echo P8000_DOWN
+netstat -ano | grep -E ":8001[[:space:]]" | grep -qi LISTENING && echo P8001_UP || echo P8001_DOWN
 netstat -ano | grep -E ":5173[[:space:]]" | grep -qi LISTENING && echo P5173_UP || echo P5173_DOWN
 ```
 - 后端端口决策（按序）：
@@ -61,9 +66,10 @@ netstat -ano | grep -E ":5173[[:space:]]" | grep -qi LISTENING && echo P5173_UP 
   - 8000 UP 且身份 OURS → `start` 报「已在运行」跳过；`restart` 杀掉后仍用 8000；
   - 8000 UP 且身份 NOT_OURS → **不杀**，回落 **8010**（8010 也被占且非本项目则再 +1 顺延，如实报告）。
 - **dev 模式警告**：后端不在 8000 时 Vite 代理 `/api` 会 502 → 如实报告冲突，建议用户释放 8000 或改用 prod 模式。
+- agent 端口决策：8001 DOWN → 起；8001 UP 且 OURS（/healthz JSON 含 vlm_configured）→ `start` 报「已在运行」跳过、`restart` 杀掉再起；NOT_OURS → **不杀也不回落**（消费方硬编码 8001），如实报告智能打版暂不可用。
 - 动作 = `restart`：目标端中 UP 且 OURS 的全部杀掉再起；`start`（默认）**不杀**，UP 的跳过。
 
-kill 单端口（仅限身份 OURS 的；PORT ∈ {8000, 8010, 5173}）：
+kill 单端口（仅限身份 OURS 的；PORT ∈ {8000, 8010, 8001, 5173}）：
 ```bash
 for pid in $(netstat -ano | grep -E ":<PORT>[[:space:]]" | grep -i LISTENING | awk '{print $NF}' | sort -u); do
   MSYS_NO_PATHCONV=1 taskkill //PID $pid //F //T 2>/dev/null && echo "killed $pid"
@@ -85,7 +91,23 @@ done
   ```
   15s 内没起来 → 读后台任务输出报错（多半：端口占用 / cwd 不在仓库根 / 依赖未装）。
 
-### 3. 启动前端（**仅 dev 模式**且目标含 frontend 时）
+### 3. 启动 agent 智能打版服务（目标含 agent 时）
+- 前台阻塞，`run_in_background: true`，**必须先 cd 仓库根**（agent 是根级顶层包）：
+  ```bash
+  cd d:/code/YLPatternMaking && py -m uvicorn agent.app:app --host 127.0.0.1 --port 8001
+  ```
+- 轮询确认（LISTENING + /healthz 200 双条件）：
+  ```bash
+  for i in $(seq 1 15); do
+    netstat -ano | grep -E ":8001[[:space:]]" | grep -q LISTENING && \
+    [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8001/healthz)" = 200 ] && { echo up; break; }
+    sleep 1
+  done
+  ```
+  15s 内没起来 → 读后台任务输出报错（多半：cwd 不在仓库根 / 依赖未装）。
+- `vlm_configured=false` 也算启动成功（照片路径 503、纯描述路径可用），汇报时注明。
+
+### 4. 启动前端（**仅 dev 模式**且目标含 frontend 时）
 - `run_in_background: true` 起：
   ```bash
   cd d:/code/YLPatternMaking/webapp/frontend && PATH="/tmp/pyshim:$PATH" npm run dev
@@ -93,8 +115,8 @@ done
   （PATH 前置 py shim 是为 predev 的 build:engine；机器上 python 可用时不加也无妨）
 - 轮询 :5173 LISTENING。**Vite 未设 strictPort**：5173 被占会自动顺延 5174/5175…，以启动日志里 `Local:` 行的实际端口为准。prod 模式跳过此步。
 
-### 4. 冒烟（推荐）
-- `GET /` 标题含 YLPattern；`GET /engine/manifest.json` 200（本地引擎就绪）。
+### 5. 冒烟（推荐）
+- `GET /` 标题含 YLPattern；`GET /engine/manifest.json` 200（本地引擎就绪）；agent 起了的话 `GET :8001/healthz` 200（顺读 vlm_configured）。
 - 引擎链路真打一版：
   ```bash
   curl -s -X POST http://127.0.0.1:<PORT>/api/draft/sheet -H "Content-Type: application/json" \
@@ -103,17 +125,19 @@ done
   ```
   返回 200 且 `ok=true` 即全链路通。
 
-### 5. 汇报
+### 6. 汇报
 ```
 ✅ 项目已启动（dev）
   后端 uvicorn   :8000   http://127.0.0.1:8000/   (PID ...)
+  agent 智能打版 :8001   http://127.0.0.1:8001/healthz   (PID ...)   vlm 已配置/未配置
   前端 Vite dev  :5173   http://127.0.0.1:5173/   (PID ...)
   打开 → http://127.0.0.1:5173/
 ```
-prod 模式只有后端一行（dist 同源 serve，打开 :8000）。8000 被外部占用回落时要注明原因。PID 用步骤 2/3 起来后复探 netstat 取。
+prod 模式无 Vite 行（dist 同源 serve，打开 :8000），agent 行照报。8000 被外部占用回落、8001 被外部占用时要注明原因。PID 用步骤 2/3/4 起来后复探 netstat 取。
 
 ## 何时自动触发（Claude 自调用，无需用户输入）
 - 改了后端 Python 代码（webapp/、src/ylpattern/）→ 自动 `/start restart backend` 让改动生效。
+- 改了 agent/（智能打版）Python 代码 → 自动 `/start restart agent`（uvicorn 无 --reload）；vlm.toml 例外——每请求现载，改完即生效不用重启。
 - 改了引擎源码（src/ylpattern/）且需浏览器本地 Pyodide 引擎生效 → 先 `cd webapp/frontend && npm run build:engine` 重打 zip（manifest 带 hash，重打后浏览器才拿得到新引擎），再 restart backend。
 - 改前端 src/ **不需要**重启（dev 下 Vite HMR 自动热更；dist 由下次 /start 的步骤 0d 自动重打，急用可手动 `npm run build` 后浏览器强刷——StaticFiles 从磁盘读，后端无需重启）。仅当改 `vite.config.ts` / 装新依赖后才 `/start restart frontend`。
 

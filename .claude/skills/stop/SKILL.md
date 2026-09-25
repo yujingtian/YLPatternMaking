@@ -1,13 +1,13 @@
 ---
 name: stop
-description: 停止 YLPatternMaking 运行中的服务：后端 uvicorn（:8000 或 :8010）与/或 前端 Vite dev（:5173）。按端口现探 PID 并验证身份（标题含 YLPattern）后才 taskkill，绝不误杀端口上其他项目的进程。
+description: 停止 YLPatternMaking 运行中的服务：后端 uvicorn（:8000 或 :8010）、agent 智能打版服务（:8001）与/或 前端 Vite dev（:5173）。按端口现探 PID 并验证身份（web 标题含 YLPattern / agent /healthz JSON 指纹）后才 taskkill，绝不误杀端口上其他项目的进程。
 allowed-tools: Bash
 ---
 
 # Stop Skill
 
 ## 上下文
-- 后端监听 :8000（默认）或 :8010（8000 被外部占用时的回落口）；前端 dev 监听 :5173（Vite，可能顺延到 5174+）。
+- 后端监听 :8000（默认）或 :8010（8000 被外部占用时的回落口）；agent 智能打版服务监听 :8001（uvicorn agent.app:app，无回落口）；前端 dev 监听 :5173（Vite，可能顺延到 5174+）。
 - **prod 模式无独立前端进程**（dist 由后端同源 serve），停后端即等于全停；停 all 时 :5173 显示「未运行」属正常。
 - 服务可能由 `/start` 后台起，也可能由用户外部起；**一律按端口现探 PID**，不依赖上次记忆的 PID（skill 无状态）。
 - **端口 ≠ 归属**：本机 8000 常被其他项目（排料可视化工作台）占用。杀之前必须做身份验证——本项目任何前端入口（dist 或 Vite dev）的 HTML 标题固定含 `YLPattern`。
@@ -16,13 +16,15 @@ allowed-tools: Bash
 ```bash
 # 监听 <PORT> 的 PID（IPv4/IPv6 都命中；可能多行或空）
 netstat -ano | grep -E ":<PORT>[[:space:]]" | grep -i LISTENING | awk '{print $NF}' | sort -u
-# 身份验证：标题含 YLPattern 才是本项目（8010 若回落口也如此）
+# 身份验证（web 端口）：标题含 YLPattern 才是本项目（8010 若回落口也如此）
 curl -s --max-time 3 http://127.0.0.1:<PORT>/ | grep -q YLPattern && echo OURS || echo NOT_OURS
+# 身份验证（agent :8001）：纯 API 无 HTML，用 /healthz 的 JSON 指纹
+curl -s --max-time 3 http://127.0.0.1:8001/healthz | grep -q vlm_configured && echo OURS || echo NOT_OURS
 ```
 
 ## 解析意图（从用户消息 / args）
-- 目标端：`backend` / `frontend` / `all`（默认 `all`）
-- backend → 候选端口 {8000, 8010}（两个都探，谁 OURS 杀谁）；frontend → 候选 {5173, 5174}（Vite 顺延口，依次探测）
+- 目标端：`backend` / `agent` / `frontend` / `all`（默认 `all`）
+- backend → 候选端口 {8000, 8010}（两个都探，谁 OURS 杀谁）；agent → 候选 {8001}；frontend → 候选 {5173, 5174}（Vite 顺延口，依次探测）
 
 ## 执行步骤
 1. 对每个候选端口：探测 LISTENING → 没监听则记「未运行」跳过；有监听则先验身份：
@@ -46,6 +48,7 @@ curl -s --max-time 3 http://127.0.0.1:<PORT>/ | grep -q YLPattern && echo OURS |
    ```
    🛑 已停止
      后端  :8010   killed PID ...      （或：未运行 / :8000 被外部进程占用未动）
+     agent :8001   killed PID ...      （或：未运行 / 被外部进程占用未动）
      前端  :5173   killed PID ...      （或：未运行）
    ```
 
