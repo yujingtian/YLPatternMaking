@@ -24,6 +24,14 @@ import { DRAPE_PRIOR, HANG_PRIOR } from './priors'
 import { buildSeamSet, type SeamGroup } from './seams'
 import { bandBottomChain } from './band'
 
+// XZ 自由钉贴皮余量（2026-09-27 指定穿位）：钉推出目标 = 体表 + 微量，
+// 区别于自由布的 CORE_SKIN 接触壳——布真实 3D 链长（含腰口斜切竖向
+// 分量）只够贴体表线，推到壳即拉伸违规；贴体表微皱 = 真实低腰腰口
+const PIN_SKIN = 0.05
+// 钉滑轨活动域（查询半径）：初值嵌体 −0.8 级、高处浮空 0.7 级，2.0 覆盖
+// 全部腰口钉离体范围（布网再拽也不出此域——超出按无滑轨处理保底）
+const PIN_TRACK = 2.0
+
 // 求解器消费的网格子集（stepDrape/strainLimit 唯三读取 dist/bend/bendKArr；
 // 2026-09-23 Worker 化：parts.mesh 收窄到此——ClothMesh 结构性满足（含
 // locate 闭包的全量对象可赋入），solvestate 投影/再水化按此收口）
@@ -46,6 +54,12 @@ export interface DrapeSim {
                           // 下跨行直通）；NaN = 该钉无弧位（XZ 冻结旧口径）。
                           // settle lowering 据此沿参考环重投影钉 XZ；旁挂/
                           // 无 jam 不消费
+  pinXZFree: boolean      // 指定穿位钉 XZ 自由（2026-09-27 弯腰头斜切嵌体修
+                          // 复）：true = 钉只锁 Y（穿位高度）+ collide 生效
+                          //（钉推出到体表壳），XZ 由 verlet/dist/collide 平衡
+                          // ——真实低腰裤布沿体周滑移贴体；false = 全向硬钉
+                          //（auto/悬挂口径，配 P2 重投影）。只影响解算步
+                          //（maxFrames 0 只摆位场景零感知）
   seamIdx: Uint32Array    // 2S 全族缝合对（八期 buildSeamSet：rise/cb 镜像
                           // + side/inseam 弧长 + tip 补焊，全 rest=0 同一求解）
   seamGroups: SeamGroup[] // 分族切片（金标分族统计用）
@@ -92,6 +106,7 @@ export interface DrapeSim {
 export function buildDrape(
   garment: Garment, field: BodyField | null, yLift = 0,
   collideAboveY = -Infinity, maxFrames = DRAPE_PRIOR.maxFrames,
+  opts?: { pinXZFree?: boolean },
 ): DrapeSim {
   const pinIdx: number[] = []
   // 腰头在（九期）：**腰口区全钉**——身片腰口环整圈（「腰部圆形撑开」
@@ -230,6 +245,7 @@ export function buildDrape(
     prev: new Float32Array(pos),
     vel: new Float32Array(pos.length),
     pinIdx: new Uint32Array(pinIdx),
+    pinXZFree: opts?.pinXZFree ?? false,
     pinTarget,
     pinFlag,
     pinArcs,
@@ -252,6 +268,12 @@ function projectPins(sim: DrapeSim): void {
   const { pos, pinIdx, pinTarget } = sim
   for (let k = 0; k < pinIdx.length; k++) {
     const i3 = 3 * pinIdx[k]
+    if (sim.pinXZFree) {
+      // 指定穿位 XZ 自由：只投影 Y（穿位高度），XZ 留给 collide 推出
+      // + dist/seam 网平衡（真实低腰裤布沿体周滑移贴体）
+      pos[i3 + 1] = pinTarget[3 * k + 1]
+      continue
+    }
     pos[i3] = pinTarget[3 * k]
     pos[i3 + 1] = pinTarget[3 * k + 1]
     pos[i3 + 2] = pinTarget[3 * k + 2]
@@ -366,18 +388,42 @@ function collide(sim: DrapeSim): void {
     // 钉豁免（2026-09-19）：钉 = 刚性腰口边界条件，人台不顶开腰环——
     // 穿台审计实测 collide 在 projectPins 之后覆写嵌体钉（漂移 max 1.57，
     // 腰环 81.68 vs 成衣 77.83）。穿不进（钉环缩进截面内）由热力图 gap
-    // 带符号红区读出，不靠静默顶开（偏小是读数不是错误）
-    if (pinFlag[i3 / 3]) continue
+    // 带符号红区读出，不靠静默顶开（偏小是读数不是错误）。
+    // 指定穿位 XZ 自由钉（2026-09-27）例外：弯腰头腰口斜切段的钉 Y 站在
+    // 比建环行粗的行上、XZ 锁单行环 → 局部深嵌尖刺；XZ 自由 + collide
+    // 推出贴体表（PIN_SKIN 微余量，非自由布的 CORE_SKIN 接触壳——壳上
+    // 斜切线 ~78.5 > 布真实 3D 链长 ~73.3，推到壳 = 19% 拉伸违规；贴体
+    // 表线 ~72.5 < 73.3，微皱贴身 = 真实低腰腰口观感）
+    const isFreePin = pinFlag[i3 / 3] !== 0 && sim.pinXZFree
+    if (pinFlag[i3 / 3] && !isFreePin) continue
     const x = pos[i3], z = pos[i3 + 2]
     const patY = pos[i3 + 1] - sim.yLift
     if (patY < sim.collideAboveY) continue   // 腿段自由垂（混合形态）
+    // XZ 自由钉 = 体表滑轨（2026-09-27）：径向双向钳到边界 + PIN_SKIN·外
+    // 法线（体内推出 + 体外拉回——collide 单向推对初值浮空的高段钉〔yoke
+    // 后中随斜切站更瘦行〕无回贴力，浮空 0.6+ 就是腰头悬空观感）；环向/
+    // 竖直自由（Y 由 projectPins 钉、环向由布网弧长配对锚）。prev 同步 =
+    // 运动学修正零速度注入
+    if (isFreePin) {
+      const rings0 = field.loopsAt(patY)
+      if (rings0.length === 0) continue
+      if (!nearestRingBoundary(rings0, x, z, PIN_TRACK, hit)) continue
+      const sd = (x - hit.px) * hit.nx + (z - hit.pz) * hit.nz
+      if (Math.abs(sd - PIN_SKIN) < 1e-9) continue
+      pos[i3] = hit.px + hit.nx * PIN_SKIN
+      pos[i3 + 2] = hit.pz + hit.nz * PIN_SKIN
+      prev[i3] = pos[i3]
+      prev[i3 + 2] = pos[i3 + 2]
+      continue
+    }
     // 上表面竖直支撑（2026-09-20 长裤盖脚）：水平推出撑不住「向下变宽」
     // 的坡面（脚背/脚尖/脚跟、大腿上侧）——外法线朝上、推出却在水平面内，
     // 布粒被侧向射出再下坠 = 沿坡滑到底，长裤脚口盖不住脚。先判上表面域
     // （placement.topSupportY：坡 g≥topSupportSlope 才接管），抬到行间
     // 交叉插值面 + skin·法线竖直分量；上表面域跳过水平推出（会把盖在坡上
-    // 的布射飞）
-    const supY = topSupportY(field, x, z, patY)
+    // 的布射飞）。XZ 自由钉跳过（抬 Y 会被 projectPins 拉回 = 抖动源；钉
+    // 只走水平推出，腰口行远高于脚区本就不触发）
+    const supY = isFreePin ? null : topSupportY(field, x, z, patY)
     if (supY !== null) {
       const wy = supY + sim.yLift
       if (pos[i3 + 1] < wy) {
@@ -469,15 +515,27 @@ function strainLimit(sim: DrapeSim): void {
 }
 
 // 全族缝合对一遍（rest=0、双向各移一半）——迭代内与限幅后共用：限幅只顾
-// 边长会把缝合对拉开 ~0.2cm，紧跟一遍收回（钉投影随后）
+// 边长会把缝合对拉开 ~0.2cm，紧跟一遍收回（钉投影随后）。XZ 自由钉端逆
+// 质量 0（2026-09-27，同 dist：side 缝对连的前后片顶链角都是钉，双向各半
+// 会把钉拉向中点离体；钉-钉对 w=0 跳过 = 各自保持 collide 贴体位）
 function seamPass(sim: DrapeSim): void {
-  const { pos, seamIdx } = sim
+  const { pos, seamIdx, pinFlag } = sim
   for (let c = 0; c < seamIdx.length; c += 2) {
     const a = 3 * seamIdx[c], b = 3 * seamIdx[c + 1]
     const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
     const dz = pos[b + 2] - pos[a + 2]
     const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
     if (d < 1e-9) continue
+    if (sim.pinXZFree) {
+      const wa = pinFlag[seamIdx[c]] ? 0 : 1
+      const wb = pinFlag[seamIdx[c + 1]] ? 0 : 1
+      const w = wa + wb
+      if (w === 0) continue
+      const k = (1 / w) * DRAPE_PRIOR.seamStiffness
+      pos[a] += dx * k * wa; pos[a + 1] += dy * k * wa; pos[a + 2] += dz * k * wa
+      pos[b] -= dx * k * wb; pos[b + 1] -= dy * k * wb; pos[b + 2] -= dz * k * wb
+      continue
+    }
     const k = 0.5 * DRAPE_PRIOR.seamStiffness
     pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
     pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
@@ -493,7 +551,7 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
   const dtSub = p.dt / p.substeps
   sim.lastGood.set(sim.pos)
   for (let sub = 0; sub < p.substeps; sub++) {
-    const { pos, prev, vel } = sim
+    const { pos, prev, vel, pinFlag } = sim
     for (let i3 = 0; i3 < pos.length; i3 += 3) {
       vel[i3] *= p.damping
       vel[i3 + 1] = vel[i3 + 1] * p.damping + p.gravity * dtSub
@@ -507,19 +565,26 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
       for (const part of sim.parts) {
         const { dist, bend } = part.mesh
         const off = part.offset
-        // 距离约束（拉伸+剪切，刚度 1）：双向各移一半
+        // 距离约束（拉伸+剪切，刚度 1）：双向各移一半。XZ 自由钉端逆
+        // 质量 0（2026-09-27：钉 = Y 运动学 + collide 贴体边界条件，布
+        // 网不得拽钉离体——全钉口径下钉由 projectPins 兜底无此需）
+        const freePin = sim.pinXZFree
         for (let c = 0; c < dist.length; c += 3) {
           const a = 3 * (off + dist[c]), b = 3 * (off + dist[c + 1])
           const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1]
           const dz = pos[b + 2] - pos[a + 2]
           const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
           if (d < 1e-9) continue
-          const k = ((d - dist[c + 2]) / d) * 0.5
-          pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
-          pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
+          const wa = freePin && pinFlag[off + dist[c]] ? 0 : 1
+          const wb = freePin && pinFlag[off + dist[c + 1]] ? 0 : 1
+          const w = wa + wb
+          if (w === 0) continue
+          const k = ((d - dist[c + 2]) / d) / w
+          pos[a] += dx * k * wa; pos[a + 1] += dy * k * wa; pos[a + 2] += dz * k * wa
+          pos[b] -= dx * k * wb; pos[b + 1] -= dy * k * wb; pos[b + 2] -= dz * k * wb
         }
         // 弯曲约束（内边对点；全局 0.3 / 局部刚度带三窗覆写：缝口摊平
-        // + 腰臀过渡 + 脚口环带）
+        // + 腰臀过渡 + 脚口环带）。XZ 自由钉端同 dist 逆质量 0
         const bendK = part.mesh.bendKArr
         for (let c = 0; c < bend.length; c += 3) {
           const a = 3 * (off + bend[c]), b = 3 * (off + bend[c + 1])
@@ -527,10 +592,14 @@ export function stepDrape(sim: DrapeSim): 'running' | 'settled' | 'frozen' {
           const dz = pos[b + 2] - pos[a + 2]
           const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
           if (d < 1e-9) continue
-          const k = ((d - bend[c + 2]) / d) * 0.5
+          const wa = freePin && pinFlag[off + bend[c]] ? 0 : 1
+          const wb = freePin && pinFlag[off + bend[c + 1]] ? 0 : 1
+          const w = wa + wb
+          if (w === 0) continue
+          const k = ((d - bend[c + 2]) / d) / w
             * (bendK ? bendK[c / 3] : p.bendStiffness)
-          pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k
-          pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k
+          pos[a] += dx * k * wa; pos[a + 1] += dy * k * wa; pos[a + 2] += dz * k * wa
+          pos[b] -= dx * k * wb; pos[b + 1] -= dy * k * wb; pos[b + 2] -= dz * k * wb
         }
       }
       // 全族缝合对（八期：rise/cb 镜像 + side/inseam 弧长 + tip 补焊，

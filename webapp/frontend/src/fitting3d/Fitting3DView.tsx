@@ -192,7 +192,10 @@ export default function Fitting3DView({
   const wearDropRef = useRef(wearDrop)
   wearDropRef.current = wearDrop
   // 本次穿台的穿位快照（报表卡显示语义 + 解算中占位文案）
-  const dressRunWear = useRef<{ pinned: boolean; drop: number } | null>(null)
+  // 穿位快照：drop = 实际停位（几何交规卡停后可能 < 申请值）、requested =
+  // 滑杆申请值（读数行「套不进」提示用；未卡停时与 drop 相等）
+  const dressRunWear = useRef<
+    { pinned: boolean; drop: number; requested: number } | null>(null)
   // 热力图（2026-09-18 双通道 → 2026-09-19 应变通道移除，恒间隙通道）：
   // 开关只重着色当前帧不重跑仿真——heatOnRef 镜像供开关效应与解算 init
   // 透传（不进大效应 deps，避免重跑重解算）。Worker 化（2026-09-23）后
@@ -529,10 +532,17 @@ export default function Fitting3DView({
         // cm——钉环建在所选行（XZ 随行），buildFullPair 后整裤 pos 连同
         // 钉目标源整体 −drop（钉初始即终位，WaistRing 纯 XZ 环不携带 Y、
         // Y 必须在这里平移；非钉粒子 XZ 采样行差由 collide 松弛吸收），
-        // lowering 旁路秒出；自动落位 drop=0 走现行探针缓释
+        // lowering 旁路秒出；自动落位 drop=0 走现行探针缓释。
+        // 几何交规（2026-09-27）：所选行体围 ≥ 腰长×(1+jamMargin) 时环
+        // 套不进（不可伸长）——实际停位钳到最深可穿档（判据复用 P1 挂胯），
+        // 否则钉环 δ<0 无下限均匀嵌体、机头深褶/前腰悬空同源（用户报障
+        // 2026-09-24）；读数行披露申请/实际
         const wearPinned = wearModeRef.current === 'pinned'
-        const wearDropCm = wearPinned ? wearDropRef.current : 0
-        dressRunWear.current = { pinned: wearPinned, drop: wearDropCm }
+        const requested = wearPinned ? wearDropRef.current : 0
+        const wearDropCm = wearPinned
+          ? Math.min(requested, fieldM.maxFeasibleDrop(waistSt.y, waistLen, 12))
+          : 0
+        dressRunWear.current = { pinned: wearPinned, drop: wearDropCm, requested }
         const waistRing = buildWaistRing(fieldM, waistSt.y - wearDropCm, waistLen)
         pair = buildFullPair(panel.host, backPanel.host, fieldM, {
           front: legAxisM.forkY, back: legAxisM.forkY,
@@ -549,7 +559,14 @@ export default function Fitting3DView({
         // 后控制器不在主线程建——dressDriver 在 worker 侧重建（闭包快照读
         // pinIdx/pinTarget，构造后自洽），主线程只备好 probeIdx/jam 随 init
         // 消息透传
-        sim = buildDrape(pair, fieldM, anchorLift)
+        // 指定穿位钉 XZ 自由（2026-09-27 弯腰头斜切嵌体修复）：pinned 下
+        // 钉只锁 Y（穿位高度），XZ 走 collide 体表滑轨（径向钳到边界+
+        // 微余量、环向由布网弧长配对锚）——弯腰头腰口斜切段（侧缝下垂
+        // 2~3cm）的钉站在比建环行粗的行上，XZ 锁单行环 = 局部深嵌尖刺
+        //（用户报障「缝合处布进人台」侧缝 −0.76）；滑轨口径 = 缝合口整圈
+        // 贴体微皱（布真实 3D 链长守恒）。auto 不动（P2 重投影链）
+        sim = buildDrape(pair, fieldM, anchorLift, undefined, undefined,
+          { pinXZFree: wearPinned })
         // 挂胯判据（2026-09-23 P1）：钉环（总长 = 成衣腰长）候选行截面
         // 周长超环长×(1+jamMargin) 即卡停——治掉裆把刚性环拽进体围更大
         // 下行行的嵌体/深褶/波浪（口径 .claude/plans/穿台落位修复方案.md §二）
@@ -885,7 +902,8 @@ export default function Fitting3DView({
               <div className="f3d-hint">
                 指定穿位：裤子直接钉在所选高度（腰下 {wearDrop.toFixed(1)}
                 cm），不模拟滑落——瞬间出图；掉裆/卡胯不适用（位置已定），
-                裆接触/穿透照实报（选太高会顶住报穿透）
+                裆接触/穿透照实报；超出可穿深度（该行体围套不进）自动停在
+                最深可穿位，读数行提示
               </div>
             </>
           )}
@@ -961,6 +979,13 @@ export default function Fitting3DView({
                     卡胯停（{dressReport.jamF ? '前' : ''}
                     {dressReport.jamF && dressReport.jamB ? '/' : ''}
                     {dressReport.jamB ? '后' : ''}）：该截面套不进（偏小读数）
+                  </div>
+                )}
+                {dressRunWear.current?.pinned
+                  && dressRunWear.current.requested > dressRunWear.current.drop && (
+                  <div className="f3d-hint">
+                    申请腰下 {dressRunWear.current.requested.toFixed(1)} cm
+                    超出最深可穿——该截面套不进（偏小读数），已停在最深可穿位
                   </div>
                 )}
                 {dressReport.tooSmall && (

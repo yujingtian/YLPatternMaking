@@ -39,7 +39,7 @@ import { stationFactor } from '../bodymesh/height'
 import { buildFullPair } from './assemble'
 import {
   buildBodyField, buildLegAxisFromRings, buildWaistRing, nearestRingBoundary,
-  pointInRings, shiftPositionsY, type WaistRing,
+  pointInRings, shiftPositionsY, type BodyField, type WaistRing,
 } from './placement'
 import { buildDrape, stepDrape, type DrapeSim } from './drape'
 import { buildBackPanel, buildFrontPanel } from './panel'
@@ -87,18 +87,27 @@ interface RunOut {
   anchorLift: number
   waistLen: number
   waistRing: WaistRing
+  field: BodyField
+  effDrop: number
 }
 
 // 穿台全管线（Fitting3DView dress 分支同源；heightW=0 地标因子 1）。
-// opts：waistDelta 压制成衣腰长（偏小款快检）；maxFrames 0 = 只摆位不解算
+// opts：waistDelta 压制成衣腰长（偏小款快检）；maxFrames 0 = 只摆位不解算；
+// pinnedDrop 指定穿位（视图分支同源：几何交规钳位 effDrop = min(申请,
+// maxFeasibleDrop)、钉环建所选行、整裤刚性下移、lowering 旁路；并开
+// pinXZFree 钉体表滑轨——弯腰头斜切嵌体修复，见下方 curved_seam 例）；
+// heightW 身高地标因子（非零身高 morph 时锚定随缩放，同视图口径）
 function runDress(
   a: BodyMeshAsset, data: FittingResult, w: MeshWeights,
-  opts?: { waistDelta?: number; maxFrames?: number },
+  opts?: {
+    waistDelta?: number; maxFrames?: number; pinnedDrop?: number
+    heightW?: number
+  },
 ): RunOut {
   const lmWaist = a.landmarks.waist!
   const lmCrotch = a.landmarks.crotch!
   const lmAnkle = a.landmarks.ankle!
-  const sf = stationFactor(a.heightInfo, 0)
+  const sf = stationFactor(a.heightInfo, opts?.heightW ?? 0)
   const waistSt = data.body.stations.find((s) => s.key === 'waist')!
   const anchorLift = lmWaist * sf - waistSt.y
   const mesh = Object.keys(w).length ? morphPositions(a, w) : a.positions
@@ -120,15 +129,32 @@ function runDress(
     throw new Error('缺成衣腰长（腰头带底净长/腰站 girth_finished 均缺）——穿台无法定腰圈钉环')
   }
   const waistLen = waistLen0 - (opts?.waistDelta ?? 0)
-  const waistRing = buildWaistRing(fieldM, waistSt.y, waistLen)
+  // 指定穿位几何交规（2026-09-27，视图分支同源）：所选行体围套不进（≥
+  // 腰长×(1+jamMargin))时实际停位钳到最深可穿档——判据复用 P1 挂胯
+  const effDrop = (opts?.pinnedDrop ?? 0) > 0
+    ? Math.min(opts!.pinnedDrop!, fieldM.maxFeasibleDrop(waistSt.y, waistLen, 12))
+    : 0
+  const waistRing = buildWaistRing(fieldM, waistSt.y - effDrop, waistLen)
+  // seam 模式（有省款）第 9 参 yoke 必传——育克升格 sim 参与片的宿主/
+  // 闭式收敛映射（视图分支同款条件；漏传 = 腰环行走缺 top_chain 误报）
   const pair = buildFullPair(panel.host, backPanel.host, fieldM, {
     front: legAxisM.forkY, back: legAxisM.forkY,
-  }, legAxisM, bandMesh, anchorLift, waistRing)
-  const sim = buildDrape(pair, fieldM, anchorLift)
+  }, legAxisM, bandMesh, anchorLift, waistRing,
+    backPanel.mode === 'seam' && backPanel.yokeHost && backPanel.seamInfo
+      ? { host: backPanel.yokeHost, sCin: backPanel.seamInfo.sCin }
+      : null)
+  if (effDrop > 0) {
+    for (let i = 1; i < pair.pos.length; i += 3) pair.pos[i] -= effDrop
+  }
+  // 指定穿位钉 XZ 自由（2026-09-27，视图分支同源）：pinned 下钉只锁 Y，
+  // XZ 走 collide 体表滑轨——见下方 curved_seam 金标例注释
+  const sim = buildDrape(pair, fieldM, anchorLift, undefined, undefined,
+    { pinXZFree: opts?.pinnedDrop !== undefined })
   // 挂胯判据（2026-09-23 P1，与视图 dress 分支同源）：钉环套不进候选行
-  // 截面即卡停
+  // 截面即卡停；pinned = 指定穿位 lowering 旁路
   const ctrl = buildSettle(sim, buildCrotchProbeIdx(pair), {
     jam: { ringTotal: waistRing.total, rowY: waistRing.y },
+    pinned: opts?.pinnedDrop !== undefined,
   })
   let ph: SettlePhase = ctrl.phase
   const frames = opts?.maxFrames ?? DRESSING_PRIOR.maxTotalFrames + 10
@@ -136,13 +162,67 @@ function runDress(
     stepDrape(sim)
     ph = ctrl.step(sim)
   }
-  return { sim, pair, ctrl, ph, report: ctrl.report(sim), anchorLift, waistLen, waistRing }
+  return {
+    sim, pair, ctrl, ph, report: ctrl.report(sim), anchorLift, waistLen,
+    waistRing, field: fieldM, effDrop,
+  }
 }
 
 const expectFinite = (pos: Float32Array): void => {
   for (let i = 0; i < pos.length; i++) {
     expect(Number.isFinite(pos[i]), `pos[${i}] finite`).toBe(true)
   }
+}
+
+// 中位数
+const med = (xs: number[]): number => {
+  expect(xs.length).toBeGreaterThan(0)
+  const s = [...xs].sort((p, q) => p - q)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+// 腰口开口钉索引集（结构判据）：身片 top_chain + 腰头带底缘——两链贴腰口
+// 开洞同一斜切行。不能按 Y 滤：带顶缘随斜切 Y 100~104 与后侧开口钉
+//（Y 至 ~99.7）域交叠，实测钉 Y 分位数 96→104 连续无空档
+const openingPinSet = (pair: ReturnType<typeof buildFullPair>): Set<number> => {
+  const s = new Set<number>()
+  for (const part of pair.parts) {
+    if (part.key === 'waistband') {
+      const bot = bandBottomChain(part.mesh)
+      if (bot) for (const i of bot.indices) s.add(part.offset + i)
+    } else {
+      const top = part.mesh.runs.find((r) => r.role === 'top_chain')
+      if (top) for (const i of top.indices) s.add(part.offset + i)
+    }
+  }
+  return s
+}
+
+// 钉集分扇带符号间隙（P2 pinGapAt 同口径）：sd = (点−最近边界)·外法线
+//（正=悬空、负=嵌体——到体截面边界的原始距离，**非 worstPen 壳口径**：
+// 壳位停留读 −CORE_SKIN 会把「贴皮肤」误读成深嵌体），frontness f =
+// |atan2(x,z)|/π 分扇（<0.25 前 / >0.75 后）——pinned 钉全程不动，pos 即
+// 建环位；margin 5 同 P2 量法（带顶钉行形浮空不被 quick reject 落掉）。
+// only：钉子集（腰口开口钉——带顶缘随自身行 δ_top 另是一套读数，混进
+// 中位会拉偏）
+const pinSectorGaps = (
+  sim: DrapeSim, field: BodyField, only?: Set<number>,
+): { front: number[]; back: number[] } => {
+  const out = { front: [] as number[], back: [] as number[] }
+  for (const gi of sim.pinIdx) {
+    if (only !== undefined && !only.has(gi)) continue
+    const x = sim.pos[3 * gi], y = sim.pos[3 * gi + 1], z = sim.pos[3 * gi + 2]
+    const rings = field.loopsAt(y - sim.yLift)
+    if (rings.length === 0) continue
+    const hit = nearestRingBoundary(rings, x, z, 5)
+    if (hit === null) continue
+    const sd = (x - hit.px) * hit.nx + (z - hit.pz) * hit.nz
+    const f = Math.abs(Math.atan2(x, z)) / Math.PI
+    if (f < 0.25) out.front.push(sd)
+    else if (f > 0.75) out.back.push(sd)
+  }
+  return out
 }
 
 // 裆四尖两两最大距（drape.test 同手法）
@@ -422,6 +502,167 @@ describe('穿台集成（真 base.bin + fixture 基础款）', () => {
     for (const v of heat) gapMin = Math.min(gapMin, v)
     expect(gapMin).toBeLessThan(-1.0)
   }, 60_000)
+
+  // ---- 指定穿位几何交规（2026-09-27 用户报障：腰下滑杆加深 → 后腰头/
+  // 机头嵌体 + 前腰头悬空。根因 = pinned 缺 P1 同款交规：所选行体围 ≥
+  // 成衣腰长×(1+jamMargin) 时钉环 δ<0 无下限均匀嵌体（钉豁免碰撞）、
+  // 机头自由布贴体表 → 埋体钉到贴体布的手风琴深褶。修复 = effDrop 钳到
+  // maxFeasibleDrop 最深可穿档、周身 δ ≥ −jamMargin×C/2π ≈ −0.22 均匀贴身）----
+  it('指定穿位超深卡停：effDrop 钳到最深可穿档、钉环周身均匀不嵌体 + 双跑确定性', () => {
+    const a = loadBodyFromDisk()
+    const data = JSON.parse(
+      readFileSync(`${HERE}/fixture_fitting.json`, 'utf8')) as FittingResult
+    const waistY = data.body.stations.find((s) => s.key === 'waist')!.y
+    const probe = runDress(a, data, {}, { pinnedDrop: 8, maxFrames: 0 })
+    // 钳位语义独立复算：与方法实现同判据的手推行周长扫描（P1 口径）
+    const limit = probe.waistLen * (1 + DRESSING_PRIOR.jamMargin)
+    let expected = 0
+    for (let d = FIELD_PRIOR.rowStep; d <= 12; d += FIELD_PRIOR.rowStep) {
+      if (probe.field.rowPerimeter(waistY - d) >= limit) break
+      expected = d
+    }
+    expect(probe.effDrop).toBeCloseTo(expected, 10)
+    expect(probe.effDrop).toBeGreaterThan(0)
+    expect(probe.effDrop).toBeLessThan(8)   // 申请 8 被钳位（fixture 体围腰下即超）
+    // 摆位期腰口开口钉分扇带符号间隙（只量开口钉——带顶随自身行 δ_top
+    // 混中位拉偏，见 pinSectorGaps 注）：周身不嵌体 + 前后差不悬殊。实测
+    // medF −0.03（贴身）/ medB +0.31（弯腰头开口斜切、后侧钉站更瘦行 →
+    // 诚实浮空）；未钳位现状 = 申请行裸嵌体 δ ≈ −2.45（P(y−8)=85.5 vs
+    // C=70.1）——窗按 jamMargin δ 界 −0.22 + 余量取 −0.25
+    const g0 = pinSectorGaps(probe.sim, probe.field, openingPinSet(probe.pair))
+    expect(med(g0.front)).toBeGreaterThanOrEqual(-0.25)
+    expect(med(g0.front)).toBeLessThanOrEqual(0.6)
+    expect(med(g0.back)).toBeGreaterThanOrEqual(-0.25)
+    expect(med(g0.back)).toBeLessThanOrEqual(0.6)
+    expect(Math.abs(med(g0.front) - med(g0.back))).toBeLessThan(0.5)
+    // 解算终态：钉全程不动（分扇窗不漂移）+ worstPen 回 auto jam 档量级
+    //（实测 1.96 @78.4，与 auto 卡停读数同级 = 接触带残余的偏小诚实读数）
+    const out = runDress(a, data, {}, { pinnedDrop: 8 })
+    expect(out.ph).toBe('done')
+    expectFinite(out.sim.pos)
+    expect(out.report.dropF).toBeCloseTo(0, 10)   // 掉裆读数退场（−0 陷阱）
+    expect(out.report.dropB).toBeCloseTo(0, 10)
+    const g = pinSectorGaps(out.sim, out.field, openingPinSet(out.pair))
+    expect(med(g.front)).toBeGreaterThanOrEqual(-0.25)
+    expect(med(g.back)).toBeGreaterThanOrEqual(-0.25)
+    expect(Math.abs(med(g.front) - med(g.back))).toBeLessThan(0.5)
+    expect(out.report.worstPen).toBeLessThan(2.2)
+    // 同输入双跑 DressReport 逐字段相等（确定性红线）
+    const out2 = runDress(a, data, {}, { pinnedDrop: 8 })
+    expect(out2.report).toEqual(out.report)
+  }, 300_000)
+
+  it('指定穿位偏小款：effDrop=0 合法终态 + δ<0 均匀嵌体读数保留（只摆位快检）', () => {
+    const a = loadBodyFromDisk()
+    const data = JSON.parse(
+      readFileSync(`${HERE}/fixture_fitting.json`, 'utf8')) as FittingResult
+    const waistY = data.body.stations.find((s) => s.key === 'waist')!.y
+    // 成衣腰长 −4：第一档即套不进 → effDrop=0（对齐 P1「h′=0 即 jam」）
+    const out = runDress(a, data, {}, { waistDelta: 4, pinnedDrop: 8, maxFrames: 0 })
+    expect(out.effDrop).toBe(0)
+    expect(out.field.rowPerimeter(waistY - FIELD_PRIOR.rowStep))
+      .toBeGreaterThanOrEqual(out.waistLen * (1 + DRESSING_PRIOR.jamMargin))
+    // 钉环整圈均匀嵌体（等距外偏口径）：环点 vs 环行截面边界每点 ≈ δ* =
+    // (C−P)/2π ≈ −0.47——开口钉按「各自行」读数与弯腰头斜切行差纠缠
+    //（前扇 −0.32 / 后扇 −0.05），均匀性断言落在环本体层：逐点全在
+    // δ*±0.1 窗内 + 全在截面内（穿不进如实呈现；旧绕原点缩放口径前:后
+    // 2.0/0.36 悬殊在此必破窗）
+    const rings = out.field.loopsAt(out.waistRing.y)
+    expect(rings.length).toBeGreaterThan(0)
+    const dStar = (out.waistLen - out.field.rowPerimeter(out.waistRing.y))
+      / (2 * Math.PI)
+    expect(dStar).toBeLessThan(-0.4)
+    let gMin = Infinity, gMax = -Infinity
+    for (let k = 0; k < out.waistRing.pts.length / 2; k++) {
+      const x = out.waistRing.pts[2 * k], z = out.waistRing.pts[2 * k + 1]
+      const hit = nearestRingBoundary(rings, x, z, 5)
+      expect(hit, `ring pt ${k} 边界查询落空`).not.toBeNull()
+      const sd = (x - hit!.px) * hit!.nx + (z - hit!.pz) * hit!.nz
+      gMin = Math.min(gMin, sd)
+      gMax = Math.max(gMax, sd)
+    }
+    expect(gMax - gMin).toBeLessThan(0.1)          // 均匀（等距外偏）
+    expect(gMin).toBeGreaterThan(dStar - 0.1)
+    expect(gMax).toBeLessThan(dStar + 0.1)
+    expect(pointInRings(
+      out.waistRing.pts[0], out.waistRing.pts[1], rings)).toBe(true)
+  }, 60_000)
+
+  // ---- 指定穿位钉体表滑轨（2026-09-27 用户报障「裤子和腰头的缝合处，
+  // 部分布进入人台——前中一点、侧缝比较明显」）----
+  // 样本 = fixture_fitting_curved_seam（size_draft.toml 有省弯腰头款）：
+  // 腰口斜切极差 8.6cm（侧缝点下垂站下 ~2.2、后中抬到站上 ~4.8），远超
+  // 其余 fixture（≤4.9）。根因链（残差分解实测，ringDev 全体 0.00 = 摆位
+  // 精确在等距外偏环上、嵌体全来自行差）：pinned 钉 XZ 锁在建环行（站−
+  // drop）单行环、钉 Y 是纸样斜切位——侧缝段钉站腰下 6.5~8.2 的粗行
+  //（体围 74~76.6 vs C 69.4）→ 局部深嵌尖刺 sd −0.76（band bottom /
+  // front waist / yoke top 三片同点三份），钉缘嵌体 vs 带中自由布贴壳
+  //（+0.98）的折痕对比 = 缝合口「布进人台」观感。物理真相：布真实 3D
+  // 链长（含斜切竖向分量）73.3 ≥ 体表斜切线 ~72.5——贴体可行、不缺布；
+  // 锁单行环才是人为约束。修复 = pinXZFree 钉滑轨（drape.ts）：钉只锁
+  // Y（穿位高度），XZ 径向双向钳到体表边界 + PIN_SKIN（体内推出 + 体外
+  // 拉回——单向推对初值浮空的 yoke 后中高段无回贴力）、环向由布网 side
+  // 弧长配对锚；钉端 dist/bend/seam/strainLimit 全程逆质量 0 + prev 同步
+  // 零速度注入。呈现 = 缝合口整圈贴体微皱（真实低腰弯腰头观感），布长
+  // 守恒把门。体型 160/61/84 = 用户实报场景（hips− 拉满 + waist− 解出）
+  it('curved_seam 指定穿位滑轨：缝合口整圈贴体（嵌体消除 + 布长守恒）+ 双跑确定性', () => {
+    const a = loadBodyFromDisk()
+    const data = JSON.parse(
+      readFileSync(`${HERE}/fixture_fitting_curved_seam.json`, 'utf8')) as FittingResult
+    // 160/61/84 权重（ hips 域下沿钳端点 84.20；身高 160 → height− 负分支）
+    const w: MeshWeights = {
+      'waist-': 0.5330811949488634, 'hips-': 1, 'height-': 0.20059961842463925,
+    }
+    const out = runDress(a, data, w, {
+      pinnedDrop: 5, heightW: -0.20059961842463925,
+    })
+    // effDrop = 5 全额可行（160 体型 maxFeasibleDrop ≈ 5.5）
+    expect(out.effDrop).toBeCloseTo(5, 10)
+    expect(out.ph).toBe('done')
+    expectFinite(out.sim.pos)
+    // 滑轨贴体：开口钉（带底缘+身片顶链）全体 sd ≈ PIN_SKIN 0.05——
+    // 冻结口径同场景深嵌 min −0.76/浮空 med +0.80（三片同点）全消
+    const open = openingPinSet(out.pair)
+    const sds: number[] = []
+    for (const gi of out.sim.pinIdx) {
+      if (!open.has(gi)) continue
+      const x = out.sim.pos[3 * gi]
+      const y = out.sim.pos[3 * gi + 1] - out.sim.yLift
+      const z = out.sim.pos[3 * gi + 2]
+      const rings = out.field.loopsAt(y)
+      if (rings.length === 0) continue
+      const hit = nearestRingBoundary(rings, x, z, 5)
+      if (hit === null) continue
+      sds.push((x - hit.px) * hit.nx + (z - hit.pz) * hit.nz)
+    }
+    expect(sds.length).toBeGreaterThan(80)
+    sds.sort((p, q) => p - q)
+    expect(sds[0]).toBeGreaterThan(-0.1)                       // 嵌体消除
+    expect(sds[Math.floor(sds.length * 0.99)]).toBeLessThan(0.35)   // 贴体均匀
+    // 布长守恒（布不可伸长红线）：顶链连续环走 3D 弦和 / C——斜切款
+    // 竖向分量使比值天然 >1（冻结口径 1.056），滑轨拉直钉距到体表线后
+    // 实测 1.065；>1.10 = 钉把布拉出体表线 = 拉伸违规红旗
+    const walk = ringWalk(out.pair.parts.filter((p) => p.key !== 'waistband'))
+    let topChord = 0
+    for (let k = 0; k + 1 < walk.verts.length; k++) {
+      const va = walk.verts[k], vb = walk.verts[k + 1]
+      const aI = 3 * (out.pair.parts[va.part].offset + va.idx)
+      const bI = 3 * (out.pair.parts[vb.part].offset + vb.idx)
+      topChord += Math.hypot(
+        out.sim.pos[aI] - out.sim.pos[bI],
+        out.sim.pos[aI + 1] - out.sim.pos[bI + 1],
+        out.sim.pos[aI + 2] - out.sim.pos[bI + 2])
+    }
+    const rel = topChord / out.waistLen
+    expect(rel).toBeGreaterThanOrEqual(1.0)
+    expect(rel).toBeLessThanOrEqual(1.10)
+    // 同输入双跑 DressReport 逐字段相等（确定性红线）
+    const out2 = runDress(a, data, w, {
+      pinnedDrop: 5, heightW: -0.20059961842463925,
+    })
+    expect(out2.report).toEqual(out.report)
+    expect(Array.from(out2.sim.pos)).toEqual(Array.from(out.sim.pos))
+  }, 180_000)
 
   // ---- 长裤盖脚（2026-09-20 用户报障「裤腿不盖在脚上、脚慢慢穿透布」）----
   // zhitong 直筒 outseam 106 ≈ 身高：脚全在裤筒内、hem 37.5 < 脚底切片
