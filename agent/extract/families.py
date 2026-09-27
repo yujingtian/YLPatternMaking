@@ -7,6 +7,8 @@
 例外（不经本表，由 K4 余量排除法直接产出）：
 - front_pocket_dart_width（③ 袋口转省 0.8/1.0）
 - back_dart_count / back_dart_width（缺额→省数/省宽）
+- back_dart_length 的 10.5 模板值仅作 dart_on=False（S2 强制开开关而缺额
+  不足）兜底；dart_on 时由 derive.dart_length_linked 随省宽联动（省角恒定）
 - watch_pocket_offset_from_side=2.0 属小表袋配套包（引擎缺口实测），随本族发射。
 """
 

@@ -456,9 +456,11 @@ class PatternOptions:
                                          #   fly_separate 优先（互斥形态）
     fly_sep_extra: float = 2.0           # 底部延展量（裁片高 = L + 本值，§5；
                                          #   上部腰口车合量属裁切层缝份）
-    fly_sep_double: bool = True          # 双排（对折）门襟裁片开关（门襟裁片.md §4；
-                                         #   开启时去底角 J 弧、外缘平行化后沿内边轴
-                                         #   镜像展开成完整对折净样；关闭只出单排片）
+    fly_sep_double: bool = False         # 门襟裁片形态二选一（单键，2026-09-27 语义
+                                         #   变更，默认单排）：False=只出单排（单层）片；
+                                         #   True=只出双排（对折）片——去底角 J 弧、
+                                         #   外缘平行化后沿内边轴镜像展开成完整对折
+                                         #   净样。不加第二键（双键同向叠加教训）
     fly_seam_allowances: FlySeamAllowances = field(
         default_factory=FlySeamAllowances)
                                          # 门襟裁片缝份（top/outer/bottom/inner；

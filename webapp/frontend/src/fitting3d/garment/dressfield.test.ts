@@ -386,3 +386,57 @@ describe('buildFootCurtain/curtainAt（脚区幕帘行走表）', () => {
     expect(back.t).toBeCloseTo(rTube, 3)
   })
 })
+
+// ---- maxFeasibleDrop（指定穿位几何交规 2026-09-27）：从腰站行向下逐档扫
+// 最深可穿 drop，判据逐字复用 P1 挂胯（rowPerimeter < C×(1+jamMargin)）。
+// 合成场镜像 settle.test jam 夹具：行 r → y=97+0.5r、perim(r)=50+2(6−r)
+// （腰行 y=100 即行 6），阈值 59 恰落行 2（58）与行 1（60）之间 ----
+describe('maxFeasibleDrop（指定穿位几何交规，P1 同判据）', () => {
+  // 圆近似 64 边形环：闭弦周长恰 = perim（同 settle.test jam 夹具口径）
+  const polyRing = (perim: number): SliceRing => {
+    const n = 64
+    const R = perim / (2 * n * Math.sin(Math.PI / n))
+    const pts = new Float64Array(2 * n)
+    for (let k = 0; k < n; k++) {
+      const th = (k / n) * 2 * Math.PI
+      pts[2 * k] = R * Math.cos(th)
+      pts[2 * k + 1] = R * Math.sin(th)
+    }
+    return { pts, cx: 0, cz: 0, r: R }
+  }
+  const field = (slices: SliceRing[][]): BodyField =>
+    new BodyField(new Float32Array(9 * 8), 9, 0.5, 8, slices, 97)
+  // 行周长向下单调涨：perim(r) = 50+2(6−r)，行 7/8 空
+  const jamField = (): BodyField => {
+    const slices: SliceRing[][] = []
+    for (let r = 0; r < 9; r++) {
+      slices.push(r <= 6 ? [polyRing(50 + 2 * (6 - r))] : [])
+    }
+    return field(slices)
+  }
+
+  it('跨界档精确：恰停周长 < C×1.02 的最深档——与 P1 卡停档一致', () => {
+    const C = 59 / 1.02      // 阈值 59 恰落行 2（58 可容）/行 1（60 卡）之间
+    // 腰行 y=100 起扫：行 5/4/3/2 周长 52/54/56/58 照过、行 1（60）停 → 2.0
+    expect(jamField().maxFeasibleDrop(100, C, 4)).toBeCloseTo(2.0, 10)
+    // 申请超深钳位语义：min(申请 8, 可行 2.0) = 2.0（Fitting3DView 同式）
+    expect(Math.min(8, jamField().maxFeasibleDrop(100, C, 12)))
+      .toBeCloseTo(2.0, 10)
+  })
+
+  it('首档即超 → 0（偏小款合法终态，对齐 P1「h′=0 即 jam」）', () => {
+    // C=50 → 阈值 51：腰下一档（行 5 周长 52）已套不进 → 0
+    expect(jamField().maxFeasibleDrop(100, 50, 4)).toBeCloseTo(0, 10)
+  })
+
+  it('全场可容（含空行周长 0 恒不拦）→ 封顶 maxDrop、档格对齐', () => {
+    // 恒周长 50 行 + 空行交错（空行安全缺省同 P1）；阈值 59 全场可容
+    const slices: SliceRing[][] = []
+    for (let r = 0; r < 9; r++) slices.push(r % 2 ? [] : [polyRing(50)])
+    expect(field(slices).maxFeasibleDrop(100, 59 / 1.02, 12))
+      .toBeCloseTo(12.0, 10)
+    // maxDrop 中途截断按档格取整（1.2 → 恰过 2 档 = 1.0）
+    expect(field(slices).maxFeasibleDrop(100, 59 / 1.02, 1.2))
+      .toBeCloseTo(1.0, 10)
+  })
+})

@@ -265,7 +265,7 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
         fly_stitch_inset: float = 0.6,
         fly_separate: bool = False,
         fly_sep_extra: float = 2.0,
-        fly_sep_double: bool = True,
+        fly_sep_double: bool = False,
         fly_seam_allowances: dict | object | None = None,
         fly_shrinkage_warp: float | None = None,
         fly_shrinkage_weft: float | None = None,
@@ -556,9 +556,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                            门襟裁片。fly / fly_separate 任一开启即绘制，
                            fly_separate 优先，互斥形态）
         fly_sep_extra    底部延展量（裁片高 = L + 本值，§5，默认 2.0）
-        fly_sep_double   双排（对折）门襟裁片开关（门襟裁片.md §4，默认 True：
-                          去底角 J 弧、外缘平行化后沿内边轴镜像展开；
-                          False = 只出单排片）
+        fly_sep_double   门襟裁片形态二选一（单键，2026-09-27 语义变更，
+                          默认单排；门襟裁片.md §2/§4）：False（默认）=只出
+                          单排（单层）片；True = 只出双排（对折）片——去底角
+                          J 弧、外缘平行化后沿内边轴镜像展开
         fly_seam_allowances
                           门襟裁片缝份 dict {top,outer,bottom,inner}（cm，
                           门襟裁片.md §1；outer 含单排外缘 G1 链、bottom 仅双排；
@@ -601,8 +602,10 @@ def run(*, waist: float, hip: float, knee: float, hem: float,
                          P_w0-K1 镜像挖袋口；口袋布裁片.md §2~§6 独立裁片）
         front_fly_single_svg / front_fly_double_svg
                          单排（单层）/ 双排（对折）门襟裁片独立 SVG 输出路径
-                         （None=不输出；需完整整版且 fly_separate 开启，双排另需
-                         fly_sep_double；门襟裁片.md §2/§4 独立裁片）
+                         （None=不输出；需完整整版且 fly_separate 开启；
+                         fly_sep_double 二选一——True 时仅双排路径生效、
+                         False 时仅单排路径生效，与 collect_pieces 同口径；
+                         门襟裁片.md §2/§4 独立裁片）
         watch_pocket_svg 小表袋裁片独立 SVG 输出路径（None=不输出；需完整整版且
                          watch_pocket 开启；按 watch_pocket_mode 派发净样提取，
                          小表袋裁片.md §一~§四 独立裁片）

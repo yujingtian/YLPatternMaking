@@ -23,6 +23,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .extract import ExtractError, extract_from_input
+from .extract.adjust import (ADJUST_TABLE, ADJUST_TRIGGER, AdjustResult,
+                             adjust_view_from_payload, map_adjustment)
+from .extract.parse import parse_describe
 from .extract.schema import _MEAS_LABELS
 from .session import (Event, Session, observation_from_dict,
                       observation_to_dict, replay)
@@ -112,6 +115,32 @@ def _digest_file(path: str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:12]
 
 
+def _mapping_provider(config_path: str | None):
+    """调版映射节点 provider（显式注入优先；测试 monkeypatch 注入 FakeVLM）。
+
+    未配置返回 None——映射静默跳过，绝不 503（零打扰口径）。
+    """
+    try:
+        from .extract.provider import OpenAICompatibleVLM, VLMConfig
+        return OpenAICompatibleVLM(VLMConfig.load(config_path))
+    except Exception:
+        return None
+
+
+def _last_adjust_view(session: Session) -> dict | None:
+    """最近一次交卷的映射面快照（probe 回退后的真实值）。
+
+    旧会话（无 adjust_view）-> None：映射跳过，本次交卷写入后恢复——
+    降级安全。
+    """
+    for ev in reversed(session.events):
+        if ev.role == "agent" and ev.kind == "deliver":
+            view = ev.data.get("adjust_view")
+            if view:
+                return view
+    return None
+
+
 def run_turn(session: Session, text: str, photos: tuple | list = (), *,
              config_path: str | None = None, provider=None,
              thinking: str | None = None, run_probe: bool = True,
@@ -126,9 +155,55 @@ def run_turn(session: Session, text: str, photos: tuple | list = (), *,
     """
     turn = session.events[-1].turn + 1 if session.events else 1
     digests = [_digest_file(p) for p in photos]
+
+    # 调版映射（2026-09-27，口径 .doc/python工程设计.md §10.9.2）：交卷后
+    # 每轮都调（ADJUST_TRIGGER）；在 user 事件 append **之前**跑，结果随
+    # 本轮事件 data 落账，replay 同轮即入种子。FakeVLM 单队列同轮出队
+    # 顺序：映射 -> S1 补漏 -> S2（测试排序铁律）
+    adjust_data = None
+    if (ADJUST_TRIGGER != "off" and text.strip()
+            and any(e.role == "agent" and e.kind == "deliver"
+                    for e in session.events)):
+        view = _last_adjust_view(session)
+        if view is not None:
+            mp = provider or _mapping_provider(config_path)
+            history = [{"turn": e.turn, "text": e.text,
+                        "adjust": e.data.get("adjust")}
+                       for e in session.events
+                       if e.role == "user" and e.text]
+            res = map_adjustment(history, view, text, mp)
+            # 同轮碰撞：本轮词典（parse_describe.hints）命中的键亲说优先，
+            # 映射同键剔除进 dropped（「本轮已按你的明确说法处理」）
+            spoken = set(parse_describe(text).hints)
+            if spoken and res.entries:
+                keep, drop = [], list(res.dropped)
+                for ent in res.entries:
+                    if ent.key in spoken:
+                        drop.append(f"本轮已按你的明确说法处理：{ent.key}")
+                    else:
+                        keep.append(ent)
+                res = AdjustResult(tuple(keep), res.note, tuple(drop))
+            if res.entries or res.note or res.dropped:
+                adjust_data = res.to_dict()
+
+    # 映射结果随事件 data["adjust"] 落账（replay/history/_build_delivery
+    # 三处同键读取；无映射轮 data 空）
     session.events.append(Event(turn, "user", "input", text=text,
-                                photos=digests))
+                                photos=digests,
+                                data={"adjust": adjust_data}
+                                if adjust_data else {}))
     led = replay(session)
+
+    # 调版回退表（L0.5 用）：本轮映射键 -> 上一版值（取自上个交卷的
+    # adjust_view 快照；探针 L0 失败先撤回重试，版面保持原样不截肢）
+    adjust_revert = None
+    if adjust_data:
+        prev = _last_adjust_view(session)   # 本轮只 append 了 user 事件
+        if prev:
+            adjust_revert = {
+                e["key"]: prev[e["key"]]
+                for e in adjust_data.get("entries") or []
+                if isinstance(e, dict) and e.get("key") in prev}
 
     cached = set(session.vlm_cache.get("photos", ()))
     new_photos = [p for p, d in zip(photos, digests) if d not in cached]
@@ -138,6 +213,22 @@ def run_turn(session: Session, text: str, photos: tuple | list = (), *,
     describe_all = "；".join(e.text for e in session.events
                              if e.role == "user" and e.text)
 
+    # 种子装配：词典 hint + 调版账本分通道。hint 通道同键与亲说词典比
+    # 轮次（跨轮后轮胜、同轮平手亲说胜——账本后写覆盖时序天然如此）；
+    # override 通道走绝对值直写（虚键已落 bulge 绝对值）
+    seed_hints = {k: r.value for k, r in led.hints.items()}
+    seed_overrides: dict[str, tuple] = {}
+    for k, row in led.adjustments.items():
+        spec = ADJUST_TABLE.get(k)
+        if spec is None:
+            continue                      # 表演进删键 -> 重放静默休眠
+        if spec.channel == "hint":
+            h = led.hints.get(k)
+            if h is None or row.turn > h.turn:
+                seed_hints[k] = row.value
+        else:
+            seed_overrides[k] = (row.value, f"调版：{row.evidence}")
+
     try:
         result = extract_from_input(
             describe=describe_all, photos=new_photos, provider=provider,
@@ -146,7 +237,9 @@ def run_turn(session: Session, text: str, photos: tuple | list = (), *,
             progress=progress,
             seed_measurements={k: (r.value, r.evidence)
                                for k, r in led.measurements.items()},
-            seed_hints={k: r.value for k, r in led.hints.items()},
+            seed_hints=seed_hints,
+            seed_overrides=seed_overrides or None,
+            adjust_revert=adjust_revert,
             seed_size_label=(led.size_label.value
                              if led.size_label is not None else None),
             seed_shrinkage=(led.shrinkage.value
@@ -174,15 +267,19 @@ def run_turn(session: Session, text: str, photos: tuple | list = (), *,
         session.events.append(Event(turn, "agent", "card", data=card.to_dict()))
         return TurnOutcome(session, card, None, result=result)
 
-    delivery = _build_delivery(result, led, turn)
+    delivery = _build_delivery(result, led, turn, adjust_data)
     session.events.append(Event(
         turn, "agent", "deliver",
-        data={"summary": delivery["summary"], "review": delivery["review"]}))
+        data={"summary": delivery["summary"], "review": delivery["review"],
+              # 映射面快照（probe 回退后的真实值）：下轮映射的当前值/门控
+              # 基线；账本绝对值独立于此（重放永不依赖快照）
+              "adjust_view": adjust_view_from_payload(delivery["options"])}))
     return TurnOutcome(session, None, delivery, result=result)
 
 
-def _build_delivery(result, led, turn: int) -> dict:
-    """交卷体：一期 payload + 待确认标注（review）+ 账本摘要（ledger）。"""
+def _build_delivery(result, led, turn: int, adjust_data: dict | None = None) -> dict:
+    """交卷体：一期 payload + 待确认标注（review）+ 账本摘要（ledger）
+    + 调版披露（adjust，2026-09-27；无调版轮缺省不带该键）。"""
     payload = result.to_web_payload()
     keys = payload["keys"]
     review = {
@@ -203,7 +300,46 @@ def _build_delivery(result, led, turn: int) -> dict:
                              if led.size_label is not None else None)}
     summary = {"turn": turn, "model": result.model_name,
                "photo_count": result.photo_count}
-    return {**payload, "review": review, "ledger": ledger, "summary": summary}
+    delivery = {**payload, "review": review, "ledger": ledger,
+                "summary": summary}
+    if adjust_data:
+        from .extract.probe import fallback_value
+        adj = dict(adjust_data)
+        applied = []
+        for e in adj.get("entries") or []:
+            k = e.get("key")
+            if k in keys:
+                applied.append({"key": k, "value": keys[k]["value"]})
+            elif k in result.reverted:
+                # probe 回退键已从 keys 弹出：引擎默认值兜底显示（诚实读数）
+                applied.append({"key": k, "value": fallback_value(k)})
+        # 被回退的映射键：note 追加披露（下轮如仍要求会再试并再披露）
+        reverted_adj = sorted({e.get("key") for e in adj.get("entries") or []
+                               if e.get("key") in result.reverted})
+        note = str(adj.get("note") or "")
+        if reverted_adj:
+            labels = "、".join(
+                ADJUST_TABLE[k].label if k in ADJUST_TABLE else k
+                for k in reverted_adj)
+            note = (f"{note}；" if note else "") + (
+                f"引擎校验回退：{labels}（回默认，下轮如仍要求会再试并再披露）")
+        # L0.5 调版回退（2026-09-27）：本轮调整未生效、值保持上一版——
+        # 键仍在 keys（值即上一版值），note 换措辞披露
+        kept = dict(getattr(getattr(result, "probe", None),
+                            "adjust_kept", None) or {})
+        entry_keys = {e.get("key") for e in adj.get("entries") or []}
+        kept_adj = sorted(k for k in kept if k in entry_keys)
+        if kept_adj:
+            labels = "、".join(
+                ADJUST_TABLE[k].label if k in ADJUST_TABLE else k
+                for k in kept_adj)
+            note = (f"{note}；" if note else "") + (
+                f"本轮调整未生效：{labels}（引擎校验未过，已保持上一版；"
+                "下轮如仍要求会再试并再披露）")
+        delivery["adjust"] = {"note": note, "applied": applied,
+                              "dropped": list(adj.get("dropped") or []),
+                              "reverted": reverted_adj}
+    return delivery
 
 
 # -- 中间版（until 逐段试画，CLI --staged / 前端版生长展示同源） -----------------

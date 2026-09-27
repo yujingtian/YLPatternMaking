@@ -90,9 +90,26 @@ SECTIONS: list[dict] = [
             "pocket_type", "front_pocket", "front_patch",
             "front_pocket_p1_dist", "front_pocket_p2_drop",
             "front_pocket_dart_width", "front_pocket_paring_n",
-            "front_pocket_mouth_mode", "front_pocket_mouth_bulge",
-            "front_pocket_mouth_bulge_at", "front_pocket_mouth_h1",
-            "front_pocket_mouth_h2", "front_pocket_mouth_corners",
+            "front_pocket_mouth_mode",
+            # 袋口净线三模式互斥参数（steps 按模式单出口消费，
+            # 前口袋绘制.md §二）：bulge=弧高式双参 / tangent=垂直式双柄长 /
+            # polyline=折角列表；组无 visible_if（承载类型下拉）故 gate 须
+            # 复合 requires front_pocket（前贴袋形态下不显示）
+            ("front_pocket_mouth_bulge",
+             {"param": "front_pocket_mouth_mode", "values": ["bulge"],
+              "requires": ["front_pocket"]}),
+            ("front_pocket_mouth_bulge_at",
+             {"param": "front_pocket_mouth_mode", "values": ["bulge"],
+              "requires": ["front_pocket"]}),
+            ("front_pocket_mouth_h1",
+             {"param": "front_pocket_mouth_mode", "values": ["tangent"],
+              "requires": ["front_pocket"]}),
+            ("front_pocket_mouth_h2",
+             {"param": "front_pocket_mouth_mode", "values": ["tangent"],
+              "requires": ["front_pocket"]}),
+            ("front_pocket_mouth_corners",
+             {"param": "front_pocket_mouth_mode", "values": ["polyline"],
+              "requires": ["front_pocket"]}),
             # 贴袋参数同组互斥显示（参数级 gate=front_patch）；形态专属参数
             # 复合 gate（requires 开关 + front_patch_shape 值匹配，前口袋绘制.md §五）
             ("front_patch_top_drop", "front_patch"),
@@ -130,8 +147,26 @@ SECTIONS: list[dict] = [
         {"key": "facing", "label": "袋贴", "collapsed": True, "params": [
             "front_pocket_facing", "front_pocket_facing_width",
             "front_pocket_facing_side_w", "front_pocket_facing_mode",
-            "front_pocket_facing_h1", "front_pocket_facing_h2",
-            "front_pocket_facing_bulge", "front_pocket_facing_bulge_at"],
+            # 内边三模式互斥参数（steps L_inner 按模式单出口消费，
+            # 前口袋绘制.md §三.3）：tangent=垂直式双柄长 / bulge=弧高式
+            # 双参 / offset=沿袋口净线等距偏置无专属参数；gate 复合
+            # requires front_pocket_facing（袋贴开关关闭时不显示）
+            ("front_pocket_facing_h1",
+             {"param": "front_pocket_facing_mode", "values": ["tangent"],
+              "requires": ["front_pocket_facing"]}),
+            ("front_pocket_facing_h2",
+             {"param": "front_pocket_facing_mode", "values": ["tangent"],
+              "requires": ["front_pocket_facing"]}),
+            ("front_pocket_facing_bulge",
+             {"param": "front_pocket_facing_mode", "values": ["bulge"],
+              "requires": ["front_pocket_facing"]}),
+            ("front_pocket_facing_bulge_at",
+             {"param": "front_pocket_facing_mode", "values": ["bulge"],
+              "requires": ["front_pocket_facing"]})],
+         # 组级 gate=front_pocket（挖削主切口）；参数级 gate=front_pocket_facing：
+         # 宽/侧深/模式仅袋贴开关开启才显示（袋贴关闭时本组只剩开关一行）
+         "param_visible_if": "front_pocket_facing",
+         "param_visible_except": ["front_pocket_facing"],
          "visible_if": "front_pocket"},
         {"key": "pouch", "label": "袋布绘制", "collapsed": True, "params": [
             "front_pouch_waist_safe", "front_pouch_side_safe",
@@ -142,7 +177,14 @@ SECTIONS: list[dict] = [
          "visible_if": ["front_pouch", "front_pocket"]},
         {"key": "watch", "label": "小表袋绘制", "collapsed": True,
          "params": [
-            "watch_pocket_mode", "watch_pocket_width", "watch_pocket_taper",
+            "watch_pocket_mode",
+            # 袋口宽/收拢仅 facing_intersect 模式消费（custom 模式净形
+            # 全由锚点偏移 + points/edges 决定，steps 分支 1 独占）
+            ("watch_pocket_width", {"param": "watch_pocket_mode",
+                                    "values": ["facing_intersect"]}),
+            ("watch_pocket_taper", {"param": "watch_pocket_mode",
+                                    "values": ["facing_intersect"]}),
+            # 两模式共用：参考点 A 的偏移定位 + 整体旋转
             "watch_pocket_offset_from_top", "watch_pocket_offset_from_side",
             "watch_pocket_rotate_deg",
             # custom 净形结构化编辑器（虚拟参数：closed 链 + spec 边格式，
@@ -224,7 +266,11 @@ SECTIONS: list[dict] = [
         {"key": "craft_global", "label": "全局工艺", "collapsed": True,
          "params": [
             "shrinkage_enabled", "shrinkage_warp", "shrinkage_weft",
-            "seam_allowance", "show_seam_allowance"]},
+            "seam_allowance", "show_seam_allowance",
+            # 门襟形态二选一（True=双排对折片 / False=单排单层片，2026-09-27
+            # 单键语义）：产出形态是全局口径而非门襟专属工艺量，归全局工艺
+            # （用户口径 2026-09-27）；gate=fly_separate，独立门襟关时隐藏
+            ("fly_sep_double", "fly_separate")]},
         {"key": "craft_waistband", "label": "腰头裁片", "collapsed": True,
          "params": [
             "waistband_fly_extension",
@@ -252,11 +298,11 @@ SECTIONS: list[dict] = [
             "watch_pocket_shrinkage_weft"],
          "visible_if": ["watch_pocket", "front_pocket"]},
         # 独立门襟专属（§5 分裁延展 / 门襟裁片.md 缝份与缩水）；
-        # 参数级 gate 与组级一致（自文档，双保险）
+        # fly_sep_double 形态二选一已移全局工艺组；参数级 gate 与组级一致
+        # （自文档，双保险）
         {"key": "craft_fly", "label": "门襟裁片", "collapsed": True,
          "params": [
             ("fly_sep_extra", "fly_separate"),
-            ("fly_sep_double", "fly_separate"),
             ("fly_seam_allowances", "fly_separate"),
             ("fly_shrinkage_warp", "fly_separate"),
             ("fly_shrinkage_weft", "fly_separate")],
@@ -307,6 +353,33 @@ _ENUMS: dict[str, list[str]] = {
     "waistband_type": ["straight", "curved"],
     "waistband_grain": ["width", "length"],
     "fit": ["skinny", "slim", "regular", "loose"],
+}
+
+# 缝份对象（sa 型参数）字段级 gate：参数键 -> {语义边名: gate}。
+# 缝份 dataclass 的字段集是全款超集，实际消费随款式开关/裁片形态裁剪
+# （seam_allowances.py 各类 docstring 口径）；前端 sa 网格逐字段过滤，
+# 不消费的边不显示。gate 语义与参数级一致（str/dict，dict 支持 not）。
+# 未列入的 bottom 类（小表袋/后贴袋）不做字段 gate：消费与否取决于
+# custom 净形角点数（N=4 消费、N≠4 全走 side），静态 gate 表达不了。
+_SA_FIELD_GATES: dict[str, dict[str, object]] = {
+    # 前片：fly_* 三边仅连裁门襟消费（fly 且非 fly_separate——独立门襟
+    # fly_separate 优先于 fly，前片不带上襟角、缝边走门襟裁片缝份，
+    # 基样模板两开关同 true 也按独立判）；mouth 袋口挖削边仅挖削口袋
+    "front_piece_seam_allowances": {
+        "mouth": "front_pocket",
+        "fly_top": {"requires": ["fly"], "not": ["fly_separate"]},
+        "fly_outer": {"requires": ["fly"], "not": ["fly_separate"]},
+        "fly_bottom": {"requires": ["fly"], "not": ["fly_separate"]},
+    },
+    # 后片上边互补：top=拼机头缝（有育克）/ waist=装腰缝（无机头）
+    "back_piece_seam_allowances": {
+        "top": "back_yoke",
+        "waist": {"not": ["back_yoke"]},
+    },
+    # 独立门襟：bottom 仅双排（对折）消费（FlySeamAllowances docstring）
+    "fly_seam_allowances": {
+        "bottom": "fly_sep_double",
+    },
 }
 
 
@@ -377,13 +450,19 @@ ADJUSTABLES: list[Adjustable] = [
 
 
 def gate_on(gate, o: PatternOptions) -> bool:
-    """参数级 gate 判定（与前端 ParamPanel.gateOn 同语义）：
-    字符串 = 布尔开关键；dict = {param, values, requires} 枚举值匹配
-    （requires 布尔开关须同时全真）。"""
+    """参数级 gate 判定（与前端 ParamInput.gateOn 同语义）：
+    字符串 = 布尔开关键；dict = {param, values, requires, not}——
+    requires 布尔开关须同时全真、not 布尔开关须同时全假（互补开关，
+    如后片 waist 缝份仅无机头时显示），再枚举值匹配 param ∈ values
+    （无 param 键则只判开关）。"""
     if isinstance(gate, str):
         return bool(getattr(o, gate, False))
     if not all(bool(getattr(o, k, False)) for k in gate.get("requires", ())):
         return False
+    if any(bool(getattr(o, k, False)) for k in gate.get("not", ())):
+        return False
+    if "param" not in gate:
+        return True
     v = getattr(o, gate["param"], None)
     return v is not None and str(v) in gate["values"]
 
@@ -535,6 +614,8 @@ def _param_spec(name: str, value, labels: dict[str, str]) -> dict:
     sa = _sa_fields(value)
     if sa is not None:
         spec.update(type="sa", default=sa)
+        if name in _SA_FIELD_GATES:
+            spec["sa_field_gates"] = _SA_FIELD_GATES[name]
         return spec
     if isinstance(value, bool):
         spec.update(type="bool", default=value)

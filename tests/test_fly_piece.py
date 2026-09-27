@@ -46,7 +46,7 @@ from ylpattern.params import (Measurements, PatternOptions, WaistbandType,
 
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
-O = PatternOptions(delta=1.0, fly_separate=True)
+O = PatternOptions(delta=1.0, fly_separate=True, fly_sep_double=True)
 
 # 金标常量（头部演算）
 L, W, R, H = 10.75, 3.8, 3.0, 12.75
@@ -245,7 +245,7 @@ def test_double_notches_and_marks(built):
 
 def test_shrinkage_axes():
     # 经向 = 丝缕竖直 = 局部 Y：shrunk = net / (1-weft, 1-warp)，刀口同步
-    o = PatternOptions(delta=1.0, fly_separate=True,
+    o = PatternOptions(delta=1.0, fly_separate=True, fly_sep_double=True,
                        shrinkage_warp=0.03, shrinkage_weft=0.02)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     single, double, _ = build_front_fly(ctx)
@@ -261,7 +261,7 @@ def test_shrinkage_axes():
 
 def test_shrinkage_override_global():
     # fly_shrinkage_* 覆盖全局（0.05/0.04 胜 0.03/0.02）
-    o = PatternOptions(delta=1.0, fly_separate=True,
+    o = PatternOptions(delta=1.0, fly_separate=True, fly_sep_double=True,
                        shrinkage_warp=0.03, shrinkage_weft=0.02,
                        fly_shrinkage_warp=0.05, fly_shrinkage_weft=0.04)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
@@ -288,7 +288,7 @@ def test_grain_vertical(built):
 
 def test_seam_zero_gross_equals_net():
     # 缝份全 0：毛样折线 = 净样采样边界（无外扩）
-    o = PatternOptions(delta=1.0, fly_separate=True,
+    o = PatternOptions(delta=1.0, fly_separate=True, fly_sep_double=True,
                        fly_seam_allowances=FlySeamAllowances(0, 0, 0, 0))
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     single, double, _ = build_front_fly(ctx)
@@ -494,7 +494,8 @@ def test_corner_notch_projects_along_main_edge():
     # 外缘刀口恰在 E 角点（外缘×底边）——角点不走角平分均值（会落 miter
     # 角顶点 -> 十字孤立点），按斜率取 |dy| 最大主边外法向：⊥ 内边/外缘恰
     # 1 缝份，落点在该边缝边线上（共线顶点，切线可判）
-    o = PatternOptions(delta=1.0, fly_separate=True, fly_sep_extra=0.0)
+    o = PatternOptions(delta=1.0, fly_separate=True, fly_sep_double=True,
+                       fly_sep_extra=0.0)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     single, double, _ = build_front_fly(ctx)
     inner = [e for e in single.net_edges if e.name == "inner"][0].geom
@@ -536,7 +537,7 @@ def test_requires_fly_separate():
 
 def test_curved_waistband_smoke():
     # 弯腰头：流程读 front.fly_sep_*（顶边=下腰头线子弧）自动适配，构建不抛错
-    o = PatternOptions(delta=1.0, fly_separate=True,
+    o = PatternOptions(delta=1.0, fly_separate=True, fly_sep_double=True,
                        waistband_type=WaistbandType.CURVED)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     single, double, _ = build_front_fly(ctx)

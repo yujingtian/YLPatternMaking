@@ -178,6 +178,82 @@ def test_watch_pocket_facing_intersect_requires_facing():
         FlowRunner(M, o).run(FRONT_FLOW)
 
 
+def test_watch_pocket_facing_intersect_polyline_chain():
+    """polyline 袋口 × offset 袋贴（折角链内边）× facing_intersect 小表袋：
+
+    折线袋贴与相交模式不冲突（2026-09-27 放开，此前守卫只认单曲线误拒）。
+    袋贴内边 = front.pocket_facing_inner_segN 折角链；小表袋底边 = 两交点
+    间子链（多段直线，序号 3..3+k-1），外侧边序号顺延 seg(4+k-1)。
+    """
+    o = PatternOptions(
+        delta=1.0,
+        front_pocket=True,
+        front_pocket_p1_dist=10.0,          # 折角链下避开默认几何缺口
+        front_pocket_mouth_mode="polyline",
+        front_pocket_facing=True,
+        front_pocket_facing_mode="offset",
+        front_pocket_facing_side_w=3.5,
+        watch_pocket=True,
+        watch_pocket_mode="facing_intersect",
+        watch_pocket_width=7.5,
+        watch_pocket_offset_from_top=3.0,
+        watch_pocket_offset_from_side=2.5,
+        watch_pocket_taper=0.3,
+        watch_pocket_rotate_deg=5.0,
+    )
+    ctx = FlowRunner(M, o).run(FRONT_FLOW)
+
+    # 1. 袋贴内边为折角链而非单曲线
+    assert "front.pocket_facing_inner" not in ctx.sheet
+    facing_segs = []
+    i = 1
+    while f"front.pocket_facing_inner_seg{i}" in ctx.sheet:
+        facing_segs.append(ctx.line(f"front.pocket_facing_inner_seg{i}"))
+        i += 1
+    assert len(facing_segs) >= 2             # 折角链至少两段
+
+    # 2. 四角点 + 首尾边拓扑（顶边/内侧边/末边=外侧边，均为直线）
+    pt1 = ctx.point("front.watch_pocket_pt1")
+    pt2 = ctx.point("front.watch_pocket_pt2")
+    pt3 = ctx.point("front.watch_pocket_pt3")
+    pt4 = ctx.point("front.watch_pocket_pt4")
+    seg1 = ctx.line("front.watch_pocket_seg1")
+    seg2 = ctx.line("front.watch_pocket_seg2")
+    assert (seg1.a, seg1.b) == (pt1, pt2)
+    assert (seg2.a, seg2.b) == (pt2, pt3)
+
+    segs = []
+    i = 1
+    while f"front.watch_pocket_seg{i}" in ctx.sheet:
+        segs.append(ctx.line(f"front.watch_pocket_seg{i}"))   # 全直线链
+        i += 1
+    assert len(segs) >= 5                    # 顶/内/底(≥2)/外
+    outer = segs[-1]
+    assert (outer.a, outer.b) == (pt4, pt1)
+
+    # 3. 底边子链闭合：首段起点、末段终点分别吻合 pt3/pt4（无方向假定）
+    bottom = segs[2:-1]
+    assert (bottom[0].a.distance_to(pt3) < 1e-6
+            and bottom[-1].b.distance_to(pt4) < 1e-6) or \
+           (bottom[0].a.distance_to(pt4) < 1e-6
+            and bottom[-1].b.distance_to(pt3) < 1e-6)
+    # 底边逐段共线于袋贴折角链（每段端点落在对应内边段上）
+    for bg in bottom:
+        hit = any(_seg_dist(bg.a, fs) < 1e-6 and _seg_dist(bg.b, fs) < 1e-6
+                  for fs in facing_segs)
+        assert hit
+
+
+def _seg_dist(p, seg) -> float:
+    """点到直线段的最小距离（投影钳位到段上，共线判定用）。"""
+    d = seg.b - seg.a
+    l2 = d.dx * d.dx + d.dy * d.dy
+    t = 0.0 if l2 == 0 else max(0.0, min(1.0, ((p.x - seg.a.x) * d.dx
+                                               + (p.y - seg.a.y) * d.dy) / l2))
+    foot = seg.a + d.scale(t)
+    return p.distance_to(foot)
+
+
 # ==============================================================================
 # 通用依赖、边界与校验测试
 # ==============================================================================

@@ -234,7 +234,7 @@ def test_structural_switches(measured):
     assert any("后贴袋" in w and "custom 净样原样" in w for w in warns)
     assert any("小台阶" in w for w in warns)
     assert opts["fly_separate"] is True
-    assert "fly_sep_double" not in opts                   # 双排片在，保默认
+    assert opts["fly_sep_double"] is True                 # 双排片在，显式开（默认单排）
     assert opts["thigh_limit"] is True                    # 毗围线在（57.8）
 
 

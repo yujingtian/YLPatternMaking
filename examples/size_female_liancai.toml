@@ -254,8 +254,8 @@ fly_separate         = false      # [独立开关] 叠在前片上、之后分�
                                 #   独立裁片另走裁切链（净样 -> 缩水 -> 缝边，门襟裁片.md；
                                 #   ylpattern draft --front-fly-single-svg / --front-fly-double-svg）
 fly_sep_extra        = 0.0       # [独立] 底部延展量（裁片高 = L + 本值，§5）
-fly_sep_double       = true      # [独立] 双排（对折）门襟裁片开关（默认开；去底角 J 弧、外缘
-                                #   平行化后沿内边轴镜像展开；false = 只出单排片，门襟裁片.md §4）
+fly_sep_double       = false     # [独立] 门襟裁片形态二选一（默认关 = 只出单排单层片；true =
+                                #   双排对折片，门襟裁片.md §2/§4）
 
 # 腰头类型：straight = 直腰头（打版时扣除腰头宽）
 #           curved   = 弯腰头（与前片一体绘制再裁出）

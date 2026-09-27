@@ -103,12 +103,16 @@ class LedgerRow:
 
 @dataclass
 class Ledger:
-    """replay 投影：尺寸/描述倾向/码号/缩水的跨轮累积（后答覆盖先答）。"""
+    """replay 投影：尺寸/描述倾向/码号/缩水/调版调整的跨轮累积（后答覆盖先答）。"""
 
     measurements: dict[str, LedgerRow] = field(default_factory=dict)
     hints: dict[str, LedgerRow] = field(default_factory=dict)
     size_label: LedgerRow | None = None
     shrinkage: LedgerRow | None = None
+    # 调版映射账本（2026-09-27，converse 落 Event.data["adjust"]）：键=目标
+    # 引擎键（虚键已落 bulge 绝对值），值=绝对值——重放永不依赖 adjust_view；
+    # 「后续轮不丢前面的调整」由投影结构保证，不靠模型记性
+    adjustments: dict[str, LedgerRow] = field(default_factory=dict)
 
 
 def replay(session: Session) -> Ledger:
@@ -127,6 +131,13 @@ def replay(session: Session) -> Ledger:
             led.size_label = LedgerRow(parsed.size_label, ev.turn, "尺码标签")
         if parsed.shrinkage is not None:
             led.shrinkage = LedgerRow(parsed.shrinkage, ev.turn, "缩水率摘录")
+        # 调版映射投影（run_turn 在 user 事件 data 里落映射结果）：同键
+        # 后轮覆盖；截断回滚自然丢弃
+        for entry in (ev.data.get("adjust") or {}).get("entries") or []:
+            if isinstance(entry, dict) and isinstance(entry.get("key"), str):
+                led.adjustments[entry["key"]] = LedgerRow(
+                    entry.get("value"), ev.turn,
+                    str(entry.get("evidence") or ""))
     return led
 
 

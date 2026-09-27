@@ -103,8 +103,9 @@ mm 域纯几何，measure 的口径全部落在这层算子上；关键约定：
 
 **结构开关（识别观测，非形状拟合）**：裁片在场即开——`back_yoke`
 （机头）、`front_pocket` + `front_pocket_facing`（前代融合片在场 = 袋
-口切口与袋贴都在）、`fly_separate`（门襟片在场；只有单排片才显式关
-`fly_sep_double`）、`belt_loop`、`thigh_limit`（毗围线在 = thigh>0）。
+口切口与袋贴都在）、`fly_separate`（门襟片在场；双排片在场才显式开
+`fly_sep_double`——默认关=单排，2026-09-27 随引擎默认翻转）、`belt_loop`、
+`thigh_limit`（毗围线在 = thigh>0）。
 **`front_pouch` 显式关**：袋布走口袋布里料、不在工厂打版 DXF，不从前
 代一体片推断（用户口径 2026-08-29），报告告警明示。**小表袋在场即开
 + 件形/位置分道**（用户口径 2026-08-30：只保证上部不被面板藏住；同日

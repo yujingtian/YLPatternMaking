@@ -2,8 +2,8 @@
 
 对接文档《母版DXF编号植入对接文档_2026-09.md》口径：
 - 单码：码号 = 腰围英寸档（waist=68 -> 27）、numMap 扁平 {g码: 数量}、
-  belt_loop 不进产物（文件无 BELT_LOOP 块、numMap 无 g10）、file 解码后
-  为 R12 ASCII DXF 且块名带 -G{NN}-{码} 尾缀与 TEXT 层编号；
+  belt_loop / front_pouch 不进产物（文件无对应块、numMap 无 g10/g06）、
+  file 解码后为 R12 ASCII DXF 且块名带 -G{NN}-{码} 尾缀与 TEXT 层编号；
 - 多码（size_run）：码号 = 推板码表、跨码同 g 码、numMap 仍扁平；
 - 422：推板码号非纯数字（块名码号尾缀正则要求）、非法 measurements。
 依赖 fastapi + httpx + ezdxf（[web]/[dxf] 可选依赖组），缺失时整文件跳过。
@@ -26,6 +26,7 @@ BASE_M = dict(waist=68, hip=91, knee=44, hem=34,
 # 预填绕行；g09 数量口径由 test_piece_codes 覆盖。
 FULL_OPTS = dict(front_pocket=True, front_pocket_facing=True,
                  front_pouch=True, fly=True, fly_separate=True,
+                 fly_sep_double=True,
                  back_yoke=True, back_patch=True, belt_loop=True)
 SIZE_RUN = {"base": "28", "style": "NEST-TEST",
             "band": [{"sizes": ["28", "30", "32"],
@@ -50,14 +51,17 @@ def test_nest_single_size(client=client):
     assert "AC1009" in text
     assert "FRONT_PIECE-G01-27" in text
     assert "BELT_LOOP" not in text                     # 裤耳不进排料产物
-    # numMap 扁平、无 g10（裤耳）；门襟 g08=1、双排门襟 g11=1、其余默认 2
+    assert "FRONT_POUCH" not in text                   # 袋布（里料）同口径
+    # numMap 扁平、无 g10（裤耳）/g06（袋布）；门襟二选一——显式
+    # fly_sep_double=True 只出双排 g11=1、无 g08，其余默认 2
     assert "g10" not in body["numMap"]
+    assert "g06" not in body["numMap"]
     assert body["numMap"]["g01"] == 2
-    assert body["numMap"]["g08"] == 1
+    assert "g08" not in body["numMap"]
     assert body["numMap"]["g11"] == 1
     # labels 中文裁片名（仅供展示，不进 DXF）
     assert body["labels"]["g01"] == "前片裁片"
-    assert "门襟" in body["labels"]["g08"]
+    assert "门襟" in body["labels"]["g11"]
     assert "前片" not in text                          # DXF 纯 ASCII 红线
 
 
@@ -100,10 +104,10 @@ def test_nest_size_run():
         assert f"WAISTBAND-G05-{s}" in text
     # Sample Size = 基码（Sample Size 行是 ET08 尺码栏数据源）
     assert "Sample Size: 28" in text
-    # numMap 扁平（不含码维度）
+    # numMap 扁平（不含码维度）；g06 袋布不进排料、g08/g11 门襟二选一
+    # （FULL_OPTS 显式 fly_sep_double=True 只出双排 g11；默认已改单排）
     assert body["numMap"] == {"g01": 2, "g02": 2, "g03": 2, "g04": 2,
-                              "g05": 2, "g06": 2, "g07": 2, "g08": 1,
-                              "g11": 1}
+                              "g05": 2, "g07": 2, "g11": 1}
 
 
 def test_nest_size_run_non_numeric_label_422():

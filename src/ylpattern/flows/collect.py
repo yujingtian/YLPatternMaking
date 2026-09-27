@@ -6,12 +6,13 @@ build），推码多码编排（步 4）第三次复用同一逻辑，收敛于�
 
 固定顺序（与原 api/cli 逐分支一致，保证 DXF Category 序号稳定）：
 waistband / back_yoke / front_facing|front_patch / front_pouch /
-front_fly_single(+front_fly_double) / watch_pocket / belt_loop /
-back_patch / front_piece / back_piece。
+front_fly_single|front_fly_double（fly_sep_double 二选一） / watch_pocket /
+belt_loop / back_patch / front_piece / back_piece。
 
 开关判定读 ctx.options（back_yoke / front_pocket_facing / front_patch /
 front_pouch / fly_separate / watch_pocket / belt_loop / back_patch，与原
-分支一致）；未开启的片不构建、记入 skips。门襟双排关闭只回单片。
+分支一致）；未开启的片不构建、记入 skips。门襟形态 fly_sep_double 二选一：
+True 只出双排（对折）片、False 只出单排（单层）片（2026-09-27 起恒互斥）。
 
 接受的行为差异（相对原 api/cli）：原"仅设某片 SVG 时只 build 该片"的
 惰性构建 -> 全收集（build 开销相对整版可忽略，裁片集合一致）。
@@ -56,9 +57,11 @@ def collect_pieces(ctx: DraftContext) -> tuple[list[PatternPiece], list[str]]:
     if o.fly_separate:
         from .front_fly_flow import build_front_fly
         p_single, p_double, _ff = build_front_fly(ctx)
-        pieces.append(p_single)
-        if p_double is not None:      # 双排关闭（fly_sep_double=False）只回单片
-            pieces.append(p_double)
+        # 门襟形态二选一（2026-09-27 语义单键化，此前单排恒出+双排追加）：
+        # fly_sep_double=True 只出双排（对折）片、False 只出单排（单层）片。
+        # build_front_fly 本体不改（纯几何保留两片构造能力，True 时单排
+        # 构建后弃用——开销可忽略，同本模块"全收集"口径）；不加第二键。
+        pieces.append(p_double if o.fly_sep_double else p_single)
     else:
         skips.append("门襟裁片未开启（fly_separate=False），跳过 DXF 合集")
     if o.watch_pocket:

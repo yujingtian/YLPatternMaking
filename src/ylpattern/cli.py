@@ -213,9 +213,9 @@ def main(argv: list[str] | None = None) -> int:
     p_draft.add_argument("--front-pouch-svg",
                          help="输出袋布裁片独立 SVG 路径（front_pouch 开启；一片式对折，需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--front-fly-single-svg",
-                         help="输出单排（单层）门襟裁片独立 SVG 路径（fly_separate 开启；需完整整版，勿与 --until 同用）")
+                         help="输出单排（单层）门襟裁片独立 SVG 路径（fly_separate 开启且 fly_sep_double 关闭〔单/双排二选一〕；需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--front-fly-double-svg",
-                         help="输出双排（对折）门襟裁片独立 SVG 路径（fly_separate + fly_sep_double 开启；需完整整版，勿与 --until 同用）")
+                         help="输出双排（对折）门襟裁片独立 SVG 路径（fly_separate + fly_sep_double 开启〔单/双排二选一〕；需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--watch-pocket-svg",
                          help="输出小表袋裁片独立 SVG 路径（watch_pocket 开启；按 watch_pocket_mode 派发，需完整整版，勿与 --until 同用）")
     p_draft.add_argument("--belt-loop-svg",

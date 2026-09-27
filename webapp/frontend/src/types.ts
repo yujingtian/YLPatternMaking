@@ -4,11 +4,14 @@
 // 参数级联动 gate：字符串 = 布尔开关键；对象 = 枚举参数值匹配
 // （值在 values 内才显示，如贴袋形态专属参数随 shape 切换）；
 // requires = 需同时为真的布尔开关键（前贴袋参数在 front_patch 开关
-// 之下，形态 gate 须复合开关：开关开 AND 形态匹配才显示）
+// 之下，形态 gate 须复合开关：开关开 AND 形态匹配才显示）；
+// not = 需同时为假的布尔开关键（互补开关，如后片 waist 缝份仅无机头
+// 时显示）；param/values 省略 = 只判开关（sa 字段级 not gate 用）
 export interface EnumGate {
-  param: string
-  values: string[]
+  param?: string
+  values?: string[]
   requires?: string[]
+  not?: string[]
 }
 
 export type Gate = string | EnumGate
@@ -23,6 +26,9 @@ export interface ParamSpec {
   nullable?: boolean
   hidden?: boolean
   visible_if?: Gate | Gate[] | null
+  // sa 型专属：缝份对象逐语义边显隐 gate（边名 -> 开关/枚举条件，
+  // 不消费的缝边不显示，如前片 fly_* 三边仅连裁门襟开时显示）
+  sa_field_gates?: Record<string, Gate>
   // custom_shape 虚拟参数专属：编辑器读写的两真实参数键与元数据
   kind?: 'front_patch' | 'back_patch' | 'front_pouch' | 'watch_pocket'
   points_key?: string
@@ -197,10 +203,13 @@ export interface FittingResult {
 }
 
 // 产物快照：data + 生成时的参数版本号（version 不匹配 = 已过期，
-// 预览保留但 DXF 下载禁用，重新生成后恢复）
+// 预览保留但 DXF 下载禁用，重新生成后恢复）。sheetVersion 仅整版快照
+// 记录（裁片专属参数改动不 bump——缝份/缩水/刀口只影响裁切链，不判
+// 整版过期，见 useDraft 双版本注释）
 export interface Snapshot<T> {
   data: T
   version: number
+  sheetVersion?: number
 }
 
 // 下载种类（单一 dlBusy 串行：DXF 下载重跑引擎，防重复点击）
@@ -358,7 +367,24 @@ export interface ChatLedger {
   size_label: { value: unknown; turn: number } | null
 }
 
-// 交卷体：to_web_payload 六键 + review/ledger/summary
+// 调版映射披露（2026-09-27 §10.9.2）：交卷后口语调版（「口袋弧深一点」）
+// 经映射节点落地的调整。applied.value = keys 终值（probe 回退键已被弹出，
+// 由引擎默认值兜底显示——诚实读数；L0.5 调版回退键不弹出、值保持上一版，
+// note 里「未生效/已保持上一版」披露）；dropped = 解析层丢弃原因；
+// reverted = 撞引擎校验被回退的映射键（note 里有人话披露）
+export interface ChatAdjustApplied {
+  key: string
+  value: unknown
+}
+
+export interface ChatAdjust {
+  note: string
+  applied: ChatAdjustApplied[]
+  dropped: string[]
+  reverted: string[]
+}
+
+// 交卷体：to_web_payload 六键 + review/ledger/summary + adjust（有调版轮才有）
 export interface ChatDelivery {
   measurements: Record<string, number>
   options: Values
@@ -369,6 +395,7 @@ export interface ChatDelivery {
   review: ChatReview
   ledger: ChatLedger
   summary: { turn: number; model: string; photo_count: number }
+  adjust?: ChatAdjust
 }
 
 export interface ChatTurnResponse {

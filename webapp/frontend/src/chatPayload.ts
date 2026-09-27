@@ -75,7 +75,7 @@ export function deliveryToPrefill(
 }
 
 // 交卷摘要行（交卷卡 meta 行 + 历史 delivery 折叠展示）：
-// '第 N 轮交卷 · 模型 X · 照片 N 张 · 回退 n 项/低置信 n 项/评分警告 n 项'
+// '第 N 轮交卷 · 模型 X · 照片 N 张 · 调版 n 键 · 回退 n 项/低置信 n 项/评分警告 n 项'
 // （计数为 0 的段省略）
 export function deliverySummaryLine(d: ChatDelivery): string {
   const parts = [
@@ -83,6 +83,9 @@ export function deliverySummaryLine(d: ChatDelivery): string {
     `模型 ${d.summary.model}`,
     `照片 ${d.summary.photo_count} 张`,
   ]
+  if (d.adjust && d.adjust.applied.length > 0) {
+    parts.push(`调版 ${d.adjust.applied.length} 键`)
+  }
   const review = d.review
   if (review.reverted.length > 0) parts.push(`回退 ${review.reverted.length} 项`)
   if (review.low_confidence.length > 0) {
@@ -92,4 +95,10 @@ export function deliverySummaryLine(d: ChatDelivery): string {
     parts.push(`评分警告 ${review.score_warnings.length} 项`)
   }
   return parts.join(' · ')
+}
+
+// 调版 note（映射节点一句话披露：动了哪些/最佳猜测依据/回退说明）；
+// 无调版轮 delivery 无 adjust 键 -> 空串（调用方非空才渲染）
+export function adjustNote(d: ChatDelivery): string {
+  return d.adjust?.note ?? ''
 }

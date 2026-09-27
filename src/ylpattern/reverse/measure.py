@@ -914,8 +914,8 @@ def measure_options(size: str, mapping: dict[str, SubPiece],
 
     # 结构开关：裁片在场即开（识别层直接观测存在性，非形状拟合）。
     # 前代融合片在场 -> 袋贴（面料）开；袋布走口袋布里料、不在工厂打版
-    # DXF，front_pouch 直接关、不推断（用户口径 2026-08-29）；双排门襟
-    # 片存在时 fly_sep_double 保持默认 true，只有单排片才显式关。
+    # DXF，front_pouch 直接关、不推断（用户口径 2026-08-29）；fly_sep_double
+    # 默认 false=单排（2026-09-27），只有双排门襟片在场才显式开。
     out["back_yoke"] = "yoke" in mapping
     out["front_pocket"] = "fused_pocket" in mapping
     if out["front_pocket"]:
@@ -1114,8 +1114,8 @@ def measure_options(size: str, mapping: dict[str, SubPiece],
             warns.append(f"后贴袋定位钳制：{note}")
     if "front_fly_single" in mapping or "front_fly_double" in mapping:
         out["fly_separate"] = True
-        if "front_fly_double" not in mapping:
-            out["fly_sep_double"] = False
+        if "front_fly_double" in mapping:
+            out["fly_sep_double"] = True
     if measured.values["thigh"] > 0.0:
         out["thigh_limit"] = True
         warns.append("识别到毗围线（thigh>0），发射 thigh_limit=true"

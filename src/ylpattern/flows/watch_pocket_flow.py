@@ -181,11 +181,13 @@ def _project_hem_notches(piece: PatternPiece, sa) -> PatternPiece:
 
 def _collect_facing_intersect(ctx: DraftContext) \
         -> tuple[list[tuple[str, LineSegment | CubicBezier]], list[Point]]:
-    """模式 A 净样收集（§2.1）：四边界封闭图形 pt1→pt2→pt3→pt4→pt1。
+    """模式 A 净样收集（§2.1）：封闭图形 pt1→pt2→…→pt4→pt1 逐段游走收集。
 
-    底边方向归一：seg3 = bezier_subrange(袋贴内边, min(t1,t2), max(t1,t2))
-    恒从参数小端跑向大端，t 序随袋形不定；按角点距离归一到 p0≈pt3、p3≈pt4
-    （_reverse_geom 弧长不变），使闭合序 pt3→pt4 成立。
+    seg 链结构：seg1 顶边 / seg2 内侧边 / seg3..N-1 底边（袋贴内边两交点间
+    子链——单曲线或 polyline 折角链多段，方向随链上位置序不定）/ segN 外侧边
+    （底边多段时序号顺延，sheet.get 取 geom 避免类型不符）。
+    底边方向归一：首段起点近 pt4 则整链反向（序倒 + 逐段 _reverse_geom
+    弧长不变），使闭合序 pt3→…→pt4 成立。
     刀口（§4.2 v1.2）：袋口两角折边刀口 pt1/pt2（净样缝合线位；毛样位由
     _project_hem_notches 沿缝边/顶部线延长线投影至缝边）。
     """
@@ -193,14 +195,19 @@ def _collect_facing_intersect(ctx: DraftContext) \
     pt2 = ctx.point("front.watch_pocket_pt2")   # 内上角
     pt3 = ctx.point("front.watch_pocket_pt3")   # 内下交点
     pt4 = ctx.point("front.watch_pocket_pt4")   # 外下交点
-    seg1 = ctx.line("front.watch_pocket_seg1")  # 顶边 pt1→pt2
-    seg2 = ctx.line("front.watch_pocket_seg2")  # 内侧边 pt2→pt3
-    seg3 = ctx.curve("front.watch_pocket_seg3")  # 底边（袋贴内边子段，方向不定）
-    seg4 = ctx.line("front.watch_pocket_seg4")  # 外侧边 pt4→pt1
-    if seg3.p0.distance_to(pt3) > seg3.p0.distance_to(pt4):
-        seg3 = _reverse_geom(seg3)
+    geoms: list[LineSegment | CubicBezier] = []
+    i = 1
+    while f"front.watch_pocket_seg{i}" in ctx.sheet:
+        geoms.append(ctx.sheet.get(f"front.watch_pocket_seg{i}").geom)
+        i += 1
+    bottom = geoms[2:-1]                        # 底边链（≥1 段）
+    start = _geom_start(bottom[0])
+    if start.distance_to(pt3) > start.distance_to(pt4):
+        bottom = [_reverse_geom(g) for g in reversed(bottom)]
     edges_main: list[tuple[str, LineSegment | CubicBezier]] = [
-        ("top", seg1), ("side", seg2), ("bottom", seg3), ("side", seg4)]
+        ("top", geoms[0]), ("side", geoms[1]),
+        *[("bottom", g) for g in bottom],
+        ("side", geoms[-1])]
     notches_main = [pt1, pt2]
     return edges_main, notches_main
 

@@ -6,7 +6,7 @@
   None 回退全局 (0.1, 0.06)、专用非 None 覆盖 (0.05, 0.0)；
 - 端到端（FULL_FLOW 全开关 + collect_pieces，M=W70/H96 组）：
   - 全局 0.1/0.06 开缩水时腰头有缩水 notes 且 shrunk != net（净样被放大）；
-  - 总开关 False（专用/全局率保持非 0）时全部 11 片 shrunk == net 逐边相等、
+  - 总开关 False（专用/全局率保持非 0）时全部 10 片 shrunk == net 逐边相等、
     notes 无「缩水：」字样--计算级等价于率全 0，专用率一并失效；
   - 专用率单独生效：front_piece_shrinkage_warp=0.05 时前片 Y 向被放大
     （shrunk.y > net.y），关总开关后复原。
@@ -56,7 +56,7 @@ def test_rates_on_fallback_and_override():
 # ---- 端到端金标 ----
 
 def test_off_all_pieces_shrunk_equals_net():
-    """总开关 False：11 片全部无缩水--shrunk == net 逐边相等，或率 0 守卫
+    """总开关 False：10 片全部无缩水--shrunk == net 逐边相等，或率 0 守卫
     （袋布/小表袋等 `if warp or weft` 分支）干脆未构建 shrunk（() 空元组）；
     notes 不再出现「缩水：」。"""
     on = _pieces(shrinkage_warp=0.1, shrinkage_weft=0.06,
@@ -65,7 +65,7 @@ def test_off_all_pieces_shrunk_equals_net():
     off = _pieces(shrinkage_enabled=False,
                   shrinkage_warp=0.1, shrinkage_weft=0.06,
                   back_yoke_shrinkage_warp=0.05, watch_pocket_shrinkage_warp=0.1)
-    assert len(off) == 11
+    assert len(off) == 10
     for name, p in off.items():
         assert p.shrunk_edges in ((), p.net_edges), name
         assert not any("缩水：" in n for n in p.notes), name

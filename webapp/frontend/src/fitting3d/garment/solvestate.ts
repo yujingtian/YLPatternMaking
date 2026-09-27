@@ -44,6 +44,7 @@ export interface SolveState {
   pinTarget: Float32Array
   pinFlag: Uint8Array
   pinArcs?: Float64Array
+  pinXZFree?: boolean    // 指定穿位钉 XZ 自由（2026-09-27）：透传至 worker
   seamIdx: Uint32Array
   seamGroups: { name: string; pairOffset: number; pairCount: number }[]
   yLift: number
@@ -98,6 +99,7 @@ export function toSolveState(
       pos: sim.pos, prev: sim.prev, vel: sim.vel,
       pinIdx: sim.pinIdx, pinTarget: sim.pinTarget, pinFlag: sim.pinFlag,
       pinArcs: sim.pinArcs,
+      pinXZFree: sim.pinXZFree,
       seamIdx: sim.seamIdx, seamGroups: sim.seamGroups,
       yLift: sim.yLift, holdIdx: sim.holdIdx, holdTarget: sim.holdTarget,
       parts: sim.parts.map((p) => ({
@@ -126,6 +128,7 @@ export function fromSolveState(state: SolveState): DrapeSim {
     pos: state.pos, prev: state.prev, vel: state.vel,
     pinIdx: state.pinIdx, pinTarget: state.pinTarget, pinFlag: state.pinFlag,
     pinArcs: state.pinArcs,
+    pinXZFree: state.pinXZFree ?? false,
     seamIdx: state.seamIdx, seamGroups: state.seamGroups,
     yLift: state.yLift, holdIdx: state.holdIdx, holdTarget: state.holdTarget,
     parts: state.parts,

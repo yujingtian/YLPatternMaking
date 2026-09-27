@@ -7,11 +7,13 @@ PatternPiece。自含裁片，非 FlowRunner 编排（同 waistband_flow.build_w
 
 两种提取模式（机头裁片.md §2）：
   - 无省（§2.1）：直接复制四条边界围成的封闭区。
-  - 有省（§2.2，仅 1 省）：省（等腰三角）把机头切成左右两片 -> 右片绕省尖旋转
-    闭合拼合 -> 拼合处上下折角 G1 倒圆（§2.2.3；退弧量由 PatternOptions
-    .back_yoke_join_fillet 控制：None=自适应 AUTO_SPAN_* 公式（默认）/ 正数=固定 /
-    0=不倒圆；倒圆带弧长补偿，车缝净长不变）。
-  2 省或省未穿越机头边界 -> 回退无省提取（告警）。
+  - 有省（§2.2，1~2 省）：省（等腰三角）把机头切成若干片 -> 外侧片绕省尖级联
+    旋转闭合拼合（2026-09-27 多省化：单省大省口集中一处折角，育克/腰头拼合后
+    局部过弯；拆 2 省把转角摊到两处）-> 每处拼合上下折角 G1 倒圆（§2.2.3；
+    退弧量由 PatternOptions.back_yoke_join_fillet 控制：None=自适应
+    AUTO_SPAN_* 公式（默认）/ 正数=固定 / 0=不倒圆；倒圆带弧长补偿，
+    车缝净长不变）。
+  省未穿越机头上下边界或省位沿边界交乱 -> 回退无省提取（告警）。
 
 cutter 负面积约定：净多边形顶点序 P0->PN->X->O（底边->侧缝->腰口->后中）在
 本坐标系符号面积为负（180° 旋转变换保向），cutter 外法向正确外扩。
@@ -277,19 +279,42 @@ def _collect_bottom_chain(ctx: DraftContext) -> list:
     return geoms
 
 
-def _detect_dart(ctx: DraftContext):
-    """检测已上版的后省：返回 (省号, 省尖, 内侧腿, 外侧腿) / None（无省）/
-    "fallback"（2 省回退无省提取）。"""
-    drawn = [i for i in (1, 2) if f"back.dart{i}_apex" in ctx.sheet]
-    if not drawn:
+def _chain_between(chain: list, cross_out: tuple, cross_in: tuple) -> list | None:
+    """两穿越点之间的链段（cross_out -> cross_in，段序 P0->PN）。
+
+    cross_out 须沿链先于 cross_in（段索引/段上 t 字典序），否则返回 None
+    （调用方回退无省——省位交乱）。两穿越点同段时取该段子区间 (t1, t2)。
+    """
+    i1, t1, _ = cross_out
+    i2, t2, _ = cross_in
+    if i1 > i2 or (i1 == i2 and t1 > t2):
         return None
-    if len(drawn) >= 2:
-        return "fallback"
-    i = drawn[0]
-    apex = ctx.point(f"back.dart{i}_apex")
-    leg_inner = ctx.line(f"back.dart{i}_leg_inner")     # LineSegment(省尖, p_in)
-    leg_outer = ctx.line(f"back.dart{i}_leg_outer")     # LineSegment(省尖, p_out)
-    return i, apex, leg_inner, leg_outer
+    if i1 == i2:
+        g = chain[i1]
+        if isinstance(g, LineSegment):
+            return [LineSegment(g.point_at(t1), g.point_at(t2))]
+        return [curves.bezier_subrange(g, t1, t2)]
+    out: list = []
+    _, suf = _split_geom_at(chain[i1], t1)
+    out.append(suf)
+    out.extend(chain[i1 + 1:i2])
+    pre, _ = _split_geom_at(chain[i2], t2)
+    out.append(pre)
+    return out
+
+
+def _detect_darts(ctx: DraftContext) -> list:
+    """检测已上版的后省（省号升序 = 后中 -> 侧缝，PatternOptions 上限 2）：
+    每省 (省号, 省尖, 内侧腿, 外侧腿)；空表 = 无省。"""
+    out = []
+    for i in (1, 2):
+        if f"back.dart{i}_apex" not in ctx.sheet:
+            continue
+        apex = ctx.point(f"back.dart{i}_apex")
+        leg_inner = ctx.line(f"back.dart{i}_leg_inner")  # LineSegment(省尖, p_in)
+        leg_outer = ctx.line(f"back.dart{i}_leg_outer")  # LineSegment(省尖, p_out)
+        out.append((i, apex, leg_inner, leg_outer))
+    return out
 
 
 # ---------- 净样装配（主版坐标系）----------
@@ -307,88 +332,130 @@ def _assemble_no_dart(bottom_chain: list, side_geom: CubicBezier,
     return edges
 
 
-def _assemble_dart(dart, bottom_chain: list, side_geom: CubicBezier,
-                   top_arc: CubicBezier, cb_geom: LineSegment, delta: float | None
-                   ) -> tuple[list[tuple[str, object]], list[Point]] | None:
-    """有省（1 省）净样边：切开 -> 右片绕省尖旋转闭合 -> 拼合处 G1 倒圆（§2.2）。
+def _assemble_darts(darts: list, bottom_chain: list, side_geom: CubicBezier,
+                    top_arc: CubicBezier, cb_geom: LineSegment, delta: float | None
+                    ) -> tuple[list[tuple[str, object]], list[Point]] | None:
+    """有省（1~2 省）净样边：逐省切开 -> 外侧片绕省尖级联旋转闭合 ->
+    每处拼合 G1 倒圆（§2.2）。
 
+    闭省自最外侧省向最内侧省推进：先闭省 n（侧缝侧片绕 apex_n 转 θ_n），
+    再闭省 n-1（其外侧全部片绕 apex_{n-1} 转 θ_{n-1}）……旋转复合
+    g1∘g2 = g2'∘g1（g2' = g1 g2 g1⁻¹ 仍为绕 g1(apex_2) 的旋转），故第 k 片
+    （省 k 与省 k+1 之间）的旋转链 pend_k = [(apex_k, θ_k)] + pend_{k-1}、
+    后中侧第 0 片不动——与腰头裁片 pend 链（内→外逐省在移动系重交叉）结果
+    同位，此处免重交叉、全部穿越点在原始边界一次求出。
     delta：float=固定退弧量；None=逐拼合点自适应（AUTO_SPAN_* 公式，§2.2.3）；
     0=不倒圆。倒圆带弧长补偿（fillet 弧长 = 2d，车缝净长不变）。
-    返回 (edges, notches) 或 None（省腿未穿越上下边界 -> 调用方回退无省）。
+    返回 (edges, notches) 或 None（省腿未穿越上下边界/省位沿边界交乱 ->
+    调用方回退无省）。
     """
-    _i, apex, leg_inner, leg_outer = dart
-    p_in = leg_inner.b                                # 省口内侧（后中侧）
-    p_out = leg_outer.b                               # 省口外侧（侧缝侧）
+    n = len(darts)
 
-    # 上下边界穿越点
-    cin = _chain_cross(bottom_chain, leg_inner)
-    cout = _chain_cross(bottom_chain, leg_outer)
-    sin = _seg_geom_intersect(leg_inner, top_arc)
-    sout = _seg_geom_intersect(leg_outer, top_arc)
-    if cin is None or cout is None or sin is None or sout is None:
-        return None                                   # 省未切穿机头 -> 回退无省
-    C_in = cin[2]
-    St_in, t_st_in = sin
-    _St_out, t_st_out = sout
+    # 每省：上下边界穿越点 + 闭合旋转角（把 (p_out-apex) 转到 (p_in-apex) 的
+    # 有向角；等腰省 -> p_out 精确落 p_in，穿越点随之重合）
+    info = []
+    for _i, apex, leg_inner, leg_outer in darts:
+        cin = _chain_cross(bottom_chain, leg_inner)
+        cout = _chain_cross(bottom_chain, leg_outer)
+        sin = _seg_geom_intersect(leg_inner, top_arc)
+        sout = _seg_geom_intersect(leg_outer, top_arc)
+        if cin is None or cout is None or sin is None or sout is None:
+            return None                               # 省未切穿机头 -> 回退无省
+        v_out = leg_outer.b - apex
+        v_in = leg_inner.b - apex
+        theta = math.degrees(math.atan2(
+            v_out.dx * v_in.dy - v_out.dy * v_in.dx,
+            v_out.dx * v_in.dx + v_out.dy * v_in.dy))
+        info.append((apex, theta, cin, cout, sin[1], sout[1]))
 
-    # 旋转角：把 (p_out-apex) 转到 (p_in-apex) 的有向角（等腰省 -> p_out 精确落 p_in）
-    v_out = p_out - apex
-    v_in = p_in - apex
-    theta = math.degrees(math.atan2(
-        v_out.dx * v_in.dy - v_out.dy * v_in.dx,
-        v_out.dx * v_in.dx + v_out.dy * v_in.dy))
+    # 省位序守卫：省腿穿越点须沿底边链/腰口弧参数严格递增（省 1 靠后中；
+    # 交错/重合 -> 回退无省）
+    for _apex, _th, cin, cout, t_in, t_out in info:
+        if (cin[0], cin[1]) >= (cout[0], cout[1]) or t_in >= t_out:
+            return None
+    for k in range(1, n):
+        if (info[k - 1][3][0], info[k - 1][3][1]) >= (info[k][2][0], info[k][2][1]) \
+                or info[k - 1][5] >= info[k][4]:
+            return None
 
-    # 右子轮廓（侧缝侧，旋转闭合）
-    bottom_right = [_rotate_geom(g, apex, theta)
-                    for g in _chain_suffix(bottom_chain, cout)]   # C_out->PN 旋后
-    side_r = _rotate_geom(side_geom, apex, theta)                 # PN->X 旋后
-    top_right_sub_r = _rotate_geom(
-        curves.bezier_subrange(top_arc, t_st_out, 1.0), apex, theta)  # St_out->X 旋后
-    top_right = [_reverse_bezier(top_right_sub_r)]                # X->St_out 旋后
+    # 分片旋转链：pend_0 = []（后中侧固定）；pend_k = [(apex_k, θ_k)] + pend_{k-1}
+    pends: list[list] = [[]]
+    for k in range(n):
+        pends.append([(info[k][0], info[k][1])] + pends[k])
 
-    # 左子轮廓（后中侧，固定）
-    bottom_left = _chain_prefix(bottom_chain, cin)                # P0->C_in
-    top_left = _reverse_bezier(
-        curves.bezier_subrange(top_arc, 0.0, t_st_in))            # St_in->origin
+    def _rot(geoms: list, pend: list) -> list:
+        for center, deg in pend:
+            geoms = [_rotate_geom(g, center, deg) for g in geoms]
+        return geoms
 
-    # 对齐拼合顶点（端点平移、保切向、不传至下游连接）
-    bottom_right[0] = _snap_geom_start(bottom_right[0], C_in)     # C_out' -> C_in
-    top_right[-1] = _snap_geom_end(top_right[-1], St_in)          # St_out' -> St_in
+    # 底边分片（链序 P0->PN）：0 片 = P0->C_in1（固定）；k 片 = C_out_k->C_in_{k+1}；
+    # n 片 = C_out_n->PN（侧缝侧，旋转最重）
+    bottom_pieces = [_chain_prefix(bottom_chain, info[0][2])]
+    for k in range(1, n):
+        mid = _chain_between(bottom_chain, info[k - 1][3], info[k][2])
+        if mid is None:
+            return None
+        bottom_pieces.append(_rot(mid, pends[k]))
+    bottom_pieces.append(
+        _rot(_chain_suffix(bottom_chain, info[n - 1][3]), pends[n]))
+
+    # 腰口分片（弧参数 O->X 切片后反转成边序 X->O）：0 片 = St_in1->origin（固定）；
+    # k 片 = St_in_{k+1}->St_out_k；n 片 = X->St_out_n；侧缝随 n 片旋转
+    top_arc_pieces = []
+    for k in range(n + 1):
+        t_lo = info[k - 1][5] if k >= 1 else 0.0
+        t_hi = info[k][4] if k <= n - 1 else 1.0
+        top_arc_pieces.append(_rot(
+            [_reverse_bezier(curves.bezier_subrange(top_arc, t_lo, t_hi))],
+            pends[k]))
+    top_edge_order = list(reversed(top_arc_pieces))  # [n 片, ..., 0 片]
+    side_r = _rot([side_geom], pends[n])[0]
+
+    # 对齐拼合顶点（端点平移、保切向、不传至下游连接）：底边链序右侧片首端
+    # 吸附左侧片末端；腰口边序左侧片末端吸附右侧片首端（同单省口径——
+    # 旋转侧重合于不动侧的拼合锚点，残余浮点误差吸掉）
+    for k in range(1, n + 1):
+        bottom_pieces[k][0] = _snap_geom_start(
+            bottom_pieces[k][0], _geom_end(bottom_pieces[k - 1][-1]))
+    for j in range(n):
+        top_edge_order[j][-1] = _snap_geom_end(
+            top_edge_order[j][-1], _geom_start(top_edge_order[j + 1][0]))
+
+    # 拼合线刀口（标省位，取拼合前几何的锚点——落点或其倒圆区内，
+    # _project_notches_to_sa 按最近边载向投影）：底边取左侧片末端、腰口取
+    # 右侧片首端（均为不动侧锚点）
+    notches = [_geom_end(bottom_pieces[k - 1][-1]) for k in range(1, n + 1)]
+    notches += [_geom_start(top_edge_order[n - k + 1][0]) for k in range(1, n + 1)]
 
     edges: list[tuple[str, object]] = []
 
-    def _join(name: str, left_geoms: list, right_geoms: list):
-        """同族边在 join 点 G1 倒圆拼接（delta>0）；delta=0 直接顺接。
+    def _append_joined(name: str, pieces_edge_order: list):
+        """同族边多片顺接：相邻片连接点 G1 倒圆（delta>0）；delta=0 直接顺接。
 
-        delta=None 时逐 join 点自适应（两侧邻边弧长按 AUTO_SPAN_* 公式，§2.2.3）。
+        delta=None 时逐连接点自适应（两侧邻边弧长按 AUTO_SPAN_* 公式，§2.2.3）。
         """
-        d_eff = (delta if delta is not None
-                 else _auto_fillet_delta(left_geoms[-1], right_geoms[0]))
-        if d_eff > 0:
-            tin, fillet, tout = _g1_fillet(left_geoms[-1], right_geoms[0], d_eff)
-            for g in left_geoms[:-1]:
-                edges.append((name, g))
-            edges.append((name, tin))
-            edges.append((name, fillet))
-            edges.append((name, tout))
-            for g in right_geoms[1:]:
-                edges.append((name, g))
-        else:
-            for g in left_geoms:
-                edges.append((name, g))
-            for g in right_geoms:
-                edges.append((name, g))
+        flat: list = list(pieces_edge_order[0])
+        for segs in pieces_edge_order[1:]:
+            d_eff = (delta if delta is not None
+                     else _auto_fillet_delta(flat[-1], segs[0]))
+            if d_eff > 0:
+                tin, fillet, tout = _g1_fillet(flat[-1], segs[0], d_eff)
+                flat[-1] = tin
+                flat.append(fillet)
+                flat.append(tout)
+                flat.extend(segs[1:])
+            else:
+                flat.extend(segs)
+        edges.extend((name, g) for g in flat)
 
-    # 底边：左下口 + 倒圆(C) + 右下口（均 bottom，cutter 平滑相接）
-    _join("bottom", bottom_left, bottom_right)
-    # 侧缝：PN' -> Xr（旋转后）
+    # 底边：P0->…->PN（片间倒圆）
+    _append_joined("bottom", bottom_pieces)
+    # 侧缝：PN' -> X（旋转后）
     edges.append(("side", side_r))
-    # 腰口：右上口 + 倒圆(St) + 左上口（均 top）
-    _join("top", top_right, [top_left])
+    # 腰口：X -> …->origin（片间倒圆）
+    _append_joined("top", top_edge_order)
     # 后中：origin -> P0
     edges.append(("cb", cb_geom))
-
-    notches = [C_in, St_in]        # 拼合线两端刀口（标省位）
     return edges, notches
 
 
@@ -521,19 +588,15 @@ def build_yoke(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContext]:
     bottom_chain = _collect_bottom_chain(main_ctx) or [LineSegment(P0, PN)]
 
     # 净样装配（主版坐标）+ 省处理
-    dart = _detect_dart(main_ctx)
+    darts = _detect_darts(main_ctx)
     notches_back: list[Point] = []
-    if dart == "fallback":
-        print("警告：后机头裁片当前仅支持 1 省，检测到多省 -> 回退无省提取",
-              file=sys.stderr)
-        edges_back = _assemble_no_dart(bottom_chain, side_geom, top_arc, cb_geom)
-    elif dart is None:
+    if not darts:
         edges_back = _assemble_no_dart(bottom_chain, side_geom, top_arc, cb_geom)
     else:
-        res = _assemble_dart(dart, bottom_chain, side_geom, top_arc, cb_geom,
-                             o.back_yoke_join_fillet)
+        res = _assemble_darts(darts, bottom_chain, side_geom, top_arc, cb_geom,
+                              o.back_yoke_join_fillet)
         if res is None:
-            print("警告：后省未穿越机头上下边界（省在机头内部不分割）-> 回退无省提取",
+            print("警告：后省未穿越机头上下边界或省位交乱 -> 回退无省提取",
                   file=sys.stderr)
             edges_back = _assemble_no_dart(bottom_chain, side_geom, top_arc, cb_geom)
         else:

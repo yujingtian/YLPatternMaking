@@ -82,9 +82,12 @@ _CRITERIA: dict[str, list[str]] = {
         "腰头是否独立缝线、有无裤耳、有无硬 V 折角均不作判据，只认上口前后中走向。",
     ],
     "front_pocket_mouth_mode": [
-        "bulge 弧线袋口：袋口为一道弯月弧线（弧深三档见 front_pocket_mouth_depth）。",
+        "bulge 弧线袋口：袋口为一道弯月弧线，弧度肉眼明显（弧深三档见 front_pocket_mouth_depth）。",
         "tangent 直切袋口：袋口近似直线斜切，仅在端部小圆角。",
         "polyline 折角袋口：袋口由两段直线构成，折点明显。",
+        "（判型总则：近垂直优先 tangent——打版师手画线不可能百分百垂直，目测"
+        "近乎垂直/近直的袋口一律判 tangent；弯月弧形态清晰可辨才判 bulge、"
+        "折点肉眼可辨才判 polyline。）",
     ],
     "front_pocket_mouth_depth": [
         "浅 shallow：弧线微弯近直，弧深（最深处到袋口弦的垂距）不足弦长 12%；",

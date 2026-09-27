@@ -274,7 +274,9 @@ def nest(req: DraftRequest) -> dict:
     - 单码（无 size_run）：码号 = 腰围英寸档（piece_codes.inch_size_label，
       如 74cm -> 29）；多码：码号 = 推板码表（须纯数字——块名码号尾缀
       正则要求，非数字 422）；
-    - belt_loop 不进排料产物（整根连裁不走 nesting，piece_codes.NEST_EXCLUDED）；
+    - belt_loop（整根连裁）与 front_pouch（袋布里料，材料与大身不同，
+      2026-09-27）不进排料产物（piece_codes.NEST_EXCLUDED，单码/多码
+      两分支 nest_pieces 过滤）；
     - 强制 show_seam=True：净样交换文件（层 1 无毛样 POLYLINE）对排料
       解析整片不可见，不透传 show_seam_allowance 开关；
     - web 路径 doc.write 直出（不走 save_doc 的 R12 清洗）-> TABLES 保留，

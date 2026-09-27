@@ -72,6 +72,22 @@ export class BodyField {
     return s
   }
 
+  /** 指定穿位几何交规（2026-09-27）：从 rowY 起按 rowStep 逐档向下扫，
+   * 返回最后一个 rowPerimeter < ringTotal×(1+jamMargin) 的档距 = 最深可穿
+   * drop（判据逐字复用 P1 挂胯——不可伸长闭环套不进更粗截面是精确几何
+   * 事实；空行周长 0 恒可穿 = P1 同款安全缺省，由 maxDrop 封顶）。
+   * 首档即超 → 0（偏小款合法终态，对齐 P1「h′=0 即 jam」）。纯函数
+   * （field + ringTotal 决定）→ 确定性双跑红线保持 */
+  maxFeasibleDrop(rowY: number, ringTotal: number, maxDrop: number): number {
+    const limit = ringTotal * (1 + DRESSING_PRIOR.jamMargin)
+    let d = 0
+    for (let step = 1; step * this.rowStep <= maxDrop + 1e-9; step++) {
+      if (this.rowPerimeter(rowY - step * this.rowStep) >= limit) break
+      d = step * this.rowStep
+    }
+    return d
+  }
+
   radiusAt(y: number, th: number): number {
     // y 夹取（腰上无几何/脚底下沿用端行），行双线性
     const rr = Math.max(0, Math.min(this.rows - 1.0001,
