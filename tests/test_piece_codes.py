@@ -8,7 +8,8 @@
 - inch_size_label：腰围 cm -> 英寸档 round 半进位（防 banker 舍入）；
 - label_anchor：凸片 = 质心；L 形凹片（质心落片外）取扫描线最宽内条带
   中点（在片内且 != 质心）；退化输入质心兜底；
-- nest 契约：belt_loop 过滤、numMap 数量、labels 中文名。
+- nest 契约：排除片（belt_loop/front_pouch）过滤、numMap 数量、labels
+  中文名。
 """
 
 import pytest
@@ -27,7 +28,8 @@ def test_gcode_table_complete_and_consistent():
         <= set(piece_codes.PIECE_GCODES)
     assert piece_codes.PIECE_GCODES["front_facing"] \
         == piece_codes.PIECE_GCODES["front_patch"] == 4
-    # 同码互斥对只允许 facing/patch（fly_single/double 可同场须分码）
+    # 同码互斥对只允许 facing/patch（fly_single/double 经 fly_sep_double
+    # 二选一产出、collect 恒互斥，分占 g08/g11）
     vals = list(piece_codes.PIECE_GCODES.values())
     assert len(vals) == len(set(vals)) + 1      # 恰一对同码（facing/patch）
 
@@ -118,9 +120,11 @@ def _piece(name: str, label: str) -> PatternPiece:
                         gross_polygon=(Point(0, 0), Point(10, 0), Point(0, 10)))
 
 
-def test_nest_pieces_filters_belt_loop():
+def test_nest_pieces_filters_excluded():
+    """belt_loop（整根连裁）与 front_pouch（袋布里料，材料与大身不同）
+    均不进排料产物。"""
     ps = [_piece("front_piece", "前片"), _piece("belt_loop", "裤耳"),
-          _piece("watch_pocket", "小表袋")]
+          _piece("front_pouch", "袋布"), _piece("watch_pocket", "小表袋")]
     got = piece_codes.nest_pieces(ps)
     assert [p.name for p in got] == ["front_piece", "watch_pocket"]
 

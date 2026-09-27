@@ -1,9 +1,9 @@
 """裁片收集测试（推码方案步 2；flows/collect.py）。
 
 金标：固定顺序 waistband / back_yoke / front_facing|front_patch /
-front_pouch / front_fly_single(+double) / watch_pocket / belt_loop /
-back_patch / front_piece / back_piece；关闭项进 skips 不构建；双排关闭
-只回单片。
+front_pouch / front_fly_single|front_fly_double（fly_sep_double 二选一）/
+watch_pocket / belt_loop / back_patch / front_piece / back_piece；关闭项进
+skips 不构建；门襟形态 fly_sep_double 二选一（2026-09-27 起恒互斥）。
 """
 
 import pytest
@@ -32,11 +32,11 @@ def ctx_all():
 
 
 def test_all_on_order_and_no_skips(ctx_all):
-    """全开关矩阵：片名有序金标，无跳过。"""
+    """全开关矩阵：片名有序金标，无跳过（fly_sep_double=True 只出双排片）。"""
     pieces, skips = collect_pieces(ctx_all)
     assert [p.name for p in pieces] == [
         "waistband", "back_yoke", "front_facing", "front_pouch",
-        "front_fly_single", "front_fly_double", "watch_pocket", "belt_loop",
+        "front_fly_double", "watch_pocket", "belt_loop",
         "back_patch", "front_piece", "back_piece"]
     assert skips == []
 
@@ -63,11 +63,16 @@ def test_front_patch_dispatch():
     assert "front_facing" not in [p.name for p in pieces]
 
 
-def test_fly_double_off_single_only():
-    """门襟双排关闭（fly_sep_double=False）只回单片。"""
-    pieces, skips = collect_pieces(_ctx(fly_separate=True,
-                                        fly_sep_double=False))
+def test_fly_single_double_exclusive():
+    """门襟形态二选一：fly_sep_double=False 只回单排片，且占双排同一
+    固定槽位（DXF Category 序号稳定）。"""
+    full = dict(back_yoke=True, back_patch=True, front_pocket=True,
+                front_pocket_facing=True, front_pocket_facing_mode="tangent",
+                front_pouch=True, fly_separate=True, fly_sep_double=False,
+                watch_pocket=True, belt_loop=True)
+    pieces, skips = collect_pieces(_ctx(**full))
     names = [p.name for p in pieces]
     assert "front_fly_single" in names
     assert "front_fly_double" not in names
+    assert names[4] == "front_fly_single"      # 与 test_all_on 序同槽位
     assert not any("门襟" in s for s in skips)   # fly_separate 开，不算跳过

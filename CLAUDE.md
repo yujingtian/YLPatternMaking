@@ -47,7 +47,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   （空闲=取产物清单 console.table 打印后直达机器排料求解弹窗、在飞=「排料中」可点击
 #   回看进度、有会话=回看结果；单码 message 拦截）-> POST /api/nest 出带 g 码编号 DXF
 #   （块名 {NAME}-G{NN}-{码}，排料系统 materialSorting 方式 A 解析）+ numMap 数量；
-#   DXF 渲染默认全量带编号（embed_codes），裤耳不进排料产物；结果期关闭 confirm 二次确认；
+#   DXF 渲染默认全量带编号（embed_codes），裤耳/袋布不进排料产物；结果期关闭 confirm 二次确认；
 #   参数页码号套数表（2026-09-22：每码 0.5 步进套数默认 1、最小 0=该码不排料、
 #   不跨会话记忆，提交 quantities 按套数 multiplySets 换算——整数套/偶数量
 #   直乘、奇数量向上取整）；

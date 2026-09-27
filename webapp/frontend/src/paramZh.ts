@@ -161,6 +161,7 @@ export const PARAM_ZH: Record<string, string> = {
   shrinkage_weft: '纬向缩水率',
   seam_allowance: '默认缝份',
   show_seam_allowance: '显示缝边',
+  fly_sep_double: '门襟双排对折（关=单排）',
 
   // —— 裁片 · 腰头裁片 ——
   waistband_fly_extension: '腰头搭门量',
@@ -186,9 +187,8 @@ export const PARAM_ZH: Record<string, string> = {
   watch_pocket_shrinkage_warp: '表袋经向缩水',
   watch_pocket_shrinkage_weft: '表袋纬向缩水',
 
-  // —— 裁片 · 门襟裁片（独立门襟专属）——
+  // —— 裁片 · 门襟裁片（独立门襟专属；形态开关已移全局工艺）——
   fly_sep_extra: '门襟底部延展量',
-  fly_sep_double: '门襟对折双排',
   fly_seam_allowances: '门襟缝份',
   fly_shrinkage_warp: '门襟经向缩水',
   fly_shrinkage_weft: '门襟纬向缩水',

@@ -8,8 +8,9 @@ materialSorting-server 的解析与赋码规范，2026-09）。本模块是引�
   ``[-._](\\d+)$``，剩余部分以 ``(?:g|G|#)(\\d{1,3})$`` 结尾即命中
   方式 A（编号全量复用、all-or-nothing）；
 - **数量表 numMap**：每 g 码一个默认裁剪数量（2026-09-20 用户口径：
-  前后片/机头/前口袋/腰头/袋布/后贴袋/小表袋默认 2、门襟默认 1；
-  裤耳整根连裁不走排料，含在常规裁片 DXF 但不进排料产物）；
+  前后片/机头/前口袋/腰头/后贴袋默认 2、小表袋 1〔同日修订，原 2〕、
+  门襟 1；裤耳整根连裁与袋布〔口袋里料，材料与大身不同，2026-09-27〕
+  均不走排料，含在常规裁片 DXF 但不进排料产物）；
 - **锚点算法** label_anchor：编号 TEXT 插入点（质心落片外时取扫描线
   最宽内条带中点，凹片不悬空），纯几何零依赖。
 
@@ -26,7 +27,8 @@ from ..pieces import PatternPiece
 
 # g 码固定分配表（piece.name -> g 码号）。front_facing / front_patch 同槽
 # g04（前口袋二选一形态，collect_pieces 恒互斥）；front_fly_single 与
-# front_fly_double 可同场（fly_separate 时双排门襟另成一片），分占 g08/g11。
+# front_fly_double 经 fly_sep_double 二选一产出（2026-09-27 起恒互斥），
+# 分占 g08/g11；front_pouch(g06) 与 belt_loop(g10) 仅常规 DXF 消费。
 PIECE_GCODES: dict[str, int] = {
     "front_piece": 1,
     "back_piece": 2,
@@ -43,7 +45,8 @@ PIECE_GCODES: dict[str, int] = {
 }
 
 # 排料默认数量表（g 码载体）：用户口径 2026-09-20，各码同数量；
-# 小表袋 1（2026-09-20 修订，原 2）。
+# 小表袋 1（2026-09-20 修订，原 2）。排除片（NEST_EXCLUDED：belt_loop /
+# front_pouch〔2026-09-27 袋布加入〕）不登本表——numMap 永不消费。
 PIECE_QUANTITIES: dict[str, int] = {
     "front_piece": 2,
     "back_piece": 2,
@@ -51,16 +54,17 @@ PIECE_QUANTITIES: dict[str, int] = {
     "front_facing": 2,
     "front_patch": 2,
     "waistband": 2,
-    "front_pouch": 2,
     "back_patch": 2,
     "front_fly_single": 1,
     "front_fly_double": 1,
     "watch_pocket": 1,
 }
 
-# 不进排料产物的裁片（belt_loop 整根连裁条带不走 nesting；常规裁片
-# DXF 维持含裤耳现状，仅 /api/nest 侧过滤）。
-NEST_EXCLUDED = frozenset({"belt_loop"})
+# 不进排料产物的裁片：belt_loop 整根连裁条带不走 nesting；front_pouch
+# 袋布为口袋里料、与大身面料不同（2026-09-27），不与大身混排。两者常规
+# 裁片 DXF 照常包含（含 g 码——误传排料侧时 all-or-nothing 判定仍成立），
+# 仅 /api/nest 侧过滤。
+NEST_EXCLUDED = frozenset({"belt_loop", "front_pouch"})
 
 CODE_TEXT_HEIGHT_MM = 25.0   # 编号 TEXT 字高（对接规范：与 marker 导出同口径）
 
@@ -130,13 +134,14 @@ def inch_size_label(waist_cm: float) -> str:
 
 
 def nest_pieces(pieces: Sequence[PatternPiece]) -> list[PatternPiece]:
-    """排料裁片集：过滤 NEST_EXCLUDED（belt_loop 整根连裁不进排料）。"""
+    """排料裁片集：过滤 NEST_EXCLUDED（belt_loop 整根连裁、front_pouch
+    袋布里料材料不同，均不进排料）。"""
     return [p for p in pieces if p.name not in NEST_EXCLUDED]
 
 
 def nest_num_map(pieces: Sequence[PatternPiece]) -> dict[str, int]:
     """排料数量契约 numMap：{g码: 默认数量}（扁平、各码同数量）。
-    输入应为 nest_pieces 之后的片集（belt_loop 再滤一次，双保险）；
+    输入应为 nest_pieces 之后的片集（排除片再滤一次，双保险）；
     未登记名/数量 raise（与渲染同一防线，带指引消息）。"""
     out: dict[str, int] = {}
     for p in pieces:

@@ -266,7 +266,11 @@ SECTIONS: list[dict] = [
         {"key": "craft_global", "label": "全局工艺", "collapsed": True,
          "params": [
             "shrinkage_enabled", "shrinkage_warp", "shrinkage_weft",
-            "seam_allowance", "show_seam_allowance"]},
+            "seam_allowance", "show_seam_allowance",
+            # 门襟形态二选一（True=双排对折片 / False=单排单层片，2026-09-27
+            # 单键语义）：产出形态是全局口径而非门襟专属工艺量，归全局工艺
+            # （用户口径 2026-09-27）；gate=fly_separate，独立门襟关时隐藏
+            ("fly_sep_double", "fly_separate")]},
         {"key": "craft_waistband", "label": "腰头裁片", "collapsed": True,
          "params": [
             "waistband_fly_extension",
@@ -294,11 +298,11 @@ SECTIONS: list[dict] = [
             "watch_pocket_shrinkage_weft"],
          "visible_if": ["watch_pocket", "front_pocket"]},
         # 独立门襟专属（§5 分裁延展 / 门襟裁片.md 缝份与缩水）；
-        # 参数级 gate 与组级一致（自文档，双保险）
+        # fly_sep_double 形态二选一已移全局工艺组；参数级 gate 与组级一致
+        # （自文档，双保险）
         {"key": "craft_fly", "label": "门襟裁片", "collapsed": True,
          "params": [
             ("fly_sep_extra", "fly_separate"),
-            ("fly_sep_double", "fly_separate"),
             ("fly_seam_allowances", "fly_separate"),
             ("fly_shrinkage_warp", "fly_separate"),
             ("fly_shrinkage_weft", "fly_separate")],

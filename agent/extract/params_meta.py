@@ -512,8 +512,9 @@ META: dict[str, MetaEntry] = {
     "fly_sep_extra": MetaEntry("独立门襟外放", "门襟",
                                "独立裁片底部延展量（裁片高 = 开深 + 本值）",
                                gate="fly_separate"),
-    "fly_sep_double": MetaEntry("门襟双排对折开关", "门襟",
-                                "开=对折双排片", gate="fly_separate"),
+    "fly_sep_double": MetaEntry("门襟形态二选一", "门襟",
+                                "开=只出双排（对折）片；关=只出单排（单层）片",
+                                gate="fly_separate"),
     # 裤耳
     "belt_loop": MetaEntry("裤耳开关", "裤耳", "腰头袢带"),
     "belt_loop_width": MetaEntry("裤耳宽", "裤耳", "成品净宽（净裁无缝份）",
