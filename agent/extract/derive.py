@@ -359,29 +359,36 @@ def dart_balance(measurements: dict[str, float], axes: dict[str, str],
         # 育克裁片提取时绕省尖旋转闭口完成转省（back_yoke_steps §3 /
         # yoke_flow §2.2）——成品无可见省道，K4「有育克默认无后腰省」指成品形态
         shortfall = takeup
-        ev += (f"；有育克：⑤ 全额作约克省口 width={takeup:.2f}"
-               f"（育克绕省尖旋转闭口转省）{('，' + note) if note else ''}")
+        ev += (f"；有育克：⑤ 全额作约克省口（育克绕省尖旋转闭口转省，"
+               f"1~2 省分担）{('，' + note) if note else ''}")
     else:
         takeup = 0.0
         shortfall = max(0.0, residual)
         ev += "；无育克，缺额全部强制腰省"
 
+    # 省数档位有/无育克同口径（2026-09-27：引擎 yoke_flow 级联闭口多省化后，
+    # 「有育克单省硬吃大省口→育克/腰头拼合局部过弯」退役；单省上限 2.5 与
+    # 无育克口径对齐，>2.5 拆双省摊薄局部折角，总转省量不变）
     dart_on = shortfall >= 0.5
     if not dart_on:
         count, width = 0, 0.0
         ev += "；缺额 <0.5 不开省"
-    elif yoke_on:
-        # 引擎育克闭口仅支持 1 省（yoke_flow 多省回退无省提取），count 恒 1
-        count, width = 1, shortfall
-        ev += f"；单省 width={width:.2f}（约克省载体）"
     elif shortfall <= 2.5:
         count, width = 1, min(2.5, max(1.0, shortfall))
         ev += f"；单省 width={width:.2f}（缺额 clamp[1.0,2.5]）"
     else:
         count, width = 2, min(2.5, shortfall / 2)
-        ev += f"；双省 width={width:.2f}（缺额/2）"
+        ev += f"；双省 width={width:.2f}（缺额/2，每省 ≤2.5）"
     return DartPlan(r, channels, takeup, note if yoke_on else "", dart_on,
                     count, width, ev)
+
+
+def dart_length_linked(width: float) -> tuple[float, str]:
+    """省长随省宽联动：5.25×省宽 clamp[10.5,13]，半角 atan(省宽/2÷省长)
+    ≈5.4° 恒定（2cm 参考省的省角水平）——大省口省角不随宽涨，缝后不起拱；
+    上限 13 覆盖双省顶格 2.5×5.25=13.125 的常规带。"""
+    return (round(min(13.0, max(10.5, 5.25 * width)), 2),
+            f"K4 省角恒定联动：省长 = 5.25×省宽 clamp[10.5,13]（省宽 {width:.2f}）")
 
 
 # -- 其余框架键（C 表） ----------------------------------------------------------
@@ -520,6 +527,15 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
                 if plan.yoke_note:
                     note += f"（{plan.yoke_note}）"
                 put(k, v, ev + (note if k == "back_yoke_cb_dist" else ""))
+            continue
+        if part == "dart" and plan.dart_on:
+            # 省长随省宽联动（省角恒定）优先于族模板 10.5；dart_on=False
+            # （S2 视觉强制开开关而缺额不足）时族模板 10.5 兜底
+            for k, (v, ev) in part_family(part, axes, enums,
+                                          measurements).items():
+                if k == "back_dart_length":
+                    v, ev = dart_length_linked(plan.dart_width)
+                put(k, v, ev)
             continue
         for k, (v, ev) in part_family(part, axes, enums, measurements).items():
             put(k, v, ev)

@@ -20,8 +20,9 @@ K3 后中（X 锚点 5→2.0/15→3.0/20→3.5/25→4.5，d>25 封顶 4.0）：
 K4 余量排除法（R=(H−W)/2，弹力 ×0.75）：
 - 案例算式：13.0 − 1.5 − 3.5 − 1.0 − 3.0 = 4.0（yoke_residual 纯算式）
 - 溢余：W70 H82 R=6 − ①1.25 − ②2.55 − ③0.8 − ④3.5 = −2.1 → 无省浅育克
-- 有育克 ⑤>0：约克省载体 = back_dart 三键，单省宽=⑤（闭口仅 1 省，
-  用户口径 2026-09-02；「有育克默认无后腰省」指成品形态）
+- 有育克 ⑤>0：约克省载体 = back_dart 三键，省数档位与无育克同口径
+  （≤2.5 单省 / >2.5 双省摊薄局部折角，2026-09-27 引擎多省级联闭口后对齐；
+  「有育克默认无后腰省」指成品形态）；省长 5.25×省宽 clamp[10.5,13] 省角恒定
 - 无育克单省：W70 H92 R=11 − ①1.25 − ②4.1167 − ③1.0 − ④3.5 = 1.1333
 - 无育克双省：W69 H95 R=13 − ①0.85 − ②3.2667 − ③1.0 − ④4.75 = 3.1333
   → count=2 width=1.5667
@@ -38,6 +39,7 @@ from agent.extract.derive import (
     back_intake_x,
     curvy_waist_balance,
     dart_balance,
+    dart_length_linked,
     derive_all,
     enforce_dependencies,
     front_crotch_adjust_for,
@@ -189,19 +191,30 @@ def test_k4_stretch_absorption():
 
 def test_k4_yoke_transfer_dart():
     """有育克 ⑤>0：约克省载体 = 后腰省三键（back_yoke_steps §3 约克转移量）
-    ——单省、宽=⑤ 全额（引擎闭口仅 1 省，多省回退无省提取）；成品无可见省道。"""
+    ——省数档位与无育克同口径（2026-09-27 引擎 yoke_flow 级联闭口多省化）：
+    ⑤ ≤2.5 单省、>2.5 拆双省摊薄局部折角（总转省量不变）；成品无可见省道。"""
     plan = dart_balance(_m(69, 94), _axes(waist_position="low",
                                           body_shape="curvy"), yoke_on=True)
     assert plan.yoke_takeup > 0.5
     assert plan.dart_on
-    assert plan.dart_count == 1
-    assert plan.dart_width == pytest.approx(plan.yoke_takeup)
+    assert plan.dart_count == 2                      # ⑤=3.5611 > 2.5 → 拆双省
+    assert plan.dart_width == pytest.approx(1.78056, abs=1e-4)
+    assert plan.dart_width * 2 == pytest.approx(plan.yoke_takeup, abs=1e-4)
     assert "约克省" in plan.evidence
-    # ⑤ 超带上限：省口钳 5.0 并披露溢出，不切第二省（闭口仅 1 省）
+    # ⑤ 超带上限：省口钳 5.0（双省各 2.5）并披露溢出
     big = dart_balance(_m(60, 100), _axes(waist_position="mid",
                                           body_shape="curvy"), yoke_on=True)
-    assert big.dart_width <= 5.0 and big.dart_count == 1
+    assert big.dart_width == 2.5 and big.dart_count == 2
     assert "溢出" in big.yoke_note
+
+
+def test_k4_dart_length_linked():
+    """省长随省宽联动（省角恒定 ≈5.4°）：5.25×省宽 clamp[10.5,13]——
+    常规窄省触下限 10.5、宽省加长、双省顶格 2.5 钳 13。"""
+    assert dart_length_linked(1.0)[0] == 10.5
+    assert dart_length_linked(2.0)[0] == 10.5
+    assert dart_length_linked(2.2)[0] == 11.55
+    assert dart_length_linked(2.5)[0] == 13.0     # 5.25×2.5=13.125 钳 13
 
 
 # -- C 表其余框架键 --------------------------------------------------------------

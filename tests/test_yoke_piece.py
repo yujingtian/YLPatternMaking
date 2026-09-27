@@ -3,8 +3,10 @@
 金标（M 同 test_back_yoke_steps：W=70, H=96, Δ=1.0, outseam=102，直腰头扣腰头宽 4，
 默认 back_yoke_cb_dist=4.0 / back_yoke_side_dist=3.0，无锚点 -> 直线下口）：
   - 无省（§2.1）：四条边界（底边/侧缝/腰口/后中）围成封闭区，cutter 序 P0->PN->X->O。
-  - 有省（§2.2，1 省 2cm）：右片绕省尖旋转闭合 -> 拼合处上下折角 G1 倒圆；
-    同族边（bottom/top）内部所有衔接点切向共线（G1）。
+  - 有省（§2.2，1 省 2cm / 2 省各 2cm）：右片绕省尖（级联）旋转闭合 ->
+    拼合处上下折角 G1 倒圆；同族边（bottom/top）内部所有衔接点切向共线（G1）。
+    2 省（2026-09-27 多省化）：外侧省先闭、内侧省复合旋转，腰口净长守恒
+    ≈ 无省弧长 − Σ省口宽（拆省摊薄局部折角、不改总转省量）。
   - 倒圆量 back_yoke_join_fillet（§2.2.3）：None=自适应（默认，逐拼合点
     clamp(0.2×min 邻边弧长, 1.0, 3.0)）/ 正数=固定 δ / 0=不倒圆；倒圆带弧长
     补偿（fillet 弧长 = 2δ，拼合前后车缝净长不变）。
@@ -39,6 +41,7 @@ def _assert_point_approx(a, b, *, abs=1e-3):
 
 def _start(g): return g.a if isinstance(g, LineSegment) else g.p0
 def _end(g):   return g.b if isinstance(g, LineSegment) else g.p3
+def _glen(g):  return g.length if isinstance(g, LineSegment) else g.length()
 def _start_tan(g):
     if isinstance(g, LineSegment):
         v = g.b - g.a
@@ -484,17 +487,89 @@ def test_options_validation():
 
 
 def test_two_darts_fallback_no_error():
-    """2 省：当前仅支持 1 省 -> 回退无省提取（不抛错，产出无省结构）。"""
+    """2 省级联闭口（2026-09-27 起；旧口径回退无省已退役）：闭合 + 刀口数。"""
     o = PatternOptions(delta=1.0, back_yoke=True, back_dart=True,
                        back_dart_count=2, back_dart_width=[2.0, 2.0],
                        back_dart_length=10.0)
     ctx = FlowRunner(M, o).run(FULL_FLOW)
     assert "back.dart2_apex" in ctx.sheet          # 确有 2 省
-    piece, _ = build_yoke(ctx)                       # 回退无省，不抛错
-    # 无省结构：bottom/top 各 1 段（无倒圆三件组）
+    piece, _ = build_yoke(ctx)                       # 级联闭口，不抛错
+    # 刀口 = 2 省 × 拼合线两端 + 后中 1 = 5
+    assert len(piece.notches) == 5
+    # 闭合（回退无省时 bottom/top 各 1 段、刀口仅后中 1——双重证伪回退路径）
+    es = piece.net_edges
+    for i in range(len(es)):
+        _assert_point_approx(_end(es[i].geom), _start(es[(i + 1) % len(es)].geom))
+
+
+def test_two_darts_double_fillet_groups():
+    """双省 bottom/top 同族边各含两处倒圆三件组（3 片 2 圆 = 5 段，
+    直线下口单段链时恰 5）。"""
+    o = PatternOptions(delta=1.0, back_yoke=True, back_dart=True,
+                       back_dart_count=2, back_dart_width=[2.0, 2.0],
+                       back_dart_length=10.0)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    piece, _ = build_yoke(ctx)
     groups = _edges_by_name(piece)
-    assert len(groups["bottom"]) == 1
-    assert len(groups["top"]) == 1
+    assert len(groups["bottom"]) == 5
+    assert len(groups["top"]) == 5
+
+
+def test_two_darts_g1_smooth_within_groups():
+    """双省同族边（bottom/top）内部所有衔接点切向共线（G1，两处倒圆皆平滑）。"""
+    o = PatternOptions(delta=1.0, back_yoke=True, back_dart=True,
+                       back_dart_count=2, back_dart_width=[2.0, 2.0],
+                       back_dart_length=10.0)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    piece, _ = build_yoke(ctx)
+    for name in ("bottom", "top"):
+        geoms = _edges_by_name(piece)[name]
+        for i in range(len(geoms) - 1):
+            te = _end_tan(geoms[i])
+            ts = _start_tan(geoms[i + 1])
+            cross = te.dx * ts.dy - te.dy * ts.dx
+            assert abs(cross) < 1e-6
+
+
+def test_two_darts_top_intake_matches_mouths(ctx_straight):
+    """腰长不变量（裁片侧）：纸样腰弧已含 Σ省口宽（formulas/waist.py
+    back_darts_takeup），闭省转省后育克腰口净链长回到成品腰弧 = 无省净长
+    （残差 = 省口弧弦差 + 倒圆二分容差，<0.15cm）；单省 4cm 同总吸收量对照
+    （拆省不改总转省，只摊薄局部折角）。"""
+    def _top_total(**kw):
+        o = PatternOptions(delta=1.0, back_yoke=True, **kw)
+        ctx = FlowRunner(M, o).run(FULL_FLOW)
+        piece, _ = build_yoke(ctx)
+        return sum(_glen(g) for g in _edges_by_name(piece)["top"])
+
+    base = _top_total()                                        # 无省（成品腰弧）
+    two = _top_total(back_dart=True, back_dart_count=2,
+                     back_dart_width=[2.0, 2.0], back_dart_length=10.0)
+    one = _top_total(back_dart=True, back_dart_count=1,
+                     back_dart_width=4.0, back_dart_length=10.0)
+    assert two == pytest.approx(base, abs=0.15)
+    assert one == pytest.approx(base, abs=0.15)
+    assert two == pytest.approx(one, abs=0.15)
+
+
+def test_curved_two_darts_builds():
+    """弯腰头 + 双省（下腰头弧 O'->X' 路径）：完整构建不抛错、闭合、G1、
+    刀口 5。"""
+    o = PatternOptions(delta=1.0, back_yoke=True, waistband_type=WaistbandType.CURVED,
+                       back_dart=True, back_dart_count=2,
+                       back_dart_width=[2.0, 2.0], back_dart_length=10.0)
+    ctx = FlowRunner(M, o).run(FULL_FLOW)
+    piece, _ = build_yoke(ctx)
+    assert len(piece.notches) == 5
+    es = piece.net_edges
+    for i in range(len(es)):
+        _assert_point_approx(_end(es[i].geom), _start(es[(i + 1) % len(es)].geom))
+    for name in ("bottom", "top"):
+        geoms = _edges_by_name(piece)[name]
+        for i in range(len(geoms) - 1):
+            cross = (_end_tan(geoms[i]).dx * _start_tan(geoms[i + 1]).dy
+                     - _end_tan(geoms[i]).dy * _start_tan(geoms[i + 1]).dx)
+            assert abs(cross) < 1e-6
 
 
 def test_curved_no_dart_builds(ctx_curved_nodart):
