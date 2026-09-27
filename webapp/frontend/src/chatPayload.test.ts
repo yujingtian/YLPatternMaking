@@ -8,7 +8,7 @@
 // 详见 .doc/python工程设计.md §10.9.2。
 import { describe, expect, it } from 'vitest'
 import {
-  buildChatForm, deliverySummaryLine, deliveryToPrefill,
+  adjustNote, buildChatForm, deliverySummaryLine, deliveryToPrefill,
   normalizeChatError, sessionToJson,
 } from './chatPayload'
 import type { ChatDelivery, ExtractKeyMeta } from './types'
@@ -133,5 +133,48 @@ describe('deliverySummaryLine', () => {
     }
     expect(deliverySummaryLine(d)).toBe(
       '第 3 轮交卷 · 模型 test-vl · 照片 2 张 · 低置信 1 项')
+  })
+
+  it('有调版 -> 「调版 n 键」段插在照片之后；空 applied / 无 adjust 不变', () => {
+    const d: ChatDelivery = {
+      ...DELIVERY,
+      adjust: {
+        note: '袋口弧线加深', reverted: [], dropped: [],
+        applied: [
+          { key: 'front_pocket_mouth_bulge', value: 1.75 },
+          { key: 'front_pocket_p2_drop', value: 12 },
+        ],
+      },
+    }
+    expect(deliverySummaryLine(d)).toBe(
+      '第 3 轮交卷 · 模型 test-vl · 照片 2 张 · 调版 2 键 · '
+      + '回退 1 项 · 低置信 2 项 · 评分警告 1 项')
+    // 空调整（applied=[]）：仅 note 披露，摘要行不加段
+    const empty: ChatDelivery = {
+      ...DELIVERY,
+      adjust: { note: '未识别到调版意图', applied: [], dropped: [], reverted: [] },
+    }
+    expect(deliverySummaryLine(empty)).toBe(
+      '第 3 轮交卷 · 模型 test-vl · 照片 2 张 · 回退 1 项 · 低置信 2 项 · 评分警告 1 项')
+    expect(deliverySummaryLine(DELIVERY)).toContain('照片 2 张 · 回退')
+  })
+})
+
+describe('adjustNote（调版披露一句话）', () => {
+  it('有 adjust.note -> 原样返回', () => {
+    const d: ChatDelivery = {
+      ...DELIVERY,
+      adjust: { note: '袋口弧线加深；引擎校验回退：袋口深浅',
+                applied: [], dropped: [], reverted: ['front_pocket_p2_drop'] },
+    }
+    expect(adjustNote(d)).toBe('袋口弧线加深；引擎校验回退：袋口深浅')
+  })
+
+  it('无 adjust / note 空 -> 空串（调用方非空才渲染）', () => {
+    expect(adjustNote(DELIVERY)).toBe('')
+    const d: ChatDelivery = {
+      ...DELIVERY, adjust: { note: '', applied: [], dropped: [], reverted: [] },
+    }
+    expect(adjustNote(d)).toBe('')
   })
 })

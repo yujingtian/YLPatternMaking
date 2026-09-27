@@ -521,3 +521,76 @@ def ray_intersect_bezier(ray_origin: Point, ray_dir: Vector,
 
     t_hit = (lo + hi) / 2
     return curve.point_at(t_hit), t_hit
+
+
+def ray_intersect_segment(ray_origin: Point, ray_dir: Vector,
+                          seg: LineSegment) -> tuple[Point, float] | None:
+    """射线与直线段的精确交点：返回 (交点, 段上参数 v∈[0,1])，无交返回 None。
+
+    克莱姆法则解 2×2 线性组 O + s·u = A + v·(B−A)：s ≤ 0（反向延长线）
+    或 v 越界即无交；与 ray_intersect_bezier 配对供链式求交用。
+    """
+    u = ray_dir.normalized()
+    d = seg.b - seg.a
+    det = d.dx * u.dy - u.dx * d.dy
+    if abs(det) < 1e-12:
+        return None                                   # 平行（含共线）
+    rx, ry = seg.a.x - ray_origin.x, seg.a.y - ray_origin.y
+    s = (d.dx * ry - rx * d.dy) / det
+    v = (u.dx * ry - rx * u.dy) / det
+    if s <= 1e-9 or v < 0.0 or v > 1.0:
+        return None
+    return ray_origin + u.scale(s), v
+
+
+def ray_intersect_chain(ray_origin: Point, ray_dir: Vector,
+                        geoms) -> tuple[Point, float]:
+    """射线与几何体链（LineSegment / CubicBezier 混合）求交。
+
+    返回 (交点, 链上位置 = 段序 + 段内参数)；多个命中取离射线原点最近。
+    直线段精确解，贝塞尔段复用 ray_intersect_bezier（采样符号变号）。
+    用于小表袋底边与袋贴内边（单曲线或 polyline 折角链）相交定位。
+    """
+    u = ray_dir.normalized()
+    best: tuple[float, float, Point] | None = None    # (s, 链位, 交点)
+    for i, g in enumerate(geoms):
+        if isinstance(g, LineSegment):
+            hit = ray_intersect_segment(ray_origin, u, g)
+            if hit is None:
+                continue
+            p, v = hit
+            cand = ((p.x - ray_origin.x) * u.dx + (p.y - ray_origin.y) * u.dy,
+                    i + v, p)
+        else:
+            try:
+                p, t = ray_intersect_bezier(ray_origin, u, g)
+            except ValueError:
+                continue
+            cand = ((p.x - ray_origin.x) * u.dx + (p.y - ray_origin.y) * u.dy,
+                    i + t, p)
+        if best is None or cand[0] < best[0]:
+            best = cand
+    if best is None:
+        raise ValueError("小表袋侧边向下射线未与袋贴内边弧线相交，请调整袋口位置或角度")
+    return best[2], best[1]
+
+
+def chain_subrange(geoms, pa: float, pb: float) -> list:
+    """链上 [pa, pb]（pa < pb，链上位置 = 段序 + 段内参数）子链。
+
+    跨段裁剪：直线段端点线性插值、贝塞尔段 bezier_subrange；零长段跳过。
+    用于小表袋底边 = 袋贴内边两交点间的子链（单曲线或折角链皆可）。
+    """
+    out: list[LineSegment | CubicBezier] = []
+    for i in range(int(pa), int(pb) + 1):
+        g = geoms[i]
+        v0 = pa - i if i == int(pa) else 0.0
+        v1 = pb - i if i == int(pb) else 1.0
+        if v1 - v0 <= 1e-9:
+            continue
+        if isinstance(g, LineSegment):
+            d = g.b - g.a
+            out.append(LineSegment(g.a + d.scale(v0), g.a + d.scale(v1)))
+        else:
+            out.append(bezier_subrange(g, v0, v1))
+    return out

@@ -29,7 +29,7 @@ import SheetPreview from './SheetPreview'
 import {
   compressImage, MAX_PHOTOS, validatePhotoFile,
 } from '../imageCompress'
-import { deliverySummaryLine } from '../chatPayload'
+import { adjustNote, deliverySummaryLine } from '../chatPayload'
 
 export default function SmartDraftView({ chat, onConfirm }: {
   chat: SmartDraftState
@@ -164,7 +164,7 @@ export default function SmartDraftView({ chat, onConfirm }: {
               </div>
             )}
             {chat.messages.map((m) => (
-              <MessageRow key={m.id} m={m} lastDeliverId={lastDeliver?.id ?? -1} />
+              <MessageRow key={m.id} m={m} />
             ))}
             {chat.busy && (
               <div className="chat-msg agent">
@@ -239,6 +239,14 @@ export default function SmartDraftView({ chat, onConfirm }: {
                 <span className="extract-meta">
                   {deliverySummaryLine(lastDeliver.delivery)}
                 </span>
+                {adjustNote(lastDeliver.delivery) && (
+                  <span
+                    className="extract-meta"
+                    style={{ flexBasis: '100%', minWidth: 0, opacity: 0.75 }}
+                  >
+                    {adjustNote(lastDeliver.delivery)}
+                  </span>
+                )}
                 <div className="smart-preview-actions">
                   <Button onClick={() => inputRef.current?.focus({ cursor: 'end' })}>
                     继续调整
@@ -272,9 +280,10 @@ export default function SmartDraftView({ chat, onConfirm }: {
   )
 }
 
-// 单条消息渲染：user 气泡 / 求援卡 / 内联 error；交卷一律摘要行
-// （最新一条标注右侧已更新，历史标注已被后续回答取代）
-function MessageRow({ m, lastDeliverId }: { m: ChatMsg; lastDeliverId: number }) {
+// 单条消息渲染：user 气泡 / 求援卡 / 内联 error；交卷统一
+// 「第 N 轮已交卷 · 调版 note」弱化行（完整统计摘要只在右栏预览头，
+// 用户口径 2026-09-27：对话流里 meta 统计行是噪音，最新历史都不出）
+function MessageRow({ m }: { m: ChatMsg }) {
   if (m.role === 'user') {
     return (
       <div className="chat-msg user">
@@ -327,8 +336,8 @@ function MessageRow({ m, lastDeliverId }: { m: ChatMsg; lastDeliverId: number })
   return (
     <div className="chat-msg agent">
       <div className="chat-bubble chat-history">
-        {deliverySummaryLine(m.delivery)}
-        （{m.id === lastDeliverId ? '右侧已更新预览' : '已被后续回答取代'}）
+        {`第 ${m.delivery.summary.turn} 轮已交卷`
+          + (adjustNote(m.delivery) ? ` · ${adjustNote(m.delivery)}` : '')}
       </div>
     </div>
   )

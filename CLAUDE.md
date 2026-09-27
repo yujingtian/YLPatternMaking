@@ -153,6 +153,10 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   python -m agent chat（一行一轮，:photo 补照 :quit 退出，--draft --staged 出整版
 #   + 三里程碑中间版）+ POST /api/chat/turn（会话 JSON 随请求往返、后端无状态；
 #   缺必填转求援卡不 422）；口径权威 .doc/python工程设计.md §10.9.2
+#   调版映射（交卷后口语调版 2026-09-27）：交卷后每轮纯文字反馈经一次小文本
+#   LLM 调用映射为 {key, 档位|整数步}（LLM 绝不输出 cm），账本重放持久、
+#   注入现有管线幂等重跑、交卷披露；agent/extract/{adjust,params_meta}.py
+#   + tests/test_agent_adjust.py；口径权威 .doc/python工程设计.md §10.9.2 调版映射条
 #   前端接线（一期 2026-09 向导已删；二期 2026-09-21「智能打版」对话壳取代、
 #   2026-09-24 弹层升独立界面：左对话右可缩放整版预览〔SheetPreview 复用
 #   SheetView 的 viewBox 滚轮缩放/拖曳平移方案〕，多轮 /api/chat/turn +

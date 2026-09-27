@@ -367,7 +367,24 @@ export interface ChatLedger {
   size_label: { value: unknown; turn: number } | null
 }
 
-// 交卷体：to_web_payload 六键 + review/ledger/summary
+// 调版映射披露（2026-09-27 §10.9.2）：交卷后口语调版（「口袋弧深一点」）
+// 经映射节点落地的调整。applied.value = keys 终值（probe 回退键已被弹出，
+// 由引擎默认值兜底显示——诚实读数；L0.5 调版回退键不弹出、值保持上一版，
+// note 里「未生效/已保持上一版」披露）；dropped = 解析层丢弃原因；
+// reverted = 撞引擎校验被回退的映射键（note 里有人话披露）
+export interface ChatAdjustApplied {
+  key: string
+  value: unknown
+}
+
+export interface ChatAdjust {
+  note: string
+  applied: ChatAdjustApplied[]
+  dropped: string[]
+  reverted: string[]
+}
+
+// 交卷体：to_web_payload 六键 + review/ledger/summary + adjust（有调版轮才有）
 export interface ChatDelivery {
   measurements: Record<string, number>
   options: Values
@@ -378,6 +395,7 @@ export interface ChatDelivery {
   review: ChatReview
   ledger: ChatLedger
   summary: { turn: number; model: string; photo_count: number }
+  adjust?: ChatAdjust
 }
 
 export interface ChatTurnResponse {

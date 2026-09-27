@@ -24,8 +24,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from .derive import (KeyMeta, MergedView, derive_all, enforce_dependencies,  # noqa: F401 重导出
-                     merge)
+from .derive import (DESC, KeyMeta, MergedView, derive_all,  # noqa: F401 重导出
+                     enforce_dependencies, merge)
 from .parse import Observation, parse_describe, parse_model_json, sanitize
 from .prejudge import prejudge_axes, prior_switches
 
@@ -154,6 +154,8 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
                        progress: Callable[[str], None] | None = None,
                        seed_measurements: dict[str, tuple] | None = None,
                        seed_hints: dict[str, str] | None = None,
+                       seed_overrides: dict[str, tuple] | None = None,
+                       adjust_revert: dict | None = None,
                        seed_size_label: int | None = None,
                        seed_shrinkage: float | None = None,
                        prior_observation=None
@@ -168,6 +170,18 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
     调用全部缺省，行为与历史逐位一致）：
     - seed_*：会话账本重放值（多轮累积、后答覆盖先答）。种子优先于本轮
       parse 的单文本结果——describe 传「全轮拼接」时种子兜住轮次语义；
+    - seed_overrides（2026-09-27 调版映射覆盖通道，converse.run_turn 专用）：
+      账本调版绝对值（键 -> (值, evidence)），derive_all 之后覆写/补种。
+      键 ∈ derived -> 覆写；键 ∈ merged.switches -> 覆写并幂等重跑
+      enforce_dependencies（外围开关如 front_pouch 不走 merge 的 hint
+      循环）；两处都无 = 该款式未发射的键 -> gate 检查（对当前开关 +
+      同批种子叠加视图）通过才补种新键，否则休眠（部件重开后按绝对值
+      再现）。布尔值先种（gate 要看见同批打开的开关）。单发调用缺省
+      None，行为与历史逐位一致；
+    - adjust_revert（2026-09-27 调版回退，converse.run_turn 专用）：
+      {映射键: 上一版值}——探针 L0 失败时先撤回重试（L0.5，版面保持
+      原样不截肢）；成功后 adjust_kept 值写回产物。单发调用缺省 None
+      零影响；
     - prior_observation：历史照片批的 S2 观察快照。本轮 photos 只放
       **未缓存新照片**（调用方按指纹去重）；有新照片时新证据覆盖旧批次
       同键（后补照片更相关），无新照片时直接复用缓存——零模型调用。
@@ -246,6 +260,32 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
     derived = derive_all(measurements, merged, size_label,
                          shrinkage)
 
+    # 调版覆盖通道注入（口径见 docstring seed_overrides 条）
+    if seed_overrides:
+        from .adjust import ADJUST_TABLE, gate_pass
+        from .params_meta import default_view
+        touched_switch = False
+        overlay = dict(default_view())
+        overlay.update({k: m.value for k, m in merged.switches.items()})
+        overlay.update({k: m.value for k, m in derived.items()})
+        # 布尔值先种：后续键的 gate 检查要看见同一批种子打开的开关
+        for k, (v, ev) in sorted(
+                seed_overrides.items(),
+                key=lambda kv: not isinstance(kv[1][0], bool)):
+            meta = KeyMeta(k, v, DESC, 0.9, ev)
+            overlay[k] = v
+            if k in derived:              # 数值/枚举键（derive_all 已发射）
+                derived[k] = meta
+            elif k in merged.switches:    # 开关键（含 prior 外围开关）
+                merged.switches[k] = meta
+                touched_switch = True
+            else:                         # 未发射键：gate 在才补种，否则休眠
+                spec = ADJUST_TABLE.get(k)
+                if spec is None or gate_pass(spec.gate, overlay):
+                    derived[k] = meta
+        if touched_switch:
+            dep_notes += enforce_dependencies(merged)
+
     options = {**{k: m.value for k, m in merged.switches.items()},
                **{k: m.value for k, m in derived.items()}}
     from .validate import validate_candidate
@@ -256,7 +296,8 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
 
     from .probe import ProbeOutcome, probe_loop
     if run_probe:
-        probe = probe_loop(measurements, options, max_refeed, progress=p)
+        probe = probe_loop(measurements, options, max_refeed, progress=p,
+                           adjust_revert=adjust_revert)
     else:
         # ok=False：--draft 拒绝直出（探针未运行 = 未验证，不许跳过人工核对）
         probe = ProbeOutcome(False, "跳过", "--no-geometry：探针未运行")
@@ -265,6 +306,14 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
     for k in reverted:   # 回退/降级键不进产物（引擎默认接管），报告披露
         merged.switches.pop(k, None)
         derived.pop(k, None)
+    # L0.5 调版回退（2026-09-27）：键保留、值写回上一版——不弹键（弹了
+    # 落引擎默认，会丢掉更早轮次已交卷的调整；与 L1+ 的回默认是两回事）
+    for k, v in (getattr(probe, "adjust_kept", None) or {}).items():
+        meta = KeyMeta(k, v, DESC, 0.9, "调版回退：保持上一版值")
+        if k in derived:
+            derived[k] = meta
+        elif k in merged.switches:
+            merged.switches[k] = meta
     options_final = {**{k: m.value for k, m in merged.switches.items()},
                      **{k: m.value for k, m in derived.items()}}
 

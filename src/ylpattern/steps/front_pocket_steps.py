@@ -453,6 +453,25 @@ def _facing_inner_polyline(ctx: DraftContext, p_fw: Point, p_fs: Point,
     return last
 
 
+def _facing_inner_chain(ctx: DraftContext) -> list[LineSegment | CubicBezier]:
+    """袋贴内边参考链（raw geom，供 isinstance 分派）：单曲线
+    front.pocket_facing_inner（弧形内边形态，或 offset+弧形袋口）或 polyline
+    折角链 front.pocket_facing_inner_segN（offset+折角袋口）。两者皆无 =
+    袋贴未绘制。供小表袋 facing_intersect 模式射线求交/底边取子链
+    （折线袋贴与相交模式不冲突，2026-09-27 前守卫只认单曲线已放开）。
+    """
+    if "front.pocket_facing_inner" in ctx.sheet:
+        return [ctx.sheet.get("front.pocket_facing_inner").geom]
+    geoms: list[LineSegment | CubicBezier] = []
+    i = 1
+    while f"front.pocket_facing_inner_seg{i}" in ctx.sheet:
+        geoms.append(ctx.sheet.get(f"front.pocket_facing_inner_seg{i}").geom)
+        i += 1
+    if not geoms:
+        raise ValueError("袋贴相交模式要求先开启袋贴绘制（front_pocket_facing=True）")
+    return geoms
+
+
 # ---------- 分支 B：表面外贴式（PATCH）管线 ----------
 
 def draw_front_patch_pocket(ctx: DraftContext) -> NamedLine | None:
@@ -569,10 +588,7 @@ def draw_front_watch_pocket(ctx: DraftContext) -> NamedLine | NamedCurve | None:
     # 分支 1：facing_intersect 模式（袋贴相交延伸模式）
     # --------------------------------------------------------------------------
     if o.watch_pocket_mode == "facing_intersect":
-        if "front.pocket_facing_inner" not in ctx.sheet:
-            raise ValueError("袋贴相交模式要求先开启袋贴绘制（front_pocket_facing=True）")
-
-        facing_curve = ctx.curve("front.pocket_facing_inner")
+        facing_chain = _facing_inner_chain(ctx)   # 单曲线或 polyline 折角链
 
         # 袋口方向与向下方向（考虑旋转角）
         rad = math.radians(-o.watch_pocket_rotate_deg)
@@ -589,9 +605,9 @@ def draw_front_watch_pocket(ctx: DraftContext) -> NamedLine | NamedCurve | None:
         dir_a = Vector(v_dir.dx + u_dir.dx * tf, v_dir.dy + u_dir.dy * tf).normalized()
         dir_b = Vector(v_dir.dx - u_dir.dx * tf, v_dir.dy - u_dir.dy * tf).normalized()
 
-        # 求与袋贴弧线的交点
-        q1, t1 = curves.ray_intersect_bezier(pt_a, dir_a, facing_curve)
-        q2, t2 = curves.ray_intersect_bezier(pt_b, dir_b, facing_curve)
+        # 求与袋贴内边链的交点（链上位置 = 段序 + 段内参数）
+        q1, c1 = curves.ray_intersect_chain(pt_a, dir_a, facing_chain)
+        q2, c2 = curves.ray_intersect_chain(pt_b, dir_b, facing_chain)
 
         # 记录 4 个角点
         ctx.add_point("front.watch_pocket_pt1", pt_a, step=step, label="小表袋外上角")
@@ -606,12 +622,21 @@ def draw_front_watch_pocket(ctx: DraftContext) -> NamedLine | NamedCurve | None:
         # 边 2：内侧边 (Line)
         ctx.add_line("front.watch_pocket_seg2", LineSegment(pt_b, q2),
                      step=step, basis="小表袋内侧边（延伸至袋贴）", label="小表袋内侧边", role="struct")
-        # 边 3：底边（顺袋贴弧线子段 CubicBezier）
-        bot_curve = curves.bezier_subrange(facing_curve, min(t1, t2), max(t1, t2))
-        ctx.add_curve("front.watch_pocket_seg3", bot_curve,
-                      step=step, basis="小表袋底边（沿袋贴内边交线）", label="小表袋底边")
-        # 边 4：外侧边 (Line)
-        return ctx.add_line("front.watch_pocket_seg4", LineSegment(q1, pt_a),
+        # 边 3..：底边（袋贴内边两交点间子链——单曲线 bezier_subrange 或
+        # polyline 折角链多段直线；底边多段时后续边序号顺延）
+        bottom = curves.chain_subrange(facing_chain, min(c1, c2), max(c1, c2))
+        for bi, bg in enumerate(bottom):
+            if isinstance(bg, LineSegment):
+                ctx.add_line(f"front.watch_pocket_seg{3 + bi}", bg,
+                             step=step, basis="小表袋底边（沿袋贴内边折线子段）",
+                             label="小表袋底边", role="struct")
+            else:
+                ctx.add_curve(f"front.watch_pocket_seg{3 + bi}", bg,
+                              step=step, basis="小表袋底边（沿袋贴内边交线）",
+                              label="小表袋底边")
+        # 末边：外侧边 (Line)
+        return ctx.add_line(f"front.watch_pocket_seg{3 + len(bottom)}",
+                            LineSegment(q1, pt_a),
                             step=step, basis="小表袋外侧边（延伸至袋贴）", label="小表袋外侧边", role="struct")
 
     # --------------------------------------------------------------------------

@@ -3,6 +3,9 @@
 阶梯（引擎默认开关全 False，故 L2 只回退数值键保留款式、L3 才关开关，
 两级不坍缩）：
 - L0 试跑（先 build_issues 静态构造，再 run_with_thigh_closure 真跑）；
+- L0.5 调版回退（2026-09-27）：L0 失败且本轮有映射键注入时，先撤回
+  **上一版值**重试——版面保持原样；成功即交卷（不再截肢整版）、失败
+  还原快照走原阶梯。单发 extract 无映射键，L0.5 恒不触发；
 - L1 错误归因（异常消息对候选键子串匹配，长键优先）→ 回退归因键重试
   ≤ max_refeed 轮；
 - L2 数值键全量回退引擎默认（款式开关保留）；
@@ -48,6 +51,7 @@ class ProbeOutcome:
     error_keys: list[str] = field(default_factory=list)
     log: list[str] = field(default_factory=list)   # 每轮一句（报告探针段）
     reverted: list[str] = field(default_factory=list)   # 被回退/降级的键
+    adjust_kept: dict = field(default_factory=dict)  # L0.5 保留键 -> 上一版值
     ctx: object = None               # 成功时的 DraftContext（score 步输入）
     header: str = ""                 # 未通过时的产物 header 注记
 
@@ -94,10 +98,14 @@ def _attribute(message: str, options: dict) -> list[str]:
 
 
 def probe_loop(measurements: dict, options: dict,
-               max_refeed: int = 2, progress=None) -> ProbeOutcome:
+               max_refeed: int = 2, progress=None,
+               adjust_revert: dict | None = None) -> ProbeOutcome:
     """L0~L4 状态机：返回最终结论（含成功 ctx 或未通过 header）。
 
     progress：每轮试跑前上报一句（CLI 进度用；缺省静默）。
+    adjust_revert（converse 专用）：{映射键: 上一版值}——L0 失败先撤回
+    重试（L0.5），成功后 adjust_kept 记录保留值（键不弹、值写回上一版，
+    区别于 L1+ 的回默认弹键）。
     """
     p = progress or (lambda message: None)
     out = ProbeOutcome(False, "L4", "")
@@ -119,6 +127,23 @@ def probe_loop(measurements: dict, options: dict,
     if attempt("L0"):
         out.stage = "L0"
         return out
+
+    # L0.5：本轮映射键撤回上一版值重试（值实际变化才算）；失败还原快照
+    # 走原阶梯。上一版值 = 上个交卷的映射面快照，其余键与本轮相同——
+    # 版面最大限度保持原样，不触发 L2/L3 截肢
+    if adjust_revert:
+        touched = [k for k in adjust_revert
+                   if k in opts and opts[k] != adjust_revert[k]]
+        if touched:
+            snap = {k: opts[k] for k in touched}
+            for k in touched:
+                opts[k] = adjust_revert[k]
+            if attempt("L0.5"):
+                out.stage = "L0.5"
+                out.adjust_kept = {k: adjust_revert[k] for k in touched}
+                return out
+            for k, v in snap.items():       # 还原快照，归因阶梯原样走
+                opts[k] = v
 
     # L1：归因键回退重试（≤ max_refeed 轮，每轮重新归因累积）
     for i in range(1, max_refeed + 1):

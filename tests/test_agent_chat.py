@@ -12,6 +12,9 @@
 - 回滚 = 截断事件流重放（腰围回到 74）；
 - 会话 JSON 往返无损；eval 脚本 {"turns":[…]} 落位；
 - CLI chat 两轮交卷 exit 0 出双产物；HTTP /api/chat/turn 会话往返两轮。
+
+调版映射（2026-09-27，§10.9.2）：交卷后的纯文字轮**先出队一条映射响应**
+（map_adjustment 在 S1 补漏/S2 之前），相关用例队列头部补 _EMPTY_ADJ。
 """
 
 from __future__ import annotations
@@ -34,6 +37,9 @@ _S2_REPLY = json.dumps({
     "waistband_type": {"value": "curved", "confidence": 0.85,
                        "evidence": "腰头上口在侧缝处下凹弧线，与裤身一体顺接"},
 }, ensure_ascii=False)
+
+# 交卷后纯文字轮的调版映射响应（空调整 = 模型判断与调版无关）
+_EMPTY_ADJ = '{"adjustments": [], "note": ""}'
 
 
 def test_zero_disturbance_full_input():
@@ -83,7 +89,7 @@ def test_missing_card_no_photo_nudge_with_cached_evidence():
 
 def test_correction_later_turn_wins():
     """改口：第 2 轮「腰围75」覆盖第 1 轮 74，账本记 turn=2。"""
-    vlm = FakeVLM([])
+    vlm = FakeVLM([_EMPTY_ADJ])
     out1 = run_turn(Session(), _DESC, (), provider=vlm)
     out2 = run_turn(out1.session, "腰围75", (), provider=vlm)
     assert out2.delivery["measurements"]["waist"] == 75.0
@@ -95,13 +101,15 @@ def test_photo_batch_cache_and_hint_priority(tmp_path):
     """带照轮恰 1 次 S2；纯文字轮缓存命中 0 新调用 + 词典覆盖照片。"""
     photo = tmp_path / "front.png"
     photo.write_bytes(b"png-bytes")
-    vlm = FakeVLM([_S2_REPLY])
+    vlm = FakeVLM([_S2_REPLY, _EMPTY_ADJ])
     out1 = run_turn(Session(), _DESC, (str(photo),), provider=vlm)
     assert len(vlm.calls) == 1
     assert out1.delivery["keys"]["waistband_type"]["value"] == "curved"
-    # 同一张照片全量重发 + 文字改口：缓存命中（无新指纹）不二次调模型
+    # 同一张照片全量重发 + 文字改口：缓存命中（无新指纹）不二次调 S2，
+    # 但调版映射出队一次（calls[1]，纯文本）——直腰头是词典词，canned
+    # 空映射不碰它，同轮碰撞规则由 test_agent_adjust.py 金标钉死
     out2 = run_turn(out1.session, "直腰头", (str(photo),), provider=vlm)
-    assert len(vlm.calls) == 1
+    assert len(vlm.calls) == 2
     wb = out2.delivery["keys"]["waistband_type"]
     assert wb["value"] == "straight" and wb["source"] == "描述"
     assert out2.session.vlm_cache["photos"]            # 指纹已落账
@@ -113,7 +121,7 @@ def test_new_photo_second_batch(tmp_path):
     p1.write_bytes(b"aaa")
     p2 = tmp_path / "b.png"
     p2.write_bytes(b"bbb")
-    vlm = FakeVLM([_S2_REPLY,
+    vlm = FakeVLM([_S2_REPLY, _EMPTY_ADJ,
                    json.dumps({"back_patch": {"value": False,
                                               "confidence": 0.8,
                                               "evidence": "背面照无贴袋"}},
@@ -121,15 +129,15 @@ def test_new_photo_second_batch(tmp_path):
     out1 = run_turn(Session(), _DESC, (str(p1),), provider=vlm)
     out2 = run_turn(out1.session, "换个角度看", (str(p1), str(p2)),
                     provider=vlm)
-    assert len(vlm.calls) == 2
-    assert len(vlm.calls[1]["images"]) == 1            # 只送新照片 b
+    assert len(vlm.calls) == 3                          # S2 + 映射 + 新批 S2
+    assert len(vlm.calls[2]["images"]) == 1            # 只送新照片 b
     bp = out2.delivery["keys"]["back_patch"]
     assert bp["value"] is False and "背面照" in bp["evidence"]
 
 
 def test_rollback_truncate_replays():
     """回滚：截断到 turn 1 重放，腰围回到 74。"""
-    vlm = FakeVLM([])
+    vlm = FakeVLM([_EMPTY_ADJ])
     out1 = run_turn(Session(), _DESC, (), provider=vlm)
     out2 = run_turn(out1.session, "腰围75", (), provider=vlm)
     assert out2.delivery["measurements"]["waist"] == 75.0
