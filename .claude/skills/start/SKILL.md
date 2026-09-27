@@ -1,6 +1,6 @@
 ---
 name: start
-description: 启动（或重启）YLPatternMaking 牛仔裤打版项目：后端 uvicorn（默认 :8000，被外部进程占用时回落 :8010）+ 前端 Vite dev（:5173）。支持 dev（默认，Vite 跑源码 HMR 热更）/prod（后端 serve 已构建 dist）模式、单端启动、重启。改 Python 后自动触发重启，改引擎源码自动重打引擎 zip。
+description: 启动（或重启）YLPatternMaking 牛仔裤打版项目：后端 uvicorn（默认 :8000，被外部进程占用时回落 :8010）+ 前端 Vite dev（:5173）。支持 dev（默认，Vite 跑源码 HMR 热更）/prod（后端 serve 已构建 dist）模式、单端启动、重启。每次执行都先 npm run build 刷新 dist（后端同源 serve 的产物保持新鲜）。改 Python 后自动触发重启，改引擎源码自动重打引擎 zip。
 allowed-tools: Bash
 ---
 
@@ -12,7 +12,7 @@ allowed-tools: Bash
 - 端口：默认 **8000**（Vite dev 代理硬编码 `/api → localhost:8000`，见 vite.config.ts）。8000 被非本项目进程占用时回落 **8010**（本机 8000 常被「排料可视化工作台」等其他项目占用——身份验证不过**绝不杀**）。
 - Python 解释器：本机无 `python` 命令（WindowsApps stub 报错），用 `py`（3.11）。npm 脚本（predev/prebuild 里的 build:engine）调 `python` → 需 py shim（步骤 0）。
 - 依赖：首次或缺 fastapi 时 `py -m pip install -e ".[web]"`。
-- 前端 prod：`webapp/frontend/dist` 由后端同源 serve，**无独立前端进程**。dist 缺失（fresh clone 没有 dist）→ 构建链：`cd webapp/frontend && npm install && npm run build`（prebuild 自动跑 build:engine 打引擎 zip + 拷 pyodide 运行时到 public）。
+- 前端 prod：`webapp/frontend/dist` 由后端同源 serve，**无独立前端进程**。**每次 /start 都先 `npm run build` 刷新 dist**（步骤 0d；prebuild 自动跑 build:engine 打引擎 zip + 拷 pyodide 运行时到 public）。
 - 前端 dev：`cd webapp/frontend && npm run dev`（Vite :5173，proxy `/api`→:8000、`/agent`→:8001，HMR 热更）。predev 同样跑 build:engine。
 - 启动顺序：先起后端。dev 模式前端依赖后端 :8000 在线（代理目标硬编码，后端回落 8010 时 /api 会 502，见步骤 1）。
 
@@ -41,13 +41,14 @@ if ! python --version >/dev/null 2>&1; then
   printf '@py %%*\r\n' > /tmp/pyshim/python.bat            # npm 脚本走 cmd 用 .bat
   printf '#!/bin/sh\nexec py "$@"\n' > /tmp/pyshim/python  # bash 直接调用用无扩展名
 fi
-# c) 前端 node_modules 缺则先 npm install（dev 要起 Vite、prod 要构建，都需要）
+# c) 前端 node_modules 缺则先 npm install（起 Vite / 构建 dist 都需要）
 cd d:/code/YLPatternMaking/webapp/frontend
 test -d node_modules || npm install --no-fund --no-audit
-# d) 仅 prod 模式：dist 缺失则构建（dev 由 Vite 直跑源码，不需要 dist）
-if [ "$MODE" = prod ] && [ ! -f dist/index.html ]; then
-  PATH="/tmp/pyshim:$PATH" npm run build     # 构建失败（tsc 报错）→ 报给用户，不启后端
-fi
+# d) 每次执行都构建前端刷新 dist（无论 dev/prod：dev 主要走 Vite 源码，但后端 :8000
+#    同源 serve 的是 dist，保持新鲜；prebuild 自动跑 build:engine 重打引擎 zip + 拷 pyodide）
+PATH="/tmp/pyshim:$PATH" npm run build
+#    构建失败（tsc 报错）→ 如实报告；prod 模式不启后端（serve 旧 dist 会误导），
+#    dev 模式仍可起 Vite（dist 维持旧版，:5173 不受影响）
 ```
 
 ### 1. 探测现状，选端口 / 决定是否先停
@@ -114,11 +115,12 @@ prod 模式只有后端一行（dist 同源 serve，打开 :8000）。8000 被�
 ## 何时自动触发（Claude 自调用，无需用户输入）
 - 改了后端 Python 代码（webapp/、src/ylpattern/）→ 自动 `/start restart backend` 让改动生效。
 - 改了引擎源码（src/ylpattern/）且需浏览器本地 Pyodide 引擎生效 → 先 `cd webapp/frontend && npm run build:engine` 重打 zip（manifest 带 hash，重打后浏览器才拿得到新引擎），再 restart backend。
-- 改前端 src/ **不需要**重启（dev 下 Vite HMR 自动热更；prod 下 `npm run build` 后浏览器强刷即可——StaticFiles 从磁盘读，后端无需重启）。仅当改 `vite.config.ts` / 装新依赖后才 `/start restart frontend`。
+- 改前端 src/ **不需要**重启（dev 下 Vite HMR 自动热更；dist 由下次 /start 的步骤 0d 自动重打，急用可手动 `npm run build` 后浏览器强刷——StaticFiles 从磁盘读，后端无需重启）。仅当改 `vite.config.ts` / 装新依赖后才 `/start restart frontend`。
 
 ## 注意事项
 - 一律 `run_in_background: true`，**绝不**前台跑 uvicorn / `npm run dev`（会阻塞会话）。
 - 后端必须在仓库根 cwd 启动；后台任务里 `cd` 不影响后续命令的会话 cwd。
 - 只杀身份验证为 OURS 的进程；8000/8010/5173 上可能是用户其他项目（本机 8000 = 排料可视化工作台）。
 - 后台进程随当前 Claude 会话存活（Bash 后台任务）；关掉 Claude 即停。要脱离会话长驻请用户外起。
-- 首次启动（fresh clone）dist 不存在：dev 模式不构建也能用（走 Vite :5173）；仅 prod 模式必须走步骤 0d 构建链，否则 `GET /` 只返回「前端未构建」提示文本。
+- 首次启动（fresh clone）dist 不存在也没关系：步骤 0d 每次都构建，起服务前 dist 必已就绪（构建失败除外）。
+- 构建会重打引擎 zip：改过 `src/ylpattern/` 后跑 /start，dist 里的引擎资产也一并换新（manifest 带 hash）。
