@@ -321,11 +321,18 @@ def build_front_facing(main_ctx: DraftContext) -> tuple[PatternPiece, DraftConte
     origin, _, _ = effective_waist(main_ctx)            # O = 侧缝腰点
     has_dart = o.front_pocket_dart_width > 0
     waist_edge = main_ctx.curve("front.pocket_facing_waist_edge")      # O->P_fw
-    outseam_edge = main_ctx.curve("front.pocket_facing_outseam_edge")  # P_fs->O
+    # 侧缝边界 P_fs->O：P_fs 越过臀围线时步骤层拆两条上版（thigh:
+    # P_fs->臀围外缝顶点 + hip: 臀围外缝顶点->O），同名 "side" 顺序拼链
+    # （前片净边 side 三条同名同款口径）
+    if "front.pocket_facing_outseam_edge_thigh" in main_ctx.sheet:
+        side_geoms = [main_ctx.curve("front.pocket_facing_outseam_edge_thigh"),
+                      main_ctx.curve("front.pocket_facing_outseam_edge_hip")]
+    else:
+        side_geoms = [main_ctx.curve("front.pocket_facing_outseam_edge")]
     inner_geoms = _collect_facing_inner(main_ctx)                      # P_fw->P_fs
     edges_main = ([("waist", waist_edge)]
                   + [("inner", g) for g in inner_geoms]
-                  + [("side", outseam_edge)])
+                  + [("side", g) for g in side_geoms])
     # 刀口：袋口净线（主切口线）起止端点 P1'/P1、P2（§2.2 INSET 袋贴刀口），
     # 延伸方向顺着口袋弧线切线延长线直至交外侧缝边（净样线位 + 缝边位成对）
     p1_name = "front.pocket_p1_transfer" if has_dart else "front.pocket_p1"

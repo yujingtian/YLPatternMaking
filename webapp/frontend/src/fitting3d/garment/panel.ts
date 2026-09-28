@@ -74,6 +74,19 @@ const polylineLen = (pts: [number, number][]): number => {
   return l
 }
 
+// 同名多段边聚合链（去重共享端点）：yoke bottom 折线 / facing side 跨段
+// （P_fs 越臀围线时引擎拆 hip/thigh 两条同名边）拼接用
+const chainPts = (edges: FittingEdge[]): [number, number][] => {
+  const pts: [number, number][] = []
+  for (const e of edges) {
+    for (const p of e.pts) {
+      const last = pts[pts.length - 1]
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-9) pts.push(p)
+    }
+  }
+  return pts
+}
+
 export function buildFrontPanel(payload: FittingResult): FrontPanel {
   const front = payload.pieces.find((p) => p.key === 'front_piece')
   if (!front) throw new Error('payload 缺 front_piece——前身并集无从合成')
@@ -99,15 +112,24 @@ export function buildFrontPanel(payload: FittingResult): FrontPanel {
   if (mouthPts.length < 2) {
     return degenerate('前片无 mouth 袋口边——并集无从下手')
   }
-  // facing 边链闭环：side(O→P_fs) → inner(P_fs→P_fw) → waist(P_fw→O)
-  const fSide = facing.edges.find((e) => e.name === 'side')
+  // facing 边链闭环：side(O→P_fs) → inner(P_fs→P_fw) → waist(P_fw→O)；
+  // side 跨段款为多条同名边（2026-09-28 起 P_fs 可越臀围线，引擎拆
+  // hip/thigh 两段），filter+chainPts 聚合；发射序实测 O→臀→P_fs 恰为
+  // 链序，仍按「首点 ≈ waist 末端 O（JOIN_TOL 内），否则整体反向」
+  // 自校正方向，不静态依赖发射顺序
   const fWaist = facing.edges.find((e) => e.name === 'waist')
-  if (!fSide || !fWaist) {
+  const fSideEdges = facing.edges.filter((e) => e.name === 'side')
+  if (fSideEdges.length === 0 || !fWaist) {
     return degenerate('袋贴边链缺 side/waist——并集无从下手')
+  }
+  const fSidePts = chainPts(fSideEdges)
+  const oEnd = fWaist.pts[fWaist.pts.length - 1]
+  if (Math.hypot(fSidePts[0][0] - oEnd[0], fSidePts[0][1] - oEnd[1]) > JOIN_TOL) {
+    fSidePts.reverse()
   }
   const M0 = mouthPts[0], M1 = mouthPts[mouthPts.length - 1]
   const p0 = projectOnPolyline(M0, fWaist.pts)
-  const p1 = projectOnPolyline(M1, fSide.pts)
+  const p1 = projectOnPolyline(M1, fSidePts)
   if (p0.dist > JOIN_TOL || p1.dist > JOIN_TOL) {
     return degenerate(`mouth 端点投影超差（waist ${p0.dist.toFixed(2)} / `
       + `side ${p1.dist.toFixed(2)} cm > ${JOIN_TOL}）——退化纯前片`)
@@ -116,7 +138,7 @@ export function buildFrontPanel(payload: FittingResult): FrontPanel {
   // side O→M1（首点 O 正向至 M1）——与 front 边链 mouth 前后邻接方向
   // 天然一致（front.waist 止于 M0、front.side 始于 M1），闭环无缝
   const waistPartial: [number, number][] = [M0, ...fWaist.pts.slice(p0.seg + 1)]
-  const sidePartial: [number, number][] = [...fSide.pts.slice(0, p1.seg + 1), M1]
+  const sidePartial: [number, number][] = [...fSidePts.slice(0, p1.seg + 1), M1]
   const joinWaist: FittingEdge = {
     name: 'waist', kind: 'line', role: 'top_chain',
     pts: waistPartial, length: polylineLen(waistPartial),
@@ -166,13 +188,7 @@ function yokeSeamHosts(
   const flipped: FittingEdge[] = yoke.edges.map(reversedEdge).reverse()
   const bEdges = flipped.filter((e) => e.name === 'bottom')
   if (bEdges.length === 0) return null
-  const pts: [number, number][] = []
-  for (const e of bEdges) {
-    for (const p of e.pts) {
-      const last = pts[pts.length - 1]
-      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-9) pts.push(p)
-    }
-  }
+  const pts = chainPts(bEdges)
   const proj = projectOnPolyline(notch, pts)
   if (proj.dist > JOIN_TOL) return null
   let arcFromPN = 0

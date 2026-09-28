@@ -42,7 +42,8 @@ def part_family(part: str, axes: dict[str, str], enums: dict[str, str],
         # 失配——实测 p1 10 后袋贴内边弧让射线命中，66–84 码口径延续）
         fam["front_pocket_p1_dist"] = (10.0, f"{g}：金标 example 值")
         # p2 按腰位分档：竖向空间 = 外缝弧臀围端→腰侧，低腰档弧短（低腰喇叭
-        # 实测仅 ~10.3），须满足 p2_drop + facing_side_w < 弧长（袋贴守卫）；
+        # 实测仅 ~10.3），p2_drop 须小于弧长（P2 主切口守卫；facing_side_w
+        # 越臀围线引擎已接大腿段外缝，2026-09-28 起无袋贴硬守卫）；
         # 低腰 5.5（实测 5.0~6.5 全过取中偏浅）/ 中低 6.5 / 中+ 7.5（金标
         # example 8.0 属高腰带）
         band = axes.get("waist_position", "mid")
@@ -70,10 +71,11 @@ def part_family(part: str, axes: dict[str, str], enums: dict[str, str],
 
     elif part == "facing":
         fam["front_pocket_facing_width"] = (3.5, f"{g}：引擎默认在带内")
-        # 侧缝深度：注释带 5~7 是大码余量，小码 p2_drop+side_w 越外缝弧臀围端
-        # （front_pocket_steps.py 守卫）；金标 examples/size_female_165 同量级用 3.5
+        # 侧缝深度：注释带 5~7 是大码余量；小码 p2_drop+side_w 越外缝弧臀围端
+        # 时引擎已接大腿段外缝继续量（2026-09-28 跨段量取，无硬边界），
+        # 金标 examples/size_female_165 同量级用 3.5
         fam["front_pocket_facing_side_w"] = (
-            3.5, f"{g}：金标 example 值（注释带 5~7 大码适用，需 p2+side<外缝弧长）")
+            3.5, f"{g}：金标 example 值（注释带 5~7 大码适用，越臀围线自动接大腿段外缝）")
         if enums.get("front_pocket_facing_mode") == "tangent":
             fam["front_pocket_facing_h1"] = (14.0, f"{g}：tangent 柄长 14/1")
             fam["front_pocket_facing_h2"] = (1.0, f"{g}：tangent 柄长 14/1")

@@ -25,9 +25,9 @@ from ylpattern.params import Measurements, PatternOptions, WaistbandType
 M = Measurements(waist=70, hip=96, knee=46, hem=36,
                  front_rise=25, back_rise=33, outseam=102, thigh=58)
 # 默认采用打版师推荐的 tangent 模式进行全流程测试
-# side_w 取 5.0：外缝弧总长 ≈12.32 − P2 下落 7.0 = 可用 5.32，侧深须严格
-# 小于可用弧长（s_fs > 0 校验），取 6.0 会越界报错，且 5.0 ≠ w_waist 保持
-# "独立侧缝深"测试意图
+# side_w 取 5.0：外缝弧总长 ≈12.32 − P2 下落 7.0 = 5.32，5.0 仍在外缝弧内
+# （不跨段，保持"独立侧缝深"测试意图）；side_w 越过臀围线的跨段行为见
+# test_facing_side_beyond_hip_crosses_to_thigh（2026-09-28 起越线不再报错）
 O = PatternOptions(
     delta=1.0,
     front_pocket=True,
@@ -232,10 +232,63 @@ def test_facing_options_validation():
         PatternOptions(front_pocket_facing_bulge_at=1.2)
 
 
-def test_facing_side_beyond_outseam_raises():
-    # 独立侧缝深 6.0 越界测试
+def test_facing_side_beyond_hip_crosses_to_thigh():
+    # 跨段金标（2026-09-28 解除臀围线硬边界）：独立侧缝深 6.0 越过臀围线。
+    # 夹具 M 外缝弧总长 ≈12.32（直腰头 s_side = 总长），p2_drop=7.5 +
+    # w_side=6.0 = 13.5 → 越过臀围外缝顶点 d_below = 13.5 − 12.32 ≈ 1.18：
+    # P_fs 落大腿段外缝（t=0 臀围外缝顶点 → t=1 膝）自臀围端向下 1.18 处；
+    # 侧缝边界拆两条：thigh [P_fs→臀围外缝顶点]（弧长 ≈ d_below）+
+    # hip [臀围外缝顶点→O]（弧长 ≈ s_side），合计 = p2_drop + w_side。
     o = PatternOptions(delta=1.0, front_pocket=True, front_pocket_facing=True,
+                       front_pocket_facing_mode="tangent",
                        front_pocket_p2_drop=7.5,
-                       front_pocket_facing_side_w=6.0)
-    with pytest.raises(ValueError, match="越出外缝弧"):
-        FlowRunner(M, o).run(FRONT_FLOW)
+                       front_pocket_facing_side_w=6.0,
+                       front_pocket_facing_h1=5.0,
+                       front_pocket_facing_h2=4.0)
+    ctx_x = FlowRunner(M, o).run(FRONT_FLOW)
+    s_arc = ctx_x.curve("front.outseam_arc")
+    upper = ctx_x.curve("front.outseam_upper")
+    b = ctx_x.point("front.waist_side_point")
+    hip = ctx_x.point("front.hip_outseam_point")
+    p_fs = ctx_x.point("front.pocket_facing_side")
+    d_below = o.front_pocket_p2_drop + o.front_pocket_facing_side_w \
+        - s_arc.length()
+
+    # P_fs 在大腿段上、臀围线以下，自臀围端量 d_below
+    t_u = upper.t_at_y(p_fs.y)
+    assert upper.point_at(t_u).distance_to(p_fs) < 1e-6
+    assert p_fs.y < hip.y
+    assert _arc_length_between(upper, 0.0, t_u) == pytest.approx(
+        d_below, abs=1e-2)
+
+    # 侧缝边界拆两条上版：端点链 P_fs → 臀围外缝顶点 → O
+    assert "front.pocket_facing_outseam_edge" not in ctx_x.sheet
+    thigh = ctx_x.curve("front.pocket_facing_outseam_edge_thigh")
+    hip_edge = ctx_x.curve("front.pocket_facing_outseam_edge_hip")
+    assert thigh.point_at(0).distance_to(p_fs) < 1e-6
+    assert thigh.point_at(1).distance_to(hip) < 1e-6
+    assert hip_edge.point_at(0).distance_to(hip) < 1e-6
+    assert hip_edge.point_at(1).distance_to(b) < 1e-6
+    assert thigh.length() == pytest.approx(d_below, abs=1e-2)
+    assert hip_edge.length() == pytest.approx(s_arc.length(), abs=1e-2)
+    assert thigh.length() + hip_edge.length() == pytest.approx(
+        o.front_pocket_p2_drop + o.front_pocket_facing_side_w, abs=1e-2)
+
+
+def test_facing_tangent_crossing_orthogonal_to_thigh():
+    # tangent 模式跨段：内边侧端切线 ⟂ 大腿段外缝在 P_fs 处切线
+    # （端切向取自 P_fs 所在外缝段，非外缝弧）
+    o = PatternOptions(delta=1.0, front_pocket=True, front_pocket_facing=True,
+                       front_pocket_facing_mode="tangent",
+                       front_pocket_p2_drop=7.5,
+                       front_pocket_facing_side_w=6.0,
+                       front_pocket_facing_h1=5.0,
+                       front_pocket_facing_h2=4.0)
+    ctx_x = FlowRunner(M, o).run(FRONT_FLOW)
+    inner = ctx_x.curve("front.pocket_facing_inner")
+    upper = ctx_x.curve("front.outseam_upper")
+    p_fs = ctx_x.point("front.pocket_facing_side")
+    t_inner_end = inner.tangent_at(1.0).normalized()
+    t_u = upper.tangent_at(upper.t_at_y(p_fs.y)).normalized()
+    dot_side = t_inner_end.dx * t_u.dx + t_inner_end.dy * t_u.dy
+    assert dot_side == pytest.approx(0.0, abs=1e-5)

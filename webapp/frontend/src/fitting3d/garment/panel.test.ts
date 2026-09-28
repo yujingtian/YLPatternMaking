@@ -33,6 +33,11 @@ const yokeFix: FittingResult = JSON.parse(
   readFileSync(`${HERE}/fixture_fitting_yoke.json`, 'utf8'))
 const curved: FittingResult = JSON.parse(
   readFileSync(`${HERE}/fixture_fitting_curved_pocket.json`, 'utf8'))
+// 跨段袋贴（2026-09-28 引擎解除 P_fs 臀围线限制）：pocket fixture 同参数
+// + side_w 6.0（p2_drop 7.5 默认），7.5+6.0=13.5 > 外缝弧 12.85 → P_fs
+// 落大腿段，facing side 拆 hip 12.85 + thigh 0.65 两条同名边
+const pocketCross: FittingResult = JSON.parse(
+  readFileSync(`${HERE}/fixture_fitting_pocket_cross.json`, 'utf8'))
 
 const frontPiece = pocket.pieces.find((p) => p.key === 'front_piece')!
 const facingPiece = pocket.pieces.find((p) => p.key === 'front_facing')!
@@ -155,6 +160,73 @@ describe('panel：前身并集净样（前片+袋贴沿 mouth 缝合）', () => 
     expect(r.hasFacing).toBe(false)
     expect(r.warnings.length).toBe(1)
     expect(r.warnings[0]).toContain('不贴合')
+  })
+})
+
+describe('panel：跨段袋贴并集（P_fs 越臀围线，side 两条同名边聚合）', () => {
+  const panel = buildFrontPanel(pocketCross)
+  const crossFront = pocketCross.pieces.find((p) => p.key === 'front_piece')!
+  const crossFacing = pocketCross.pieces.find((p) => p.key === 'front_facing')!
+
+  it('payload 前提：facing side 两条同名边（hip+thigh = p2_drop+w_side）', () => {
+    const sides = crossFacing.edges.filter((e) => e.name === 'side')
+    expect(sides.length).toBe(2)
+    expect(sides.reduce((s, e) => s + e.length, 0)).toBeCloseTo(13.5, 1)
+  })
+
+  it('守卫通过拼入跨段袋贴：hasFacing=true、mouth 内部化、side/waist 齐备', () => {
+    expect(panel.hasFacing).toBe(true)
+    expect(panel.warnings).toEqual([])
+    const names = panel.host.runs.map((r) => r.name)
+    expect(names).not.toContain('mouth')
+    for (const n of ['waist', 'side', 'hem', 'inseam', 'rise']) {
+      expect(names).toContain(n)
+    }
+  })
+
+  it('聚合链方向正确：joinSide 贯通 O→M1，宿主 side run = 前片 side + p2_drop', () => {
+    // 聚合自校正后首点 = O（waist 末端），M1（mouth 侧缝端 = P2）投影落
+    // hip 段内；joinSide 弧长 ≈ p2_drop 7.5，与前片 side（始于 M1）同名
+    // 相邻聚合成单一 run，长度 = 前片 side 总长 + 7.5
+    const frontSideLen = crossFront.edges
+      .filter((e) => e.name === 'side').reduce((s, e) => s + e.length, 0)
+    const sideRuns = panel.host.runs.filter((r) => r.name === 'side')
+    expect(sideRuns.length).toBe(1)
+    expect(sideRuns[0].length).toBeCloseTo(frontSideLen + 7.5, 1)
+    // 链首 = O 侧腰点（waist 末端，y≈98）——方向反了会从 P_fs 端起步
+    const first = sideRuns[0].indices[0]
+    expect(panel.host.xy[2 * first + 1]).toBeCloseTo(98.0, 1)
+  })
+
+  it('覆盖性（同口径）：前片/跨段袋贴全部顶点 locate 非空或贴宿主边界', () => {
+    const host = panel.host
+    const meshes = [buildClothMesh(crossFront), buildClothMesh(crossFacing)]
+    for (const m of meshes) {
+      for (let i = 0; i < m.xy.length / 2; i++) {
+        const x = m.xy[2 * i], y = m.xy[2 * i + 1]
+        if (host.locate(x, y) !== null) continue
+        let dMin = Infinity
+        const L = host.loop.length
+        for (let s = 0; s < L; s++) {
+          const a = host.loop[s], b = host.loop[(s + 1) % L]
+          const ax = host.xy[2 * a], ay = host.xy[2 * a + 1]
+          const bx = host.xy[2 * b], by = host.xy[2 * b + 1]
+          const dx = bx - ax, dy = by - ay
+          const len2 = dx * dx + dy * dy
+          const t = len2 > 1e-12
+            ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2))
+            : 0
+          dMin = Math.min(dMin, Math.hypot(x - (ax + dx * t), y - (ay + dy * t)))
+        }
+        expect(dMin, `顶点 ${i} (${x}, ${y}) 既不可 locate 也不贴边界`)
+          .toBeLessThan(0.1)
+      }
+    }
+  })
+
+  it('三角化面积比 ≥99%、宿主面积 > 前片（月牙+跨段侧缝条带并入）', () => {
+    expect(triArea(panel.host) / shoelace(panel.host)).toBeGreaterThan(0.99)
+    expect(shoelace(panel.host)).toBeGreaterThan(shoelace(buildClothMesh(crossFront)))
   })
 })
 

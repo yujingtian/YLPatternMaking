@@ -272,16 +272,18 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
     三特征量 + 内边生成：
       - 袋贴腰头顶点 P_fw：有省自口袋省顶点 P1′、无省自袋口腰头顶点 P1，沿腰头线
         （腰弧）朝前浪顶点量取腰头端袋贴宽 w_waist（front_pocket_facing_width）；
-      - 袋贴侧缝顶点 P_fs：自口袋侧缝顶点 P2 沿外缝弧向下量取侧缝端袋贴宽
-        w_side（front_pocket_facing_side_w or front_pocket_facing_width）；
+      - 袋贴侧缝顶点 P_fs：自口袋侧缝顶点 P2 沿外缝向下量取侧缝端袋贴宽
+        w_side（front_pocket_facing_side_w or front_pocket_facing_width），
+        量过臀围外缝顶点后接大腿段外缝继续量（可越过臀围线）；
       - 袋贴内边 L_inner 形态模式（front_pocket_facing_mode）：
-        * "tangent"（打版师推荐）：两端垂直式（P_fw 端切线 ⟂ 腰弧、P_fs 端切线 ⟂ 外缝弧，
-          均指向裤身内部），由两端切线柄长 front_pocket_facing_h1/h2 控制，保证拼缝无锐角狗耳；
+        * "tangent"（打版师推荐）：两端垂直式（P_fw 端切线 ⟂ 腰弧、P_fs 端切线 ⟂ P_fs
+          所在外缝段〔外缝弧或大腿段〕，均指向裤身内部），由两端切线柄长
+          front_pocket_facing_h1/h2 控制，保证拼缝无锐角狗耳；
         * "offset"：基准曲线 C_ref 控制点域法向偏置（端点锁 P_fw/P_fs）；
           polyline 模式下折角平移；
         * "bulge"：过 P_fw、P_fs 的浅弧，由 bulge/bulge_at 控制；
-      - 闭合拓扑 Ω_facing：外缝弧段 [O->P_fs] + L_inner + 腰头线段 [P_fw->O]
-        （O = 有效腰口侧缝腰点 b）。
+      - 闭合拓扑 Ω_facing：外缝段 [O->P_fs]（P_fs 越臀围线时为外缝弧+大腿段
+        复合，拆两条上版）+ L_inner + 腰头线段 [P_fw->O]（O = 有效腰口侧缝腰点 b）。
     先画后裁：只上版袋贴边界，不做布尔裁除（裁切层未建）。
     依据：打版流程.md「前口袋打版过程」；前口袋绘制.md §三.3.(1)。
     """
@@ -313,15 +315,18 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
     p_fw = w_arc.point_at_length(s_fw)
     t_fw = w_arc.t_at_length(s_fw)
 
-    # P_fs：自 P2 沿外缝弧向下量取 w_side（独立侧缝深度）
+    # P_fs：自 P2 沿外缝向下量取 w_side（独立侧缝深度）。s 仍自臀围外缝顶点
+    # （t=0）起算：s_fs ≥ 0 落外缝弧；s_fs < 0 已越臀围端，取 |s_fs| 接大腿段
+    # 外缝（front.outseam_upper，t=0 同为臀围外缝顶点）继续量——袋布 P_s0 同款
+    # 跨段口径，臀围线不再是袋贴侧深的硬边界。无越界守卫：P2 守卫保证
+    # p2_drop < s_side、w_side 静态上限 15，故 |s_fs| < 15 ≪ 大腿段弧长，
+    # t_at_length 越界自抛 ValueError 即为兜底。
     s_p2 = s_side - o.front_pocket_p2_drop
-    s_fs = s_p2 - w_side
-    if s_fs <= 0:
-        raise ValueError(
-            f"袋贴侧缝顶点越出外缝弧臀围端（P2 深度 {o.front_pocket_p2_drop}"
-            f" − 袋贴侧深 {w_side}，可用弧长 {s_p2:.2f}）")
-    t_fs = s_arc.t_at_length(s_fs)
-    p_fs = s_arc.point_at(t_fs)
+    beyond_hip = s_p2 - w_side < 0          # P_fs 越过臀围外缝顶点
+    fs_geom = ctx.curve("front.outseam_upper") if beyond_hip else s_arc
+    s_fs = abs(s_p2 - w_side)               # 自所在段 t=0 端（均为臀围端）的弧长
+    t_fs = fs_geom.t_at_length(s_fs)
+    p_fs = fs_geom.point_at(t_fs)
     t_side = s_arc.t_at_length(s_side)
 
     ctx.add_point("front.pocket_facing_waist", p_fw,
@@ -331,21 +336,37 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
                   label="袋贴腰头顶点Pfw")
     ctx.add_point("front.pocket_facing_side", p_fs,
                   step=step,
-                  basis=f"P2 沿外缝弧向下量取 {w_side}"
-                        "（袋贴侧缝深，§三.3.(1)）",
+                  basis=f"P2 沿外缝向下量取 {w_side}"
+                        "（袋贴侧缝深，可越臀围线接大腿段，§三.3.(1)）",
                   label="袋贴侧缝顶点Pfs")
 
-    # 闭合边界：腰弧 [b->P_fw] 子段、外缝弧 [P_fs->b] 子段（Ω_facing 腰/侧缝边界）
+    # 闭合边界：腰弧 [b->P_fw] 子段、外缝 [P_fs->b] 子段（Ω_facing 腰/侧缝边界）；
+    # P_fs 越过臀围线时侧缝边界拆两条上版（袋布 P_s0 先例）：大腿段反向子段
+    # [P_fs->臀围外缝顶点] + 外缝弧子段 [臀围外缝顶点->b]
     ctx.add_curve("front.pocket_facing_waist_edge", w_arc.split(t_fw)[0],
                   step=step,
                   basis=f"腰弧 O->P_fw 子段（弧长 {s_fw:.2f}，Ω_facing 腰侧边界，§三.3.(1)）",
                   label="袋贴腰侧边界")
-    ctx.add_curve("front.pocket_facing_outseam_edge",
-                  curves.bezier_subrange(s_arc, t_fs, t_side),
-                  step=step,
-                  basis=f"外缝弧 P_fs->O 子段（弧长 {o.front_pocket_p2_drop + w_side:.2f}，"
-                        "Ω_facing 侧缝边界，§三.3.(1)）",
-                  label="袋贴侧缝边界")
+    if beyond_hip:
+        ctx.add_curve("front.pocket_facing_outseam_edge_thigh",
+                      _reverse_bezier(fs_geom.split(t_fs)[0]),   # P_fs -> 臀围外缝顶点
+                      step=step,
+                      basis=f"大腿外缝弧 P_fs->臀围外缝顶点 子段（弧长 {s_fs:.2f}，"
+                            "Ω_facing 侧缝边界下段〔跨臀围线〕，§三.3.(1)）",
+                      label="袋贴侧缝边界下段")
+        ctx.add_curve("front.pocket_facing_outseam_edge_hip",
+                      s_arc.split(t_side)[0],                    # 臀围外缝顶点 -> b
+                      step=step,
+                      basis=f"外缝弧 臀围外缝顶点->O 子段（弧长 {s_side:.2f}，"
+                            "Ω_facing 侧缝边界上段〔跨臀围线〕，§三.3.(1)）",
+                      label="袋贴侧缝边界上段")
+    else:
+        ctx.add_curve("front.pocket_facing_outseam_edge",
+                      curves.bezier_subrange(s_arc, t_fs, t_side),
+                      step=step,
+                      basis=f"外缝弧 P_fs->O 子段（弧长 {o.front_pocket_p2_drop + w_side:.2f}，"
+                            "Ω_facing 侧缝边界，§三.3.(1)）",
+                      label="袋贴侧缝边界")
 
     # L_inner：内边缘形态路由
     interior = ctx.point("front.crease_point")
@@ -354,7 +375,7 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
     if mode == "tangent":
         # 两端垂直切线式：P_fw 处切线 ⟂ 腰弧切线，P_fs 处切线 ⟂ 外缝弧切线（指向裤身内侧）
         t_w = _facing_interior_normal(w_arc, t_fw, interior)
-        t_s = _facing_interior_normal(s_arc, t_fs, interior)
+        t_s = _facing_interior_normal(fs_geom, t_fs, interior)
         inner = CubicBezier(
             p_fw,
             p_fw + t_w.scale(o.front_pocket_facing_h1),
@@ -383,6 +404,11 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
         if o.front_pocket_mouth_mode == "polyline":
             return _facing_inner_polyline(ctx, p_fw, p_fs, interior, w_waist, has_dart, step)
         return _facing_inner_bezier(ctx, p_fw, p_fs, interior, w_waist, has_dart, step)
+
+def _reverse_bezier(c: CubicBezier) -> CubicBezier:
+    """反向三次贝塞尔（p0↔p3、p1↔p2）。"""
+    return CubicBezier(c.p3, c.p2, c.p1, c.p0)
+
 
 def _facing_interior_normal(curve: CubicBezier, t: float, interior: Point) -> Vector:
     """曲线 t 处指向裤身内部（朝 crease_point）的单位法向。

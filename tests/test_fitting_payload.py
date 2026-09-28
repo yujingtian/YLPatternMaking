@@ -352,6 +352,21 @@ def test_front_facing_piece_structure():
     assert roles["inner"] == "free"
 
 
+def test_front_facing_crossing_two_side_edges():
+    """跨段袋贴（2026-09-28 解除 P_fs 臀围线限制）：默认 p2_drop 7.5 +
+    side_w 6.0 = 13.5 越过外缝弧（≈12.85，P_fs 落大腿段外缝）→ facing 片
+    side 拆两条同名边（hip ≈12.85 + thigh ≈0.65），schema v1 零改动
+    （net_edges 逐边自然发射）；边长合计 = p2_drop + w_side，role 照旧
+    seam。前端按同名聚合消费（panel.ts chainPts + 方向自校正）。"""
+    p, _ = _payload(front_pocket=True, front_pocket_facing=True,
+                    front_pocket_facing_side_w=6.0)
+    facing = next(pc for pc in p["pieces"] if pc["key"] == "front_facing")
+    sides = [e for e in facing["edges"] if e["name"] == "side"]
+    assert len(sides) == 2
+    assert sum(e["length"] for e in sides) == pytest.approx(13.5, abs=0.05)
+    assert all(e["role"] == "seam" for e in sides)
+
+
 def test_front_mouth_carve_with_pocket():
     """前口袋主切口：前片净边出现 mouth 边（free = 口袋开口），
     腰口弧 top_chain 只剩 CF→P1 段（腰口侧段由袋贴接管）。"""

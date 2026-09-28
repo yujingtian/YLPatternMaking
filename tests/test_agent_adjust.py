@@ -431,19 +431,32 @@ def test_probe_l05_revert_keeps_draft():
 
 
 def test_run_turn_l05_adjust_not_applied_disclosed():
-    """⑨L0.5 端到端：映射值单键带内合法但撞交叉约束（默认 families 基线
-    下 p2_drop +1 越几何界）-> L0 失败撤回上一版重试 -> 交卷版面不变
-    （部件全在、值保持上一版）、stage L0.5、note 披露「未生效/保持上一版」，
-    replaced 旧口径的 L3 截肢交纯直筒。"""
-    vlm = FakeVLM([])
-    out1 = run_turn(Session(), _DESC, (), provider=vlm)
-    prev = out1.delivery["options"]["front_pocket_p2_drop"]
-    canned = json.dumps({
+    """⑨L0.5 端到端：映射值单键带内合法但撞交叉约束 -> L0 失败撤回上一版
+    重试 -> 交卷版面不变（部件全在、值保持上一版）、stage L0.5、note 披露
+    「未生效/保持上一版」，replaced 旧口径的 L3 截肢交纯直筒。
+    触发键 front_pocket_p2_drop 撞 P2 主切口守卫（p2_drop 须 < 外缝弧全长
+    ≈11.77）：两轮 +2 自基线 7.5 顶到 11.5（弧内 L0 全过——11.5 + 侧深 3.5
+    已越过臀围线，2026-09-28 起跨段接大腿段外缝照常过，正是被解开的旧守卫
+    不再拦的路径）、第三轮 +1 = 12.5 越弧长 -> L0 失败撤回 11.5。"""
+    out1 = run_turn(Session(), _DESC, (), provider=FakeVLM([]))
+    assert out1.delivery["options"]["front_pocket_p2_drop"] == 7.5
+    bump = json.dumps({
+        "adjustments": [{"key": "front_pocket_p2_drop", "step": 2,
+                         "evidence": "袋口深一点"}],
+        "note": "袋口下移加深"}, ensure_ascii=False)
+    out2 = run_turn(out1.session, "袋口深一点", (), provider=FakeVLM([bump]))
+    assert out2.delivery["probe"]["stage"] == "L0"
+    assert out2.delivery["options"]["front_pocket_p2_drop"] == 9.5
+    out3 = run_turn(out2.session, "再深一点", (), provider=FakeVLM([bump]))
+    prev = out3.delivery["options"]["front_pocket_p2_drop"]
+    assert out3.delivery["probe"]["stage"] == "L0"
+    assert prev == 11.5
+    over = json.dumps({
         "adjustments": [{"key": "front_pocket_p2_drop", "step": 1,
                          "evidence": "袋口深一点"}],
         "note": "袋口下移加深"}, ensure_ascii=False)
-    out2 = run_turn(out1.session, "袋口深一点", (), provider=FakeVLM([canned]))
-    d = out2.delivery
+    out4 = run_turn(out3.session, "还深一点", (), provider=FakeVLM([over]))
+    d = out4.delivery
     assert d["probe"]["stage"] == "L0.5"
     assert d["options"]["front_pocket_p2_drop"] == prev     # 保持上一版
     assert d["options"]["front_pocket"] is True             # 版面未截肢

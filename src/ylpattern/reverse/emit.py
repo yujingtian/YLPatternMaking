@@ -52,7 +52,7 @@ _OPTION_NOTES = {
     "front_pocket_facing_width": "袋贴腰头宽（反解析：前代顶边 P1→A 段×weft，"
                                  "引擎同锚 P1 沿腰弧朝前浪顶点）",
     "front_pocket_facing_side_w": "袋贴侧缝深（反解析：前代右边 P2→C 段×warp，"
-                                  "引擎同锚 P2 沿外缝弧向下）",
+                                  "引擎同锚 P2 沿外缝向下，越臀围线接大腿段外缝）",
     "front_pocket_facing_mode": "bulge = 前代净边大弧形态（内边弧高式，tangent/"
                                 "offset 不可辨识不发射）",
     "front_pocket_facing_bulge": "袋贴内边弧高（反解析：净边大弧剖面峰值÷2——"

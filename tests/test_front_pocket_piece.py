@@ -114,6 +114,20 @@ def ctx_facing_nodart():
 
 
 @pytest.fixture()
+def ctx_facing_cross():
+    """跨段袋贴（2026-09-28 解除臀围线限制）：p2_drop 7.5 + side_w 6.0 = 13.5
+    越过外缝弧（≈12.32，见 test_pocket_facing_steps 头注），P_fs 落大腿段外缝，
+    侧缝边界拆 thigh + hip 两条同名 side 上版。"""
+    o = PatternOptions(delta=1.0, front_pocket=True, front_pocket_facing=True,
+                       front_pocket_dart_width=2.0,
+                       front_pocket_facing_mode="tangent",
+                       front_pocket_facing_width=3.5,
+                       front_pocket_p2_drop=7.5,
+                       front_pocket_facing_side_w=6.0)
+    return FlowRunner(M, o).run(FRONT_FLOW)
+
+
+@pytest.fixture()
 def ctx_patch_rect():
     o = PatternOptions(delta=1.0, front_patch=True, front_patch_shape="rectangle",
                        front_patch_width=14.0, front_patch_height=15.0)
@@ -251,6 +265,36 @@ def test_facing_polyline_mode_closed():
     for i in range(len(es)):
         _assert_point_approx(_end(es[i].geom), _start(es[(i + 1) % len(es)].geom))
     assert _signed_area(piece) < 0
+
+
+# ---------- INSET 袋贴：跨段（P_fs 越过臀围线，2026-09-28） ----------
+
+def test_facing_crossing_two_side_edges(ctx_facing_cross):
+    """跨段侧缝边界：side 拆两条（thigh P_fs→臀围外缝顶点 + hip 臀围外缝顶点→O），
+    边名集合不变（waist/inner/side），两条 side 均为三次贝塞尔。"""
+    piece, _ = build_front_facing(ctx_facing_cross)
+    groups = _edges_by_name(piece)
+    assert set(groups) == {"waist", "inner", "side"}
+    assert len(groups["side"]) == 2
+    assert all(isinstance(g, CubicBezier) for g in groups["side"])
+
+
+def test_facing_crossing_closed_and_oriented(ctx_facing_cross):
+    """跨段裁片完整构建：闭合 + shoelace<0 自定向（cutter 外法向前提）。"""
+    piece, _ = build_front_facing(ctx_facing_cross)
+    es = piece.net_edges
+    for i in range(len(es)):
+        _assert_point_approx(_end(es[i].geom), _start(es[(i + 1) % len(es)].geom))
+    assert _signed_area(piece) < 0
+
+
+def test_facing_crossing_notches_and_outward(ctx_facing_cross):
+    """跨段刀口照常成对（净样线位 + 缝边位 4 发射）、毛样外法向外扩。"""
+    piece, _ = build_front_facing(ctx_facing_cross)
+    assert len(piece.gross_notches) == 4
+    assert all(_on_boundary(q, piece.gross_polygon)
+               for q in piece.gross_notches[1::2])
+    _assert_outward(piece.gross_polygon, piece.net_edges)
 
 
 # ---------- PATCH 贴袋：闭合 / 边名 / 刀口 / 标记 ----------
