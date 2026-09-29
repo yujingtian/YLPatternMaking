@@ -227,11 +227,22 @@ export interface NestResult {
   labels: Record<string, string>
 }
 
+// 一键修复（2026-09-29）：引擎/后端产出的修复候选（Issue.fixes 逐键
+// 同构），IssueStrip 渲染成按钮；scope 告知走 setMeasurement 还是
+// setOption
+export interface FixDetail {
+  param: string
+  value: unknown
+  label: string
+  scope: 'measurements' | 'options'
+}
+
 export interface IssueDetail {
   param: string | null
   group: string | null
   message: string
   level: string
+  fixes?: FixDetail[]
 }
 
 export type Values = Record<string, unknown>

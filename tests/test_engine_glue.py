@@ -192,6 +192,25 @@ def test_fitting_validation_matches_http():
     assert out["error"]["detail"] == r.json()["detail"]
 
 
+def test_runtime_failure_parity():
+    """运行期几何失败双通道同构（2026-09-29 二期归因）：后浪 50 过得了
+    构造期校验（build_issues 放行）、引擎 flow 才炸 -> 两通道都转
+    422/validation kind，diagnose 归因 back_rise（测量罪魁无修复按钮），
+    detail 逐字段全等。两通道同进程同 CPython 引擎，探测序列确定。"""
+    bad = {"measurements": {**ADJ_M, "back_rise": 50}, "options": POCKET_ON}
+    r = client.post("/api/draft/sheet", json=bad)
+    assert r.status_code == 422
+    out = _glue("sheet", bad)
+    assert out["ok"] is False
+    assert out["error"]["kind"] == "validation"   # 不再出现 engine kind/500
+    assert out["error"]["detail"] == r.json()["detail"]
+    d0 = r.json()["detail"][0]
+    assert d0["param"] == "back_rise"
+    assert d0["fixes"] == []            # 测量类罪魁不给修复（保用户基码）
+    assert "无法构成腰线" in d0["message"]
+    assert "已定位" in d0["message"]
+
+
 def test_handle_never_raises():
     assert json.loads(engine_glue.handle("sheet", "not-json"))["ok"] is False
     assert json.loads(engine_glue.handle("bogus", "{}"))["ok"] is False

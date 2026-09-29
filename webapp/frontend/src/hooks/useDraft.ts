@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
-  DraftPayload, DownloadKind, FittingResult, IssueDetail, NestResult,
-  PiecesResult, Schema, SeedPayload, SeedResult, SheetResult, Snapshot,
-  SizeRunSpec, Values,
+  DraftPayload, DownloadKind, FixDetail, FittingResult, IssueDetail,
+  NestResult, PiecesResult, Schema, SeedPayload, SeedResult, SheetResult,
+  Snapshot, SizeRunSpec, Values,
 } from '../types'
 import {
   download as downloadFile, fetchSchema, postFitting, postNest, postPieces,
@@ -76,6 +76,11 @@ export interface DraftState {
   undoLastDrag: () => void
   lastDrag: { param: string; prevValue: number } | null
   adjustInfo: { param: string; ts: number } | null
+  // 一键修复（2026-09-29）：IssueStrip 修复按钮 -> 按 scope 写参数并直接
+  // 重生成整版（显式载荷，applyAdjust 同款竞态语义）；errorFocus = 校验
+  // 错误滚动定位目标（与 adjustInfo 同管线喂 highlight）
+  applyFix: (fix: FixDetail) => Promise<void>
+  errorFocus: { param: string; ts: number } | null
   sheet: Snapshot<SheetResult> | null
   pieces: Snapshot<PiecesResult> | null
   fitting: Snapshot<FittingResult> | null
@@ -121,6 +126,16 @@ export function nestRows(r: NestResult): NestRow[] {
   return Object.entries(r.numMap)
     .map(([g, qty]) => ({ g, label: r.labels[g] ?? '裁片', qty }))
     .sort((a, b) => gNum(a.g) - gNum(b.g))
+}
+
+// 校验错误滚动定位目标（2026-09-29）：首个带 param 的错误——与
+// adjustInfo 同管线喂 highlight（面板程序化展开+滚动+param-flash 闪烁，
+// 复用拖拽回写高亮机制）；无定位项（param=null 的整体性错误）返回 null
+export function pickErrorFocus(
+  errors: IssueDetail[],
+): { param: string; ts: number } | null {
+  const first = errors.find((e) => e.param)
+  return first?.param ? { param: first.param, ts: Date.now() } : null
 }
 
 export function useDraft(): DraftState {
@@ -186,7 +201,14 @@ export function useDraft(): DraftState {
   const piecesRef = useRef<Snapshot<PiecesResult> | null>(null)
   piecesRef.current = pieces
   const [errors, setErrors] = useState<IssueDetail[]>([])
+  const [errorFocus, setErrorFocus] = useState<{ param: string; ts: number } | null>(null)
   const [warnings, setWarnings] = useState<DraftWarning[]>([])
+  // 校验条状态唯一入口（2026-09-29）：errors 与 errorFocus 恒成对设置
+  // （不变式防漂移）——凡呈现/清空错误一律走 setErrs，不直接 setErrors
+  const setErrs = useCallback((list: IssueDetail[]) => {
+    setErrors(list)
+    setErrorFocus(pickErrorFocus(list))
+  }, [])
   const [sheetBusy, setSheetBusy] = useState(false)
   const sheetBusyRef = useRef(false)
   sheetBusyRef.current = sheetBusy
@@ -217,7 +239,7 @@ export function useDraft(): DraftState {
 
   useEffect(() => {
     fetchSchema().then(setSchema).catch((e) => {
-      setErrors([{ param: null, group: null, message: `schema 加载失败：${e}`, level: 'error' }])
+      setErrs([{ param: null, group: null, message: `schema 加载失败：${e}`, level: 'error' }])
     })
   }, [])
 
@@ -266,7 +288,7 @@ export function useDraft(): DraftState {
     setFitting(null)
     setLastDrag(null)
     setAdjustInfo(null)
-    setErrors([])
+    setErrs([])
     setWarnings([])
   }, [bump, bumpSheet])
 
@@ -289,7 +311,7 @@ export function useDraft(): DraftState {
     setFitting(null)
     setLastDrag(null)
     setAdjustInfo(null)
-    setErrors([])
+    setErrs([])
     setWarnings([])
   }, [bump, bumpSheet])
 
@@ -323,13 +345,13 @@ export function useDraft(): DraftState {
       if (ver !== versionRef.current) return    // 已有更新的回写/修改，丢弃旧响应
       setSheet({ data: res, version: ver })
       setWarnings(res.warnings.map((w) => ({ param: w.param, message: w.message })))
-      setErrors([])
+      setErrs([])
     } catch (e) {
       const err = e as Error & { detail?: IssueDetail[] }
       if (err.detail) {
-        setErrors(err.detail)
+        setErrs(err.detail)
       } else {
-        setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
+        setErrs([{ param: null, group: null, message: String(e), level: 'error' }])
       }
     } finally {
       setSheetBusy(false)
@@ -351,6 +373,46 @@ export function useDraft(): DraftState {
     })
   }, [applyAdjust])
 
+  // 一键修复（2026-09-29）：IssueStrip 修复按钮 -> 按 scope 写参数并直接
+  // 重生成整版。仿 applyAdjust 显式载荷先例——不走 setMeasurement +
+  // ensureSheet（setState 异步、measRef/optsRef 要到下次渲染才刷新，同
+  // tick 读到旧值）；连点靠 busy 闸丢弃，每轮重新校验自然收敛
+  const applyFix = useCallback(async (fix: FixDetail) => {
+    if (piecesBusyRef.current || sheetBusyRef.current) return
+    const meas = { ...measRef.current }
+    const opts = { ...optsRef.current }
+    if (fix.scope === 'measurements') {
+      meas[fix.param] = fix.value
+    } else {
+      opts[fix.param] = fix.value
+    }
+    versionRef.current += 1
+    const ver = versionRef.current
+    // 测量值恒影响整版几何；选项键按裁片专属分流（setOption 同口径）
+    if (fix.scope === 'measurements'
+        || !pieceOnlyRef.current.has(fix.param)) bumpSheet()
+    setMeasurements(meas)
+    setOptions(opts)
+    setVersion(ver)
+    setSheetBusy(true)
+    setErrs([])
+    try {
+      const res = await postSheet({ measurements: meas, options: opts })
+      if (ver !== versionRef.current) return   // 已有更新的修改，丢弃旧响应
+      const snap = { data: res, version: ver,
+                     sheetVersion: sheetVersionRef.current }
+      sheetRef.current = snap      // 先同步 ref：紧随其后的 ensurePieces 门控可读
+      setSheet(snap)
+      setWarnings(res.warnings.map((w) => ({ param: w.param, message: w.message })))
+    } catch (e) {
+      const err = e as Error & { detail?: IssueDetail[] }
+      setErrs(err.detail
+              ?? [{ param: null, group: null, message: String(e), level: 'error' }])
+    } finally {
+      setSheetBusy(false)
+    }
+  }, [bumpSheet, setErrs])
+
   // 三个生成动作统一 ref 取参（measRef/optsRef 恒新，闭包不滞后）+
   // 调用时捕获版本号 ver 落快照（生成途中改参数 -> 快照落后于当前
   // version 自然标过期，语义与旧 state 闭包版一致）；返回快照本体，
@@ -360,7 +422,7 @@ export function useDraft(): DraftState {
     const ver = versionRef.current
     const payload = { measurements: measRef.current, options: optsRef.current }
     setSheetBusy(true)
-    setErrors([])
+    setErrs([])
     try {
       const res = await postSheet(payload)
       const snap = { data: res, version: ver,
@@ -372,9 +434,9 @@ export function useDraft(): DraftState {
     } catch (e) {
       const err = e as Error & { detail?: IssueDetail[] }
       if (err.detail) {
-        setErrors(err.detail)
+        setErrs(err.detail)
       } else {
-        setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
+        setErrs([{ param: null, group: null, message: String(e), level: 'error' }])
       }
       return null
     } finally {
@@ -393,7 +455,7 @@ export function useDraft(): DraftState {
     const ver = versionRef.current
     const payload = { measurements: measRef.current, options: optsRef.current }
     setPiecesBusy(true)
-    setErrors([])
+    setErrs([])
     try {
       const res = await postPieces(payload)
       const snap = { data: res, version: ver }
@@ -404,9 +466,9 @@ export function useDraft(): DraftState {
     } catch (e) {
       const err = e as Error & { detail?: IssueDetail[] }
       if (err.detail) {
-        setErrors(err.detail)
+        setErrs(err.detail)
       } else {
-        setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
+        setErrs([{ param: null, group: null, message: String(e), level: 'error' }])
       }
       return null
     } finally {
@@ -423,7 +485,7 @@ export function useDraft(): DraftState {
     const ver = versionRef.current
     const payload = { measurements: measRef.current, options: optsRef.current }
     setFittingBusy(true)
-    setErrors([])
+    setErrs([])
     try {
       const res = await postFitting(payload)
       const snap = { data: res, version: ver }
@@ -433,9 +495,9 @@ export function useDraft(): DraftState {
     } catch (e) {
       const err = e as Error & { detail?: IssueDetail[] }
       if (err.detail) {
-        setErrors(err.detail)
+        setErrs(err.detail)
       } else {
-        setErrors([{ param: null, group: null, message: String(e), level: 'error' }])
+        setErrs([{ param: null, group: null, message: String(e), level: 'error' }])
       }
       return null
     } finally {
@@ -481,9 +543,9 @@ export function useDraft(): DraftState {
     // 抽屉「保存+导出」同 tick：显式覆盖优先，规避闭包旧值（首次导出必用）
     const sr = opts && 'sizeRun' in opts ? opts.sizeRun : sizeRun
     if (kind === 'sizeRunDxf' && !sr) {
-      setErrors([{ param: null, group: null,
-                   message: '推板导出缺少码表配置（请先在推板设置抽屉完成配置）',
-                   level: 'error' }])
+      setErrs([{ param: null, group: null,
+                 message: '推板导出缺少码表配置（请先在推板设置抽屉完成配置）',
+                 level: 'error' }])
       return
     }
     setDlBusy(kind)
@@ -512,7 +574,7 @@ export function useDraft(): DraftState {
     } catch (e) {
       // 下载失败入 errors（左栏 IssueStrip 呈现）并向上抛出——导出中心
       // 队列按项落账 failed；调用方 void 消费时须自带 catch
-      setErrors([{ param: null, group: null, message: `下载失败：${e}`, level: 'error' }])
+      setErrs([{ param: null, group: null, message: `下载失败：${e}`, level: 'error' }])
       throw e
     } finally {
       setDlBusy(null)
@@ -526,6 +588,7 @@ export function useDraft(): DraftState {
     generateSheet, generatePieces, generateFitting, ensureSheet, ensurePieces,
     download,
     applyAdjust, beginDrag, undoLastDrag, lastDrag, adjustInfo,
+    applyFix, errorFocus,
     sheet, pieces, fitting,
     sheetReady: sheet !== null, sheetStale,
     piecesReady: pieces !== null, piecesStale,

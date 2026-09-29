@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 
 from .seam_allowances import (BackPatchSeamAllowances, BackSeamAllowances,
                               FlySeamAllowances, FrontFacingSeamAllowances,
@@ -973,3 +973,16 @@ class PatternOptions:
     @classmethod
     def from_file(cls, path: str) -> "PatternOptions":
         return cls.from_dict(load_size_file(path).get("options", {}))
+
+
+def option_default(key: str):
+    """选项键的引擎默认值（dataclass 字段默认；default_factory 调用取值；
+    未知键 None）。唯一事实源：web 校验修复（validate.py 恢复默认按钮）、
+    运行期归因（flows/diagnose.py touched 判定）、agent 探针回退
+    （extract/probe.py fallback_value 委托）共用。"""
+    for f in fields(PatternOptions):
+        if f.name == key:
+            if f.default is not MISSING:
+                return f.default
+            return f.default_factory() if f.default_factory else None
+    return None

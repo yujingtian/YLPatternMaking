@@ -138,5 +138,24 @@ describe('readStoredMsTask（「继续查看」重连锚）', () => {
     store.delete(MS_TASK_STORAGE_KEY)
     expect(readStoredMsTask()).toBeNull()
   })
+
+  it('锚 TTL 24h（2026-09-29：进工作台空挂「排料中」成因之一）', () => {
+    const store = stubLocalStorage()
+    // 新鲜锚（1h 前）：透传
+    const fresh = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    store.set(MS_TASK_STORAGE_KEY,
+      JSON.stringify({ taskId: 'm1', runMode: 'normal', at: fresh }))
+    expect(readStoredMsTask()?.taskId).toBe('m1')
+    // 陈锚（25h 前）：null 并清锚（下次不再对账）
+    const stale = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
+    store.set(MS_TASK_STORAGE_KEY,
+      JSON.stringify({ taskId: 'm2', runMode: 'normal', at: stale }))
+    expect(readStoredMsTask()).toBeNull()
+    expect(store.has(MS_TASK_STORAGE_KEY)).toBe(false)
+    // 非法时间串（Date.parse NaN）：兼容保留旧锚
+    store.set(MS_TASK_STORAGE_KEY,
+      JSON.stringify({ taskId: 'm3', runMode: 'normal', at: 't0' }))
+    expect(readStoredMsTask()?.taskId).toBe('m3')
+  })
 })
 

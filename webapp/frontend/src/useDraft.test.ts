@@ -5,8 +5,8 @@
 // useDraft 导出、供 startNestFlow 的 console.table 排查打印消费
 
 import { describe, expect, it } from 'vitest'
-import { nestRows } from './hooks/useDraft'
-import type { NestResult } from './types'
+import { nestRows, pickErrorFocus } from './hooks/useDraft'
+import type { IssueDetail, NestResult } from './types'
 
 function mk(numMap: Record<string, number>,
            labels: Record<string, string> = {}): NestResult {
@@ -37,5 +37,33 @@ describe('nestRows（排序 / 回退 / 透传）', () => {
   it('非规范 g 码（前缀大写可解析/无前缀）不炸、无前缀排末尾', () => {
     const rows = nestRows(mk({ g02: 2, G3: 2, x9: 2 }))
     expect(rows.map((r) => r.g)).toEqual(['g02', 'G3', 'x9'])
+  })
+})
+
+// pickErrorFocus（2026-09-29 校验报红二期）：校验错误滚动定位目标 =
+// 首个带 param 的错误（喂 highlight 管线，与拖拽 adjustInfo 同构）；
+// param=null 的整体性错误不定位
+
+function err(param: string | null): IssueDetail {
+  return { param, group: null, message: 'x', level: 'error' }
+}
+
+describe('pickErrorFocus（首带参错误定位）', () => {
+  it('空清单 -> null', () => {
+    expect(pickErrorFocus([])).toBeNull()
+  })
+
+  it('全部 param=null -> null（整体性错误不定位）', () => {
+    expect(pickErrorFocus([err(null), err(null)])).toBeNull()
+  })
+
+  it('跳过 null 取首个带 param 项（顺序稳定）', () => {
+    const f = pickErrorFocus([err(null), err('hip'), err('waist')])
+    expect(f?.param).toBe('hip')
+    expect(typeof f?.ts).toBe('number')
+  })
+
+  it('首个即带 param 直接返回', () => {
+    expect(pickErrorFocus([err('delta')])?.param).toBe('delta')
   })
 })

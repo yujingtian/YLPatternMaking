@@ -71,6 +71,10 @@ def test_waistline_horizontal_span_raises():
     import pytest
     with pytest.raises(ValueError, match="无法构成腰线"):
         waist.waistline_horizontal_span(2.0, 1.0, 1.3)
+    # 负 d 盲区（2026-09-29）：L=5 ≤ |h+d|=7（d=-8）——旧实现 sqrt 负数域
+    # math domain error，现统一走 abs(delta_y) 中文守卫
+    with pytest.raises(ValueError, match="无法构成腰线"):
+        waist.waistline_horizontal_span(5.0, -8.0, 1.0)
 
 
 def test_back_center_intake_doc_examples():

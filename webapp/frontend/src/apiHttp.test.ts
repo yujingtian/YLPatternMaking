@@ -124,7 +124,10 @@ describe('msStatus / msStop / msResult（路径与方法）', () => {
     expect(await msStatus('m1')).toEqual(st)
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('/ms/api/machine/solve/m1/status')
-    expect(init).toBeUndefined()
+    // 2026-09-29：msJson 恒带 30s 超时 signal（挂死连接兜底，别再裸 fetch）
+    expect(init?.method).toBeUndefined()
+    expect(init?.signal).toBeInstanceOf(AbortSignal)
+    expect((init?.signal as AbortSignal).aborted).toBe(false)
   })
 
   it('taskId 特殊字符走 encodeURIComponent（路径安全闸）', async () => {

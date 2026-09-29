@@ -77,3 +77,98 @@ def test_cross_issues_direct():
     # back_yoke=False -> 袋贴报前口袋依赖、后贴袋报机头依赖
     assert {(i.param, i.level) for i in issues} == {
         ("front_pocket_facing", "error"), ("back_patch", "error")}
+
+
+# ---------- 一键修复内容金标（2026-09-29 二期） ----------
+
+def _fx(issue):
+    return [(f.param, f.value, f.label, f.scope) for f in issue.fixes]
+
+
+def test_cross_fixes_content():
+    """cross 五类规则双按钮逐字段：开依赖（保特征）/ 关自身（弃特征）；
+    毗围第二条改录常规 thigh（scope=measurements）。mode 规则与袋贴规则
+    互斥触发（mode 需 facing=False、袋贴需 facing=True），分两次构造。"""
+    m = Measurements(**BASE_M)
+    a = PatternOptions(front_pouch=True, watch_pocket=True,
+                       back_patch=True, thigh_limit=True)
+    by = {i.param: i for i in cross_issues(m, a)}
+    assert set(by) == {"front_pouch", "watch_pocket", "watch_pocket_mode",
+                       "back_patch", "thigh_limit"}
+    assert _fx(by["front_pouch"]) == [
+        ("front_pocket", True, "开启前口袋主切口", "options"),
+        ("front_pouch", False, "关闭袋布", "options")]
+    assert _fx(by["watch_pocket"]) == [
+        ("front_pocket", True, "开启前口袋主切口", "options"),
+        ("watch_pocket", False, "关闭小表袋", "options")]
+    # mode 第二方向不能回默认（默认即 facing_intersect）/不能改 custom
+    assert _fx(by["watch_pocket_mode"]) == [
+        ("front_pocket_facing", True, "开启袋贴", "options"),
+        ("watch_pocket", False, "关闭小表袋", "options")]
+    assert _fx(by["back_patch"]) == [
+        ("back_yoke", True, "开启后机头", "options"),
+        ("back_patch", False, "关闭后贴袋", "options")]
+    assert _fx(by["thigh_limit"]) == [
+        ("thigh_limit", False, "关闭毗围闭环", "options"),
+        ("thigh", 58, "录入常规大腿围 58cm", "measurements")]
+    b = PatternOptions(front_pocket_facing=True)
+    facing = {i.param: i for i in cross_issues(m, b)}
+    assert _fx(facing["front_pocket_facing"]) == [
+        ("front_pocket", True, "开启前口袋主切口", "options"),
+        ("front_pocket_facing", False, "关闭袋贴", "options")]
+
+
+def test_measurement_relation_fix_value():
+    # 臀围 <= 腰围：归因 hip -> 替代值 = 腰围+3（68+3=71，最小满足）
+    issues = build_issues({**BASE_M, "hip": 60}, {})
+    hip = next(i for i in issues if i.param == "hip")
+    assert _fx(hip) == [("hip", 71, "臀围改为 腰围+3cm", "measurements")]
+
+
+def test_measurement_nonpositive_fix_fallback():
+    # 必填键 <=0：给 FALLBACK 常规值（waist -> 68）
+    issues = build_issues({**BASE_M, "waist": 0}, {})
+    w = next(i for i in issues if i.param == "waist")
+    assert _fx(w) == [("waist", 68, "改为常规值 68cm", "measurements")]
+
+
+def test_option_range_fix_reverts_default():
+    # 越界选项：单按钮恢复引擎默认（delta 默认 1.0）
+    issues = build_issues(BASE_M, {"delta": 9.9})
+    assert _fx(issues[0]) == [("delta", 1.0, "恢复引擎默认", "options")]
+
+
+def test_unknown_option_key_no_fixes():
+    # 未知键无从回默认 -> 不给修复按钮
+    issues = build_issues(BASE_M, {"no_such_param": 1})
+    assert issues[0].fixes == ()
+
+
+def test_attribution_no_false_positive_on_relation_pairs():
+    """归因路径键序无关（2026-09-29 二遍式延迟重试）：fly_width 越界触发
+    逐键归因时，shape=custom 先于 custom_points 入列的前缀构造会因角点
+    还是默认空元组假败——第一遍不报、二遍带完整伙伴键重试，只归因真凶
+    fly_width，不连带误报两个 custom「得到 0 个」。"""
+    pts = [[0, 0], [14, 0], [14, 16], [0, 16]]
+    edges = [[0, 0], [0, 0], [0, 0], [0, 0]]
+    issues = build_issues(BASE_M, {
+        "front_patch": True, "back_patch": True, "back_yoke": True,
+        "front_patch_shape": "custom", "front_patch_custom_points": pts,
+        "front_patch_custom_edges": edges,
+        "back_patch_shape": "custom", "back_patch_custom_points": pts,
+        "back_patch_custom_edges": edges,
+        "fly_width": 30,
+    })
+    assert [i.param for i in issues] == ["fly_width"]
+    assert "3.5~4.2" in issues[0].message
+
+
+def test_attribution_reports_genuinely_broken_custom():
+    # 真坏的 custom（角点真的少于 3 个）：二遍重试后仍败 -> 照常归因 shape
+    issues = build_issues(BASE_M, {
+        "front_patch": True,
+        "front_patch_shape": "custom",
+        "front_patch_custom_points": [[0, 0], [1, 0]],
+    })
+    assert [i.param for i in issues] == ["front_patch_shape"]
+    assert "至少 3 个" in issues[0].message

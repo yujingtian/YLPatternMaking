@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.params.measurements import Measurements
-from ylpattern.params.options import PatternOptions
+from ylpattern.params.options import PatternOptions, option_default
 from .validate import build_issues, issue_keys
 
 # 可选开关集合（L3 关闭对象；含 thigh_limit——毗围闭环也是可选步骤）
@@ -57,13 +57,9 @@ class ProbeOutcome:
 
 
 def fallback_value(key: str):
-    """选项键的引擎默认值（dataclasses 字段默认；factory 取调用值）。"""
-    for f in dataclasses.fields(PatternOptions):
-        if f.name == key:
-            if f.default is not dataclasses.MISSING:
-                return f.default
-            return f.default_factory() if f.default_factory else None
-    return None
+    """选项键的引擎默认值：委托 params.options.option_default（唯一事实源，
+    2026-09-29 web 校验修复/diagnose 归因共用后收敛双源）。"""
+    return option_default(key)
 
 
 def _clean(data: dict) -> dict:

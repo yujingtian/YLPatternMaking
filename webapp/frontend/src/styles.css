@@ -30,6 +30,9 @@ html, body, #root { height: 100%; margin: 0; }
 .left-panel .issue-banner { margin: 8px 8px 0; }
 .issue-list { margin: 0; padding-left: 18px; }
 .issue-list code { color: #c0392b; }
+/* 一键修复按钮行（IssueStrip 每条错误下）：紧凑小按钮 */
+.issue-fixes { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; }
+.issue-fixes .ant-btn { margin: 0; }
 /* 动作条：生成（占满余宽）/ 导出 / 高级编辑 + 引擎角标，固定栏底 */
 .action-bar {
   display: flex; align-items: center; gap: 8px;

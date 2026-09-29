@@ -16,7 +16,7 @@ import NestSolveModal from './components/NestSolveModal'
 import Fitting3DView from './fitting3d/Fitting3DView'
 import { zeroBody, type BodyModel } from './fitting3d/bodyModel'
 import type {
-  IssueDetail, NestResult, SizeRunSpec, Values,
+  FixDetail, IssueDetail, NestResult, SizeRunSpec, Values,
 } from './types'
 import { nestRows, useDraft } from './hooks/useDraft'
 import { useSmartDraft } from './hooks/useSmartDraft'
@@ -27,12 +27,16 @@ import { msDeleteTask } from './api'
 import './styles.css'
 
 // 校验错误/警告条（旧 Toolbar Alert 迁入左栏，紧凑化）：错误优先全量
-// 展开给明细，无错误才显警告；都没有不占位
+// 展开给明细，无错误才显警告；都没有不占位。修复按钮（2026-09-29）：
+// 引擎/后端产出的 fixes（替代值/恢复默认/开依赖）逐条渲染，点击 ->
+// applyFix 自动改参并重生成整版
 function IssueStrip({
-  errors, warnings,
+  errors, warnings, onFix, busy,
 }: {
   errors: IssueDetail[]
   warnings: { param: string | null; message: string }[]
+  onFix: (f: FixDetail) => void
+  busy: boolean
 }) {
   if (errors.length > 0) {
     return (
@@ -46,6 +50,17 @@ function IssueStrip({
             {errors.map((e, i) => (
               <li key={i}>
                 {e.param ? <code>[{e.param}]</code> : null} {e.message}
+                {e.fixes?.length ? (
+                  <span className="issue-fixes">
+                    {e.fixes.map((f) => (
+                      <Button key={`${f.param}-${f.label}`} size="small"
+                              type="primary" ghost disabled={busy}
+                              onClick={() => onFix(f)}>
+                        {f.label}
+                      </Button>
+                    ))}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -300,7 +315,7 @@ function DraftApp() {
                   onMeasurement={d.setMeasurement}
                   onOption={d.setOption}
                   onSeed={d.seedShape}
-                  highlight={d.adjustInfo}
+                  highlight={d.adjustInfo ?? d.errorFocus}
                 />
               ) : (
                 <ParamPanel
@@ -311,14 +326,15 @@ function DraftApp() {
                   onMeasurement={d.setMeasurement}
                   onOption={d.setOption}
                   onSeed={d.seedShape}
-                  highlight={d.adjustInfo}
+                  highlight={d.adjustInfo ?? d.errorFocus}
                 />
               )
             ) : (
               <div className="preview-empty">schema 加载中…</div>
             )}
           </div>
-          <IssueStrip errors={d.errors} warnings={d.warnings} />
+          <IssueStrip errors={d.errors} warnings={d.warnings}
+                       onFix={(f) => void d.applyFix(f)} busy={d.sheetBusy} />
           <div className="action-bar">
             {d.engineState === 'loading' && <Tag color="processing">引擎…</Tag>}
             {d.engineState === 'ready' && <Tag color="success">本地计算</Tag>}

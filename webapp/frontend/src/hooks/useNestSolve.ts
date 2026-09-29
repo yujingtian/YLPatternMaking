@@ -39,11 +39,26 @@ export function readStoredMsTask(): StoredMsTask | null {
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (typeof parsed?.taskId !== 'string' || !parsed.taskId) return null
+    // 锚过期（>24h）视同无会话并清锚：任务早被 MS 侧 TTL 回收，attach
+    // 只会得到 error 噪音、按钮白挂「排料中」一轮（2026-09-29 用户报障
+    // 「一进工作台就排料中」成因之一；缺 at 的旧锚兼容保留）
+    if (typeof parsed.at === 'string') {
+      const t = Date.parse(parsed.at)
+      if (Number.isFinite(t)
+          && Date.now() - t > MS_TASK_ANCHOR_TTL_MS) {
+        localStorage.removeItem(MS_TASK_STORAGE_KEY)
+        return null
+      }
+    }
     return parsed as StoredMsTask
   } catch {
     return null
   }
 }
+
+// 任务锚 TTL：MS 侧任务 TTL+7 天兜底，但「继续查看」语义是短期重连；
+// 超一天的陈锚直接跳过（attach 对账一轮 error 噪音无意义）
+export const MS_TASK_ANCHOR_TTL_MS = 24 * 60 * 60 * 1000
 
 // MS 状态 → hook 阶段：submitted/starting/running/orphan 均 running 家族
 //（orphan 语义见文件头；原始 state 仍经 status 透出供 UI 细分展示）
@@ -131,6 +146,7 @@ export function useNestSolve(): NestSolveState {
 
   // 轮询引擎 refs：异步闭包读恒新值（useDraft measRef 先例）+ 卸载守卫
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const nextDueRef = useRef(0)
   const tickRef = useRef<() => Promise<void>>(async () => {})
   const phaseRef = useRef<NestSolvePhase>('idle')
   const taskIdRef = useRef<string | null>(null)
@@ -152,8 +168,15 @@ export function useNestSolve(): NestSolveState {
   }, [clearTimer])
 
   const schedule = useCallback((delayMs: number) => {
+    // 取更早一拍（2026-09-29）：待发一拍不晚于新拍则不动——attach 的 0ms
+    // 对账拍不被挂载期 setVisible(false) 的 15s 降频推迟（进工作台秒级
+    // 对齐真实状态，不再空挂「排料中」）；关窗降频允许多付一次快拍无害
+    const due = Date.now() + delayMs
+    if (timerRef.current !== null && due >= nextDueRef.current) return
     clearTimer()
-    timerRef.current = setTimeout(() => { void tickRef.current() }, delayMs)
+    nextDueRef.current = due
+    timerRef.current = setTimeout(
+      () => { void tickRef.current() }, Math.max(0, due - Date.now()))
   }, [clearTimer])
 
   // 终态取果（done/stopped；stopped 态 MS 由 best_frame 边车 density 最大
@@ -254,11 +277,16 @@ export function useNestSolve(): NestSolveState {
     }
   }, [goPhase, schedule])
 
-  // 重连既有任务（「继续查看」）：按 running 起步，首拍轮询自会对齐真实
-  // 终态（done 也会走自动取果）；submitting/running 中是无效调用
+  // 重连既有任务（「继续查看」）：按 running 起步，首拍**立即对账**（0ms，
+  // 非 15s 降频档——挂载/刷新恢复秒级对齐真实终态：done 转会话态、
+  // 404/连续失败转 error，按钮不再空挂「排料中」）；submitting/running
+  // 中是无效调用，但计时器已死时补一拍（dev StrictMode 双挂载：卸载
+  // 清理停表后 attach 早退会让 running 态永久失表——报障成因之二）
   const attach = useCallback((id: string) => {
-    if (phaseRef.current === 'submitting' || phaseRef.current === 'running')
+    if (phaseRef.current === 'submitting' || phaseRef.current === 'running') {
+      if (timerRef.current === null) schedule(0)   // 死表补拍：立即对账
       return
+    }
     clearTimer()
     failRef.current = 0
     taskIdRef.current = id
@@ -272,7 +300,7 @@ export function useNestSolve(): NestSolveState {
     setTotalSec(null)
     setPerSeed([])
     goPhase('running')
-    schedule(visibleRef.current ? POLL_FAST_MS : POLL_SLOW_MS)
+    schedule(0)
   }, [clearTimer, goPhase, schedule])
 
   // 终止（→ stopped 可返回）：fire-and-forget——已终态 400 等静默，状态由
@@ -311,14 +339,16 @@ export function useNestSolve(): NestSolveState {
     setPerSeed([])
   }, [clearTimer, goPhase])
 
-  // 卸载兜底：清计时器 + 后续 setState 守卫（长跑任务不跨卸载泄漏）
+  // 卸载兜底：清计时器 + 后续 setState 守卫（长跑任务不跨卸载泄漏）；
+  // clearTimer 同步置 null——重挂（StrictMode）时 attach 早退分支据
+  // timerRef === null 补拍，不再依赖「已清 timer 残留非 null」的巧合
   useEffect(() => {
     aliveRef.current = true
     return () => {
       aliveRef.current = false
-      if (timerRef.current !== null) clearTimeout(timerRef.current)
+      clearTimer()
     }
-  }, [])
+  }, [clearTimer])
 
   return {
     phase, visible, taskId, startedAt, error,

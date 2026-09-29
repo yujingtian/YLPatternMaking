@@ -144,11 +144,15 @@ def waistline_horizontal_span(waist_len: float, side_rise: float,
         side_rise  侧缝腰头抬高量 h（0 = 顶点压在腰围基础线上）
         fc_drop    前中下落量 d（A 低于腰围基础线的量；A 高出时为负）
 
-    边界（§6.2）：L ≤ h + d 时高度差超出斜边长，无法构成腰线。
+    边界（§6.2）：L ≤ h + d 时高度差超出斜边长，无法构成腰线。d 可为负
+    （A 高出腰围基础线），守卫按 |h+d| 判——负高差同样使 sqrt 负数域
+    （2026-09-29 盲区修复：极端后浪使 delta_y 为负时旧守卫放行、裸抛
+    math domain error）。
     """
     delta_y = side_rise + fc_drop
-    if waist_len <= delta_y:
+    if waist_len <= abs(delta_y):
         raise ValueError(
-            f"腰长 {waist_len:.2f} ≤ 高差 {delta_y:.2f}（h={side_rise} + "
-            f"d={fc_drop:.2f}），无法构成腰线：请减小侧缝抬高量或加大腰长")
+            f"腰长 {waist_len:.2f} ≤ 高差绝对值 {abs(delta_y):.2f}"
+            f"（h={side_rise} + d={fc_drop:.2f}），无法构成腰线："
+            "请减小侧缝抬高量或加大腰长")
     return math.sqrt(waist_len ** 2 - delta_y ** 2)

@@ -9,9 +9,11 @@
 不经 PyProxy，无句柄泄漏）。**永不 raise**：一切异常转为
 {"ok": false, "error": {"kind": "validation" | "engine", ...}}——
   validation：与 HTTP 422 同构（build_issues error 级 → detail=IssueDetail[]；
-              未注册绑定/基线不可生成 → message），前端按参数错显示、
+              未注册绑定/基线不可生成 → message；
+              运行期几何失败 → diagnose_runtime 二分归因 → detail 带参数
+              定位 + fixes 一键修复，2026-09-29），前端按参数错显示、
               不触发 HTTP 回退；
-  engine：其余未捕获异常，前端回落 HTTP 通道再试。
+  engine：其余真·未捕获异常，前端回落 HTTP 通道再试。
 DXF/toml/templates 不在本模块（重依赖 ezdxf / 读盘，留在后端）。
 """
 
@@ -26,7 +28,9 @@ from ylpattern.exporters import svg as svg_exp
 from ylpattern.flows.adjust import solve_param
 from ylpattern.flows.closure import run_with_thigh_closure
 from ylpattern.flows.collect import collect_pieces
-from ylpattern.params import Measurements, PatternOptions, build_issues
+from ylpattern.flows.diagnose import diagnose_runtime
+from ylpattern.params import (Issue, Measurements, PatternOptions,
+                              build_issues)
 from ylpattern.webschema import binding_for, handles, seed_shape
 
 
@@ -46,8 +50,13 @@ def _err(kind: str, message: str, detail: list | None = None) -> str:
 
 
 def _issue_dicts(issues) -> list[dict]:
+    """Issue -> validation detail 数组（与 app.py _issue_dicts 逐键同构，
+    金标钉死全等）。fixes 恒带（空列表，schema 稳定）。"""
     return [{"param": i.param, "group": i.group, "message": i.message,
-             "level": i.level} for i in issues]
+             "level": i.level,
+             "fixes": [{"param": f.param, "value": f.value, "label": f.label,
+                        "scope": f.scope} for f in i.fixes]}
+            for i in issues]
 
 
 def _build(payload: dict):
@@ -66,7 +75,22 @@ def _build(payload: dict):
 
 def _draft_ctx(payload: dict):
     m, o, warnings = _build(payload)
-    ctx, _trace = run_with_thigh_closure(m, o)
+    try:
+        ctx, _trace = run_with_thigh_closure(m, o)
+    except Exception as e:
+        # 运行期几何失败（复刻 app.py _draft_ctx 2026-09-29 口径）：二分
+        # 探测归因 -> validation（前端不回落 HTTP、直接逐参数标红+修复
+        # 按钮）；归因自身异常兜底 param=None，绝不掩盖引擎原始消息。
+        message = f"{type(e).__name__}: {e}"
+        try:
+            issues = diagnose_runtime(payload.get("measurements", {}),
+                                      payload.get("options", {}), message)
+        except Exception:
+            issues = []
+        raise _ValidationError(
+            "引擎生成失败",
+            _issue_dicts(issues or [Issue(None,
+                                          f"引擎生成失败：{message}")])) from e
     return m, o, ctx, warnings
 
 

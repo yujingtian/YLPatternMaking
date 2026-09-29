@@ -29,8 +29,10 @@ from ylpattern.exporters import svg as svg_exp
 from ylpattern.flows.adjust import solve_param
 from ylpattern.flows.collect import collect_pieces
 from ylpattern.flows.closure import run_with_thigh_closure
+from ylpattern.flows.diagnose import diagnose_runtime
 from ylpattern.api import run_size_run_groups, size_run_from_dict
-from ylpattern.params import (Measurements, PatternOptions, build_issues)
+from ylpattern.params import (Issue, Measurements, PatternOptions,
+                              build_issues)
 
 from .schema import binding_for, build_schema, handles, seed_shape
 
@@ -88,14 +90,23 @@ class DraftRequest(BaseModel):
                                    # sheet/pieces/adjust/seed 忽略）
 
 
+def _issue_dicts(issues) -> list[dict]:
+    """Issue -> 422 detail 数组（与 engine_glue._issue_dicts 逐键同构，
+    tests/test_engine_glue.py 金标钉死全等）。fixes 恒带（空列表，
+    schema 稳定）：一键修复按钮数据（param/value/label/scope）。"""
+    return [{"param": i.param, "group": i.group, "message": i.message,
+             "level": i.level,
+             "fixes": [{"param": f.param, "value": f.value, "label": f.label,
+                        "scope": f.scope} for f in i.fixes]}
+            for i in issues]
+
+
 def _build(req: DraftRequest):
     """校验 + 构造 (Measurements, PatternOptions)；有 error 级问题 -> 422。"""
     issues = build_issues(req.measurements, req.options)
     errors = [i for i in issues if i.level == "error"]
     if errors:
-        raise HTTPException(422, detail=[
-            {"param": i.param, "group": i.group, "message": i.message,
-             "level": i.level} for i in errors])
+        raise HTTPException(422, detail=_issue_dicts(errors))
     m = Measurements.from_dict(req.measurements)
     o = PatternOptions.from_dict(req.options)
     warnings = [{"param": i.param, "group": i.group, "message": i.message,
@@ -105,7 +116,19 @@ def _build(req: DraftRequest):
 
 def _draft_ctx(req: DraftRequest):
     m, o, warnings = _build(req)
-    ctx, _trace = run_with_thigh_closure(m, o)
+    try:
+        ctx, _trace = run_with_thigh_closure(m, o)
+    except Exception as e:
+        # 运行期几何失败（2026-09-29 前裸抛 500、守卫消息全丢）：二分探测
+        # 归因到参数 -> 422 定位 + 一键修复，与构造期错误同构。归因自身
+        # 异常兜底为 param=None 的 Issue，绝不掩盖引擎原始消息。
+        message = f"{type(e).__name__}: {e}"
+        try:
+            issues = diagnose_runtime(req.measurements, req.options, message)
+        except Exception:
+            issues = []
+        raise HTTPException(422, detail=_issue_dicts(issues or [
+            Issue(None, f"引擎生成失败：{message}")])) from e
     return m, o, ctx, warnings
 
 

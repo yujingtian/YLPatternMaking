@@ -245,9 +245,13 @@ export function normalizeMsError(status: number, body: unknown): MsError {
   return err
 }
 
-// 五端点公共壳：非 2xx → 错误体归一抛 MsError
+// 五端点公共壳：非 2xx → 错误体归一抛 MsError；30s 超时兜底——裸 fetch
+// 在连接建立但不响应（MS/代理挂死）时永不落定，轮询 failRef 不累计、
+// 按钮永久卡「排料中」（2026-09-29 报障成因之三）；到点 abort 计一次
+// 网络失败，连续 3 次自然转 error（与后端代理 status 30s 档对齐）
 async function msJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${MS_BASE}${path}`, init)
+  const res = await fetch(`${MS_BASE}${path}`,
+                          { ...init, signal: AbortSignal.timeout(30_000) })
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
