@@ -128,6 +128,97 @@ def _normalize_custom_shape(points, edges, validate, prefix):
     return pts, eds
 
 
+# 数值选项量级守卫表（2026-09-29「很大的值不标红」统一审计落地，
+# scripts/audit_option_bounds.py 全字段扫描的 D 类=荒谬大值引擎静默接受、
+# 无任何报错的字段）。只收 D 类——B 类（运行期几何守卫会炸且 diagnose
+# 归因正确，如 back_yoke_cb_dist 超链长）留给运行期通道，避免误伤合法
+# 极值。上界取常规上界 2~3 倍宽松档：只拦「明显荒谬」（×10 量级），
+# 不约束风格探索；每条消息含中文语义 + 常规区间供用户自行修正。
+_VALUE_RANGES: dict[str, tuple[float, float, str]] = {
+    # —— 腰臀分配/调节（cm）——
+    "front_intake_ratio": (0.0, 1.0, "前中内收系数（常规 0.15~0.2）"),
+    "front_intake_adjust": (-5.0, 5.0, "前中内收修正（cm）"),
+    "back_intake": (0.0, 10.0, "后中内收模数（常规 1.5~4.5）"),
+    "waist_balance": (-8.0, 8.0, "腰围前后片调节量（cm，前减后加）"),
+    "front_waist_dart": (0.0, 8.0, "前片腰长调节量（常规 0~3）"),
+    "back_waist_dart": (0.0, 8.0, "后片腰长调节量（常规 0~4）"),
+    "back_dart_length": (0.0, 25.0, "后片省中线长（常规 ~11）"),
+    "back_yoke_cb_dist": (0.0, 15.0, "机头后中深度（常规 2.5~5）"),
+    "back_yoke_side_dist": (0.0, 15.0, "机头侧缝深度（常规 2.5~4）"),
+    "outseam_bulge": (0.0, 3.0, "外缝弧外凸量（常规 0.2~0.5）"),
+    "front_waist_curve_sag": (0.0, 3.0, "前腰弧下凹量（常规 0.3~0.5）"),
+    "back_waist_curve_sag": (0.0, 3.0, "后腰弧下凹量（常规 0.3~0.5）"),
+    "waist_rect_len": (0.0, 5.0, "腰弧直角修正段长（常规 1.0~1.5）"),
+    "front_rise_exit_angle": (0.0, 45.0, "前浪裆底出口角（度，常规 0~25）"),
+    "front_crease_e": (-3.0, 3.0, "前片裤中线调节量（常规 0 或 -0.5~-0.8）"),
+    "back_crease_e": (-3.0, 3.0, "后片裤中线调节量（常规同前片）"),
+    "knee_adjust": (0.0, 8.0, "膝围前后调整量（常规 0.5~1）"),
+    "hem_adjust": (0.0, 8.0, "脚口前后调整量（常规 0.5~1）"),
+    # —— 弧线形态系数（无量纲/小位移）——
+    "calf_arc_alpha": (0.0, 0.5, "小腿段弧弓高系数（常规 0.08~0.12）"),
+    "back_calf_arc_alpha": (0.0, 0.5, "后片小腿段弧弓高系数（常规 0.08~0.12）"),
+    "inseam_arc_k1": (0.0, 1.0, "内缝小裆弯度（常规 0.15~0.25）"),
+    "inseam_arc_ky": (0.0, 1.0, "内缝大腿段纵向系数（默认 0.28）"),
+    "inseam_arc_k2": (0.0, 1.5, "内缝切线柄长系数（默认 0.35）"),
+    "outseam_arc_dx": (-5.0, 5.0, "外缝大转子外凸量（常规 0.1~0.2；毗围闭环可解出负值）"),
+    "outseam_arc_m2": (0.0, 1.5, "外缝切线柄长系数（默认 0.4）"),
+    "back_inseam_arc_k1": (0.0, 1.0, "后内缝大裆弯度（常规 0.25~0.35）"),
+    "back_inseam_arc_ky": (0.0, 1.0, "后内缝纵向系数（默认 0.30）"),
+    "back_inseam_arc_k2": (0.0, 1.5, "后内缝切线柄长系数（默认 0.35）"),
+    "back_outseam_arc_dx": (-5.0, 5.0, "后外缝臀侧饱满度（常规 0.1~0.25；毗围闭环可解出负值）"),
+    "back_outseam_arc_m2": (0.0, 1.5, "后外缝切线柄长系数（默认 0.4）"),
+    "back_hipwaist_arc_dx1": (0.0, 3.0, "臀侧凸出量（常规 0~0.3）"),
+    "back_hipwaist_arc_k1": (0.0, 1.5, "臀侧凸感延续系数（常规 0.35~0.45）"),
+    "back_hipwaist_arc_dx2": (0.0, 3.0, "腰头角点凸出量（常规 0~0.3）"),
+    "back_hipwaist_arc_k2": (0.0, 1.5, "腰头收束系数（常规 0.20~0.30）"),
+    "front_hem_arc_sag": (0.0, 4.0, "前片脚口弧高（常规 0~0.8）"),
+    "back_hem_arc_sag": (0.0, 4.0, "后片脚口弧高（常规 0~0.8）"),
+    # —— 袋口/贴袋/小表袋/裤耳/门襟（cm/度）——
+    "front_pocket_mouth_h1": (0.0, 15.0, "袋口腰头端切线柄长（tangent 模式，常规 ~3）"),
+    "front_pocket_mouth_h2": (0.0, 15.0, "袋口侧缝端切线柄长（tangent 模式，常规 ~3）"),
+    "front_patch_top_drop": (0.0, 50.0, "前贴袋口下落量（常规 ~10）"),
+    "front_patch_top_inset": (0.0, 15.0, "前贴袋口内移量（常规 ~2）"),
+    "front_patch_width": (0.0, 40.0, "前贴袋口宽（常规 13~16）"),
+    "front_patch_height": (0.0, 45.0, "前贴袋身高（常规 14~17）"),
+    "front_patch_bottom_width": (0.0, 40.0, "前贴袋底宽（0=与袋口同宽）"),
+    "front_patch_rotate_deg": (-90.0, 90.0, "前贴袋旋转角（度）"),
+    "back_patch_inset_x": (0.0, 20.0, "后贴袋距后浪距离（常规 4~5.5）"),
+    "back_patch_drop_y": (0.0, 20.0, "后贴袋距育克底线距离（常规 3~4.5）"),
+    "back_patch_width": (0.0, 40.0, "后贴袋口宽（常规 13~16）"),
+    "back_patch_height": (0.0, 45.0, "后贴袋身高（常规 15~18）"),
+    "back_patch_bottom_width": (0.0, 40.0, "后贴袋底宽（0=与袋口同宽）"),
+    "back_patch_rotate_deg": (-90.0, 90.0, "后贴袋旋转角（度）"),
+    "back_patch_top_hem_taper": (-2.0, 0.0, "后贴袋口折边撇势（≤0 向内）"),
+    "back_patch_notch_depth": (0.0, 1.5, "后贴袋对位刀口深（常规 0.3）"),
+    "watch_pocket_width": (0.0, 20.0, "小表袋口宽（常规 7.0~8.5）"),
+    "watch_pocket_taper": (0.0, 3.0, "小表袋侧边内收量（常规 ~0.3）"),
+    "watch_pocket_offset_from_top": (0.0, 15.0, "小表袋离口袋顶部距离（常规 ~3）"),
+    "watch_pocket_offset_from_side": (0.0, 15.0, "小表袋离口袋侧边距离（常规 ~3.5）"),
+    "watch_pocket_rotate_deg": (-90.0, 90.0, "小表袋旋转角（度）"),
+    "belt_loop_width": (0.0, 5.0, "裤耳净宽（常规 1.0~1.5）"),
+    "belt_loop_unit_length": (0.0, 15.0, "裤耳单根长（常规 5.5~6.5）"),
+    "belt_loop_count": (1, 20, "裤耳根数（常规 5）"),
+    "belt_loop_waste": (0.0, 10.0, "裤耳裁剪损耗（常规 ~3）"),
+    "fly_turnback": (0.0, 3.0, "门襟折转退层补偿（常规 ~0.25）"),
+    "fly_stitch_inset": (0.0, 3.0, "门襟 J 字明线内收（常规 ~0.6）"),
+    "fly_sep_extra": (0.0, 15.0, "独立门襟底部延展量（常规 ~2）"),
+    # —— 毗围闭环旋钮 ——
+    "thigh_measure_offset": (0.0, 10.0, "毗围实测下移量（常规实测 2.54）"),
+    "thigh_piece_split_max": (0.0, 5.0, "毗围片间分配分界（默认 0.2）"),
+    "thigh_dual_track_min": (0.0, 5.0, "毗围双轨分流阈值（默认 0.3）"),
+    "thigh_front_crotch_coef": (0.0, 1.0, "前小裆调拨系数（默认 0.09）"),
+    "thigh_back_crotch_coef": (0.0, 1.0, "后大裆调拨系数（默认 0.21）"),
+    "thigh_front_crotch_max": (0.0, 5.0, "前小裆调整上限（默认 0.4）"),
+    "thigh_back_crotch_max": (0.0, 5.0, "后大裆调整上限（默认 1.0）"),
+    "thigh_max_iter": (1, 30, "毗围闭环最大迭代（默认 6）"),
+    "thigh_tol": (0.0, 5.0, "毗围收敛容差（默认 0.3）"),
+    # —— 出口/杂项 ——
+    "piece_gap": (0.0, 50.0, "前后片排版间距（默认 10）"),
+    "waistband_fly_extension": (0.0, 10.0, "腰头门襟搭门量（常规 0~4）"),
+    "seam_allowance": (0.0, 5.0, "默认缝份（常规 1.0~1.5）"),
+}
+
+
 @dataclass(frozen=True)
 class PatternOptions:
     delta: float = 1.0                     # 前后片臀围单侧调节量 Δ（推导文档 §四）
@@ -562,6 +653,16 @@ class PatternOptions:
         self._check_front_piece()
         self._check_back_piece()
         self._check_back_patch()
+        # 量级守卫表放最后：特征专属守卫（更具体的消息）先报
+        self._check_value_ranges()
+
+    def _check_value_ranges(self) -> None:
+        """_VALUE_RANGES 逐键量级检查（表驱动；见表头注释）。"""
+        for name, (lo, hi, note) in _VALUE_RANGES.items():
+            v = getattr(self, name)
+            if not lo <= v <= hi:
+                raise ValueError(
+                    f"{note}建议在 {lo:g}~{hi:g} 内，得到 {v:g}")
 
     def _check_common(self) -> None:
         """全局量：Δ / 腰头宽 / 全局缩水 / 默认缝份 / 毗围实测下移量。"""

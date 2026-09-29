@@ -2,7 +2,7 @@
 // 分派的单参数渲染体 + 虚拟参数（pocket_type/fly_type）读写双开关的
 // helper。ParamPanel（全部参数）与 CoreParams（核心参数）两处共用，
 // 改动须保持两处行为一致。
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Input, InputNumber, Select, Switch } from 'antd'
 import type {
   EdgeSpec, Gate, ParamSpec, SeedPayload, SeedResult, Values,
@@ -54,6 +54,28 @@ export function flyTypeOf(options: Values): string {
   return '无'
 }
 
+// 数字参数显示值（纯函数，金标 ParamInput.test.ts）：编辑期空态覆写
+// 优先（受控 InputNumber 显示保持空、不被默认值回弹的机制本体）->
+// value 缺失回落（可空 = null 空态 + placeholder「自动」、非可空 =
+// schema 默认）
+export function numberDisplayValue(
+  spec: ParamSpec, value: unknown, holdEmpty: boolean,
+): number | null {
+  if (holdEmpty) return null
+  if (value === null || value === undefined)
+    return spec.nullable ? null : (spec.default as number | null)
+  return value as number
+}
+
+// 数字参数空输入提交值（纯函数）：可空 -> null（自动）；非可空 ->
+// undefined（未设置态——JSON.stringify 丢键，载荷/localStorage 暂存
+// 均不含该键，引擎回落自身默认，与 placeholder 灰显的默认值同源）。
+// 绝不提交 null：引擎 from_dict 对 None 直通会撞类型校验（旧口径的
+// 隐藏雷）
+export function emptyNumberCommit(spec: ParamSpec): unknown {
+  return spec.nullable ? null : undefined
+}
+
 // 缝份对象（sa 类型）的语义边名 -> 中文（2026-09-24）：与参数键/枚举值
 // 分表维护——边名与参数键同名异物（hem=裤口/脚口边、waist=腰围/腰口），
 // 并入一张表会串义；title 同款「英文 · 中文」双名
@@ -70,6 +92,22 @@ export default function ParamInput({
 }: ParamInputProps) {
   const [jsonText, setJsonText] = useState<string | null>(null)
   const [jsonBad, setJsonBad] = useState(false)
+  // 编辑期空态覆写（2026-09-29 修「删不掉」）：数字/int 参数清空时 antd
+  // InputNumber 上抛 onChange(null)，旧口径 null 直进 options 后被
+  // ParamPanel/CoreParams 的 ?? default 与本组件的非空兜底两层回落，
+  // 受控 value 立即回填显示——清空的瞬间默认值弹回。现口径：清空只改
+  // 本地覆写（显示保持空），提交走 emptyNumberCommit。外部改值（拖拽
+  // 回写/一键修复/换源）解除覆写；聚焦中除外——清空提交本身就是一次
+  // 值变化，不能自解锁（custom_shape 分支提前 return 在后，hook 须在前）
+  const [numEmpty, setNumEmpty] = useState(false)
+  const [saEmpty, setSaEmpty] = useState<string | null>(null)
+  const focusRef = useRef(false)
+  useEffect(() => {
+    if (!focusRef.current) {
+      setNumEmpty(false)
+      setSaEmpty(null)
+    }
+  }, [value])
   // 中文名 + 双名 title（字段名 · 中文；无翻译回落英文键单名）
   const zh = zhMap?.[spec.key]
 
@@ -181,9 +219,23 @@ export default function ParamInput({
                 size="small"
                 style={{ width: 72 }}
                 step={0.1}
-                value={v}
+                value={saEmpty === k ? null : v}
                 status={err ? 'error' : undefined}
-                onChange={(nv) => onChange({ ...sa, [k]: nv ?? 0 })}
+                onFocus={() => { focusRef.current = true }}
+                onBlur={() => {
+                  focusRef.current = false
+                  // 缝边无「未设置」语义：清空只在编辑期持空，失焦恢复
+                  // 已提交值（不落 0——缝边被静默清零会出废裁片）
+                  setSaEmpty((e) => (e === k ? null : e))
+                }}
+                onChange={(nv) => {
+                  if (nv == null) {
+                    setSaEmpty(k)
+                    return
+                  }
+                  setSaEmpty(null)
+                  onChange({ ...sa, [k]: nv })
+                }}
               />
             </span>
           ))}
@@ -236,12 +288,23 @@ export default function ParamInput({
           style={{ width: '100%' }}
           step={spec.type === 'int' ? 1 : 'any'}
           precision={spec.type === 'int' ? 0 : undefined}
-          placeholder={spec.nullable ? '自动' : undefined}
+          // placeholder 顺带承载「当前生效默认值」：清空后的未设置态灰显
+          // schema 默认，与引擎实际回落值同源（nullable 照旧「自动」）
+          placeholder={spec.nullable ? '自动'
+            : spec.default != null ? String(spec.default) : undefined}
           status={err ? 'error' : undefined}
-          value={value === null || value === undefined
-            ? (spec.nullable ? null : (spec.default as number))
-            : (value as number)}
-          onChange={(v) => onChange(v)}
+          value={numberDisplayValue(spec, value, numEmpty)}
+          onFocus={() => { focusRef.current = true }}
+          onBlur={() => { focusRef.current = false }}
+          onChange={(nv) => {
+            if (nv == null) {
+              setNumEmpty(true)
+              onChange(emptyNumberCommit(spec))
+            } else {
+              setNumEmpty(false)
+              onChange(nv)
+            }
+          }}
         />
       )
     }

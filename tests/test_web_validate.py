@@ -138,6 +138,26 @@ def test_option_range_fix_reverts_default():
     assert _fx(issues[0]) == [("delta", 1.0, "恢复引擎默认", "options")]
 
 
+def test_value_range_table_catches_absurd_and_fixes():
+    """量级守卫表（2026-09-29「很大的值不标红」统一审计）：watch_pocket_width=50
+    此前只有 <=0 守卫——大值静默进引擎，facing_intersect 缺口组合下归因漂到
+    watch_pocket 开关、字段本身永不红。表驱动上界后构造期直接归因本键
+    + 恢复默认按钮（7.5）。"""
+    issues = build_issues(BASE_M, {"watch_pocket_width": 50})
+    assert issues[0].param == "watch_pocket_width"
+    assert "小表袋口宽" in issues[0].message
+    assert _fx(issues[0]) == [
+        ("watch_pocket_width", 7.5, "恢复引擎默认", "options")]
+
+
+def test_value_range_closure_negative_arc_dx_allowed():
+    """毗围闭环解算会把 outseam_arc_dx 解成负值（实测 -0.44，closure.py
+    replace 写回）——闭合对称区间是解算产物通道，不能按「常规 0.1~0.2」
+    单侧拦负；90° 旋转同属几何合法（金标 rotation 用例）。"""
+    PatternOptions(outseam_arc_dx=-0.44, back_outseam_arc_dx=-0.42,
+                   front_patch_rotate_deg=90.0, watch_pocket_rotate_deg=-90.0)
+
+
 def test_unknown_option_key_no_fixes():
     # 未知键无从回默认 -> 不给修复按钮
     issues = build_issues(BASE_M, {"no_such_param": 1})
