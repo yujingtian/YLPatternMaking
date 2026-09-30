@@ -146,7 +146,6 @@ export function useNestSolve(): NestSolveState {
 
   // 轮询引擎 refs：异步闭包读恒新值（useDraft measRef 先例）+ 卸载守卫
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const nextDueRef = useRef(0)
   const tickRef = useRef<() => Promise<void>>(async () => {})
   const phaseRef = useRef<NestSolvePhase>('idle')
   const taskIdRef = useRef<string | null>(null)
@@ -168,15 +167,13 @@ export function useNestSolve(): NestSolveState {
   }, [clearTimer])
 
   const schedule = useCallback((delayMs: number) => {
-    // 取更早一拍（2026-09-29）：待发一拍不晚于新拍则不动——attach 的 0ms
-    // 对账拍不被挂载期 setVisible(false) 的 15s 降频推迟（进工作台秒级
-    // 对齐真实状态，不再空挂「排料中」）；关窗降频允许多付一次快拍无害
-    const due = Date.now() + delayMs
-    if (timerRef.current !== null && due >= nextDueRef.current) return
+    // 无条件重排（2026-09-30 撤回 063531e「取更早一拍」守卫）：守卫把定时器
+    // fire 后残留的 timerRef 误当「有待发一拍」，首次成功轮询后的重排被吞、
+    // 轮询链死在第一拍（进度冻结、终止无回显、按钮恒「排料中」——当日用户
+    // 报障）。它想修的「attach 0ms 对账拍被挂载期 15s 降频推迟」属偶现问题，
+    // 修法不对整体撤回，待后续遇到再彻查（用户口径 2026-09-30）
     clearTimer()
-    nextDueRef.current = due
-    timerRef.current = setTimeout(
-      () => { void tickRef.current() }, Math.max(0, due - Date.now()))
+    timerRef.current = setTimeout(() => { void tickRef.current() }, delayMs)
   }, [clearTimer])
 
   // 终态取果（done/stopped；stopped 态 MS 由 best_frame 边车 density 最大
