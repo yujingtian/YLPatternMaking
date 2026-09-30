@@ -6,7 +6,8 @@
   P_s0：y = P2.y − 8.0，低于臀围线 86 → 落在大腿外缝弧上；
   节点 K1 = B + (5.0, −16.0) = (9.3606, 82)，K2 = B + (1.5, −13.5) = (5.8606, 84.5)；
   大片节点链 3 段：line（P_w0→K1）、arc h=2.5/t=0.6（K1→K2）、line（K2→P_s0）；
-  小片节点链与大片同节点同边形态，起点 = 袋口切削线起点 P1′，终点 = P2。
+  小片节点链与大片同节点同边形态，上沿经侧缝子段（P_s0→P2）→ 袋口净线
+  （P2→P1，反向主切口净线——口袋组件净线起草）→ 腰弧子段（P1→P_w0）闭合。
 """
 
 import math
@@ -113,12 +114,12 @@ def test_pouch_small_chain(ctx):
     assert s1.p0.distance_to(p_s0) < 1e-9
     s2 = ctx.curve("front.pouch_small_side_seg2")
     assert s2.p3.distance_to(p2) < 1e-9
-    # 袋口切削线：P2 → P1′（反向主切口）
+    # 袋口净线：P2 → P1（反向主切口净线——口袋组件净线起草，切削线属前片侧）
     mouth = ctx.curve("front.pouch_small_mouth_seg1")
-    cut = ctx.curve("front.pocket_mouth")
-    assert mouth.p0.distance_to(cut.p3) < 1e-9   # P2
-    assert mouth.p3.distance_to(cut.p0) < 1e-9   # P1′
-    # 腰弧子段：P1 → P_w0（t_at_y 与 split 路径不同，浮点容差放宽）
+    net = ctx.curve("front.pocket_mouth_baseline")
+    assert mouth.p0.distance_to(net.p3) < 1e-9   # P2
+    assert mouth.p3.distance_to(net.p0) < 1e-9   # P1
+    # 腰弧子段：P1 → P_w0（净线锚，t_at_length 与 draw_front_pocket 同口径）
     waist = ctx.curve("front.pouch_small_waist_edge")
     assert waist.p0.distance_to(ctx.point("front.pocket_p1")) < 1e-6
     assert waist.p3.distance_to(p_w0) < 1e-6

@@ -2,8 +2,10 @@
 
 金标（M 同 test_pocket_facing_steps：W=70, H=96, Δ=1.0, outseam=102）：
   - INSET 袋贴：三段边界（腰弧 waist / 内边 inner / 外缝弧 side）1:1 复制前大片，
-    闭合截取；内部保留前口袋弧线（设计净线）+ 吃省边（§1.1）；刀口 = 袋口净线起止端点，
-    沿口袋弧线切线延长线投至缝边、净样线位 + 缝边位成对（§2.2）。
+    闭合截取；内部保留前口袋弧线（设计净线，口袋组件净线起草——吃省两线制：
+    前片袋口边走 C_cut 自 P1′、缝时 P1′↔P1 对齐吃省）；刀口 = 袋口净线起止端点
+    P1/P2（与前大片 P1′/P2 跨片成对），沿口袋净线切线延长线投至缝边、
+    净样线位 + 缝边位成对（§2.2）。
   - PATCH 贴袋：净样母线 C(t) 直接拷贝（§1.2）；seg1=袋口 top 折边、其余=四周 side 缝边；
     刀口 = 各净角点沿相邻净边延长线投至缝边（每角 2 刀折边指示，§2.2）。
 断言口径：几何不变量（闭合、shoelace<0 自定向、外法向外扩、缩水轴向、刀口、丝缕竖向），
@@ -176,7 +178,8 @@ def test_facing_grain_vertical(ctx_facing):
 
 
 def test_facing_notches_two_endpoints(ctx_facing):
-    """刀口 = 袋口净线起止端点 P1′/P1 + P2（§2.2 INSET 袋贴刀口）。"""
+    """刀口 = 袋口净线起止端点 P1 + P2（§2.2 INSET 袋贴刀口，口袋组件净线锚，
+    与前大片 P1′/P2 跨片成对——缝时 P1′↔P1 对齐吃省）。"""
     piece, _ = build_front_facing(ctx_facing)
     assert len(piece.notches) == 2
 
@@ -197,11 +200,11 @@ def test_facing_notches_projected_to_seam(ctx_facing):
 
 
 def test_facing_notch_dir_along_mouth_tangent(ctx_facing):
-    """刀口延伸方向顺着口袋弧线的切线延长线（§2.2）：缝边位 − 净样线位 与
-    局部反射（X 不翻、Y 翻）后的袋口切削线端切线平行同向（fixture 无缩水，
-    方向仅经反射）。首端（P1′）取切线反向、末端（P2）取正向。"""
+    """刀口延伸方向顺着口袋净线的切线延长线（§2.2）：缝边位 − 净样线位 与
+    局部反射（X 不翻、Y 翻）后的袋口净线端切线平行同向（fixture 无缩水，
+    方向仅经反射）。首端（P1）取切线反向、末端（P2）取正向。"""
     piece, _ = build_front_facing(ctx_facing)
-    mouth = ctx_facing.curve("front.pocket_mouth")   # P1′ -> P2
+    mouth = ctx_facing.curve("front.pocket_mouth_baseline")   # P1 -> P2
     t0 = mouth.tangent_at(0.0).normalized()
     t1 = mouth.tangent_at(1.0).normalized()
     dirs = [(-t0.dx, t0.dy), (t1.dx, -t1.dy)]       # 反射翻 Y + 首端反向
@@ -234,25 +237,23 @@ def test_facing_notches_polyline_mode():
 
 
 def test_facing_marks_present_with_dart(ctx_facing):
-    """有省：画稿标记 = 前口袋弧线（设计净线，腰端 P1）+ 吃省撇削边
-    （P1->P1'，§1.1）；口袋省弧线（切削线，腰端 P1'）不上裁片图——
-    缝合依据走刀口与 3D 基准（collect_facing_marks），两口径分立。"""
+    """有省：画稿标记 = 前口袋弧线（设计净线，腰端 P1）——口袋组件净线起草，
+    吃省撇削边/切削线均不上袋贴图（省量在前片侧沿弧吃进，缝合依据走刀口
+    与 3D 基准 collect_facing_marks，两口径分立）。"""
     piece, _ = build_front_facing(ctx_facing)
-    assert len(piece.marks) == 2
+    assert len(piece.marks) == 1
     origin, _, _ = effective_waist(ctx_facing)
 
     def local(p):
         return Point(p.x - origin.x, origin.y - p.y)
 
-    arc, edge = piece.marks
-    assert isinstance(arc, CubicBezier) and isinstance(edge, LineSegment)
+    arc = piece.marks[0]
+    assert isinstance(arc, CubicBezier)
     p1 = local(ctx_facing.point("front.pocket_p1"))
     p1r = local(ctx_facing.point("front.pocket_p1_transfer"))
     _assert_point_approx(arc.p0, p1)                    # 前口袋弧线腰端 = P1
-    _assert_point_approx(edge.a, p1)                    # 撇削边 = P1 -> P1'
-    _assert_point_approx(edge.b, p1r)
     d = ((arc.p0.x - p1r.x) ** 2 + (arc.p0.y - p1r.y) ** 2) ** 0.5
-    assert d == pytest.approx(2.0, abs=0.1)             # ≠ P1'（吃省 2.0 沿腰弧）
+    assert d == pytest.approx(2.0, abs=0.1)             # ≠ P1'（吃省 2.0 在前片侧）
 
 
 def test_facing_marks_no_dart(ctx_facing_nodart):

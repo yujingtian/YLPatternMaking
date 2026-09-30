@@ -5,9 +5,10 @@
       袋贴宽 w_waist=3.5、默认侧缝深 w_side=w_waist=3.5；腰弧总长 ≈19.52
       （17.5 + 吃省 2.0，腰长不变量：ΔW 计入前腰长）、外缝弧总长 ≈12.32
       （侧缝收量被吃省分走 ~ΔW）：
-  袋贴腰头顶点 P_fw：有省自 P1′、无省自 P1，沿腰弧朝前浪顶点量取 w_waist；
+  袋贴腰头顶点 P_fw：自 P1（净线锚，与省宽无关——口袋组件净线起草，前片走
+  C_cut 自 P1′、缝时 P1′↔P1 对齐吃省 = 袋口松量）沿腰弧朝前浪顶点量取 w_waist；
   袋贴侧缝顶点 P_fs：自 P2 沿外缝弧向下量取 w_side；
-  闭合边弧长：腰弧 [O->P_fw] = p1_dist + dw + w_waist，外缝弧 [P_fs->O] = p2_drop + w_side；
+  闭合边弧长：腰弧 [O->P_fw] = p1_dist + w_waist，外缝弧 [P_fs->O] = p2_drop + w_side；
   袋贴内边 L_inner：
     - tangent 模式（推荐）：CubicBezier(P_fw, P_fw + t_w·h1, P_fs + t_s·h2, P_fs)，
       两端切线严格垂直于腰弧与外缝弧；
@@ -63,16 +64,17 @@ def _interior_normal(curve, t, interior):
 
 
 def test_facing_waist_vertex_along_waist_arc(ctx):
-    # P_fw：有省自 P1′ 沿腰弧朝前浪顶点量取 w_waist
+    # P_fw：自 P1（净线锚）沿腰弧朝前浪顶点量取 w_waist——口袋组件净线起草，
+    # 与省宽无关（吃省在前片侧：C_cut 自 P1′，缝时 P1′↔P1 对齐吃进）
     w_arc = ctx.curve("front.waistline_arc")
-    p1r = ctx.point("front.pocket_p1_transfer")
+    p1 = ctx.point("front.pocket_p1")
     p_fw = ctx.point("front.pocket_facing_waist")
     t_fw = w_arc.t_at_y(p_fw.y)
     assert w_arc.point_at(t_fw).distance_to(p_fw) < 1e-6
-    t1r = w_arc.t_at_y(p1r.y)
-    assert _arc_length_between(w_arc, t1r, t_fw) == pytest.approx(
+    t1 = w_arc.t_at_y(p1.y)
+    assert _arc_length_between(w_arc, t1, t_fw) == pytest.approx(
         O.front_pocket_facing_width, abs=1e-2)
-    assert p_fw.x > p1r.x                      # 朝前浪顶点侧
+    assert p_fw.x > p1.x                       # 朝前浪顶点侧
 
 
 def test_facing_side_vertex_independent_width(ctx):
@@ -117,13 +119,12 @@ def test_facing_closure_edges(ctx):
     p_fw = ctx.point("front.pocket_facing_waist")
     p_fs = ctx.point("front.pocket_facing_side")
 
-    # 腰弧 [O->P_fw]：弧长 = p1_dist + dw + w_waist
+    # 腰弧 [O->P_fw]：弧长 = p1_dist + w_waist（净线锚，不含吃省宽）
     waist_edge = ctx.curve("front.pocket_facing_waist_edge")
     assert waist_edge.point_at(0).distance_to(b) < 1e-6
     assert waist_edge.point_at(1).distance_to(p_fw) < 1e-6
     assert waist_edge.length() == pytest.approx(
-        O.front_pocket_p1_dist + O.front_pocket_dart_width
-        + O.front_pocket_facing_width, abs=1e-2)
+        O.front_pocket_p1_dist + O.front_pocket_facing_width, abs=1e-2)
 
     # 外缝弧 [P_fs->O]：弧长 = p2_drop + w_side (5.0)
     outseam_edge = ctx.curve("front.pocket_facing_outseam_edge")
@@ -134,12 +135,12 @@ def test_facing_closure_edges(ctx):
 
 
 def test_facing_offset_mode_fallback():
-    # offset 模式兼容性测试：控制点域法向偏置
+    # offset 模式兼容性测试：控制点域法向偏置（基准 = 口袋净线，净线锚统一）
     o = PatternOptions(delta=1.0, front_pocket=True, front_pocket_facing=True,
                        front_pocket_facing_mode="offset",
                        front_pocket_facing_width=3.5)
     ctx_offset = FlowRunner(M, o).run(FRONT_FLOW)
-    cref = ctx_offset.curve("front.pocket_mouth")
+    cref = ctx_offset.curve("front.pocket_mouth_baseline")
     inner = ctx_offset.curve("front.pocket_facing_inner")
     crease = ctx_offset.point("front.crease_point")
     w = o.front_pocket_facing_width
@@ -168,7 +169,7 @@ def test_facing_bulge_mode():
 
 
 def test_facing_no_dart_uses_p1():
-    # 无省：P_fw 自 P1 量取
+    # 无省：P_fw 同自 P1 量取（净线锚统一，与有省同位——省宽只改前片侧 C_cut）
     o = PatternOptions(delta=1.0, front_pocket=True, front_pocket_facing=True,
                        front_pocket_facing_mode="tangent",
                        front_pocket_dart_width=0.0)
