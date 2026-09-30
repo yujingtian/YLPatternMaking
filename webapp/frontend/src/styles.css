@@ -324,6 +324,13 @@ html, body, #root { height: 100%; margin: 0; }
   background: #f4f4f4; color: #333; border-bottom-left-radius: 2px;
 }
 .chat-bubble.chat-history { color: #999; font-size: 12px; }
+/* D 复查握手（2026-09-29）：指令气泡（灰底弱化 + 等待续发结果）；
+   复查 diff 明细行（历史交卷气泡内缩进小字） */
+.chat-bubble.chat-directive { color: #555; background: #f0f7f2; }
+.chat-recheck-diff {
+  margin-top: 4px; padding-left: 12px;
+  color: #888; font-size: 11.5px;
+}
 .chat-photos { display: flex; gap: 6px; margin-top: 6px; }
 .chat-photos img {
   width: 40px; height: 40px; object-fit: cover; border-radius: 4px;
@@ -346,6 +353,18 @@ html, body, #root { height: 100%; margin: 0; }
 .chat-input-bar {
   border-top: 1px solid #f0f0f0; padding-top: 12px; margin-top: 12px;
 }
+/* 照片三槽（C 照片三类，2026-09-29）：正面/背面/其他各一槽（左栏 480px
+   窄栏缩格 64px 卡片）；其他槽照片各附一句说明（S2【照片清单】消费） */
+.photo-slots { display: flex; gap: 10px; }
+.photo-slot { flex: 1; min-width: 0; }
+.photo-slot-title { font-size: 12px; color: #666; margin-bottom: 2px; }
+.photo-slot .ant-upload.ant-upload-select-picture-card,
+.photo-slot .ant-upload-list-item-container {
+  width: 64px; height: 64px; margin-inline-end: 4px; margin-bottom: 4px;
+}
+.photo-slot .ant-upload-list-item { padding: 2px; }
+.photo-slot .ant-upload-list-item-image { object-fit: cover; }
+.photo-notes { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 /* 右栏：预览头（摘要行 + 确认动作）+ 全幅可缩放整版预览 */
 .smart-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .smart-preview-head {

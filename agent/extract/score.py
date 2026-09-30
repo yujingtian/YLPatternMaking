@@ -8,9 +8,14 @@ DraftContext 实测（先画后评，不重复推导）：
 | 袋口弦长/前片宽 | 45%~55% | 评审实证 13.35/59% 失调配例 |
 | 袋口弧深/弦长（bulge 弧线式） | 10%~32% | 工厂 5015 实测 27%、照片深月牙 25%~30% |
 | 前/后侧缝上段斜度（腰→臀连线偏角） | ≤~30° | W69+H94 极限臀腰差元凶 |
-| 前后侧缝收量倒挂（前 > 后） | 前 ≤ 后 | curvy 联动防的正是这个 |
+| 前侧收量塌零（fi = 前臀宽−前腰宽弦长） | ≥0.5（H−W≥10 时） | 实测症状：腰侧点与臀侧点共竖直线；H−W<10 直筒身材豁免 |
 | 直裆深自洽（前浪−腰头 vs H/4+rise_adjust） | [est−0.3, est+8] | B 表自洽校验同源 |
 | 前中内收落档（绝对值 vs K2 基准带） | 带内 | K2 前中内收预测.md |
+
+S3 旧「前后侧缝收量倒挂（前 ≤ 后）」判据 2026-09-29 随 curvy_waist_balance
+旧口径退役：臀腰同调（waist_balance=Δ）后 curvy 大差款 fi > bi 接受（后片
+吃量靠育克与省道）；其防的「前侧塌零」由新警项接管（谓词与守卫回喂
+balance.py 单源——score 只警不改，守卫负责改）。
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from .balance import front_intake_cm, is_collapsed
 from .prejudge import waist_position_band
 
 # K2 基准带上下界（前中内收预测.md 第一步表，score 只做复核不再修正）
@@ -94,22 +100,14 @@ def score_features(ctx, measurements: dict, options: dict) -> list[ScoreItem]:
                 f"{label}侧缝上段斜度", f"{ang:.1f}°", "≤~30°",
                 "ok" if ang <= 30.0 else "warn"))
 
-    # S3 前后侧缝收量倒挂（收量 = 臀宽弦长 − 腰净宽弦长）
-    try:
-        fw = _dist(ctx.point("front.waist_side_point"),
-                   ctx.point("front.rise_top_point"))
-        fh = _dist(ctx.point("front.hip_outseam_point"),
-                   ctx.point("front.hip_inner_point"))
-        bw = _dist(ctx.point("back.waist_side_point"),
-                   ctx.point("back.rise_top_point"))
-        bh = _dist(ctx.point("back.hip_outseam_point"),
-                   ctx.point("back.hip_inner_final"))
-        fi, bi = fh - fw, bh - bw
+    # S3 前侧收量塌零（实测症状直接度量：fi=0 即腰侧点与臀侧点共竖直线）。
+    # 谓词单源 balance.is_collapsed；H−W<10 直筒身材豁免（近铅垂合法）
+    fi = front_intake_cm(ctx)
+    if fi is not None:
         items.append(ScoreItem(
-            "前后侧缝收量（前−后）", f"{fi - bi:+.2f}cm（前{fi:.2f}/后{bi:.2f}）",
-            "前 ≤ 后（倒挂即警告）", "ok" if fi <= bi + 1e-9 else "warn"))
-    except (KeyError, TypeError):
-        pass   # 元素缺失（如 until 中断的版）跳过本项
+            "前侧收量塌零", f"{fi:.2f}cm",
+            "≥0.5（H−W≥10 时；H−W<10 直筒身材豁免）",
+            "warn" if is_collapsed(measurements, fi) else "ok"))
 
     # S4 直裆深自洽：excess = 前浪 − H/4 − rise_adjust（腰头扣除两边相消；
     # 引擎直裆深在扣腰头后的版上取 H/4+Δ，前浪弧长应比它长出裆弯弧深）

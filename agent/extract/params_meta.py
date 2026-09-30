@@ -152,9 +152,11 @@ META: dict[str, MetaEntry] = {
     # 全局框架
     "delta": MetaEntry("前后片臀围调节量", "全局", "大=前后片侧缝整体外移",
                        step=0.25, lo=0.0, hi=2.0),
-    "waist_balance": MetaEntry("腰围前后分配", "全局",
-                               "正=后片腰围加、前片减；负=反向",
-                               step=0.25, lo=-1.0, hi=1.0),
+    "waist_balance": MetaEntry(
+        "腰围前后分配", "全局",
+        "默认=臀围调节量同值（臀腰同调）；正=后腰加前腰减；负=反向",
+        step=0.25, lo=-2.0, hi=2.0),   # 对齐 delta 上限（防默认 1.35 顶穿
+        # 钳位端点致步进方向反转，2026-09-29）
     "front_waist_dart": MetaEntry("前腰长调节量", "全局",
                                   "前片纯腰长微调（不吃省宽）"),
     "back_waist_dart": MetaEntry("后腰长调节量", "全局",

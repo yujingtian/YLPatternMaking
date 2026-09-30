@@ -93,7 +93,33 @@ def _cmd_chat(args: argparse.Namespace) -> int:
               file=sys.stderr, flush=True)
 
     session = Session()
-    photos: list[str] = list(args.photo)
+    photos: list[str] = []
+    photo_meta: list[dict] = []
+
+    def _add_photo(spec: str) -> str:
+        """登记一张照片（C4，2026-09-29）：语法 [front|back|other=]路径，
+        缺省 other；meta 与 photos 按序对齐（run_turn 同序 zip）。"""
+        cat = "other"
+        if "=" in spec:
+            head, _, rest = spec.partition("=")
+            if head in ("front", "back", "other"):
+                cat, spec = head, rest.strip()
+        if not spec:
+            return "用法：:photo [front|back|other=]路径"
+        photos.append(spec)
+        photo_meta.append({"category": cat, "note": ""})
+        return f"已登记照片（{cat}，累计 {len(photos)} 张）"
+
+    for spec in args.photo:
+        _add_photo(spec)
+    if args.photo_note:
+        # 附给最近一张 other 照片；没有 other 照片可附则提示忽略
+        idx = max((i for i, m in enumerate(photo_meta)
+                   if m["category"] == "other"), default=-1)
+        if idx >= 0:
+            photo_meta[idx]["note"] = args.photo_note
+        else:
+            print("--photo-note：没有 other 类照片可附，忽略", file=sys.stderr)
     # Windows 管道 stdin 按 locale（cp936）解码会把 UTF-8 喂入读成代理对
     # 乱码（交互式控制台走 WinAPI 宽字符不受影响）——统一按 UTF-8 读、
     # 坏字节替换不炸：解析不到就多问一轮，符合零打扰兜底。
@@ -104,7 +130,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         except (AttributeError, OSError, ValueError):
             pass
     print("〔chat〕用一句描述开始（建议含 7 必填尺寸）；一行一轮。",
-          "补照片：:photo 路径；退出：:quit", flush=True)
+          "补照片：:photo [front|back|other=]路径；退出：:quit", flush=True)
     for raw in sys.stdin:
         line = raw.strip()
         if not line:
@@ -113,15 +139,15 @@ def _cmd_chat(args: argparse.Namespace) -> int:
             print("未交卷退出（无产物）", file=sys.stderr)
             return 1
         if line.startswith(":photo"):
-            path = line.partition(" ")[2].strip()
-            if not path:
-                print("用法：:photo 路径", file=sys.stderr)
+            spec = line.partition(" ")[2].strip()
+            if not spec:
+                print("用法：:photo [front|back|other=]路径", file=sys.stderr)
                 continue
-            photos.append(path)
-            print(f"已登记照片（累计 {len(photos)} 张）", flush=True)
+            print(_add_photo(spec), flush=True)
             continue
         try:
-            outcome = run_turn(session, line, photos, config_path=args.config,
+            outcome = run_turn(session, line, photos, photo_meta=photo_meta,
+                               config_path=args.config,
                                thinking=args.thinking,
                                run_probe=not args.no_geometry,
                                run_score=not args.no_score,
@@ -133,6 +159,12 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         session = outcome.session
         if outcome.card is not None:
             print(f"〔问〕{outcome.card.message}", flush=True)
+            continue
+        if outcome.directive is not None:
+            # D3 复查握手（CLI 无自动续发）：提示补片语法，下一轮照片到位即续执行
+            print(f"〔复查〕{outcome.directive['message']}", flush=True)
+            print("  补照片：:photo back=路径（或 front=路径），"
+                  "再发一句话即可继续", flush=True)
             continue
 
         result = outcome.result
@@ -152,6 +184,12 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         if review["score_warnings"]:
             print(f"合理性警告：{'、'.join(review['score_warnings'])}"
                   "（详见报告§六）", file=sys.stderr)
+        rc = outcome.delivery.get("recheck")
+        if rc:                              # D3 复查披露：diff + 结论一句话
+            print(f"〔复查〕{rc['note']}", flush=True)
+            for d in rc["diff"]:
+                print(f"  {d['key']}: {d['old']} -> {d['new']}"
+                      f"（{d['evidence']}）", flush=True)
         if args.draft:
             if not result.probe.ok:
                 print("错误：探针未通过，拒绝 --draft 直出（退出码 2）",
@@ -208,8 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     p_chat = sub.add_parser(
         "chat", help="多轮对话打版（智能体一期：缺啥问啥、能画就画、零打扰）")
     p_chat.add_argument("--photo", action="append", default=[],
-                        metavar="PATH",
-                        help="初始照片路径，可多次；会话中「:photo 路径」随时补")
+                        metavar="[类别=]PATH",
+                        help="初始照片路径，可多次；类别语法 front=PATH / "
+                             "back=PATH / other=PATH（缺省 other）；会话中"
+                             "「:photo [类别=]路径」随时补（C 照片三类）")
+    p_chat.add_argument("--photo-note", metavar="TEXT",
+                        help="附给最近一张 other 照片的用户说明（C 照片三类）")
     p_chat.add_argument("--out-dir", default="out",
                         help="输出目录（交卷时写 extracted.toml + 报告）")
     p_chat.add_argument("--draft", action="store_true",

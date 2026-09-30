@@ -5,7 +5,7 @@
 //   run_score/max_refeed → {ok, session, card, delivery}；card/delivery 二选一；
 //   错误 422=照片非法串 / 400=会话 JSON 非法 / 503=VLM；**缺必填不 422 转
 //   求援卡**（无 issues 形态，故不与 normalizeExtractError 共用）。
-import type { ChatDelivery, Values } from './types'
+import type { ChatDelivery, PhotoMetaItem, Values } from './types'
 
 // ---- 会话串往返（最易踩：响应 session 是对象、请求要串） ----
 
@@ -23,24 +23,33 @@ export interface ChatFormOpts {
   run_probe?: boolean
   run_score?: boolean
   max_refeed?: number
+  // D 两段握手轮次 B（2026-09-29）：directive 响应后自动附类别照片续发
+  fulfill?: 'recheck'
 }
 
-// 字段序 session/text/photos 多值/thinking（空白不附）；opts 键缺省不附
-// （吃后端默认 true/true/2）。布尔串化为 'true'/'false'——FastAPI
-// Form(bool) 可析（金标钉死，防将来误改成因按钮）
+// 字段序 session/text/photos 多值/photo_meta/thinking（空白不附）；opts
+// 键缺省不附（吃后端默认 true/true/2）。布尔串化为 'true'/'false'——
+// FastAPI Form(bool) 可析（金标钉死，防将来误改成因按钮）。
+// photoMeta（C 照片三类，2026-09-29）：[{name, category, note}] JSON 串、
+// 与 photos 按序对齐；无照片/未传不附（后端 None -> 旧行为）
 export function buildChatForm(
   session: unknown, text: string, photos: File[], opts?: ChatFormOpts,
+  photoMeta?: PhotoMetaItem[],
 ): FormData {
   const form = new FormData()
   form.append('session', sessionToJson(session))
   form.append('text', text)
   for (const p of photos) form.append('photos', p)
+  if (photos.length > 0 && photoMeta && photoMeta.length > 0) {
+    form.append('photo_meta', JSON.stringify(photoMeta))
+  }
   if (opts?.thinking && opts.thinking.trim()) {
     form.append('thinking', opts.thinking.trim())
   }
   if (opts?.run_probe !== undefined) form.append('run_probe', String(opts.run_probe))
   if (opts?.run_score !== undefined) form.append('run_score', String(opts.run_score))
   if (opts?.max_refeed !== undefined) form.append('max_refeed', String(opts.max_refeed))
+  if (opts?.fulfill) form.append('fulfill', opts.fulfill)
   return form
 }
 
@@ -86,6 +95,9 @@ export function deliverySummaryLine(d: ChatDelivery): string {
   if (d.adjust && d.adjust.applied.length > 0) {
     parts.push(`调版 ${d.adjust.applied.length} 键`)
   }
+  if (d.recheck && d.recheck.diff.length > 0) {
+    parts.push(`复查 ${d.recheck.diff.length} 处`)
+  }
   const review = d.review
   if (review.reverted.length > 0) parts.push(`回退 ${review.reverted.length} 项`)
   if (review.low_confidence.length > 0) {
@@ -94,11 +106,37 @@ export function deliverySummaryLine(d: ChatDelivery): string {
   if (review.score_warnings.length > 0) {
     parts.push(`评分警告 ${review.score_warnings.length} 项`)
   }
+  if ((review.balance_guard ?? []).length > 0) {
+    parts.push(`侧缝守卫 ${review.balance_guard.length} 项`)
+  }
   return parts.join(' · ')
+}
+
+// 侧缝守卫披露（2026-09-29 A5）：review.balance_guard 全句拼接
+// （waist_balance 自动抬回轨迹 / 调版亲说只量不改）；未触发轮为空串，
+// 调用方非空才渲染；?? [] 兼容旧会话缺键
+export function balanceNotes(d: ChatDelivery): string {
+  return (d.review?.balance_guard ?? []).join('；')
 }
 
 // 调版 note（映射节点一句话披露：动了哪些/最佳猜测依据/回退说明）；
 // 无调版轮 delivery 无 adjust 键 -> 空串（调用方非空才渲染）
 export function adjustNote(d: ChatDelivery): string {
   return d.adjust?.note ?? ''
+}
+
+// 复查 diff 披露行（D，2026-09-29）：逐条「key old -> new（evidence）」；
+// 旧值 null 显示「（未判断）」；非复查轮空数组（调用方按 length 渲染）
+export function recheckDiffLines(d: ChatDelivery): string[] {
+  const fmt = (v: unknown): string =>
+    v === null || v === undefined ? '（未判断）'
+      : typeof v === 'boolean' ? (v ? '开' : '关')
+        : String(v)
+  return (d.recheck?.diff ?? []).map(
+    (r) => `${r.key} ${fmt(r.old)} -> ${fmt(r.new)}（${r.evidence}）`)
+}
+
+// 复查结论一句话（映射注语 + diff 摘要）；非复查轮空串
+export function recheckNote(d: ChatDelivery): string {
+  return d.recheck?.note ?? ''
 }

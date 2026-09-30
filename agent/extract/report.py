@@ -44,6 +44,8 @@ def render_extract_report(*, describe: str, photo_count: int, model: str,
                           issues: list, probe, score_items: list,
                           dropped: list[str], dep_notes: list[str],
                           reverted: list[str],
+                          balance_notes: list[str] | None = None,
+                          crop_notes: list[str] | None = None,
                           size_path: str = "extracted.toml") -> str:
     """渲染 extract_report.md（probe/score 为鸭子类型：stage/log/verdict）。"""
     out: list[str] = ["# 照片参数提取报告", ""]
@@ -96,6 +98,10 @@ def render_extract_report(*, describe: str, photo_count: int, model: str,
         disc.append(f"- 模型输出被白名单丢弃：{', '.join(_cell(d) for d in dropped)}")
     if dep_notes:
         disc.extend(f"- 依赖链收口：{n}" for n in dep_notes)
+    if balance_notes:
+        disc.extend(f"- {n}" for n in balance_notes)   # 首条自带「侧缝守卫：」
+    if crop_notes:
+        disc.extend(f"- {n}" for n in crop_notes)
     if not probe.ok:
         disc.append("- 探针未通过：产物仅供人工核查，`--draft` 将拒绝直出")
     if disc:

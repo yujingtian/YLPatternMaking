@@ -37,7 +37,6 @@ from agent.extract.derive import (
     KeyMeta,
     back_intake_abs,
     back_intake_x,
-    curvy_waist_balance,
     dart_balance,
     dart_length_linked,
     derive_all,
@@ -50,6 +49,7 @@ from agent.extract.derive import (
     resolve_delta,
     rise_adjust_for,
     stretch_adjusts,
+    waist_balance_for,
     yoke_residual,
 )
 from agent.extract.parse import Observation, ObservationEntry
@@ -242,13 +242,23 @@ def test_delta_routing():
     assert resolve_delta(_axes(body_shape="curvy"), _m(69, 95))[0] == 1.85
 
 
-def test_curvy_waist_balance_rules():
-    assert curvy_waist_balance(_axes(body_shape="curvy", fit_level="skinny"))[0] \
-        == -0.5
-    assert curvy_waist_balance(_axes(body_shape="curvy", fit_level="slim"))[0] \
-        == -0.5
-    assert curvy_waist_balance(_axes(body_shape="curvy"))[0] == 0.0
-    assert curvy_waist_balance(_axes())[0] == 0.0
+def test_waist_balance_follows_delta():
+    """臀腰同调（2026-09-29 用户口径）：waist_balance 恒 = delta 终值——
+    五档路由 + 大差加成全档同值；旧 curvy 联动 −0.5 桩退役（症状侧由
+    balance.py 塌零守卫接管，score 只警不改）。"""
+    for axes in (_axes(gender="male"), _axes(body_shape="curvy"),
+                 _axes(stretch="high"), _axes(fit_level="loose"),
+                 _axes(), _axes(body_shape="curvy", fit_level="skinny")):
+        dv, dev = resolve_delta(axes, {})
+        assert waist_balance_for(dv, dev)[0] == dv
+    # 大差侧缝前移 +0.5 同步跟随（standard 1.5 / curvy 1.85）
+    dv, _ = resolve_delta(_axes(), _m(69, 95))
+    assert waist_balance_for(dv, "")[0] == 1.5
+    dv, _ = resolve_delta(_axes(body_shape="curvy"), _m(69, 95))
+    assert waist_balance_for(dv, "")[0] == 1.85
+    # evidence 链带同调口径 + delta 溯源
+    _, ev = waist_balance_for(1.85, "curvy 大差 1.85")
+    assert "臀腰同调" in ev and "1.85" in ev
 
 
 def test_stretch_and_crotch_adjusts():
@@ -363,7 +373,7 @@ def test_derive_all_curvy_high_rise():
     """W66 H92 fr31 hem50 size27 → high/curvy/slim（手算见模块头注）：
     ①3.5(clamp) ②5.35 ③1.0 ④4.75 R13 → 溢余 → 浅育克无省。"""
     measurements = {"waist": 66.0, "hip": 92.0, "front_rise": 31.0,
-                    "hem": 42.0}   # 42/92=0.4565 → slim（触发 curvy 联动 −0.5）
+                    "hem": 42.0}   # 42/92=0.4565 → slim
     merged, out = _derive(measurements, 27)
     assert merged.axes["waist_position"].value == "high"
     assert merged.axes["body_shape"].value == "curvy"
@@ -372,7 +382,7 @@ def test_derive_all_curvy_high_rise():
     assert out["front_intake_ratio"].value == pytest.approx(0.538)
     assert out["back_intake"].value == pytest.approx(4.5)
     assert out["delta"].value == 1.85
-    assert out["waist_balance"].value == -0.5
+    assert out["waist_balance"].value == 1.85   # 臀腰同调 = delta（2026-09-29）
     assert out["rise_adjust"].value == 3.75
     assert out["front_crotch_adjust"].value == -0.4
     assert out["crotch_drop_adjust"].value == 0.0

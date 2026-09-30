@@ -44,18 +44,28 @@ class AdjustEntry:
 
 @dataclass(frozen=True)
 class AdjustResult:
-    """一轮映射产物：生效 entries + note 披露 + 丢弃原因清单。"""
+    """一轮映射产物：意图（action/target，2026-09-29 D1）+ 生效 entries +
+    note 披露 + 丢弃原因清单。
+
+    action：adjust（现状默认）/ recheck（定向复查——entries 必空、target
+    = 部位组名）/ none（与版型无关）。解析失败默认 adjust（= 现状行为，
+    天然回退）；旧事件缺键 from_dict 同样回 adjust。
+    """
 
     entries: tuple[AdjustEntry, ...] = ()
     note: str = ""
     dropped: tuple[str, ...] = ()
+    action: str = "adjust"
+    target: str = ""
 
     def to_dict(self) -> dict:
         return {"entries": [{"key": e.key, "value": e.value,
                              "evidence": e.evidence}
                             for e in self.entries],
                 "note": self.note,
-                "dropped": list(self.dropped)}
+                "dropped": list(self.dropped),
+                "action": self.action,
+                "target": self.target}
 
     @classmethod
     def from_dict(cls, d: dict) -> "AdjustResult":
@@ -65,8 +75,12 @@ class AdjustResult:
             AdjustEntry(str(e.get("key")), e.get("value"),
                         str(e.get("evidence") or ""))
             for e in (d.get("entries") or []) if isinstance(e, dict))
+        action = str(d.get("action") or "adjust")
+        if action not in ("adjust", "recheck", "none"):
+            action = "adjust"
         return cls(entries, str(d.get("note") or ""),
-                   tuple(str(x) for x in (d.get("dropped") or [])))
+                   tuple(str(x) for x in (d.get("dropped") or [])),
+                   action, str(d.get("target") or ""))
 
 
 # -- 视图与门控 ------------------------------------------------------------------
@@ -198,15 +212,18 @@ def resolve_adjust(raw: object, view: dict):
 
 _PROMPT_HEAD = """你是牛仔裤打版参数映射器：把用户的口语调版反馈映射为参数调整。
 规则：
+0. 先判意图定 "action"：用户要求再看/复查/仔细看某部位（「再看看X」「X不对吧」「X再确认下」），但没说要怎么改 → "recheck"（此时 "adjustments" 必须为空数组，"target" 填复查部位组名：前口袋/后贴袋/腰头/育克后片/门襟/版型腰位，指不清部位或整版观感 → "兜底"）；方向性修改意图（太大/太小/太凸/太浅…要改）→ "adjust"；纯确认/寒暄/与版型无关 → "none"（adjustments 空）。action=recheck/none 时 note 禁止「暂不改动」式不作为表述——recheck 说明你要重点复查什么（例「我来重新细看后贴袋的形状与大小」），none 说明你理解到了什么。
 1. 只允许使用【当前版参数】里列出的键，绝不发明键名。键已按部位分组；用户指部位不指参数时，在该部位组内选 1~3 个最相关键联动调整，并在 note 里说明动了哪些。
 2. 档位键给 "level"（必须用列出的档名）；有序档位键和数值键可给 "step"（整数 ±1 或 ±2，沿当前值同向再进 N 步；用户重复强调 = 同向再加一步）；无序档位键不给 step。绝不输出厘米等绝对数值。
 3. 相对词（"再浅一点""还是太凸"）对照【对话历史】消解——历史里列了每轮已应用的调整，只动与本次反馈相关的键。
 4. 版面方位（方向词消解的唯一权威）：前片/后片均侧缝在左、前中/后中在右，Y 向上朝腰头——用户口中的"左/右/上/下"按此换算（如"向右凸"＝朝前中方向）。
-5. 整体松紧找「版型松紧」；弧线形状找各弧线键；腰围/浪长/裤长等尺寸数字不归你管（用户会自己报数）。
-6. 部件未开启的键不在参数表里，不要建议开启部件。
-7. 歧义时按最佳猜测执行并在 note 说明，绝不提问；与调版无关的反馈输出空 adjustments。
+5. 用户要求整体前后互换/侧缝前移（如"侧缝往前挪""前后片调换"）时，「前后片臀围调节量」与「腰围前后分配」两键同向同幅联动（两键同发，打版惯例臀腰同调），并在 note 里说明联动。
+6. 整体松紧找「版型松紧」；弧线形状找各弧线键；腰围/浪长/裤长等尺寸数字不归你管（用户会自己报数）。
+7. 部件未开启的键不在参数表里，不要建议开启部件。
+8. 歧义时按最佳猜测执行并在 note 说明，绝不提问；与调版无关的反馈输出空 adjustments。
 严格只输出一个 JSON 对象：
-{"adjustments": [{"key": "键名", "level": "档名"} 或 {"key": "键名", "step": -1}, "evidence": "用户原话依据"}], "note": "一句中文说明"}"""
+{"action": "adjust", "target": "", "adjustments": [{"key": "键名", "level": "档名"} 或 {"key": "键名", "step": -1}, "evidence": "用户原话依据"}], "note": "一句中文说明"}
+（action=adjust 时 target 留空串；action=recheck/none 时 adjustments 为空数组）"""
 
 
 def _label_of(key: str) -> str:
@@ -300,6 +317,11 @@ def map_adjustment(history: list[dict], view: dict, text: str, provider,
         return AdjustResult()
     if not isinstance(raw, dict):
         return AdjustResult()
+    # 意图层（2026-09-29 D1）：非法值一律回 adjust = 现状行为（天然回退）
+    action = str(raw.get("action") or "adjust").strip() or "adjust"
+    if action not in ("adjust", "recheck", "none"):
+        action = "adjust"
+    target = str(raw.get("target") or "").strip()
     items = raw.get("adjustments")
     if not isinstance(items, list):
         items = []
@@ -318,4 +340,9 @@ def map_adjustment(history: list[dict], view: dict, text: str, provider,
             continue
         seen[r.key] = len(entries)
         entries.append(r)
-    return AdjustResult(tuple(entries), note, tuple(dropped))
+    if action != "adjust" and entries:
+        # recheck/none 时 adjustments 必空：多余项记 dropped 披露（口径 §3.1）
+        dropped.extend(f"action={action} 忽略调整项：{e.key}" for e in entries)
+        entries = []
+    return AdjustResult(tuple(entries), note, tuple(dropped),
+                        action=action, target=target)

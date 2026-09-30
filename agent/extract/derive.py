@@ -16,6 +16,8 @@
 - 直裆深推导.md §三 Δ 矩阵（C 表）：rise_adjust 低 −2.75 / 中 +0.75 / 高
   +3.75 带中值，中低/中高取相邻带线性中点（−1.0 / +2.25）。
 - 前后片臀围推导.md §四：DELTA_PRESETS 五档路由（options.py:42）。
+- 腰围前后分配预测.md：waist_balance = Δ 终值（臀腰同调惯例，2026-09-29；
+  旧 curvy 联动 −0.5 桩退役，塌零守卫见 balance.py）。
 - 落裆推导.md §2.2：crotch_drop / knee / hem_adjust 弹力档。
 - H_v 估算：直裆深 = H×0.25 + rise_adjust（引擎 rise_ratio 0.25），臀围线 =
   立裆线上移直裆深/3（front_steps.draw_hip_line）→ H_v = 直裆深×2/3。
@@ -417,12 +419,11 @@ def resolve_delta(axes: dict[str, str], measurements: dict[str, float]
     return value, ev
 
 
-def curvy_waist_balance(axes: dict[str, str]) -> tuple[float, str]:
-    """curvy 联动防倒挂（C 表）：waist_balance=0，skinny/slim 再 −0.5。"""
-    if axes.get("body_shape") == "curvy" and axes.get("fit_level") in ("skinny",
-                                                                      "slim"):
-        return -0.5, "curvy 联动：waist_balance=−0.5（skinny/slim 防前后侧缝收量倒挂）"
-    return 0.0, "curvy 联动：waist_balance=0（C 表）"
+def waist_balance_for(delta: float, delta_ev: str) -> tuple[float, str]:
+    """腰围前后分配 = 臀围前后分配 Δ 终值（臀腰同调，打版惯例；用户口径
+    2026-09-29，旧 curvy_waist_balance 独立派生桩随之退役）。"""
+    return delta, (f"打版惯例：臀腰同调——waist_balance 随臀围调节量 Δ 同值"
+                   f"（用户口径 2026-09-29）；{delta_ev}")
 
 
 def stretch_adjusts(axes: dict[str, str]) -> tuple[float, float, float, str]:
@@ -490,7 +491,7 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
     put("back_intake", round(x, 2), xev)
     dv, dev = resolve_delta(axes, measurements)
     put("delta", dv, dev)
-    wb, wev = curvy_waist_balance(axes)
+    wb, wev = waist_balance_for(dv, dev)
     put("waist_balance", wb, wev)
     put("rise_adjust", rise_adjust_for(axes),
         f"直裆深推导.md §三 Δ 矩阵：{axes['waist_position']} 腰档（低/中/高取带中值，"

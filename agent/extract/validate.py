@@ -16,7 +16,7 @@ _DERIVED_RANGES: dict[str, tuple[float, float, str]] = {
     "rise_adjust": (-3.5, 4.5, "直裆深推导.md §三 Δ 矩阵界"),
     "front_pocket_dart_width": (0.0, 1.5, "K4 ③ 袋口转省极限 1.5（超限袋口外翻）"),
     "front_intake_ratio": (0.05, 0.9, "K2 前中内收记账界（低腰 0.15~高腰 0.4+）"),
-    "waist_balance": (-1.0, 1.0, "腰围前后片调节量工程界"),
+    "waist_balance": (-2.0, 2.0, "臀腰同调界（=delta 同值，前后片臀围推导.md §四）"),
     "delta": (0.0, 2.0, "前后片臀围推导.md §四（引擎守卫同界）"),
 }
 

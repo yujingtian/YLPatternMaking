@@ -127,3 +127,56 @@ def test_cli_no_geometry_refuses_draft(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "拒绝" in err
     assert not (tmp_path / "out" / "sheet.svg").exists()
+
+
+# -- 腰头特写裁剪支路接线（2026-09-30 特征尺度修复） ------------------------------
+
+def test_s2_waistband_crops_attached(monkeypatch):
+    """S2 images 追加腰头辅助图、照片清单渲染辅助图行、crop_notes 披露。"""
+    import agent.extract.crops as crops_mod
+    monkeypatch.setattr(
+        crops_mod, "make_waistband_crops",
+        lambda photos, meta, out_dir:
+            (["c1.jpg", "c2.jpg"],
+             [{"category": "other", "note": "辅助A"},
+              {"category": "other", "note": "辅助B"}],
+             ["腰头放大辅助图 2 张已附（首张正面/背面照自动裁剪）"]))
+    vlm = FakeVLM([_S2_REPLY])
+    result = extract_from_input(
+        describe=_DESC, photos=("f.jpg", "b.jpg"), provider=vlm,
+        run_probe=False,
+        photo_meta=[{"category": "front"}, {"category": "back"}])
+    assert len(vlm.calls[0]["images"]) == 4          # 原图 2 + 辅助图 2
+    assert "辅助A" in vlm.calls[0]["prompt"]          # 照片清单渲染辅助图行
+    assert result.crop_notes == ["腰头放大辅助图 2 张已附（首张正面/背面照自动裁剪）"]
+
+
+def test_s2_waistband_crops_off_switch(monkeypatch):
+    """waistband_crops=False 一参回退：不触发裁剪、images 逐位旧行为。"""
+    import agent.extract.crops as crops_mod
+
+    def _boom(*a):
+        raise AssertionError("waistband_crops=False 不得触发裁剪")
+
+    monkeypatch.setattr(crops_mod, "make_waistband_crops", _boom)
+    vlm = FakeVLM([_S2_REPLY])
+    result = extract_from_input(describe=_DESC, photos=("f.jpg", "b.jpg"),
+                                provider=vlm, run_probe=False,
+                                waistband_crops=False)
+    assert len(vlm.calls[0]["images"]) == 2
+    assert result.crop_notes == []
+
+
+def test_s2_crops_failure_degrades(monkeypatch):
+    """裁剪函数抛异常：静默降级零辅助图，S2 照常出结果。"""
+    import agent.extract.crops as crops_mod
+
+    def _explode(*a):
+        raise RuntimeError("磁盘炸了")
+
+    monkeypatch.setattr(crops_mod, "make_waistband_crops", _explode)
+    vlm = FakeVLM([_S2_REPLY])
+    result = extract_from_input(describe=_DESC, photos=("f.jpg", "b.jpg"),
+                                provider=vlm, run_probe=False)
+    assert len(vlm.calls[0]["images"]) == 2
+    assert result.crop_notes == []

@@ -23,13 +23,25 @@ import type { TextAreaRef } from 'antd/es/input/TextArea'
 import {
   PlusOutlined, RedoOutlined, RobotOutlined,
 } from '@ant-design/icons'
-import type { Values } from '../types'
+import type { PhotoCategory, Values } from '../types'
 import type { ChatMsg, SmartDraftState } from '../hooks/useSmartDraft'
 import SheetPreview from './SheetPreview'
 import {
   compressImage, MAX_PHOTOS, validatePhotoFile,
 } from '../imageCompress'
-import { adjustNote, deliverySummaryLine } from '../chatPayload'
+import {
+  adjustNote, balanceNotes, deliverySummaryLine, recheckDiffLines,
+  recheckNote,
+} from '../chatPayload'
+
+// 照片三槽（C 照片三类，2026-09-29 用户口径）：上传时手动标注类别——
+// 类别是 S2 判据路由/复查取片/求援补照精准化的输入，不做自动分类；
+// 「其他」槽每张可附一句说明（S2【照片清单】以说明为准重点核实）
+const PHOTO_SLOTS: { cat: PhotoCategory; label: string }[] = [
+  { cat: 'front', label: '正面' },
+  { cat: 'back', label: '背面' },
+  { cat: 'other', label: '其他' },
+]
 
 export default function SmartDraftView({ chat, onConfirm }: {
   chat: SmartDraftState
@@ -67,8 +79,9 @@ export default function SmartDraftView({ chat, onConfirm }: {
 
   // 校验 + 压缩后入池（照抄一期 beforeUpload 口径）；上限按**会话累计**
   // 计（池内待提交 + 已提交数）：满 4 张不再加（池内有待提交的可先删再
-  // 换；删除不撤销后端已识别证据，§10.9.2「重识别是显式动作」口径）
-  async function beforeUpload(file: File) {
+  // 换；删除不撤销后端已识别证据，§10.9.2「重识别是显式动作」口径）。
+  // cat = 三槽类别（C 照片三类）：随 PhotoItem 入池、随 photo_meta 发出
+  async function beforeUpload(file: File, cat: PhotoCategory) {
     const err = validatePhotoFile(file)
     if (err) {
       message.error(err)
@@ -84,6 +97,7 @@ export default function SmartDraftView({ chat, onConfirm }: {
     chat.addPhoto({
       uid: `${file.name}-${file.size}-${Date.now()}`,
       name: out.name, url: URL.createObjectURL(out), file: out,
+      category: cat,
     })
     return Upload.LIST_IGNORE
   }
@@ -177,21 +191,48 @@ export default function SmartDraftView({ chat, onConfirm }: {
           </div>
 
           <div className="chat-input-bar">
-            <Upload
-              listType="picture-card"
-              accept=".jpg,.jpeg,.png,.webp,.bmp,.gif"
-              fileList={chat.photos}
-              beforeUpload={(f) => void beforeUpload(f)}
-              onRemove={(f) => chat.removePhoto(f.uid)}
-              disabled={chat.busy}
-            >
-              {chat.photos.length + chat.sentPhotoCount < MAX_PHOTOS && (
-                <div>
-                  <PlusOutlined />
-                  <div style={{ marginTop: 8 }}>添加照片</div>
-                </div>
-              )}
-            </Upload>
+            <div className="photo-slots">
+              {PHOTO_SLOTS.map(({ cat, label }) => {
+                const slotPhotos = chat.photos.filter((p) => p.category === cat)
+                return (
+                  <div className="photo-slot" key={cat}>
+                    <div className="photo-slot-title">
+                      {label}{cat === 'other' && '（可附说明）'}
+                    </div>
+                    <Upload
+                      listType="picture-card"
+                      accept=".jpg,.jpeg,.png,.webp,.bmp,.gif"
+                      fileList={slotPhotos}
+                      beforeUpload={(f) => void beforeUpload(f, cat)}
+                      onRemove={(f) => chat.removePhoto(f.uid)}
+                      disabled={chat.busy}
+                    >
+                      {chat.photos.length + chat.sentPhotoCount < MAX_PHOTOS && (
+                        <div>
+                          <PlusOutlined />
+                          <div style={{ marginTop: 4, fontSize: 12 }}>添加</div>
+                        </div>
+                      )}
+                    </Upload>
+                    {cat === 'other' && slotPhotos.length > 0 && (
+                      <div className="photo-notes">
+                        {slotPhotos.map((p) => (
+                          <Input
+                            key={p.uid}
+                            size="small"
+                            maxLength={80}
+                            value={p.note ?? ''}
+                            disabled={chat.busy}
+                            onChange={(e) => chat.setPhotoNote(p.uid, e.target.value)}
+                            placeholder={`${p.name}：拍了什么`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
             <Input.TextArea
               ref={inputRef}
               rows={2}
@@ -245,6 +286,22 @@ export default function SmartDraftView({ chat, onConfirm }: {
                     style={{ flexBasis: '100%', minWidth: 0, opacity: 0.75 }}
                   >
                     {adjustNote(lastDeliver.delivery)}
+                  </span>
+                )}
+                {balanceNotes(lastDeliver.delivery) && (
+                  <span
+                    className="extract-meta"
+                    style={{ flexBasis: '100%', minWidth: 0, opacity: 0.75 }}
+                  >
+                    {balanceNotes(lastDeliver.delivery)}
+                  </span>
+                )}
+                {recheckNote(lastDeliver.delivery) && (
+                  <span
+                    className="extract-meta"
+                    style={{ flexBasis: '100%', minWidth: 0, opacity: 0.75 }}
+                  >
+                    {recheckNote(lastDeliver.delivery)}
                   </span>
                 )}
                 <div className="smart-preview-actions">
@@ -305,6 +362,15 @@ function MessageRow({ m }: { m: ChatMsg }) {
       </div>
     )
   }
+  if (m.kind === 'directive') {
+    // D 复查握手（2026-09-29）：后端要类别照片的指令气泡——随后自动
+    // 附片续发（busy 连续），到达结果（复查交卷/降级卡）跟在后面
+    return (
+      <div className="chat-msg agent">
+        <div className="chat-bubble chat-directive">{m.message}</div>
+      </div>
+    )
+  }
   if (m.kind === 'card') {
     return (
       <div className="chat-msg agent">
@@ -337,7 +403,13 @@ function MessageRow({ m }: { m: ChatMsg }) {
     <div className="chat-msg agent">
       <div className="chat-bubble chat-history">
         {`第 ${m.delivery.summary.turn} 轮已交卷`
-          + (adjustNote(m.delivery) ? ` · ${adjustNote(m.delivery)}` : '')}
+          + (adjustNote(m.delivery) ? ` · ${adjustNote(m.delivery)}` : '')
+          + (recheckNote(m.delivery) ? ` · ${recheckNote(m.delivery)}` : '')}
+        {recheckDiffLines(m.delivery).length > 0 && (
+          <div className="chat-recheck-diff">
+            {recheckDiffLines(m.delivery).map((l) => <div key={l}>{l}</div>)}
+          </div>
+        )}
       </div>
     </div>
   )

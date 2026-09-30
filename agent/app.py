@@ -40,8 +40,10 @@ def healthz() -> dict:
 
 
 @app.post("/api/chat/turn")
-def api_chat_turn(session: str = Form(...), text: str = Form(...),
+def api_chat_turn(session: str = Form(...), text: str = Form(default=""),
                   photos: list[UploadFile] = File(default=[]),
+                  photo_meta: str | None = Form(default=None),
+                  fulfill: str | None = Form(default=None),
                   thinking: str | None = Form(default=None),
                   run_probe: bool = Form(default=True),
                   run_score: bool = Form(default=True),
@@ -49,13 +51,21 @@ def api_chat_turn(session: str = Form(...), text: str = Form(...),
     """多轮对话一轮（智能体一期，§10.9）：会话 JSON 随请求往返，后端无状态。
 
     请求：session（上轮返回的会话 JSON 串，首轮 "{}" 或空对象序列化）+
-    text + photos（前端持的全部照片全量重发，后端按指纹去重只送新照片进
-    S2）。响应：{ok, session, card, delivery}——card/deliver 二选一；
-    缺必填不 422，转求援卡（零打扰口径）。
+    text（可空——D5 续发轮次 B 无文本；注意 python-multipart 会把零长度
+    表单字段整个丢弃，客户端发了也到不了这里，故必须 default 而非必填）+
+    photos（前端持的全部照片全量重发，后端按指纹去重只送新照片进
+    S2）+ photo_meta（可选 JSON 串：[{name, category, note}] 按 photos
+    顺序对齐，C 照片三类 2026-09-29）+ fulfill（可选，当前仅 "recheck"：
+    定向复查两段握手轮次 B，D 2026-09-29——响应 directive 后前端自动附
+    类别照片续发）。响应：{ok, session, card, delivery, directive}——
+    card/delivery/directive 三选一；缺必填不 422，转求援卡（零打扰口径）。
 
     错误口径同 /api/extract：照片非法 422、会话 JSON 非法 400、
-    VLM 未配置/上游失败 503（原消息，不含 key）。
+    photo_meta 非法 422、fulfill 非法 422、VLM 未配置/上游失败 503
+    （原消息，不含 key）。
     """
+    import json as _json
+
     from .converse import run_turn
     from .runner import _build_provider, _save_photos
     from .session import Session as ChatSession
@@ -65,9 +75,25 @@ def api_chat_turn(session: str = Form(...), text: str = Form(...),
         sess = ChatSession.from_json(session)
     except (ValueError, TypeError, KeyError) as e:
         raise HTTPException(400, detail=f"会话 JSON 非法：{e}") from None
-    paths, tmp = _save_photos(photos)
+    meta: list[dict] | None = None
+    if photo_meta:
+        try:
+            parsed = _json.loads(photo_meta)
+        except ValueError as e:
+            raise HTTPException(422, detail=f"photo_meta 非法：{e}") from None
+        if not isinstance(parsed, list):
+            raise HTTPException(422, detail="photo_meta 非法：应为 JSON 数组")
+        meta = parsed
+    if fulfill is not None and fulfill != "recheck":
+        raise HTTPException(422,
+                            detail=f"fulfill 非法：{fulfill!r}（当前仅支持 recheck）")
+    tmp = None
     try:
-        outcome = run_turn(sess, text, paths,
+        # _save_photos 的 ValueError（照片后缀/空文件/超限/超张数）同走照片
+        # 非法 422 契约——此前在 try 外，实炸为 500（2026-09-30 修）
+        paths, tmp = _save_photos(photos)
+        outcome = run_turn(sess, text, paths, photo_meta=meta,
+                           fulfill=fulfill,
                            provider=_build_provider(config_path),
                            thinking=thinking, run_probe=run_probe,
                            run_score=run_score, max_refeed=max_refeed,
@@ -79,7 +105,8 @@ def api_chat_turn(session: str = Form(...), text: str = Form(...),
     except VLMError as e:
         raise HTTPException(503, detail=str(e)) from None
     finally:
-        tmp.cleanup()
+        if tmp is not None:
+            tmp.cleanup()
     body = outcome.to_dict()
     body["ok"] = True
     return body

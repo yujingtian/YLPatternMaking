@@ -135,6 +135,12 @@ _MEAS_LABELS = {"waist": "腰围", "hip": "臀围", "knee": "膝围", "hem": "�
                 "front_rise": "前浪", "back_rise": "后浪", "outseam": "裤长",
                 "thigh": "大腿围"}
 
+# 照片类别 → 重点看清单（C6【照片清单】段；类别=用户上传时手动标注，
+# 2026-09-29 口径不做自动分类）
+_PHOTO_FOCUS = {"front": "正面平铺：重点看前口袋形态与弧深、门襟、小表袋",
+                "back": "背面平铺：重点看后贴袋形状、育克分割线、后腰省",
+                "other": "其他"}
+
 
 def build_template(measurements: dict[str, float],
                    prejudged: dict[str, tuple[str, str]],
@@ -170,8 +176,21 @@ def build_template(measurements: dict[str, float],
 
 def build_prompt(describe: str, measurements: dict[str, float],
                  prejudged: dict[str, tuple[str, str]], priors: dict[str, bool],
-                 photo_count: int) -> str:
-    """S2 视觉确认主调用 prompt：预填模板 + 四级知识注入。"""
+                 photo_count: int, context_brief: str | None = None,
+                 prior_obs=None, photo_meta: list[dict] | None = None) -> str:
+    """S2 视觉确认主调用 prompt：预填模板 + 四级知识注入。
+
+    context_brief / prior_obs（2026-09-29 B1/B3 多轮注入）：账本摘要
+    （尺寸终值/描述倾向/已应用调版）与上次视觉判断基线，均缺省 None
+    ——单发/首轮行为与历史逐位一致。prior_obs 逐键可见 + 推翻须证据，
+    模型首次能看见早前批次的判断（此前只在后台 merge、模型无感知）。
+
+    photo_meta（2026-09-29 C6 照片三类）：[{category, note}] 按/photos/
+    顺序对齐（超 photo_count 截断），渲染【照片清单】逐张一行（类别 →
+    重点看清单 + 用户说明）；缺省 None 不注段——单发 `agent extract`
+    路径 prompt 逐位不变（硬约束 5）。类别是用户标注，与照片明显不符
+    以照片为准并在 evidence 说明（防标错槽位硬伤）。
+    """
     lines = [
         "你是资深牛仔裤打版师的确认助手。用户提供了 "
         f"{photo_count} 张牛仔裤照片和一段文字描述。",
@@ -185,13 +204,36 @@ def build_prompt(describe: str, measurements: dict[str, float],
         "（仅 bulge 时）——目测弧线最深处到袋口弦（袋口两端点连线）的垂距占弦长比例"
         "——不足 12% 改 shallow、约 20% 保持 standard、超 25% 改 deep，"
         "evidence 写目测比例（例「弧深约为弦长 28%」）。",
+        "- 腰头形态是必看项，先判 waistband_type（口诀见手册：一看门襟顶——"
+        "上口顺 V 尖下落=curved、走平=straight；二看后中——上口下落=curved）。"
+        "照片清单中有「工程自动辅助图」字样的腰头区放大图时，以它为准细读上口走向；"
+        "没有辅助图时，顺上口缝线从两侧外缝水平追踪到前中纽扣处再判。",
         "- 看不清 / 被遮挡 / 照片没拍到：保持预判值不动，confidence 下调。",
         "- 尺寸数值（cm）不在你的职责内，不要改任何数字、不要新增尺寸。",
         "- 只输出一个 JSON 对象（可包 json 代码围栏），不要输出其它文字。",
         "",
-        f"【文字描述】{describe}",
-        "【已解析尺寸 cm（来自描述，只读）】",
     ]
+    if photo_meta:
+        lines.append("【照片清单（类别为用户标注，与照片内容明显不符时以照片为准"
+                     "并在 evidence 说明）】")
+        for i, m in enumerate(photo_meta[:photo_count], 1):
+            c = str((m or {}).get("category") or "other")
+            focus = _PHOTO_FOCUS.get(c, _PHOTO_FOCUS["other"])
+            note = str((m or {}).get("note") or "").strip()
+            if note:
+                lines.append(f"第{i}张 {focus}（用户说明：{note}）："
+                             "以说明为准，重点核实所指特征")
+            elif c == "other":
+                lines.append(f"第{i}张 其他：无说明，按画面内容判断")
+            else:
+                lines.append(f"第{i}张 {focus}")
+        lines.append("")
+    lines.append(f"【文字描述】{describe}")
+    if context_brief:
+        lines.append("【已确认状态（多轮累积终值——早轮亲说/已定倾向都在这，"
+                     "与照片冲突时以照片为准但须证据）】")
+        lines.append(context_brief)
+    lines.append("【已解析尺寸 cm（来自描述，只读）】")
     if measurements:
         lines.append("、".join(
             f"{_MEAS_LABELS.get(k, k)} {v:g}" for k, v in measurements.items()))
@@ -202,6 +244,15 @@ def build_prompt(describe: str, measurements: dict[str, float],
         lines.append(f"- {axis}: {value}（{ev}）")
     lines.append("【部件惯例先验（按你的版型上下文算好，只报偏离）】")
     lines.append("、".join(f"{k}={'有' if v else '无'}" for k, v in priors.items()))
+    prior_entries = getattr(prior_obs, "entries", None) or {}
+    if prior_entries:
+        lines.append("")
+        lines.append("【上次视觉判断（基线，早前照片批次）——本轮照片推翻必须 "
+                     "evidence 写视觉特征；看不清保持基线值】")
+        for k, e in prior_entries.items():
+            v = getattr(e, "value", None)
+            v = ("有" if v is True else "无" if v is False else v)
+            lines.append(f"- {k}: {v}（{getattr(e, 'evidence', '')}）")
     lines.append("")
     lines.append("【视觉判据手册】")
     for key, rules in _CRITERIA.items():

@@ -4,7 +4,9 @@
 // 口径留后续）。职责：session JSON 串往返（响应对象存 ref，每轮
 // stringify）、消息流、照片待提交池（**提交成功即清空**，用户口径
 // 2026-09-24：已识别证据在会话 vlm_cache，后续轮零照片安全；会话上限
-// 4 张按「池内待提交 + 累计已提交」计）、健康预检、busy 互斥与秒表。
+// 4 张按「池内待提交 + 累计已提交」计）、已发送照片按类别内存归档
+// （D5 2026-09-29：复查 directive 到达自动附片 fulfill='recheck' 续发，
+// 不跨启动）、健康预检、busy 互斥与秒表。
 // 输入文本归组件所有（send 成功才由组件清输入框）；确认预填载荷由
 // confirmPrefill 返回、App 层调 loadValues（须显式传 d.sizeRun）。
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -12,16 +14,20 @@ import { fetchAgentHealth, postChatTurn } from '../api'
 import {
   buildChatForm, deliveryToPrefill, type ChatError,
 } from '../chatPayload'
-import type { ChatCard, ChatDelivery, Values } from '../types'
+import type { ChatCard, ChatDelivery, PhotoCategory, Values } from '../types'
 
 // 照片池条目（objectURL 生命周期归本 hook：手动 remove/reset/卸载才
 // revoke，**提交清池不 revoke**——历史 user 气泡缩略还引用着同一 URL；
-// 全量登记进 allUrlsRef，reset/卸载统一回收）
+// 全量登记进 allUrlsRef，reset/卸载统一回收）。
+// category（C 照片三类，2026-09-29）：上传时手动标注 front/back/other，
+// 随 photo_meta 契约发出；note 仅 other 槽（可选一句说明）
 export interface PhotoItem {
   uid: string
   name: string
   url: string
   file: File
+  category: PhotoCategory
+  note?: string
 }
 
 // 对话消息（UI 层结构，不进 types.ts）
@@ -29,6 +35,7 @@ export type ChatMsg =
   | { id: number; role: 'user'; text: string; photoUrls: string[] }
   | { id: number; role: 'agent'; kind: 'card'; turn: number; card: ChatCard }
   | { id: number; role: 'agent'; kind: 'deliver'; turn: number; delivery: ChatDelivery }
+  | { id: number; role: 'agent'; kind: 'directive'; message: string }
   | { id: number; role: 'agent'; kind: 'error'; message: string }
 
 interface AgentHealth {
@@ -52,6 +59,7 @@ export interface SmartDraftState {
   send: (text: string) => Promise<boolean>
   addPhoto: (item: PhotoItem) => void   // 满 MAX_PHOTOS 由组件拦
   removePhoto: (uid: string) => void
+  setPhotoNote: (uid: string, note: string) => void   // other 槽说明（C）
   confirmPrefill: (d: ChatDelivery) => { measurements: Values; options: Values }
   reset: () => void              // 「重新开始」：清消息/会话/照片 + 重检健康
 }
@@ -82,6 +90,10 @@ export function useSmartDraft(): SmartDraftState {
   // 全量 objectURL 登记（含已提交清池的）：提交清池不 revoke（历史气泡
   // 还引用），reset/卸载统一回收防泄漏
   const allUrlsRef = useRef<Set<string>>(new Set())
+  // 已发送照片按类别归档（D5 内存留存，2026-09-29，不跨启动/不进
+  // IndexedDB）：复查 directive 到达时自动附该类别照片 fulfill='recheck'
+  // 续发；reset 清空（照片 File 本体在此，vlm_cache 指纹在后端会话）
+  const sentPhotosRef = useRef<Map<PhotoCategory, PhotoItem[]>>(new Map())
 
   const stopTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -138,6 +150,10 @@ export function useSmartDraft(): SmartDraftState {
       const res = await postChatTurn(buildChatForm(
         sessionRef.current, text, photosRef.current.map((p) => p.file),
         { thinking },
+        // C 照片三类（2026-09-29）：meta 与 photos 按序对齐（note 仅 other）
+        photosRef.current.map((p) => ({
+          name: p.name, category: p.category, note: p.note || undefined,
+        })),
       ))
       stopTimer()
       sessionRef.current = res.session
@@ -145,9 +161,46 @@ export function useSmartDraft(): SmartDraftState {
       // 照片提交成功即清空上传池（用户口径 2026-09-24）：证据已入会话
       // vlm_cache（指纹+观测），后续轮零照片安全；objectURL 不 revoke
       // （历史气泡引用着），reset/卸载统一回收
+      // D5：清池前按类别归档（内存留存）——复查握手轮次 B 自动附片用
+      for (const p of photosRef.current) {
+        const arr = sentPhotosRef.current.get(p.category) ?? []
+        arr.push(p)
+        sentPhotosRef.current.set(p.category, arr)
+      }
       setPhotos([])
       setSentPhotoCount((n) => n + turnPhotoCount)
-      if (res.card) {
+      if (res.directive) {
+        // D5 两段握手（§3.4）：directive 气泡 + 自动附类别照片续发
+        // （缺片发空照片 → 后端降级按类别求援卡）；busy/秒表跨两请求
+        // 连续，用户只见「正在复查…」
+        appendMsg({
+          id: ++idRef.current, role: 'agent', kind: 'directive',
+          message: res.directive.message,
+        })
+        const cats = new Set<string>(res.directive.photo_categories)
+        const archived = [...sentPhotosRef.current.entries()]
+          .flatMap(([cat, items]) => (cats.has(cat) ? items : []))
+        const res2 = await postChatTurn(buildChatForm(
+          sessionRef.current, '',
+          archived.map((p) => p.file),
+          { thinking, fulfill: 'recheck' },
+          archived.map((p) => ({
+            name: p.name, category: p.category, note: p.note || undefined,
+          })),
+        ))
+        sessionRef.current = res2.session
+        if (res2.card) {
+          appendMsg({
+            id: ++idRef.current, role: 'agent', kind: 'card',
+            turn: -1, card: res2.card,
+          })
+        } else if (res2.delivery) {
+          appendMsg({
+            id: ++idRef.current, role: 'agent', kind: 'deliver',
+            turn: res2.delivery.summary.turn, delivery: res2.delivery,
+          })
+        }
+      } else if (res.card) {
         appendMsg({
           id: ++idRef.current, role: 'agent', kind: 'card',
           turn: -1, card: res.card,
@@ -196,6 +249,11 @@ export function useSmartDraft(): SmartDraftState {
     })
   }, [])
 
+  // other 槽照片说明（C 照片三类）：随 photo_meta 发给 S2【照片清单】
+  const setPhotoNote = useCallback((uid: string, note: string) => {
+    setPhotos((prev) => prev.map((p) => (p.uid === uid ? { ...p, note } : p)))
+  }, [])
+
   const confirmPrefill = useCallback((d: ChatDelivery) => deliveryToPrefill(d), [])
 
   const reset = useCallback(() => {
@@ -207,6 +265,7 @@ export function useSmartDraft(): SmartDraftState {
     setPhotos([])
     setSentPhotoCount(0)
     newUidsRef.current.clear()
+    sentPhotosRef.current.clear()
     sessionRef.current = null
     setBusy(false)
     setElapsed(0)
@@ -220,6 +279,6 @@ export function useSmartDraft(): SmartDraftState {
   return {
     open, setOpen, messages, photos, sentPhotoCount, busy, elapsed,
     health, healthLoading, thinking, setThinking,
-    send, addPhoto, removePhoto, confirmPrefill, reset,
+    send, addPhoto, removePhoto, setPhotoNote, confirmPrefill, reset,
   }
 }

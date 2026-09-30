@@ -2,10 +2,17 @@
 
 金标：
 - 基线配置（165/68A + 部件开）评分项齐全、S1/S2/S3 元素可量；
-- 前中内收超大（ratio 0.9）→ 倒挂 + 落档双 warn；
+- 前中内收超大（ratio 0.9）→ 落档 warn；
+- 前侧收量塌零（S3 新判据 2026-09-29）：实测症状配例 H94/W68 +
+  balance 停 0（旧口径）→ warn；臀腰同调 balance=delta 抬回 → ok；
+  H−W<10 直筒身材豁免；
 - rise_adjust 越带 → 直裆深自洽 warn；
 - 袋口弧深带（S1b）：深档 bulge 1.75 → 28% ok；引擎默认 0.5 → ≈8% 出下界 warn；
 - 缺元素（front_pocket 关）→ S1 跳过不炸。
+
+S3 旧「前后侧缝收量倒挂」判据随 curvy_waist_balance 旧口径退役
+（2026-09-29）：臀腰同调后 curvy 大差款 fi > bi 接受（后片吃量靠育克
+与省道），谓词单源 agent/extract/balance.py。
 """
 
 from __future__ import annotations
@@ -36,7 +43,7 @@ def test_score_baseline_items_present():
     feats = [i.feature for i in items]
     assert any("袋口弦长" in f for f in feats)
     assert any("侧缝上段斜度" in f for f in feats)   # 前/后两条
-    assert any("侧缝收量" in f for f in feats)
+    assert any("前侧收量" in f for f in feats)
     assert any("直裆深自洽" in f for f in feats)
     assert any("前中内收落档" in f for f in feats)
     # 基线自洽：直裆深与落档应 ok（ratio 0.2 → 0.2×5.75=1.15，mid 带 [1,1.5] 内）
@@ -53,14 +60,35 @@ def test_score_intake_overflow_warns():
     assert _find(items, "前中内收落档").verdict == "warn"
 
 
-def test_score_side_seam_inversion_warns():
-    """waist_balance 1.5 > delta 1.0：前片收量反超后片 +1.0（倒挂 warn；
-    腰长不变量下 front_intake_ratio 改形不改长，倒挂由 balance−delta 驱动：
-    实测 fi−bi = 2×(balance−delta)，balance=delta 时恰平衡 5.75/5.75）。"""
-    ctx, meas, opts = _ctx(options={"waist_balance": 1.5})
-    items = score_features(ctx, meas, opts)
-    assert _find(items, "侧缝收量").verdict == "warn"
-    assert "+1.00cm" in _find(items, "侧缝收量").value
+def test_score_front_intake_collapse_warns():
+    """前侧收量塌零（fi<0.5 且 H−W≥10）。fi 引擎精确律（2026-09-29 实测
+    校准）：fi = (H−W)/4 + (balance−delta) − 前腰长调节 − 袋口吃省——①前中
+    内收改形不改腰长不进 fi（前浪顶点由腰长闭合反推）。H82/W68（q=3.5，
+    d=14≥10）：balance 停 0（旧口径症状：调节量不参与分配）+ 前腰长调节
+    2.5 + 袋口吃省 1.0 → fi=−1.0 塌零 warn；同调 balance=delta=1.0 +
+    常规调节 1.5 → fi=1.0 ok。"""
+    m = dict(_M, hip=82)
+    opts = {"front_pocket": True, "delta": 1.0, "front_pocket_dart_width": 1.0,
+            "size_label": "27"}
+    ctx, meas, o = _ctx(m, options=dict(opts, waist_balance=0.0,
+                                        front_waist_dart=2.5))
+    item = _find(score_features(ctx, meas, o), "前侧收量塌零")
+    assert item.verdict == "warn" and float(item.value[:-2]) < 0.5
+    ctx, meas, o = _ctx(m, options=dict(opts, waist_balance=1.0,
+                                        front_waist_dart=1.5))
+    item = _find(score_features(ctx, meas, o), "前侧收量塌零")
+    assert item.verdict == "ok" and float(item.value[:-2]) >= 0.5
+
+
+def test_score_front_intake_collapse_exempt_small_diff():
+    """H−W<10 直筒身材豁免：前侧近铅垂合法，同配比塌零几何也不警。"""
+    m = dict(_M, hip=76)          # 76−68=8 < 10
+    ctx, meas, o = _ctx(m, options={"front_pocket": True, "delta": 1.0,
+                                    "waist_balance": 0.0,
+                                    "front_waist_dart": 2.5,
+                                    "front_pocket_dart_width": 1.0,
+                                    "size_label": "27"})
+    assert _find(score_features(ctx, meas, o), "前侧收量塌零").verdict == "ok"
 
 
 def test_score_rise_adjust_inconsistent_warns():

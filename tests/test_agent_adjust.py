@@ -380,6 +380,7 @@ def test_build_delivery_reverted_disclosure():
         measurements = {"waist": 74.0}
         model_name = "stub"
         photo_count = 0
+        balance_notes: list[str] = []   # 2026-09-29 A5：delivery 契约新增键
 
         def to_web_payload(self):
             return {"measurements": self.measurements, "options": {},

@@ -353,6 +353,18 @@ export interface ChatAsk {
   example: string
 }
 
+// 照片三类（C，2026-09-29 用户口径）：上传时手动标注 front/back/other，
+// 不做自动分类；类别进 S2 prompt【照片清单】/求援补照精准化/D 复查路由
+export type PhotoCategory = 'front' | 'back' | 'other'
+
+// photo_meta 契约（buildChatForm 组装、agent/app.py Form 解析）：
+// 按 photos 多值顺序对齐；note 仅 other 槽（可选一句说明）
+export interface PhotoMetaItem {
+  name: string
+  category: PhotoCategory
+  note?: string
+}
+
 // 求援卡（HelpCard.to_dict）：批量问缺失尺寸，白话文案
 export interface ChatCard {
   asks: ChatAsk[]
@@ -365,6 +377,8 @@ export interface ChatReview {
   reverted: string[]          // 探针自愈回退键（引擎默认接管，非用户确认值）
   low_confidence: string[]    // confidence<0.5 且非用户亲说键
   score_warnings: string[]    // score 表 verdict=warn 的 feature
+  balance_guard: string[]     // 侧缝守卫披露（2026-09-29）：前侧收量塌零量测
+                              // + waist_balance 抬回轨迹全句；空表 = 未触发
 }
 
 export interface ChatLedgerRow {
@@ -395,7 +409,23 @@ export interface ChatAdjust {
   reverted: string[]
 }
 
+// 定向复查披露（D，2026-09-29 §3.5 闸③）：diff 逐条 key/old/new/evidence
+// （old = null 上次未判断=新判断）；diff 空 = 复查后维持原判断
+export interface ChatRecheckDiff {
+  key: string
+  old: unknown
+  new: unknown
+  evidence: string
+}
+
+export interface ChatRecheck {
+  group: string
+  diff: ChatRecheckDiff[]
+  note: string      // 映射注语 + 复查结论一句话
+}
+
 // 交卷体：to_web_payload 六键 + review/ledger/summary + adjust（有调版轮才有）
+// + recheck（复查轮才有）
 export interface ChatDelivery {
   measurements: Record<string, number>
   options: Values
@@ -407,13 +437,24 @@ export interface ChatDelivery {
   ledger: ChatLedger
   summary: { turn: number; model: string; photo_count: number }
   adjust?: ChatAdjust
+  recheck?: ChatRecheck
+}
+
+// 复查握手指令（D3 §3.4 两段握手）：后端要求类别照片，前端自动附
+// sentPhotosRef 留存的该类别照片 fulfill='recheck' 续发（缺片发空照片
+// → 后端降级求援卡）
+export interface ChatDirective {
+  group: string
+  photo_categories: string[]   // 'front' | 'back' | 'other'
+  message: string
 }
 
 export interface ChatTurnResponse {
   ok: boolean
   session: Record<string, unknown> | null
   card: ChatCard | null
-  delivery: ChatDelivery | null   // card/delivery 二选一
+  delivery: ChatDelivery | null   // card/delivery/directive 三选一
+  directive: ChatDirective | null
 }
 
 // ---- MS 机器排料契约（二期对接 §10.3.2；MS 侧 /api/machine/* 五端点） ----

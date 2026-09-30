@@ -8,8 +8,9 @@
 // 详见 .doc/python工程设计.md §10.9.2。
 import { describe, expect, it } from 'vitest'
 import {
-  adjustNote, buildChatForm, deliverySummaryLine, deliveryToPrefill,
-  normalizeChatError, sessionToJson,
+  adjustNote, balanceNotes, buildChatForm, deliverySummaryLine,
+  deliveryToPrefill, normalizeChatError, recheckDiffLines, recheckNote,
+  sessionToJson,
 } from './chatPayload'
 import type { ChatDelivery, ExtractKeyMeta } from './types'
 
@@ -28,7 +29,7 @@ const DELIVERY: ChatDelivery = {
   probe: { stage: 'L0', ok: true, log: [] },
   score: [],
   review: { reverted: ['knee'], low_confidence: ['hip', 'thigh'],
-            score_warnings: ['裤长'] },
+            score_warnings: ['裤长'], balance_guard: [] },
   ledger: { measurements: { waist: { value: 74, turn: 1 } }, size_label: null },
   summary: { turn: 3, model: 'test-vl', photo_count: 2 },
 }
@@ -58,6 +59,27 @@ describe('buildChatForm', () => {
     expect(form.getAll('photos')).toHaveLength(2)
   })
 
+  it('photoMeta 与 photos 对齐：JSON 串附 photo_meta（photos 之后）；无照片/未传不附', () => {
+    const form = buildChatForm(
+      null, 'x', [file('a.jpg'), file('b.jpg')], undefined,
+      [
+        { name: 'a.jpg', category: 'front' },
+        { name: 'b.jpg', category: 'other', note: '袋口特写' },
+      ],
+    )
+    expect([...form.keys()]).toEqual(
+      ['session', 'text', 'photos', 'photos', 'photo_meta'])
+    expect(form.get('photo_meta')).toBe(JSON.stringify([
+      { name: 'a.jpg', category: 'front' },
+      { name: 'b.jpg', category: 'other', note: '袋口特写' },
+    ]))
+    // 无 meta / 无照片 -> 不附（后端 None -> 旧行为）
+    expect(buildChatForm(null, 'x', [file('a.jpg')]).has('photo_meta'))
+      .toBe(false)
+    expect(buildChatForm(null, 'x', [], undefined, []).has('photo_meta'))
+      .toBe(false)
+  })
+
   it('thinking 空白不附；opts 缺省不附（吃后端默认）', () => {
     const form = buildChatForm({ a: 1 }, 'x', [], { thinking: '   ' })
     expect(form.get('session')).toBe('{"a":1}')
@@ -65,6 +87,13 @@ describe('buildChatForm', () => {
     expect(form.has('run_probe')).toBe(false)
     expect(form.has('run_score')).toBe(false)
     expect(form.has('max_refeed')).toBe(false)
+    expect(form.has('fulfill')).toBe(false)
+  })
+
+  it('fulfill=recheck 附加（D 两段握手轮次 B）；缺省不附', () => {
+    const form = buildChatForm(null, '', [], { fulfill: 'recheck' })
+    expect(form.get('fulfill')).toBe('recheck')
+    expect(form.get('text')).toBe('')
   })
 
   it('thinking 非空白 trim 后附加；布尔串化（后端 Form(bool) 可析）', () => {
@@ -118,7 +147,8 @@ describe('deliverySummaryLine', () => {
   it('review 全空 -> 只有轮次/模型/照片三段', () => {
     const d: ChatDelivery = {
       ...DELIVERY,
-      review: { reverted: [], low_confidence: [], score_warnings: [] },
+      review: { reverted: [], low_confidence: [], score_warnings: [],
+                balance_guard: [] },
     }
     expect(deliverySummaryLine(d)).toBe('第 3 轮交卷 · 模型 test-vl · 照片 2 张')
   })
@@ -129,7 +159,8 @@ describe('deliverySummaryLine', () => {
       '第 3 轮交卷 · 模型 test-vl · 照片 2 张 · 回退 1 项 · 低置信 2 项 · 评分警告 1 项')
     const d: ChatDelivery = {
       ...DELIVERY,
-      review: { reverted: [], low_confidence: ['hip'], score_warnings: [] },
+      review: { reverted: [], low_confidence: ['hip'], score_warnings: [],
+                balance_guard: [] },
     }
     expect(deliverySummaryLine(d)).toBe(
       '第 3 轮交卷 · 模型 test-vl · 照片 2 张 · 低置信 1 项')
@@ -160,6 +191,34 @@ describe('deliverySummaryLine', () => {
   })
 })
 
+describe('balanceNotes（侧缝守卫披露，2026-09-29 A5）', () => {
+  it('非空 -> 「侧缝守卫 n 项」段 + 全句拼接（；分隔）', () => {
+    const d: ChatDelivery = {
+      ...DELIVERY,
+      review: { reverted: [], low_confidence: [], score_warnings: [],
+                balance_guard: [
+                  '侧缝守卫：前侧收量 0.35 塌零（阈值 0.5，步进抬回）',
+                  'waist_balance 1.00→1.25 重跑，前侧收量 0.60',
+                ] },
+    }
+    expect(deliverySummaryLine(d)).toBe(
+      '第 3 轮交卷 · 模型 test-vl · 照片 2 张 · 侧缝守卫 2 项')
+    expect(balanceNotes(d)).toBe(
+      '侧缝守卫：前侧收量 0.35 塌零（阈值 0.5，步进抬回）'
+      + '；waist_balance 1.00→1.25 重跑，前侧收量 0.60')
+  })
+
+  it('未触发 / 旧会话缺键 -> 空串、摘要行不加段（?? [] 兼容）', () => {
+    expect(balanceNotes(DELIVERY)).toBe('')
+    const legacy: ChatDelivery = {
+      ...DELIVERY,
+      review: { ...DELIVERY.review, balance_guard: undefined as never },
+    }
+    expect(balanceNotes(legacy)).toBe('')
+    expect(deliverySummaryLine(legacy)).not.toContain('侧缝守卫')
+  })
+})
+
 describe('adjustNote（调版披露一句话）', () => {
   it('有 adjust.note -> 原样返回', () => {
     const d: ChatDelivery = {
@@ -176,5 +235,58 @@ describe('adjustNote（调版披露一句话）', () => {
       ...DELIVERY, adjust: { note: '', applied: [], dropped: [], reverted: [] },
     }
     expect(adjustNote(d)).toBe('')
+  })
+})
+
+describe('recheck（定向复查披露，2026-09-29 D）', () => {
+  const RC: ChatDelivery = {
+    ...DELIVERY,
+    recheck: {
+      group: '后贴袋',
+      note: '我来重新细看后贴袋的形状与大小；复查后贴袋：2 处更新',
+      diff: [
+        { key: 'back_patch', old: null, new: true, evidence: '背面照两枚贴袋清晰' },
+        { key: 'back_patch_shape', old: 'rectangle', new: 'baker_shield',
+          evidence: '底部两斜线交于底中一点成尖角' },
+      ],
+    },
+  }
+
+  it('recheckDiffLines：null 旧值 ->（未判断）、布尔 -> 开/关、逐条带证据', () => {
+    expect(recheckDiffLines(RC)).toEqual([
+      'back_patch （未判断） -> 开（背面照两枚贴袋清晰）',
+      'back_patch_shape rectangle -> baker_shield（底部两斜线交于底中一点成尖角）',
+    ])
+    expect(recheckNote(RC)).toBe(
+      '我来重新细看后贴袋的形状与大小；复查后贴袋：2 处更新')
+  })
+
+  it('非复查轮 / 旧会话缺键 -> 空数组、空串（?? 兼容）', () => {
+    expect(recheckDiffLines(DELIVERY)).toEqual([])
+    expect(recheckNote(DELIVERY)).toBe('')
+    const legacy: ChatDelivery = { ...DELIVERY, recheck: undefined }
+    expect(recheckDiffLines(legacy)).toEqual([])
+    expect(recheckNote(legacy)).toBe('')
+  })
+
+  it('摘要行「复查 n 处」段插在调版之后；diff 空不加段', () => {
+    expect(deliverySummaryLine(RC)).toBe(
+      '第 3 轮交卷 · 模型 test-vl · 照片 2 张 · 复查 2 处 · '
+      + '回退 1 项 · 低置信 2 项 · 评分警告 1 项')
+    // 同轮既调版又复查（复查看图后改形态 + 用户又口头调尺寸）：调版在前
+    const both: ChatDelivery = {
+      ...RC,
+      adjust: {
+        note: '腰围改 75', applied: [{ key: 'waist', value: 75 }],
+        dropped: [], reverted: [],
+      },
+    }
+    expect(deliverySummaryLine(both)).toBe(
+      '第 3 轮交卷 · 模型 test-vl · 照片 2 张 · 调版 1 键 · 复查 2 处 · '
+      + '回退 1 项 · 低置信 2 项 · 评分警告 1 项')
+    const kept: ChatDelivery = {
+      ...RC, recheck: { group: '后贴袋', diff: [], note: '维持原判断' },
+    }
+    expect(deliverySummaryLine(kept)).not.toContain('复查')
   })
 })

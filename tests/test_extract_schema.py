@@ -121,6 +121,36 @@ def test_criteria_synchronized_with_manual():
         assert s in prompt, f"prompt 缺哨兵短语：{s}（_CRITERIA 与手册失同步）"
 
 
+# -- 照片清单（C 照片三类，2026-09-29） ------------------------------------------
+
+
+def test_prompt_photo_list_renders():
+    """photo_meta 注【照片清单】逐张一行：类别 → 重点看清单、用户说明
+    「以说明为准」；超 photo_count 截断；缺省 None 不注段——单发
+    `agent extract` prompt 逐位不变（硬约束 5）。"""
+    measurements = {"waist": 74.0, "hip": 91.0}
+    prejudged = prejudge_axes(measurements, {}, None)
+    priors = prior_switches()
+    meta = [{"category": "front", "note": ""},
+            {"category": "back", "note": ""},
+            {"category": "other", "note": "袋口特写"}]
+    prompt = build_prompt("女款牛仔裤", measurements, prejudged, priors, 3,
+                          photo_meta=meta)
+    assert "【照片清单（类别为用户标注" in prompt
+    assert "以照片为准并在 evidence 说明" in prompt
+    assert "第1张 正面平铺：重点看前口袋形态与弧深、门襟、小表袋" in prompt
+    assert "第2张 背面平铺：重点看后贴袋形状、育克分割线、后腰省" in prompt
+    assert "第3张 其他（用户说明：袋口特写）：以说明为准，重点核实所指特征" in prompt
+    # 无说明 other：按画面内容判断；超 photo_count 截断（第 2 条不渲染）
+    prompt2 = build_prompt("女款牛仔裤", measurements, prejudged, priors, 1,
+                           photo_meta=[{"category": "other"}] + meta[1:])
+    assert "第1张 其他：无说明，按画面内容判断" in prompt2
+    assert "第2张" not in prompt2
+    # 缺省 None：不注段（单发路径）
+    plain = build_prompt("女款牛仔裤", measurements, prejudged, priors, 2)
+    assert "【照片清单" not in plain
+
+
 # -- S2 响应解析（parse.py 半部）------------------------------------------------
 
 
@@ -159,3 +189,28 @@ def test_sanitize_normalization_and_drops():
 def test_sanitize_non_dict_raises():
     with pytest.raises(ValueError):
         sanitize([1, 2])
+
+
+# -- 腰头必看项（2026-09-30 特征尺度修复配套） ------------------------------------
+
+def test_prompt_waistband_must_look():
+    """必看项点名 waistband_type：口诀 + 辅助图/整照两种读法指引。"""
+    measurements = {"waist": 74.0, "hip": 91.0}
+    prompt = build_prompt("女款牛仔裤", measurements,
+                          prejudge_axes(measurements, {}, None),
+                          prior_switches(), 1)
+    assert "腰头形态是必看项" in prompt
+    assert "一看门襟顶" in prompt and "二看后中" in prompt
+    assert "工程自动辅助图" in prompt          # 有辅助图时的读法指引
+
+
+def test_prompt_photo_list_renders_crop_entries():
+    """辅助图 meta 行渲染：category=other + 工程 note 走既有清单渲染。"""
+    measurements = {"waist": 74.0, "hip": 91.0}
+    meta = [{"category": "front", "note": ""},
+            {"category": "other",
+             "note": "工程自动辅助图：正面照的腰头区放大裁剪（非用户上传）"}]
+    prompt = build_prompt("女款牛仔裤", measurements,
+                          prejudge_axes(measurements, {}, None),
+                          prior_switches(), 2, photo_meta=meta)
+    assert "第2张 其他（用户说明：工程自动辅助图" in prompt

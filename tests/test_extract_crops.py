@@ -1,0 +1,85 @@
+# -*- coding: utf-8 -*-
+"""腰头特写裁剪支路金标（2026-09-30 特征尺度修复）。
+
+诊断背景：整照经 VLM 端点降采样后腰头区细节低于可分辨阈值——S2 不报
+waistband_type 落默认、复查维持误判；裁剪放大 2× 同模型立刻判对。本文件
+钉 crops 模块行为：裁剪框/放大/类别选取/静默降级。管线接线（S2 附图、
+prompt 必看项）在 test_extract_pipeline / test_extract_schema。
+"""
+from __future__ import annotations
+
+import pytest
+
+pytest.importorskip("PIL")
+
+from agent.extract import crops as crops_mod
+from agent.extract.crops import make_waistband_crops
+
+
+def _make_photo(path, w=800, h=1600):
+    """合成平铺照：白底 + 顶部 1/4 处一条深色横带（模拟腰头区）。"""
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", (w, h), (240, 240, 240))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w // 10, int(h * 0.2), w * 9 // 10, int(h * 0.28)],
+                fill=(40, 50, 90))
+    im.save(path, "JPEG", quality=90)
+    return str(path)
+
+
+def test_front_and_back_crops(tmp_path):
+    """meta 类别选取：首张正面 + 首张背面各一张；尺寸=裁剪框×2 放大。"""
+    p1 = _make_photo(tmp_path / "a.jpg")
+    p2 = _make_photo(tmp_path / "b.jpg")
+    out = tmp_path / "crops"
+    out.mkdir()
+    paths, metas, notes = make_waistband_crops(
+        [p1, p2], [{"category": "front"}, {"category": "back"}], str(out))
+    assert len(paths) == len(metas) == 2
+    assert notes and "辅助图 2 张" in notes[0]
+    for m in metas:
+        assert m["category"] == "other"
+        assert "腰头区放大" in m["note"]
+    # 裁剪框 x∈[6%,94%] y∈[0,42%]，×2 放大（取整口径同 _crop_one）
+    from PIL import Image
+    w, h = Image.open(paths[0]).size
+    assert w == (int(800 * 0.94) - int(800 * 0.06)) * 2
+    assert h == (int(1600 * 0.42) - int(1600 * 0.0)) * 2
+
+
+def test_no_meta_falls_back_to_first_photo(tmp_path):
+    """缺 meta：首图按正面对待、只裁一张（防猜错背面）。"""
+    p1 = _make_photo(tmp_path / "a.jpg")
+    paths, metas, _ = make_waistband_crops([p1], None, str(tmp_path))
+    assert len(paths) == 1 and "正面" in metas[0]["note"]
+
+
+def test_garbage_image_degrades_silently(tmp_path):
+    """损坏文件：不抛、零辅助图（零打扰，绝不拦主提取）。"""
+    bad = tmp_path / "bad.jpg"
+    bad.write_bytes(b"\xff\xd8notreally")
+    paths, metas, notes = make_waistband_crops(
+        [str(bad)], [{"category": "front"}], str(tmp_path))
+    assert paths == [] and metas == [] and notes == []
+
+
+def test_pil_missing_degrades(monkeypatch, tmp_path):
+    """Pillow 缺失：模块旗标置 False -> 空三元组。"""
+    p1 = _make_photo(tmp_path / "a.jpg")
+    monkeypatch.setattr(crops_mod, "_PIL_OK", False)
+    assert make_waistband_crops([p1], None, str(tmp_path)) == ([], [], [])
+
+
+def test_exif_orientation_respected(tmp_path):
+    """EXIF 转向：横存竖拍（Orientation=6）的照，裁剪前先转正再裁上带区。"""
+    from PIL import Image
+    p = tmp_path / "exif.jpg"
+    im = Image.new("RGB", (1600, 800), (240, 240, 240))
+    exif = Image.Exif()
+    exif[274] = 6                      # Orientation: 转 90°（竖拍）
+    im.save(p, "JPEG", quality=90, exif=exif)
+    paths, _m, _n = make_waistband_crops([str(p)], None, str(tmp_path))
+    assert len(paths) == 1
+    # 转正后 800x1600：裁剪框 (48,0,752,672) ×2；未转正则会是 (96,0,1504,336)×2
+    w, h = Image.open(paths[0]).size
+    assert (w, h) == (1408, 1344)

@@ -73,6 +73,12 @@ class ExtractResult:
     hints: dict = field(default_factory=dict)
     size_label: int | None = None
     shrinkage: float | None = None
+    # 侧缝守卫披露（2026-09-29 A5）：塌零量测 + 回喂轨迹（delivery review +
+    # 报告消费；空表 = 未触发）
+    balance_notes: list[str] = field(default_factory=list)
+    # 腰头放大辅助图披露（2026-09-30 特征尺度修复）：附了几张裁剪辅助图
+    # （空表 = 未附——无照片/Pillow 缺失/裁剪失败降级）
+    crop_notes: list[str] = field(default_factory=list)
 
     def options_meta(self) -> dict[str, KeyMeta]:
         """发射键全集（开关 + 派生），emit/report 共用。"""
@@ -158,7 +164,12 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
                        adjust_revert: dict | None = None,
                        seed_size_label: int | None = None,
                        seed_shrinkage: float | None = None,
-                       prior_observation=None
+                       prior_observation=None,
+                       s1_history: str | None = None,
+                       context_brief: str | None = None,
+                       obs_inject=None,
+                       photo_meta: list[dict] | None = None,
+                       waistband_crops: bool = True
                        ) -> ExtractResult:
     """一条龙：描述+照片 -> ExtractResult（size_text/report_text 待写盘）。
 
@@ -182,9 +193,25 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
       {映射键: 上一版值}——探针 L0 失败时先撤回重试（L0.5，版面保持
       原样不截肢）；成功后 adjust_kept 值写回产物。单发调用缺省 None
       零影响；
+    - 侧缝守卫（2026-09-29 A5，probe L0 直过后）：前侧收量塌零（fi<0.5
+      且 H−W≥10）时 waist_balance +=0.25 步进整版重跑抬回（细节
+      balance.py）；waist_balance ∈ seed_overrides = 调版账本亲说，只量
+      只披露不改。产物 balance_notes 供 delivery review + 报告披露；
     - prior_observation：历史照片批的 S2 观察快照。本轮 photos 只放
       **未缓存新照片**（调用方按指纹去重）；有新照片时新证据覆盖旧批次
       同键（后补照片更相关），无新照片时直接复用缓存——零模型调用。
+    - 多轮拆分（2026-09-29 B1/B2，converse.run_turn 专用）：describe 只传
+      本轮叙事，多轮上下文走结构化账本摘要 context_brief（build_prompt 注
+      【已确认状态】段——尺寸终值/描述倾向/已应用调版，叙事与像素按需
+      重取）；S1 补漏保持全史输入（s1_history 传全轮拼接，缺省回落
+      describe）。回退开关：context_brief=None 即 describe=全轮拼接的旧行为
+      （单发/首轮逐位一致）；
+    - obs_inject（D 定向复查缝，2026-09-29）：调用方已跑完聚焦 VLM 调用
+      拿到的观察——常规 S2 整版读图跳过，与 prior_observation 按现有语义
+      merge（新证据覆盖旧同键）。单发调用缺省 None 零影响；
+    - photo_meta（2026-09-29 C 照片三类）：[{category, note}] 与 photos
+      按序对齐（converse.run_turn 装配；超 photo_count 截断），进 build_prompt
+      【照片清单】段。单发调用缺省 None——prompt 逐位不变（硬约束 5）。
     """
     p = progress or _noop
     parsed = parse_describe(describe)
@@ -216,9 +243,12 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
 
     # S1 补漏（有 provider 才发；仍缺 → 清单退出，不编数值）
     missing = [k for k in REQUIRED_MEAS if k not in measurements]
-    if missing and provider is not None and describe.strip():
+    # B1 拆分（2026-09-29）：S2 只看本轮叙事，但 S1 补漏保持**全史**输入
+    # ——早轮报过的数字仍能从历史里捞（缺省回落 describe = 单发旧行为）
+    s1_src = s1_history or describe
+    if missing and provider is not None and s1_src.strip():
         p(f"S1 补漏：向模型询问缺失尺寸 {'、'.join(missing)}（纯文本调用）…")
-        filled = _s1_fill_missing(describe, missing, provider, thinking)
+        filled = _s1_fill_missing(s1_src, missing, provider, thinking)
         for k, v in filled.items():
             measurements[k] = v
             evidence[k] = "模型补漏：从描述文字读出的显式数字"
@@ -233,15 +263,63 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
 
     obs = Observation()
     dropped: list[str] = []
-    if photo_count and provider is not None:
+    # 腰头放大辅助图披露（S2 分支填写；复查/缓存路径恒空）
+    crop_notes: list[str] = []
+    if obs_inject is not None:
+        # D 定向复查缝（2026-09-29）：调用方已跑完聚焦 VLM 调用拿到观察，
+        # 常规 S2 整版读图跳过（不重复读一遍）；与 prior 按现有语义 merge
+        if prior_observation is not None:
+            obs = Observation(
+                entries={**prior_observation.entries, **obs_inject.entries},
+                dropped=[*prior_observation.dropped, *obs_inject.dropped])
+        else:
+            obs = obs_inject
+        dropped = list(obs.dropped)
+    elif photo_count and provider is not None:
         from .schema import build_prompt
+        # 腰头特写裁剪支路（2026-09-30 特征尺度修复）：整照里腰头 ~200px
+        # 经端点降采样低于可分辨阈值（三连实验见决策日志），自动裁上带区
+        # 放大作辅助图附进同一次调用；只喂模型，不进指纹/探针/几何。
+        # Pillow 缺失/解码失败/任何异常一律静默降级为零辅助图。
+        crop_paths: list = []
+        crop_metas: list[dict] = []
+        crop_notes: list[str] = []
+        tmp_crop = None
+        if waistband_crops:
+            import tempfile
+            tmp_crop = tempfile.TemporaryDirectory(prefix="yl_wb_crops_")
+            try:
+                from .crops import make_waistband_crops
+                crop_paths, crop_metas, crop_notes = make_waistband_crops(
+                    photos, photo_meta, tmp_crop.name)
+            except Exception:              # 辅助图失败不拦主提取
+                crop_paths, crop_metas, crop_notes = [], [], []
+            if crop_paths:
+                p(f"腰头放大辅助图 {len(crop_paths)} 张已附（自动裁剪）")
+        if crop_paths:
+            # meta 与 photos 按序对齐（build_prompt 照片清单按下标渲染）：
+            # 原图缺 meta 的槽位补 None（渲染回退「其他：无说明」），尾部接辅助图
+            base = list(photo_meta or [])[:len(photos)]
+            base += [None] * (len(photos) - len(base))
+            s2_meta = base + crop_metas
+            s2_count = len(photos) + len(crop_paths)
+        else:
+            s2_meta = photo_meta           # 无辅助图：prompt 逐位旧行为
+            s2_count = photo_count
         prompt = build_prompt(describe, measurements, prejudged, priors,
-                              photo_count)
+                              s2_count, context_brief=context_brief,
+                              prior_obs=prior_observation,
+                              photo_meta=s2_meta)
         p(f"S2 视觉确认：调用 {model_name} 读 {photo_count} 张照片"
           "（最耗时环节，thinking 开启时可达分钟级）…")
         t_vlm = time.monotonic()
-        obs_new = sanitize(parse_model_json(
-            provider.complete(prompt, list(photos), thinking)))
+        try:
+            obs_new = sanitize(parse_model_json(
+                provider.complete(prompt, list(photos) + crop_paths,
+                                  thinking)))
+        finally:
+            if tmp_crop is not None:
+                tmp_crop.cleanup()
         p(f"S2 视觉确认完成（耗时 {time.monotonic() - t_vlm:.1f}s）")
         if prior_observation is not None:
             obs = Observation(
@@ -302,6 +380,30 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
         # ok=False：--draft 拒绝直出（探针未运行 = 未验证，不许跳过人工核对）
         probe = ProbeOutcome(False, "跳过", "--no-geometry：探针未运行")
 
+    # 侧缝守卫（2026-09-29 A5）：挂 probe **L0 直接过**之后（L0.5/L1+ 已有
+    # 回退语义，不叠加）；前侧收量塌零（fi<0.5 且 H−W≥10）时 balance +=0.25
+    # 步进整版重跑抬回（守卫细节 balance.py）；waist_balance ∈ seed_overrides
+    # = 调版账本亲说，只量只披露不改。披露进 delivery review + 报告
+    balance_notes: list[str] = []
+    if run_probe and probe.ok and probe.stage == "L0" and \
+            getattr(probe, "ctx", None) is not None:
+        from .balance import front_intake_cm, is_collapsed, rebalance
+        fi = front_intake_cm(probe.ctx)
+        if is_collapsed(measurements, fi):
+            if seed_overrides and "waist_balance" in seed_overrides:
+                balance_notes.append(
+                    f"侧缝守卫：前侧收量 {fi:.2f} 塌零——waist_balance 已由"
+                    "调版设定，只披露不改（用户亲说优先）")
+            else:
+                options, guard_notes, probe.ctx = rebalance(
+                    measurements, options, probe.ctx)
+                balance_notes += guard_notes
+                if "waist_balance" in derived:
+                    _m = derived["waist_balance"]
+                    derived["waist_balance"] = KeyMeta(
+                        _m.key, options["waist_balance"], _m.source,
+                        _m.confidence, _m.evidence + "；" + guard_notes[-1])
+
     reverted = list(getattr(probe, "reverted", []))
     for k in reverted:   # 回退/降级键不进产物（引擎默认接管），报告披露
         merged.switches.pop(k, None)
@@ -339,7 +441,8 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
         describe=describe, photo_count=photo_count, model=model_name,
         measurements=measurements, evidence=evidence, merged=merged,
         derived=derived, issues=issues, probe=probe, score_items=score_items,
-        dropped=dropped, dep_notes=dep_notes, reverted=reverted)
+        dropped=dropped, dep_notes=dep_notes, reverted=reverted,
+        balance_notes=balance_notes, crop_notes=crop_notes)
     p("提取完成")
     return ExtractResult(measurements=measurements, merged=merged,
                          derived=derived, issues=issues, probe=probe,
@@ -349,4 +452,6 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
                          model_name=model_name, photo_count=photo_count,
                          measurement_evidence=evidence,
                          observation=obs, hints=hints,
-                         size_label=size_label, shrinkage=shrinkage)
+                         size_label=size_label, shrinkage=shrinkage,
+                         balance_notes=balance_notes,
+                         crop_notes=crop_notes)

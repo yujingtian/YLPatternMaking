@@ -152,11 +152,20 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   会话层（智能体多轮一期 2026-09-21，零打扰：多轮是能力、不反问是策略）：
 #   python -m agent chat（一行一轮，:photo 补照 :quit 退出，--draft --staged 出整版
 #   + 三里程碑中间版）+ POST /api/chat/turn（会话 JSON 随请求往返、后端无状态；
-#   缺必填转求援卡不 422）；口径权威 .doc/python工程设计.md §10.9.2
+#   缺必填转求援卡不 422；照片带 photo_meta 类别 front/back/other——上传时手动
+#   标注不自动分类；响应 card/delivery/directive 三选一，口径 §10.9.2）
 #   调版映射（交卷后口语调版 2026-09-27）：交卷后每轮纯文字反馈经一次小文本
 #   LLM 调用映射为 {key, 档位|整数步}（LLM 绝不输出 cm），账本重放持久、
 #   注入现有管线幂等重跑、交卷披露；agent/extract/{adjust,params_meta}.py
 #   + tests/test_agent_adjust.py；口径权威 .doc/python工程设计.md §10.9.2 调版映射条
+#   意图层+定向复查（2026-09-29 D）：映射输出先判意图 action=adjust|recheck|none
+#   （复查请求无改法→recheck：adjustments 必空+target 组名、note 禁「暂不改动」
+#   式表述；解析失败默认 adjust=现状回退）；recheck 走 recheck.py 路由表（6 部位
+#   组+兜底）聚焦质证——基线注入/conf 门槛/diff 披露三道闸防翻烧饼；照片类别
+#   缺片两段握手 directive→fulfill="recheck"（前端自动附片续发；降级不消耗承诺、
+#   补片轮 catch-up）；意图语料 38 条待审 .doc/智能体闭环意图语料（待审）.md
+#   （D7，审后转 FakeVLM 金标）；agent/extract/recheck.py + tests/test_agent_recheck.py；
+#   口径权威 .doc/python工程设计.md §10.9.2「意图层 + 定向复查」条
 #   前端接线（一期 2026-09 向导已删；二期 2026-09-21「智能打版」对话壳取代、
 #   2026-09-24 弹层升独立界面：左对话右可缩放整版预览〔SheetPreview 复用
 #   SheetView 的 viewBox 滚轮缩放/拖曳平移方案〕，多轮 /api/chat/turn +
