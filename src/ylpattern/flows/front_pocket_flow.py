@@ -188,12 +188,34 @@ def _collect_facing_inner(ctx: DraftContext) -> list[LineSegment | CubicBezier]:
     return geoms
 
 
+def collect_facing_piece_marks(ctx: DraftContext,
+                               has_dart: bool) -> list[LineSegment | CubicBezier]:
+    """袋贴裁片内部画稿标记弧线（§1.1 必须保留）：
+    前口袋弧线（设计净线 C，P1->P2）恒上版 + 吃省撇削边（有省时标省位）。
+    口袋省弧线（主切削线）不上裁片图：车缝对位由刀口（袋口缝合线起止端点
+    沿切线投影）承担，画稿标记只作设计位置文档——与 3D 缝合基准
+    （collect_facing_marks，恒取切削线）分立两口径，改线互不联动。
+    """
+    marks: list[LineSegment | CubicBezier] = []
+    if "front.pocket_mouth_baseline" in ctx.sheet:      # bezier 模式净线
+        marks.append(ctx.curve("front.pocket_mouth_baseline"))
+    else:                                               # polyline 模式净线段
+        i = 1
+        while f"front.pocket_mouth_baseline_seg{i}" in ctx.sheet:
+            marks.append(ctx.line(f"front.pocket_mouth_baseline_seg{i}"))
+            i += 1
+    if has_dart and "front.pocket_cut_start" in ctx.sheet:
+        marks.append(ctx.line("front.pocket_cut_start"))
+    return marks
+
+
 def collect_facing_marks(ctx: DraftContext,
                          has_dart: bool) -> list[LineSegment | CubicBezier]:
-    """袋贴内部标记弧线（§1.1 必须保留，作画稿/钻孔标记）：
-    袋口主切削线（有省）/ 袋口净线（无省）+ 吃省撇削边（有省时标省位）。
-    公共导出（原名 _collect_facing_marks）：exporters/fitting 复用同一
-    选择逻辑输出整版净线作 3D 缝合依据——两处口径必须同源。"""
+    """袋贴 3D 缝合基准线（exporters/fitting marks 覆写源，与 front_piece
+    的 mouth 边同源同态）：袋口主切削线（有省）/ 袋口净线（无省）+
+    吃省撇削边（有省时）。缝合依据是实际车缝线（省弧线口径），不随裁片
+    画稿标记（前口袋弧线）联动——两口径分立见 collect_facing_piece_marks。
+    """
     marks: list[LineSegment | CubicBezier] = []
     if "front.pocket_mouth" in ctx.sheet:               # bezier 模式有省切削线
         marks.append(ctx.curve("front.pocket_mouth"))
@@ -314,8 +336,9 @@ def build_front_facing(main_ctx: DraftContext) -> tuple[PatternPiece, DraftConte
 
     闭合拓扑 Ω_facing：腰弧 [O->P_fw]（完美复制）+ L_inner [P_fw->P_fs] +
     外缝弧 [P_fs->O]（完美复制）；O = 有效腰口侧缝腰点。外边界与前大片 1:1
-    吻合，拼合无错位。内部保留袋口净线/切削线与吃省边（§1.1），刀口标袋口净线
-    起止端点、沿切线延长线投至缝边（§2.2）。局部原点 = O（侧缝腰点）。
+    吻合，拼合无错位。内部保留前口袋弧线（设计净线）与吃省撇削边（§1.1
+    画稿标记），刀口标袋口净线起止端点、沿切线延长线投至缝边（§2.2）。
+    局部原点 = O（侧缝腰点）。
     """
     o = main_ctx.options
     origin, _, _ = effective_waist(main_ctx)            # O = 侧缝腰点
@@ -338,7 +361,7 @@ def build_front_facing(main_ctx: DraftContext) -> tuple[PatternPiece, DraftConte
     p1_name = "front.pocket_p1_transfer" if has_dart else "front.pocket_p1"
     notches_main = [main_ctx.point(p1_name), main_ctx.point("front.pocket_p2")]
     notch_dirs_main = _mouth_extension_dirs(main_ctx, has_dart)
-    marks_main = collect_facing_marks(main_ctx, has_dart)
+    marks_main = collect_facing_piece_marks(main_ctx, has_dart)
     return _finish_piece(main_ctx, edges_main, notches_main, marks_main, origin,
                          name="front_facing", label="前口袋袋贴裁片",
                          sa=o.front_pocket_facing_seam_allowances,

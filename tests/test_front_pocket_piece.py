@@ -2,7 +2,7 @@
 
 金标（M 同 test_pocket_facing_steps：W=70, H=96, Δ=1.0, outseam=102）：
   - INSET 袋贴：三段边界（腰弧 waist / 内边 inner / 外缝弧 side）1:1 复制前大片，
-    闭合截取；内部保留袋口净线/切削线 + 吃省边（§1.1）；刀口 = 袋口净线起止端点，
+    闭合截取；内部保留前口袋弧线（设计净线）+ 吃省边（§1.1）；刀口 = 袋口净线起止端点，
     沿口袋弧线切线延长线投至缝边、净样线位 + 缝边位成对（§2.2）。
   - PATCH 贴袋：净样母线 C(t) 直接拷贝（§1.2）；seg1=袋口 top 折边、其余=四周 side 缝边；
     刀口 = 各净角点沿相邻净边延长线投至缝边（每角 2 刀折边指示，§2.2）。
@@ -19,6 +19,7 @@ from ylpattern.flows.front_pocket_flow import (build_front_facing,
                                                build_front_pocket)
 from ylpattern.flows.runner import FlowRunner
 from ylpattern.geometry import CubicBezier, LineSegment, Point
+from ylpattern.steps.front_steps import effective_waist
 from ylpattern.params import (FrontFacingSeamAllowances,
                               FrontPatchSeamAllowances, Measurements,
                               PatternOptions, WaistbandType)
@@ -233,9 +234,25 @@ def test_facing_notches_polyline_mode():
 
 
 def test_facing_marks_present_with_dart(ctx_facing):
-    """有省：内部标记含袋口切削线 + 吃省边（§1.1 必须保留）。"""
+    """有省：画稿标记 = 前口袋弧线（设计净线，腰端 P1）+ 吃省撇削边
+    （P1->P1'，§1.1）；口袋省弧线（切削线，腰端 P1'）不上裁片图——
+    缝合依据走刀口与 3D 基准（collect_facing_marks），两口径分立。"""
     piece, _ = build_front_facing(ctx_facing)
-    assert len(piece.marks) >= 2
+    assert len(piece.marks) == 2
+    origin, _, _ = effective_waist(ctx_facing)
+
+    def local(p):
+        return Point(p.x - origin.x, origin.y - p.y)
+
+    arc, edge = piece.marks
+    assert isinstance(arc, CubicBezier) and isinstance(edge, LineSegment)
+    p1 = local(ctx_facing.point("front.pocket_p1"))
+    p1r = local(ctx_facing.point("front.pocket_p1_transfer"))
+    _assert_point_approx(arc.p0, p1)                    # 前口袋弧线腰端 = P1
+    _assert_point_approx(edge.a, p1)                    # 撇削边 = P1 -> P1'
+    _assert_point_approx(edge.b, p1r)
+    d = ((arc.p0.x - p1r.x) ** 2 + (arc.p0.y - p1r.y) ** 2) ** 0.5
+    assert d == pytest.approx(2.0, abs=0.1)             # ≠ P1'（吃省 2.0 沿腰弧）
 
 
 def test_facing_marks_no_dart(ctx_facing_nodart):
