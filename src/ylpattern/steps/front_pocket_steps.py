@@ -270,8 +270,10 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
 
     袋贴（Facing）为表布裁片，附着于底袋布上遮盖袋口挖空区（§三.3.(1)）。
     三特征量 + 内边生成：
-      - 袋贴腰头顶点 P_fw：有省自口袋省顶点 P1′、无省自袋口腰头顶点 P1，沿腰头线
-        （腰弧）朝前浪顶点量取腰头端袋贴宽 w_waist（front_pocket_facing_width）；
+      - 袋贴腰头顶点 P_fw：自袋口腰头顶点 P1 沿腰头线（腰弧）朝前浪顶点量取
+        腰头端袋贴宽 w_waist（front_pocket_facing_width）——口袋组件净线起草
+        （吃省两线制：前大片袋口边自 P1′ 走切削线 C_cut 带省量，袋贴/袋布走
+        净线自 P1，车缝对位 P1′↔P1，省量沿弧吃进 = 袋口松量）；
       - 袋贴侧缝顶点 P_fs：自口袋侧缝顶点 P2 沿外缝向下量取侧缝端袋贴宽
         w_side（front_pocket_facing_side_w or front_pocket_facing_width），
         量过臀围外缝顶点后接大腿段外缝继续量（可越过臀围线）；
@@ -299,19 +301,19 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
     w_side = o.front_pocket_facing_side_w or o.front_pocket_facing_width
     b, w_arc, s_side = effective_waist(ctx)
     s_arc = ctx.curve("front.outseam_arc")
-    dw = o.front_pocket_dart_width
-    has_dart = dw > 0
     ref = ("下侧缝腰点B'" if o.waistband_type is WaistbandType.CURVED
            else "腰外缝顶点")
 
-    # P_fw：有省自 P1′、无省自 P1，沿腰弧朝前浪顶点量取 w_waist（距离 A）
+    # P_fw：自袋口腰头顶点 P1 沿腰弧朝前浪顶点量取 w_waist（距离 A）——口袋
+    # 组件净线锚（吃省两线制：前片袋口边走 C_cut 自 P1′，缝时 P1′↔P1 对齐，
+    # 省量沿弧吃进 = 袋口松量，口袋侧量宽不含省宽）
     lw = w_arc.length()
-    s_start = o.front_pocket_p1_dist + (dw if has_dart else 0.0)
+    s_start = o.front_pocket_p1_dist
     s_fw = s_start + w_waist
     if s_fw >= lw:
         raise ValueError(
-            f"袋贴腰头顶点弧长（{'P1′ 距离+吃省' if has_dart else 'P1 距离'} "
-            f"{s_start:.2f} + 袋贴腰宽 {w_waist}）超过腰弧总长 {lw:.2f}")
+            f"袋贴腰头顶点弧长（P1 距离 {s_start:.2f} + 袋贴腰宽 {w_waist}）"
+            f"超过腰弧总长 {lw:.2f}")
     p_fw = w_arc.point_at_length(s_fw)
     t_fw = w_arc.t_at_length(s_fw)
 
@@ -331,8 +333,9 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
 
     ctx.add_point("front.pocket_facing_waist", p_fw,
                   step=step,
-                  basis=f"{'P1′' if has_dart else 'P1'} 沿腰弧自{ref}朝前浪顶点"
-                        f"量取 {w_waist}（袋贴腰宽，§三.3.(1)）",
+                  basis=f"P1 沿腰弧自{ref}朝前浪顶点量取 {w_waist}"
+                        "（袋贴腰宽，口袋组件净线锚——前片走 C_cut 对齐 P1 吃省，"
+                        "§三.3.(1)）",
                   label="袋贴腰头顶点Pfw")
     ctx.add_point("front.pocket_facing_side", p_fs,
                   step=step,
@@ -402,8 +405,8 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
                              label="袋贴内边")
     else:  # "offset"
         if o.front_pocket_mouth_mode == "polyline":
-            return _facing_inner_polyline(ctx, p_fw, p_fs, interior, w_waist, has_dart, step)
-        return _facing_inner_bezier(ctx, p_fw, p_fs, interior, w_waist, has_dart, step)
+            return _facing_inner_polyline(ctx, p_fw, p_fs, interior, w_waist, step)
+        return _facing_inner_bezier(ctx, p_fw, p_fs, interior, w_waist, step)
 
 def _reverse_bezier(c: CubicBezier) -> CubicBezier:
     """反向三次贝塞尔（p0↔p3、p1↔p2）。"""
@@ -424,46 +427,45 @@ def _facing_interior_normal(curve: CubicBezier, t: float, interior: Point) -> Ve
 
 
 def _facing_inner_bezier(ctx: DraftContext, p_fw: Point, p_fs: Point,
-                         interior: Point, w: float, has_dart: bool,
+                         interior: Point, w: float,
                          step: str) -> NamedCurve:
     """Bezier 模式袋贴内边：基准曲线内部控制点法向偏置 w，端点锁 P_fw/P_fs。
 
-    基准 C_ref：有省=切削线 front.pocket_mouth、无省=净线 front.pocket_mouth_baseline。
-    内部控制点 p1、p2 各按其影响峰位 t=1/3、2/3 处的内法向偏置 w（控制点域近似，
-    同 C_cut 偏置口径）；端点锁到 P_fw/P_fs 满足闭合拓扑（自然偏置端点不在腰弧/
-    外缝弧上，故锁）。
+    基准 C_ref：口袋净线 front.pocket_mouth_baseline（口袋组件净线起草，有省/
+    无省同锚；切削线 C_cut 属前片侧）。内部控制点 p1、p2 各按其影响峰位
+    t=1/3、2/3 处的内法向偏置 w（控制点域近似）；端点锁到 P_fw/P_fs 满足
+    闭合拓扑（自然偏置端点不在腰弧/外缝弧上，故锁）。
     """
-    cref = ctx.curve("front.pocket_mouth" if has_dart
-                     else "front.pocket_mouth_baseline")
+    cref = ctx.curve("front.pocket_mouth_baseline")
     p1_off = cref.p1 + _facing_interior_normal(cref, 1 / 3, interior).scale(w)
     p2_off = cref.p2 + _facing_interior_normal(cref, 2 / 3, interior).scale(w)
     inner = CubicBezier(p_fw, p1_off, p2_off, p_fs)
     return ctx.add_curve("front.pocket_facing_inner", inner,
                          step=step,
-                         basis=f"基准{'切削线 C_cut' if has_dart else '净线 C'}向裤身"
-                               f"内部法向偏置 {w}（内部控制点域近似，端点锁 P_fw/P_fs，"
+                         basis=f"基准净线 C 向裤身内部法向偏置 {w}"
+                               "（内部控制点域近似，端点锁 P_fw/P_fs，"
                                "前口袋绘制.md §三.3.(1)）",
                          label="袋贴内边")
 
 
 def _facing_inner_polyline(ctx: DraftContext, p_fw: Point, p_fs: Point,
-                           interior: Point, w: float, has_dart: bool,
+                           interior: Point, w: float,
                            step: str) -> NamedLine:
     """polyline 模式袋贴内边：折角顶点沿弦法向平移 w，端点锁 P_fw/P_fs，逐段直线。
 
-    基准 C_ref 折角链：有省=切削段 front.pocket_mouth_segN、无省=净段
-    front.pocket_mouth_baseline_segN。弦法向 n（向内侧，由 crease_point 定向）；
-    各折角顶点沿 n 平移 w（折角原即沿弦法向内推，等距平移得平行折角链），
-    端点锁 P_fw/P_fs，逐段直线 front.pocket_facing_inner_segN（struct）。
+    基准 C_ref 折角链：口袋净段 front.pocket_mouth_baseline_segN（口袋组件
+    净线起草，有省/无省同锚；切削段属前片侧）。弦法向 n（向内侧，由
+    crease_point 定向）；各折角顶点沿 n 平移 w（折角原即沿弦法向内推，等距
+    平移得平行折角链），端点锁 P_fw/P_fs，逐段直线 front.pocket_facing_inner_segN
+    （struct）。
     """
-    prefix = ("front.pocket_mouth_seg" if has_dart
-              else "front.pocket_mouth_baseline_seg")
+    prefix = "front.pocket_mouth_baseline_seg"
     segs: list[LineSegment] = []
     k = 1
     while f"{prefix}{k}" in ctx.sheet:
         segs.append(ctx.line(f"{prefix}{k}"))
         k += 1
-    verts = [segs[0].a] + [s.b for s in segs]          # P1′/P1 -> … -> P2
+    verts = [segs[0].a] + [s.b for s in segs]          # P1 -> … -> P2
     n = (verts[-1] - verts[0]).normalized().perpendicular()
     if n.dx * (interior.x - verts[0].x) + n.dy * (interior.y - verts[0].y) < 0:
         n = n.scale(-1)

@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
-"""腰头特写裁剪支路（2026-09-30 特征尺度修复）。
+"""局部特写裁剪支路（2026-09-30 特征尺度修复；同日扩后贴袋）。
 
 诊断（三连实验，决策日志 §九）：整照经 VLM 端点输入降采样后腰头区
 （整照里仅 ~200px 高）细节低于模型可分辨阈值——S2 整轮不报
 waistband_type 落引擎默认、带判据定向问仍幻觉误读；同一张照裁腰头区
 放大 2× 再喂，同模型立刻判对（straight→curved conf 0.9，证据正确）。
+后贴袋袋底同陷阱（整照里袋底尖仅十几像素，钝角浅尖盾形被判
+rectangle，2026-09-30 实测），裁块机制照方抓药扩 make_back_pocket_crops。
 
-修法：S2 摄入（及腰头组聚焦复查）时自动从首张正面照 + 首张背面照裁
-上带区放大，作**辅助图**附进同一次 VLM 调用——只喂模型细看，不进照片
-指纹（vlm_cache 记账按用户原图）、不进探针/几何。姿态假设 = 平铺腰在
-上（用户上传惯例；腰在下的构图裁不到，判据退回整照读法，二期可加
-方向检测）。Pillow 缺失、解码失败、任何异常一律静默降级为无辅助图
-（零打扰：辅助图失败绝不拦主提取）。
+修法：S2 摄入（及对应部位组聚焦复查）时自动裁特征区放大，作**辅助图**
+附进同一次 VLM 调用——只喂模型细看，不进照片指纹（vlm_cache 记账按
+用户原图）、不进探针/几何。姿态假设 = 平铺、腰在上（用户上传惯例；
+腰在下的构图裁不到，判据退回整照读法，二期可加方向检测）。
+Pillow 缺失、解码失败、任何异常一律静默降级为无辅助图（零打扰：
+辅助图失败绝不拦主提取）。
 """
 from __future__ import annotations
 
@@ -24,33 +26,38 @@ except ImportError:       # pragma: no cover - 环境无 Pillow 时
     Image = ImageOps = None
     _PIL_OK = False
 
-# 裁剪框（占原图比例）：上带区 = 顶部 42% 高、两侧各收 6% 宽（去床单背景）
+# 裁剪框（占原图比例）：
+#   腰头 = 上带区：顶部 42% 高、两侧各收 6% 宽（去床单背景）
 _BOX = (0.06, 0.0, 0.94, 0.42)
-# 长边放大目标：小图 ×2（端点降采样后仍比整照里的腰头大 ~2 倍），
+#   后贴袋 = 育克之下、裆部之上的中带（平铺背面照双袋惯例落位；框取
+#   宽松——裁多由模型按画面自辨，裁不到时判据退回整照读法兜底）
+_POCKET_BOX = (0.05, 0.24, 0.95, 0.64)
+# 长边放大目标：小图 ×2（端点降采样后仍比整照里的特征区大 ~2 倍），
 # 大图不再放大（端点反正要压，省字节）
 _UPSCALE_LONG = 1200
 
 
-def _crop_one(src: str, out_dir: str, tag: str) -> str | None:
-    """单张裁剪：成功返回产物路径，任何失败返回 None。"""
+def _crop_one(src: str, out_dir: str, name: str, box: tuple) -> str | None:
+    """单张裁剪（box=占原图比例 (x0,y0,x1,y1)）：成功返回产物路径，
+    任何失败返回 None。产物名 = {name}.jpg，调用方自保证不重名。"""
     if not _PIL_OK:
         return None
     try:
         with Image.open(src) as im:
             im = ImageOps.exif_transpose(im)       # 手机照 EXIF 转向
             w, h = im.size
-            x0, y0, x1, y1 = _BOX
-            box = (int(w * x0), int(h * y0), int(w * x1), int(h * y1))
-            if box[2] - box[0] < 40 or box[3] - box[1] < 40:
+            x0, y0, x1, y1 = box
+            box_px = (int(w * x0), int(h * y0), int(w * x1), int(h * y1))
+            if box_px[2] - box_px[0] < 40 or box_px[3] - box_px[1] < 40:
                 return None                        # 图太小，裁了也没意义
-            region = im.crop(box)
+            region = im.crop(box_px)
             long_edge = max(region.size)
             scale = 2 if long_edge < _UPSCALE_LONG else 1
             if scale > 1:
                 region = region.resize(
                     (region.width * scale, region.height * scale),
                     Image.LANCZOS)
-            out = Path(out_dir) / f"wb_crop_{tag}.jpg"
+            out = Path(out_dir) / f"{name}.jpg"
             region.convert("RGB").save(out, "JPEG", quality=90)
             return str(out)
     except Exception:                              # 解码失败/损坏文件等
@@ -87,8 +94,9 @@ def make_waistband_crops(photos, photo_meta, out_dir):
         targets.append((first_back, "背面"))
 
     crop_paths, crop_metas, notes = [], [], []
-    for src, side in targets:
-        out = _crop_one(src, out_dir, "front" if side == "正面" else "back")
+    for i, (src, side) in enumerate(targets):
+        out = _crop_one(src, out_dir, f"wb_crop_{i}",
+                        _BOX)
         if out is None:
             continue
         crop_paths.append(out)
@@ -101,3 +109,35 @@ def make_waistband_crops(photos, photo_meta, out_dir):
         notes.append(f"腰头放大辅助图 {len(crop_paths)} 张已附"
                      "（首张正面/背面照自动裁剪，特征尺度修复）")
     return crop_paths, crop_metas, notes
+
+
+def make_back_pocket_crops(photos, photo_meta, out_dir):
+    """从首张背面照裁后贴袋区放大图（back_patch_shape 特征尺度修复）。
+
+    选图口径比腰头保守：只认 meta 明示的 back 照；无 meta 且整包只有
+    一张照时也裁（分面交给模型按画面自辨）；多照无 meta 不猜——后贴袋
+    在正面照上不存在，裁错面是主动错误证据。返回同 make_waistband_crops。
+    """
+    paths = [str(p) for p in (photos or []) if p]
+    if not paths:
+        return [], [], []
+    metas = list(photo_meta or [])
+    src = None
+    for i, p in enumerate(paths):
+        if i < len(metas) and metas[i] and \
+                str((metas[i] or {}).get("category") or "").strip() == "back":
+            src = p
+            break
+    if src is None and len(paths) == 1:
+        src = paths[0]
+    if src is None:
+        return [], [], []
+    out = _crop_one(src, out_dir, "bp_crop_back", _POCKET_BOX)
+    if out is None:
+        return [], [], []
+    return ([out],
+            [{"category": "other",
+              "note": "工程自动辅助图：背面照的两侧后贴袋区放大裁剪"
+                      "（非用户上传），专用于细看后贴袋形状"
+                      "（back_patch_shape）与袋底细节"}],
+            ["后贴袋放大辅助图 1 张已附（背面照自动裁剪，特征尺度修复）"])

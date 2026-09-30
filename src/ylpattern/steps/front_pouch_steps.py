@@ -49,8 +49,10 @@ def draw_front_pouch(ctx: DraftContext) -> NamedLine | NamedCurve | None:
     固定边界取腰弧/外缝弧的精确子段（de Casteljau 细分），与裁片缝线重合；
     自由边界为自定义节点链，逐边形态由 front_pouch_edges 控制。
     小片（§五.2）：与大片同锚点、同节点链（1:1 重合的两层），上沿改经
-    侧缝子段（P_s0→P2）→ 袋口切削线（P2→P1′）→ 腰弧子段（P1′→P_w0）
-    闭合——节点只与袋布相连，不直连口袋顶点。
+    侧缝子段（P_s0→P2）→ 袋口净线（P2→P1）→ 腰弧子段（P1→P_w0）
+    闭合——节点只与袋布相连，不直连口袋顶点。口袋组件净线起草（吃省
+    两线制：前片袋口边走切削线 C_cut 自 P1′，袋布/袋贴走净线自 P1，
+    车缝对位 P1′↔P1，省量沿弧吃进 = 袋口松量）。
     依据：打版流程.md「袋布打版过程」；袋布绘制.md §二、§三、§五。
     """
     o = ctx.options
@@ -139,7 +141,8 @@ def draw_front_pouch(ctx: DraftContext) -> NamedLine | NamedCurve | None:
                   label="大片腰缝边")
 
     # 小片：与大片同锚点同节点链（1:1 重合），上沿改经侧缝链 P_s0→P2 →
-    # 袋口切削线 P2→P1′ → 腰弧 P1→P_w0 闭合（§五.2）——节点只与袋布相连
+    # 袋口净线 P2→P1 → 腰弧 P1→P_w0 闭合（§五.2，口袋组件净线起草）——
+    # 节点只与袋布相连
     _emit_chain(ctx, "front.pouch_small", [p_w0, *ks, p_s0],
                 o.front_pouch_edges, "小片节点链")
     for i, geom in enumerate(small_side_segs, 1):
@@ -147,18 +150,20 @@ def draw_front_pouch(ctx: DraftContext) -> NamedLine | NamedCurve | None:
                       step=_STEP,
                       basis=f"小片上沿侧缝子段 {i}（与大身侧缝重合，§五.2）",
                       label=f"小片侧缝边{i}")
-    # 袋口切削线 P2 → P1′（引用主切口几何并反向）
+    # 袋口净线 P2 → P1（引用主切口净线几何并反向；口袋组件净线起草，
+    # 切削线 C_cut 属前片侧）
     for name, rev in _mouth_segments_reversed(ctx):
         ctx.add_curve(f"front.pouch_small_{name}", rev,
                       step=_STEP,
-                      basis="袋口切削线（引用主切口几何反向；10mm 止口留待裁切层，§五.2）",
+                      basis="袋口净线（引用主切口净线几何反向；口袋组件净线起草，"
+                            "10mm 止口留待裁切层，§五.2）",
                       label="小片袋口边")
-    # 腰弧子段 P1 → P_w0（P1′ 与 P1 同在腰弧上）
-    t_p1 = w_arc.t_at_y(p1.y)
+    # 腰弧子段 P1 → P_w0（弧长锚：净线端点 P1 在弧长 p1_dist 处）
+    t_p1 = w_arc.t_at_length(o.front_pocket_p1_dist)
     small_waist = curves.bezier_subrange(w_arc, t_p1, t_w0)
     ctx.add_curve("front.pouch_small_waist_edge", small_waist,
                   step=_STEP,
-                  basis="小片上沿腰弧子段 P1→P_w0（与大身腰弧重合，§五.2）",
+                  basis="小片上沿腰弧子段 P1→P_w0（与大身腰弧重合，净线锚，§五.2）",
                   label="小片腰缝边")
     return ctx.sheet.get("front.pouch_large_seg1")
 
@@ -169,21 +174,25 @@ def _reverse_bezier(c: CubicBezier) -> CubicBezier:
 
 
 def _mouth_segments_reversed(ctx) -> list[tuple[str, CubicBezier]]:
-    """主切口切削线段（弧线或折角多段直线），统一反向为 P2→P1′ 的曲线列表。
+    """主切口净线段（弧线或折角多段直线），统一反向为 P2→P1 的曲线列表。
+
+    口袋组件净线起草（吃省两线制）：袋布小片袋口边走净线 C（P1→P2），前大片
+    袋口边才走切削线 C_cut（P1′→P2），车缝对位 P1′↔P1，省量沿弧吃进。
 
     直线段升阶为退化的三次贝塞尔（控制点与端点重合），便于统一上版为
     NamedCurve。
     """
     out: list[tuple[str, CubicBezier]] = []
-    if "front.pocket_mouth" in ctx.sheet:
-        out.append(("mouth_seg1", _reverse_bezier(ctx.curve("front.pocket_mouth"))))
+    if "front.pocket_mouth_baseline" in ctx.sheet:
+        out.append(("mouth_seg1",
+                    _reverse_bezier(ctx.curve("front.pocket_mouth_baseline"))))
         return out
     i = 1
     segs: list[LineSegment] = []
-    while f"front.pocket_mouth_seg{i}" in ctx.sheet:
-        segs.append(ctx.line(f"front.pocket_mouth_seg{i}"))
+    while f"front.pocket_mouth_baseline_seg{i}" in ctx.sheet:
+        segs.append(ctx.line(f"front.pocket_mouth_baseline_seg{i}"))
         i += 1
-    # 折角链 P1′→…→P2 反向为 P2→…→P1′（直线升阶取均匀控制点：端点重合的退化
+    # 折角链 P1→…→P2 反向为 P2→…→P1（直线升阶取均匀控制点：端点重合的退化
     # 控制点会使端点切线为零向量，cutter 法向偏移在端点崩溃）
     for j, seg in enumerate(reversed(segs), 1):
         a, b = seg.b, seg.a

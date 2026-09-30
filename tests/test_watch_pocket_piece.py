@@ -84,12 +84,18 @@ def _to_local(p: Point, ctx) -> Point:
 
 @pytest.fixture()
 def ctx_facing():
-    """模式 A：袋贴相交延伸（袋贴 tangent 内边 + 袋口定宽 7.5 + 旋转 5°）。"""
+    """模式 A：袋贴相交延伸（袋贴 tangent 内边 + 袋口定宽 7.5 + 旋转 5°）。
+
+    有省 2.0：袋贴净线起草（P_fw 自 P1 量取）后腰端内边比旧 P1' 锚少省宽，
+    袋口内上角须相应内收（offset_from_side 3.5 -> 2.5，与 steps 测试夹具同值），
+    否则内上角越出袋贴、内侧射线失交。
+    """
     o = PatternOptions(
         delta=1.0, front_pocket=True, front_pocket_facing=True,
         front_pocket_dart_width=2.0,
         front_pocket_facing_mode="tangent", watch_pocket=True,
         watch_pocket_mode="facing_intersect", watch_pocket_width=7.5,
+        watch_pocket_offset_from_side=2.5,
         watch_pocket_taper=0.3, watch_pocket_rotate_deg=5.0)
     return FlowRunner(M, o).run(FRONT_FLOW)
 

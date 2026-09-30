@@ -177,6 +177,10 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
     无处展示，CLI 注入 stderr 计时打印）。模型调用是最长环节，发起前后
     各报一条。
 
+    waistband_crops：特征尺度辅助裁块总开关（2026-09-30，参数名沿用
+    首期）——True 时 S2 自动裁腰头区 + 后贴袋区放大辅助图附进同一次
+    VLM 调用（crops.py；失败静默降级）。False 全关，images 逐位旧行为。
+
     会话层注入缝（2026-09-21 智能体一期，converse.run_turn 专用；单发
     调用全部缺省，行为与历史逐位一致）：
     - seed_*：会话账本重放值（多轮累积、后答覆盖先答）。种子优先于本轮
@@ -294,8 +298,17 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
                     photos, photo_meta, tmp_crop.name)
             except Exception:              # 辅助图失败不拦主提取
                 crop_paths, crop_metas, crop_notes = [], [], []
+            try:                           # 后贴袋区照方抓药（2026-09-30）
+                from .crops import make_back_pocket_crops
+                bp_paths, bp_metas, bp_notes = make_back_pocket_crops(
+                    photos, photo_meta, tmp_crop.name)
+                crop_paths += bp_paths
+                crop_metas += bp_metas
+                crop_notes += bp_notes
+            except Exception:
+                pass
             if crop_paths:
-                p(f"腰头放大辅助图 {len(crop_paths)} 张已附（自动裁剪）")
+                p(f"放大辅助图 {len(crop_paths)} 张已附（自动裁剪）")
         if crop_paths:
             # meta 与 photos 按序对齐（build_prompt 照片清单按下标渲染）：
             # 原图缺 meta 的槽位补 None（渲染回退「其他：无说明」），尾部接辅助图

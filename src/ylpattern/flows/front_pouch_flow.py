@@ -2,25 +2,28 @@
 
 build_front_pouch(main_ctx) 从整版 ctx 提取已上版的大片（底层）+ 小片（面层）净样
 边界，以袋布内边（P_w0->K1 连线）为对称轴，将面层镜像生成面层、与大片（底层原样
-复制）拼合成一片式对折裁片。面层镜像后即沿袋口弧线挖削（小片上版时上沿已走袋口切削
-线：有省=切削线 C_cut / 无省=净线，镜像即得，免布尔运算）。缩水率默认 0（口袋布材质
+复制）拼合成一片式对折裁片。面层镜像后即沿袋口弧线挖削（小片上版时上沿已走袋口
+净线——口袋组件净线起草，镜像即得，免布尔运算）。缩水率默认 0（口袋布材质
 独立，§3 绝对隔离大身面料）。自含裁片，非 FlowRunner 编排（同 front_pocket_flow /
 yoke_flow 口径）。
 
+吃省两线制：前大片袋口边自 P1′ 走切削线 C_cut（带省量），袋布/袋贴组件自 P1 走
+净线 C；车缝对位 P1′↔P1，省量沿袋口弧线均匀吃进 = 袋口松量。袋布上沿（面层袋口
+边 + 腰弧边）均净线锚 P1，不含省口楔形；切削线 C_cut 属前片侧，不上袋布图。
+
 辅助线与刀口（§5）：底层（未挖削完整侧）上版前口袋弧线（设计净线）作画稿对位
-标记，有省时另上口袋省弧线（切削线 C_cut）；刀口只打在缝边（毛样）上（§5.1）--
-底层袋口弧线两端沿切线延长线越过净边入缝份、交毛样外沿（§5.2 完整边缘强制打口），
+标记（口袋侧缝合线 = 净线）；刀口只打在缝边（毛样）上（§5.1）--底层袋口弧线
+两端（P1/P2）沿切线延长线越过净边入缝份、交毛样外沿（§5.2 完整边缘强制打口），
 面层挖削侧免打口（§5.3，沿袋口翻折压线不依赖刀口对位）。
 
 闭合拓扑（单闭合轮廓，对折边 P_w0-K1 为内部折叠线不在周界上）：
   底层非折叠边 K1->…->P_s0->b->P_w0（大片原样复制，§2.1）
   ＋ 面层非折叠边反转 P_w0->P1″->P2′->P_s0′->…->K1（小片沿 P_w0-K1 镜像后反转，§2.2）
-其中 P1″/P2′/P_s0′/K2′… 为 P1′(或 P1)/P2/P_s0/K2… 关于 P_w0-K1 的镜像点。
+其中 P1″/P2′/P_s0′/K2′… 为 P1/P2/P_s0/K2… 关于 P_w0-K1 的镜像点。
 
-省道闭合：小片袋口切削线终于省顶 P1′，而小片腰弧边起于 P1（front_pouch_steps 现
-口径），二者间为张开的省口 P1′->P1。面层为「折叠省道后的真实拼合」（§2.2 有省沿
-C_cut 挖削），故面层腰弧边须取 P1′->P_w0（省顶至 P_w0）以闭合省口--本流程用腰弧
-弧长精确细分重建该子段，不复用小片 P1->P_w0 腰弧边。
+面层腰弧边 P1->P_w0 由本流程沿腰弧弧长精确细分重建（t_at_length，与袋口净线
+端点 P1 严合同口径），不复用小片上版的 P1->P_w0 腰弧子段（t_at_length 与
+bezier_subrange 路径不同，避免浮点路径差）。
 """
 
 from __future__ import annotations
@@ -117,20 +120,18 @@ def _vertical_grain(net_edges: tuple[PieceEdge, ...]) -> LineSegment:
 
 # ---------- 袋口弧线收集与刀口投影（§5；同 front_pocket_flow 私有策略口径）----------
 
-def _collect_mouth_chain(ctx: DraftContext, *, cut: bool
-                         ) -> list[LineSegment | CubicBezier]:
-    """袋口弧线链（主版坐标）：cut=True 取切削线 C_cut（口袋省弧线，P1′->P2）、
-    False 取设计净线（前口袋弧线，P1->P2）。bezier 模式单曲线
-    front.pocket_mouth[_baseline]、polyline 模式折角链 …_segN。"""
-    single, prefix = (("front.pocket_mouth", "front.pocket_mouth_seg") if cut
-                      else ("front.pocket_mouth_baseline",
-                            "front.pocket_mouth_baseline_seg"))
+def _collect_mouth_chain(ctx: DraftContext) -> list[LineSegment | CubicBezier]:
+    """袋口净线链（主版坐标）：设计净线（前口袋弧线，P1->P2）——口袋组件
+    净线起草，口袋侧缝合线即净线；切削线 C_cut 属前片侧不上袋布图。
+    bezier 模式单曲线 front.pocket_mouth_baseline、polyline 模式折角链
+    …_baseline_segN。"""
+    single = "front.pocket_mouth_baseline"
     if single in ctx.sheet:
         return [ctx.curve(single)]
     chain: list[LineSegment | CubicBezier] = []
     i = 1
-    while f"{prefix}{i}" in ctx.sheet:
-        chain.append(ctx.line(f"{prefix}{i}"))
+    while f"front.pocket_mouth_baseline_seg{i}" in ctx.sheet:
+        chain.append(ctx.line(f"front.pocket_mouth_baseline_seg{i}"))
         i += 1
     return chain
 
@@ -206,18 +207,20 @@ def _collect_small_edges(ctx: DraftContext
 
 
 def _build_top_waist(ctx: DraftContext) -> CubicBezier:
-    """面层腰弧边 P1′->P_w0（§2.2 折叠省道后的真实拼合，闭合省口 P1′->P1）。
+    """面层腰弧边 P1->P_w0（§2.2 净线起草：与袋口净线端点 P1 严合）。
 
-    沿有效腰弧 w_arc 按弧长精确细分：P1′ 在弧长 P1 距离 + 吃省宽、P_w0 在 P1 距离 +
-    安全内延。无省时吃省宽=0，P1′=P1，与小片腰弧边一致。用 t_at_length（非 t_at_y，
-    腰弧近水平 t_at_y 无法区分 P1/P1′）与 draw_front_pocket 的 P1′=point_at_length 口径
-    一致，确保与袋口切削线终端 P1′ 严合。
+    沿有效腰弧 w_arc 按弧长精确细分：P1 在弧长 p1_dist（净线锚，与省宽无关）、
+    P_w0 在 P1 距离 + 安全内延。用 t_at_length（非 t_at_y，腰弧近水平
+    t_at_y 区分不了相近弧长点）与 draw_front_pocket 的 P1=point_at_length
+    (p1_dist) 口径一致，确保与袋口净线终端 P1 严合。吃省两线制：口袋组件
+    净线锚 P1，前片 P1′ 缝时对齐 P1 吃省（省量沿弧吃进 = 袋口松量），
+    面层不含省口楔形。
     """
     o = ctx.options
     _, w_arc, _ = effective_waist(ctx)
-    s_p1p = o.front_pocket_p1_dist + o.front_pocket_dart_width   # P1′ 弧长
+    s_p1 = o.front_pocket_p1_dist                          # P1 弧长（净线锚）
     s_w0 = o.front_pocket_p1_dist + o.front_pouch_waist_safe     # P_w0 弧长
-    return curves.bezier_subrange(w_arc, w_arc.t_at_length(s_p1p),
+    return curves.bezier_subrange(w_arc, w_arc.t_at_length(s_p1),
                                   w_arc.t_at_length(s_w0))
 
 
@@ -227,12 +230,13 @@ def build_front_pouch(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContex
     """整版跑完后构建前口袋袋布独立裁片：净样 -> 缩水 -> 缝边（口袋布裁片.md §2~§6）。
 
     一片式对折：底层=大片原样复制，面层=小片沿内边 P_w0-K1 镜像（小片已挖袋口），
-    两者以对折边 P_w0-K1 为内部折叠线拼合成单闭合轮廓。袋口挖削弧线有省取切削线
-    C_cut、无省取净线（小片上版已定，镜像即得）；面层腰弧边取 P1′->P_w0 闭合省口。
-    辅助线：底层上前口袋弧线（净线）恒上版、有省另上省弧线（C_cut，§5 画稿对位）；
-    刀口：底层完整侧弧线端点沿切线延长线投至缝边（§5.1/§5.2），挖削侧免打口（§5.3）。
-    缩水默认 0（§3 口袋布材质独立）。返回 (PatternPiece, 局部 DraftContext)：前者供
-    SVG 输出，后者含命名元素供调试。需完整整版（提取已上版的大片/小片净样边界）。
+    两者以对折边 P_w0-K1 为内部折叠线拼合成单闭合轮廓。袋口挖削弧线一律净线
+    （口袋组件净线起草，小片上版已定，镜像即得）；面层腰弧边取 P1->P_w0 与净线
+    端点严合。辅助线：底层上前口袋弧线（净线）恒上版（口袋侧缝合线 = 净线，
+    §5 画稿对位）；刀口：底层完整侧弧线端点沿切线延长线投至缝边（§5.1/§5.2），
+    挖削侧免打口（§5.3）。缩水默认 0（§3 口袋布材质独立）。返回
+    (PatternPiece, 局部 DraftContext)：前者供 SVG 输出，后者含命名元素供调试。
+    需完整整版（提取已上版的大片/小片净样边界）。
     """
     o = main_ctx.options
     if not o.front_pouch:
@@ -247,7 +251,7 @@ def build_front_pouch(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContex
     # 底层 = 大片原样复制（K1->P_w0）；面层 = 小片（K1->P_w0，已挖袋口）+ 重建腰弧边
     large_edges = _collect_large_edges(main_ctx)
     small_edges = _collect_small_edges(main_ctx)
-    small_edges.append(("waist", _build_top_waist(main_ctx)))    # P1′->P_w0 闭合省口
+    small_edges.append(("waist", _build_top_waist(main_ctx)))    # P1->P_w0 净线锚
 
     # 面层沿 P_w0-K1 镜像 -> 整表反转成 P_w0->K1，命名加 _m 后缀
     # （折叠点 P_w0、K1 处异名边 waist/waist_m、bottom_m/bottom 强制 miter，避免同名录边
@@ -268,32 +272,26 @@ def build_front_pouch(main_ctx: DraftContext) -> tuple[PatternPiece, DraftContex
     net_edges = tuple(PieceEdge(n, g) for n, g in local_named)
 
     # 袋口弧线（主版坐标，§5 画稿对位/刀口基准）：前口袋弧线（设计净线 P1->P2）
-    # 恒取；有省另取口袋省弧线（切削线 C_cut P1′->P2，无省时与净线重合免重复）
-    has_dart = o.front_pocket_dart_width > 0
-    arc_net = _collect_mouth_chain(main_ctx, cut=False)
-    arc_cut = _collect_mouth_chain(main_ctx, cut=True) if has_dart else []
+    # ——口袋组件净线起草，口袋侧缝合线即净线；切削线 C_cut 属前片侧不上袋布图
+    arc_net = _collect_mouth_chain(main_ctx)
 
-    # 刀口源（§5.1/§5.2）：底层未挖削完整侧，袋口弧线端点沿切线延长方向越过净边
+    # 刀口源（§5.1/§5.2）：底层未挖削完整侧，袋口净线端点沿切线延长方向越过净边
     # 入缝份（首端取链首切线反向、末端取链末切线正向，同袋贴 _mouth_extension_dirs
-    # 口径）；面层挖削侧免打口（§5.3）。sa 量仅作射线无命中的回退步长。
+    # 口径）——P1/P2 与前大片刀口 P1′/P2 跨片成对（缝时 P1′↔P1 对齐吃省）；
+    # 面层挖削侧免打口（§5.3）。sa 量仅作射线无命中的回退步长。
     sa_obj = o.front_pouch_seam_allowances
     notch_src: list[tuple[Point, Vector, float]] = [
         (main_ctx.point("front.pocket_p1"),                    # 腰头端 -> 腰缝边
          _geom_tangent(arc_net[0], False).scale(-1.0), sa_obj.waist),
-    ]
-    if has_dart:
-        notch_src.append(
-            (main_ctx.point("front.pocket_p1_transfer"),       # 省顶端 -> 腰缝边
-             _geom_tangent(arc_cut[0], False).scale(-1.0), sa_obj.waist))
-    notch_src.append(
         (main_ctx.point("front.pocket_p2"),                    # 侧缝端 -> 侧缝边
-         _geom_tangent(arc_net[-1], True), sa_obj.side))
+         _geom_tangent(arc_net[-1], True), sa_obj.side),
+    ]
     notches = tuple(_to_local_point(p, origin) for p, _, _ in notch_src)
 
-    # 标记：折叠线 P_w0->K1 + 袋口弧线辅助线（前口袋弧线恒有、省弧线有省才有，
-    # 净样坐标，不随边界反转；SVG markline / DXF 层 8 内部画线）
+    # 标记：折叠线 P_w0->K1 + 袋口净线辅助线（净样坐标，不随边界反转；
+    # SVG markline / DXF 层 8 内部画线）
     marks = ((_to_local_geom(LineSegment(p_w0, k1), origin),)
-             + tuple(_to_local_geom(g, origin) for g in arc_net + arc_cut))
+             + tuple(_to_local_geom(g, origin) for g in arc_net))
 
     # 丝缕（§6）：竖向=经（继承大片裤中线方向）
     grain = _vertical_grain(net_edges)

@@ -113,7 +113,8 @@ def test_criteria_synchronized_with_manual():
         pytest.skip("手册未建")
     manual = _MANUAL.read_text(encoding="utf-8")
     _, _, _, prompt = _fixture()
-    sentinels = ["等宽直条", "下凹弧线", "弯月弧线", "底中点尖出", "J 形",
+    sentinels = ["等宽直条", "下凹弧线", "弯月弧线", "底中点尖出",
+                 "钝角浅尖也算尖", "J 形",
                  "一体裁出", "横向分割线", "第五袋", "卡胯骨", "紧身包腿",
                  "只分档不报数"]
     for s in sentinels:
@@ -202,6 +203,17 @@ def test_prompt_waistband_must_look():
     assert "腰头形态是必看项" in prompt
     assert "一看门襟顶" in prompt and "二看后中" in prompt
     assert "工程自动辅助图" in prompt          # 有辅助图时的读法指引
+
+
+def test_prompt_back_patch_must_look():
+    """必看项点名 back_patch_shape（2026-09-30）：口诀 + 辅助图读法指引。"""
+    measurements = {"waist": 74.0, "hip": 91.0}
+    prompt = build_prompt("女款牛仔裤", measurements,
+                          prejudge_axes(measurements, {}, None),
+                          prior_switches(), 1)
+    assert "后贴袋形状是必看项" in prompt
+    assert "夹角大小不管" in prompt             # 钝角浅尖也算尖的口径进 prompt
+    assert "后贴袋区放大图" in prompt           # 有辅助图时的读法指引
 
 
 def test_prompt_photo_list_renders_crop_entries():

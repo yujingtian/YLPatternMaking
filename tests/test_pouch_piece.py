@@ -208,29 +208,29 @@ def test_waist_symmetry(ctx_dart):
             f"镜像面层腰弧点 {pm} 不在底层腰弧上"
 
 
-# ---------- 袋口挖削：面层袋口 = 袋口弧线（有省 C_cut / 无省净线）的镜像 ----------
+# ---------- 袋口挖削：面层袋口 = 袋口净线的镜像（口袋组件净线起草） ----------
 
-def test_mouth_is_mirrored_cut_line(ctx_dart):
-    """有省：面层袋口边 = 镜像(切削线 C_cut = front.pocket_mouth)。"""
+def test_mouth_is_mirrored_net_line(ctx_dart):
+    """有省：面层袋口边 = 镜像(袋口净线 = front.pocket_mouth_baseline)——
+    口袋组件净线起草，切削线 C_cut（带省量）属前片侧不上袋布图。"""
     ctx = ctx_dart
     piece, _ = build_front_pouch(ctx)
     p_w0, k1 = ctx.point("front.pouch_waist_anchor"), ctx.point("front.pouch_node1")
-    mouth_main = ctx.curve("front.pocket_mouth")          # C_cut（P1′->P2）
-    # 主版袋口点 -> 镜像（P_w0-K1）-> 局部（与面层 mouth 边同坐标系比对）
-    mouth_pts_main = _sample(mouth_main)
+    baseline = ctx.curve("front.pocket_mouth_baseline")   # 净线（P1->P2）
+    baseline_pts = _sample(baseline)
     mirrored_local_pts = [_to_local(_reflect_point(p, p_w0, k1), p_w0)
-                          for p in mouth_pts_main]
+                          for p in baseline_pts]
     top_mouth_pts = [p for g in _edges_by_name(piece)["mouth"] for p in _sample(g)]
     for pm in mirrored_local_pts:
         assert min(pm.distance_to(pt) for pt in top_mouth_pts) < 1e-3, \
             f"镜像袋口点 {pm} 不在面层袋口边上"
     for pt in top_mouth_pts:
         assert min(pt.distance_to(pm) for pm in mirrored_local_pts) < 1e-3, \
-            f"面层袋口点 {pt} 不在镜像切削线上"
+            f"面层袋口点 {pt} 不在镜像净线上"
 
 
 def test_mouth_is_mirrored_baseline(ctx_nodart):
-    """无省：面层袋口边 = 镜像(袋口净线 = front.pocket_mouth_baseline)。"""
+    """无省：面层袋口边同 = 镜像(袋口净线)——净线锚统一，与省宽无关。"""
     ctx = ctx_nodart
     piece, _ = build_front_pouch(ctx)
     p_w0, k1 = ctx.point("front.pouch_waist_anchor"), ctx.point("front.pouch_node1")
@@ -247,13 +247,14 @@ def test_mouth_is_mirrored_baseline(ctx_nodart):
     assert ctx.curve("front.pocket_mouth").p0.distance_to(baseline.p0) < 1e-9
 
 
-def test_mouth_closes_dart(ctx_dart):
-    """面层腰弧边起于省顶 P1′（镜像 P1″），与袋口切削线终端严合，省口闭合（§2.2）。"""
+def test_mouth_closes_at_p1(ctx_dart):
+    """面层腰弧边起于净线锚 P1 的镜像 P1″，与袋口净线终端严合（§2.2 净线锚
+    闭合——吃省两线制：省口楔形在前片侧，袋布不含省口）。"""
     ctx = ctx_dart
     piece, _ = build_front_pouch(ctx)
     p_w0, k1 = ctx.point("front.pouch_waist_anchor"), ctx.point("front.pouch_node1")
     p1m_local = _to_local(_reflect_point(
-        ctx.point("front.pocket_p1_transfer"), p_w0, k1), p_w0)
+        ctx.point("front.pocket_p1"), p_w0, k1), p_w0)
     mouth_pts = [p for g in _edges_by_name(piece)["mouth"] for p in _sample(g)]
     waist_m_pts = [p for g in _edges_by_name(piece)["waist_m"] for p in _sample(g)]
     assert min(p1m_local.distance_to(p) for p in mouth_pts) < 1e-3
@@ -283,16 +284,16 @@ def _marks_pts(piece):
 
 
 def test_marks_pocket_arcs(ctx_dart):
-    """有省：marks = 折叠线 + 前口袋弧线（净线）+ 口袋省弧线（切削线），局部坐标。"""
+    """有省：marks = 折叠线 + 前口袋弧线（净线）——口袋组件净线起草，切削线
+    （带省量）属前片侧不上袋布图，局部坐标。"""
     ctx = ctx_dart
     piece, _ = build_front_pouch(ctx)
     p_w0 = ctx.point("front.pouch_waist_anchor")
     mpts = _marks_pts(piece)
-    for name in ("front.pocket_mouth_baseline", "front.pocket_mouth"):
-        for p in _sample(ctx.curve(name)):
-            lp = _to_local(p, p_w0)
-            assert min(lp.distance_to(q) for q in mpts) < 1e-3, \
-                f"{name} 点 {lp} 不在 marks 上"
+    for p in _sample(ctx.curve("front.pocket_mouth_baseline")):
+        lp = _to_local(p, p_w0)
+        assert min(lp.distance_to(q) for q in mpts) < 1e-3, \
+            f"净线点 {lp} 不在 marks 上"
     # 折叠线标记保留：两端 (0,0) 与 local_K1
     k1_local = _to_local(ctx.point("front.pouch_node1"), p_w0)
     assert any(q.distance_to(Point(0.0, 0.0)) < 1e-6 for q in mpts)
@@ -350,19 +351,19 @@ def _point_to_poly_dist(p: Point, poly) -> float:
 
 
 def test_notches_dart(ctx_dart):
-    """有省：净刀口 = P1/P1′/P2（底层端点；挖削侧免打口 §5.3，无镜像点）；
-    毛样刀口全部落在缝边（毛样折线）上且离净样线约一个缝份（§5.1）。"""
+    """有省：净刀口 = P1/P2（底层袋口净线端点，与前大片 P1′/P2 跨片成对；
+    挖削侧免打口 §5.3，无镜像点）；毛样刀口全部落在缝边（毛样折线）上
+    且离净样线约一个缝份（§5.1）。"""
     ctx = ctx_dart
     piece, _ = build_front_pouch(ctx)
     p_w0 = ctx.point("front.pouch_waist_anchor")
     expected = [_to_local(ctx.point(n), p_w0) for n in
-                ("front.pocket_p1", "front.pocket_p1_transfer",
-                 "front.pocket_p2")]
-    assert len(piece.notches) == 3
+                ("front.pocket_p1", "front.pocket_p2")]
+    assert len(piece.notches) == 2
     for exp in expected:
         assert any(np.distance_to(exp) < 1e-6 for np in piece.notches), \
             f"缺少净刀口 {exp}"
-    assert len(piece.gross_notches) == 3
+    assert len(piece.gross_notches) == 2
     net_pts = [p for e in piece.net_edges for p in _sample(e.geom)]
     for q in piece.gross_notches:
         assert _point_to_poly_dist(q, piece.gross_polygon) < 1e-6, \
