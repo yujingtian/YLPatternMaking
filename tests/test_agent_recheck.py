@@ -330,3 +330,51 @@ def test_fulfill_without_directive_falls_back_to_normal():
     assert out2.delivery is not None
     assert out2.delivery["measurements"]["waist"] == 75.0
     assert out2.session.events[-2].role == "user"    # user 事件照常 append
+
+
+# -- 聚焦复查辅助图（2026-09-30 后贴袋裁块 + 临时目录时机回归） --------------------
+
+def test_focus_recheck_back_pocket_crop_attached_and_alive(tmp_path):
+    """后贴袋组聚焦复查附袋区放大辅助图，且临时图在 complete 调用瞬间
+    仍在盘上（首版 with 块在调用前就清理、辅助图从未真正送达的回归钉；
+    provider 读盘即 FileNotFoundError，还会漏出 except (ValueError,
+    RuntimeError) 之外）。调用后临时文件清理、不落残留。"""
+    import os
+
+    from agent.extract.recheck import focus_recheck
+
+    p_back = tmp_path / "back.png"
+    try:
+        from PIL import Image
+        Image.new("RGB", (800, 1600), (240, 240, 240)).save(p_back, "PNG")
+    except ImportError:                              # 无 Pillow 环境跳过
+        p_back.write_bytes(b"\xff\xd8notreally")     # 降级：无辅助图也回归时机
+
+    class _RecordingVLM(FakeVLM):
+        """记录 complete 调用瞬间各图是否在盘上。"""
+
+        def __init__(self, responses):
+            super().__init__(responses)
+            self.alive_at_call = None
+
+        def complete(self, prompt, images=(), thinking=None):
+            self.alive_at_call = [os.path.exists(ip) for ip in images]
+            self.calls.append({"prompt": prompt, "images": list(images),
+                               "thinking": thinking})
+            return self._responses.pop(0)
+
+    prior = Observation(entries={
+        "back_patch_shape": ObservationEntry("rectangle", 0.8, "底边平直")})
+    vlm = _RecordingVLM(["{"])                       # 非 JSON：走降级分支即可
+    obs, diff, note = focus_recheck(
+        "后贴袋", "后贴袋你再仔细看看", [str(p_back)], prior, vlm,
+        photo_meta=[{"category": "back", "note": ""}])
+    assert obs is None and note == "视觉模型调用失败，保持原判断"
+    imgs = vlm.calls[0]["images"]
+    if len(imgs) == 2:                               # Pillow 在场：附了袋区裁块
+        aux = imgs[1]
+        assert "bp_crop_back" in aux
+        assert vlm.alive_at_call == [True, True]     # 调用瞬间都在盘上
+        assert not os.path.exists(aux)               # 调用后清理、不残留
+    else:                                            # 裁剪降级：至少原图在
+        assert imgs == [str(p_back)] and vlm.alive_at_call == [True]

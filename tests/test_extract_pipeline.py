@@ -152,19 +152,39 @@ def test_s2_waistband_crops_attached(monkeypatch):
 
 
 def test_s2_waistband_crops_off_switch(monkeypatch):
-    """waistband_crops=False 一参回退：不触发裁剪、images 逐位旧行为。"""
+    """waistband_crops=False 一参回退：不触发任何裁剪、images 逐位旧行为。"""
     import agent.extract.crops as crops_mod
 
     def _boom(*a):
         raise AssertionError("waistband_crops=False 不得触发裁剪")
 
     monkeypatch.setattr(crops_mod, "make_waistband_crops", _boom)
+    monkeypatch.setattr(crops_mod, "make_back_pocket_crops", _boom)
     vlm = FakeVLM([_S2_REPLY])
     result = extract_from_input(describe=_DESC, photos=("f.jpg", "b.jpg"),
                                 provider=vlm, run_probe=False,
                                 waistband_crops=False)
     assert len(vlm.calls[0]["images"]) == 2
     assert result.crop_notes == []
+
+
+def test_s2_back_pocket_crop_attached(monkeypatch):
+    """后贴袋辅助图并入 S2 images、照片清单与 crop_notes（2026-09-30）。"""
+    import agent.extract.crops as crops_mod
+    monkeypatch.setattr(crops_mod, "make_waistband_crops",
+                        lambda photos, meta, out_dir: ([], [], []))
+    monkeypatch.setattr(
+        crops_mod, "make_back_pocket_crops",
+        lambda photos, meta, out_dir:
+            (["bp1.jpg"], [{"category": "other", "note": "后袋辅助"}],
+             ["后贴袋放大辅助图 1 张已附（背面照自动裁剪）"]))
+    vlm = FakeVLM([_S2_REPLY])
+    result = extract_from_input(
+        describe=_DESC, photos=("b.jpg",), provider=vlm, run_probe=False,
+        photo_meta=[{"category": "back"}])
+    assert len(vlm.calls[0]["images"]) == 2          # 原图 1 + 辅助图 1
+    assert "后袋辅助" in vlm.calls[0]["prompt"]       # 照片清单渲染辅助图行
+    assert result.crop_notes == ["后贴袋放大辅助图 1 张已附（背面照自动裁剪）"]
 
 
 def test_s2_crops_failure_degrades(monkeypatch):

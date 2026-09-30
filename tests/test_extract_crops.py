@@ -13,7 +13,7 @@ import pytest
 pytest.importorskip("PIL")
 
 from agent.extract import crops as crops_mod
-from agent.extract.crops import make_waistband_crops
+from agent.extract.crops import make_back_pocket_crops, make_waistband_crops
 
 
 def _make_photo(path, w=800, h=1600):
@@ -83,3 +83,44 @@ def test_exif_orientation_respected(tmp_path):
     # 转正后 800x1600：裁剪框 (48,0,752,672) ×2；未转正则会是 (96,0,1504,336)×2
     w, h = Image.open(paths[0]).size
     assert (w, h) == (1408, 1344)
+
+
+# -- 后贴袋裁块（2026-09-30 扩展；同 make_waistband_crops 机制） ------------------
+
+def test_back_pocket_crop_from_marked_back(tmp_path):
+    """meta 明示 back：从背面照裁后贴袋区一张；尺寸=口袋框×2 放大。"""
+    p1 = _make_photo(tmp_path / "a.jpg")
+    p2 = _make_photo(tmp_path / "b.jpg")
+    paths, metas, notes = make_back_pocket_crops(
+        [p1, p2], [{"category": "front"}, {"category": "back"}], str(tmp_path))
+    assert len(paths) == len(metas) == 1
+    assert "后贴袋区放大" in metas[0]["note"] and metas[0]["category"] == "other"
+    assert notes and "1 张" in notes[0]
+    # 裁剪框 x∈[5%,95%] y∈[24%,64%]，×2 放大（口径同 _crop_one）
+    from PIL import Image
+    w, h = Image.open(paths[0]).size
+    assert w == (int(800 * 0.95) - int(800 * 0.05)) * 2
+    assert h == (int(1600 * 0.64) - int(1600 * 0.24)) * 2
+
+
+def test_back_pocket_single_photo_no_meta_crops(tmp_path):
+    """无 meta 单照：裁一张（分面交给模型按画面自辨）。"""
+    p1 = _make_photo(tmp_path / "a.jpg")
+    paths, metas, _ = make_back_pocket_crops([p1], None, str(tmp_path))
+    assert len(paths) == 1 and "后贴袋" in metas[0]["note"]
+
+
+def test_back_pocket_no_guess_multi_unmarked(tmp_path):
+    """多照无 meta：不猜面，零辅助图（后贴袋裁错面=主动错误证据）。"""
+    p1 = _make_photo(tmp_path / "a.jpg")
+    p2 = _make_photo(tmp_path / "b.jpg")
+    assert make_back_pocket_crops([p1, p2], None, str(tmp_path)) == ([], [], [])
+
+
+def test_back_pocket_garbage_degrades_silently(tmp_path):
+    """损坏文件：不抛、零辅助图（零打扰）。"""
+    bad = tmp_path / "bad.jpg"
+    bad.write_bytes(b"\xff\xd8notreally")
+    paths, metas, notes = make_back_pocket_crops(
+        [str(bad)], [{"category": "back"}], str(tmp_path))
+    assert paths == [] and metas == [] and notes == []

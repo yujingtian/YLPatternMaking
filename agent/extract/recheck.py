@@ -201,8 +201,10 @@ def focus_recheck(group: str, text: str, photos, prior: Observation | None,
 
     provider 缺 / 无照片 / 调用失败 / 解析失败 -> (None, [], 原因一句话)，
     调用方（converse）零打扰降级。obs 只保留 focus 键（防模型多嘴改别组）。
-    腰头组附裁剪放大辅助图（2026-09-30 特征尺度修复——整照里腰头低于
-    模型可分辨阈值，复查「维持原判断」同陷阱；失败静默降级整照）。
+    腰头/后贴袋组附裁剪放大辅助图（2026-09-30 特征尺度修复——整照里
+    特征区低于模型可分辨阈值，复查「维持原判断」同陷阱；失败静默降级
+    整照）。临时目录必须在 complete 之后才清理（首版用 with 块在调用前
+    就删了图，辅助图从未真正送达——provider 读盘即 FileNotFoundError）。
     """
     keys = focus_keys(group)
     if provider is None:
@@ -211,15 +213,23 @@ def focus_recheck(group: str, text: str, photos, prior: Observation | None,
     if not photos:
         return None, [], "该部位没有可用类别的照片"
     crop_paths: list = []
-    if group == "腰头":
+    tmp_crop = None
+    if group in ("腰头", "后贴袋"):
         import tempfile
         try:
-            from .crops import make_waistband_crops
-            with tempfile.TemporaryDirectory(prefix="yl_wb_crops_") as td:
+            from .crops import make_back_pocket_crops, make_waistband_crops
+            tmp_crop = tempfile.TemporaryDirectory(prefix="yl_focus_crops_")
+            if group == "腰头":
                 crop_paths, _m, _n = make_waistband_crops(
-                    photos, photo_meta, td)
+                    photos, photo_meta, tmp_crop.name)
+            else:
+                crop_paths, _m, _n = make_back_pocket_crops(
+                    photos, photo_meta, tmp_crop.name)
         except Exception:
             crop_paths = []
+            if tmp_crop is not None:
+                tmp_crop.cleanup()
+                tmp_crop = None
     prompt = build_focus_prompt(group, keys,
                                 prior.entries if prior else None, text)
     try:
@@ -229,6 +239,9 @@ def focus_recheck(group: str, text: str, photos, prior: Observation | None,
     except (ValueError, RuntimeError):
         # VLMError 也是 RuntimeError：复查失败不阻断主流程
         return None, [], "视觉模型调用失败，保持原判断"
+    finally:
+        if tmp_crop is not None:
+            tmp_crop.cleanup()
     entries = {k: v for k, v in obs.entries.items() if k in keys}
     if not entries:
         return None, [], "模型输出无可采纳的本组判断，保持原判断"
