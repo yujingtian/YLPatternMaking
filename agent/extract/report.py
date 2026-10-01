@@ -62,7 +62,8 @@ def render_extract_report(*, describe: str, photo_count: int, model: str,
     out += ["## 二、款式判定轨迹（预判 vs 照片/描述）", ""]
     out += _key_table([("轴 " + k, m) for k, m in merged.axes.items()]
                       + [("开关 " + k, m) for k, m in merged.switches.items()]
-                      + [("枚举 " + k, m) for k, m in merged.enums.items()])
+                      + [("枚举 " + k, m) for k, m in merged.enums.items()]
+                      + [("比例 " + k, m) for k, m in merged.ratios.items()])
 
     out += ["", "## 三、尺寸（描述摘录，非模型产出）", ""]
     out += ["| 键 | 值 cm | 摘录 |", "|---|---|---|"]

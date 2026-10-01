@@ -18,6 +18,8 @@ S2 响应解析（实施顺序 ④）：
   配平扫描三级容错，失败 raise ValueError（带原文尾部预览）。
 - sanitize(raw) -> Observation：白名单（schema.MODEL_KEYS）过滤 + 枚举大小写
   归一 + 布尔多形态归一 + confidence 夹取 [0,1]；丢弃键进 dropped 供报告披露。
+- 比例键（K5-d）：值域为浮点窗（parse 窗）——null=未观测静默跳过、非数/
+  出窗丢弃（物理窗在 derive 钳制，此处只拦幻觉极端值）。
 """
 
 from __future__ import annotations
@@ -297,7 +299,7 @@ def _to_bool(value) -> bool | None:
 
 def sanitize(raw) -> Observation:
     """白名单过滤 + 值域/布尔归一 + confidence 夹取；未知键/值收集进 dropped。"""
-    from .schema import MODEL_KEYS   # 局部 import 避免模块级环（schema 不依赖 parse）
+    from .schema import MODEL_KEYS, RATIO_KEYS   # 局部 import 避免模块级环
 
     obs = Observation()
     if not isinstance(raw, dict):
@@ -319,6 +321,20 @@ def sanitize(raw) -> Observation:
         if domain == _BOOL:
             normalized = _to_bool(value)
             if normalized is None:
+                obs.dropped.append(f"{key}={value!r}")
+                continue
+        elif key in RATIO_KEYS:
+            # K5-d 比例窗：null=未观测静默跳过（预填模板就是 null）；
+            # 非数/出窗丢弃（0.05 这类读数视为幻觉）
+            if value is None:
+                continue
+            try:
+                normalized = float(value)
+            except (TypeError, ValueError):
+                obs.dropped.append(f"{key}={value!r}")
+                continue
+            lo, hi = domain
+            if not lo <= normalized <= hi:
                 obs.dropped.append(f"{key}={value!r}")
                 continue
         else:

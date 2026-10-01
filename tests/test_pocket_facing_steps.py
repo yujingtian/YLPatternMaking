@@ -293,3 +293,85 @@ def test_facing_tangent_crossing_orthogonal_to_thigh():
     t_u = upper.tangent_at(upper.t_at_y(p_fs.y)).normalized()
     dot_side = t_inner_end.dx * t_u.dx + t_inner_end.dy * t_u.dy
     assert dot_side == pytest.approx(0.0, abs=1e-5)
+
+
+# -- 独立门襟共占腰弧守卫（2026-09-30 袋贴×门襟重合事故） ------------------------
+#
+# 手算（夹具 M W=70 直腰头，dw=2.0 吃省、w_waist=3.5、fly_width=4.0，
+# 腰弧总长 lw ≈ 19.52）：
+# - 主守卫触发：p1=12.5 → 既有守卫 s_fw=16.0 < 19.52 放行，
+#   12.5+max(3.5,2.0)+4.0 = 20.0 ≥ 19.52 → 抛错（消息嵌三键字面量）
+# - 默认 p1=8.5 → 8.5+3.5+4.0 = 16.0 < 19.52 通过
+# - 连裁门襟（fly_separate=False）凸向外侧不占腰弧，p1=12.5 同数值豁免
+# - 伴随守卫（facing 关、dw=0）：p1=16.5 < 19.52 过 P1 守卫、
+#   16.5+0+4.0 = 20.5 ≥ 19.52 触发（消息含 p1/fly_width 两键）
+
+
+def _fly_overlap_options(**kw) -> PatternOptions:
+    base = dict(
+        delta=1.0, front_pocket=True, front_pocket_facing=True,
+        front_pocket_facing_mode="tangent",
+        front_pocket_facing_width=3.5, front_pocket_facing_side_w=5.0,
+        front_pocket_p2_drop=7.0, front_pocket_dart_width=2.0,
+        front_pocket_facing_h1=5.0, front_pocket_facing_h2=4.0,
+        fly=True, fly_separate=True, fly_width=4.0)
+    base.update(kw)
+    return PatternOptions(**base)
+
+
+def test_fly_overlap_guard_fires_with_key_literals():
+    o = _fly_overlap_options(front_pocket_p1_dist=12.5)
+    with pytest.raises(ValueError) as ei:
+        FlowRunner(M, o).run(FRONT_FLOW)
+    msg = str(ei.value)
+    for key in ("front_pocket_p1_dist", "front_pocket_facing_width",
+                "fly_width"):
+        assert key in msg          # 探针 L1 按异常消息子串归因
+    assert "fly_separate" not in msg   # 防 L1 弹开关静默改构造
+    assert "连裁门襟" in msg
+
+
+def test_fly_overlap_guard_exempts_attached_fly():
+    # 连裁门襟：门襟与前片连体裁出、凸向外侧不占腰弧，同数值全流程通过
+    o = _fly_overlap_options(front_pocket_p1_dist=12.5, fly_separate=False)
+    FlowRunner(M, o).run(FRONT_FLOW)
+
+
+def test_fly_overlap_guard_default_p1_passes():
+    # 默认 p1=8.5：8.5+3.5+4.0 = 16.0 < 19.52，独立门襟不重合
+    FlowRunner(M, _fly_overlap_options()).run(FRONT_FLOW)
+
+
+def test_fly_overlap_guard_curved_waistband():
+    # 弯腰头两段式：先默认跑通取下腰头线弧长 lw，再 p1 = lw−3.5−4+0.2 触发
+    # （effective_waist 弯腰头取 front.lower_waistline_arc，守卫单点覆盖）
+    import dataclasses
+
+    base = PatternOptions(
+        delta=1.0, front_pocket=True, front_pocket_facing=True,
+        front_pocket_facing_mode="tangent",
+        front_pocket_facing_width=3.5, front_pocket_facing_side_w=5.0,
+        front_pocket_p2_drop=7.0, front_pocket_dart_width=2.0,
+        front_pocket_facing_h1=5.0, front_pocket_facing_h2=4.0,
+        fly=True, fly_separate=True, fly_width=4.0,
+        waistband_type=WaistbandType.CURVED)
+    ctx0 = FlowRunner(M, base).run(FRONT_FLOW)
+    lw = ctx0.curve("front.lower_waistline_arc").length()
+    o = dataclasses.replace(
+        base, front_pocket_p1_dist=round(lw - 3.5 - 4.0 + 0.2, 3))
+    with pytest.raises(ValueError, match="独立门襟"):
+        FlowRunner(M, o).run(FRONT_FLOW)
+
+
+def test_fly_overlap_companion_guard_without_facing():
+    # 伴随守卫（主切口步，facing 关、dw=0）：p1=16.5 < 19.52 过 P1 守卫、
+    # 16.5+0+4.0 = 20.5 ≥ 19.52 触发；消息含 p1/fly_width 两键
+    o = PatternOptions(
+        delta=1.0, front_pocket=True, front_pocket_dart_width=0.0,
+        front_pocket_p1_dist=16.5,
+        fly=True, fly_separate=True, fly_width=4.0)
+    with pytest.raises(ValueError) as ei:
+        FlowRunner(M, o).run(FRONT_FLOW)
+    msg = str(ei.value)
+    assert "front_pocket_p1_dist" in msg and "fly_width" in msg
+    assert "front_pocket_facing_width" not in msg   # 袋贴关闭不归因该键

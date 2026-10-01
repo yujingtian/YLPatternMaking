@@ -1,7 +1,8 @@
 """S2 白名单/枚举值域 + 视觉确认 prompt 构造（与款式判据手册同源）。
 
-模型直接经手的仅 23 键（5 分类轴 + 11 款式开关 + 7 形态枚举），其余全部代码
-产出（87 键覆盖面内的数值键走 derive/families 查表；模型不口算绝对 cm）。
+模型直接经手的仅 26 键（5 分类轴 + 10 款式开关 + 7 形态枚举 + 4 比例读图），
+其余全部代码产出（87 键覆盖面内的数值键走 derive/families 查表；模型不口算
+绝对 cm——比例键只报 0~1 小数，cm 换算在 derive）。
 
 - MODEL_KEYS：白名单与值域，与 PatternOptions 校验器同源（options.py：
   mouth_mode L679 bulge/tangent/polyline、facing_mode L708 tangent/offset/bulge、
@@ -47,6 +48,13 @@ MODEL_KEYS: dict[str, tuple | str] = {
     "front_pocket_mouth_depth": ("shallow", "standard", "deep"),
     "front_pocket_facing_mode": ("tangent", "offset", "bulge"),
     "watch_pocket_mode": ("custom", "facing_intersect"),
+    # 比例读图 4（K5-d，2026-09-30 起；10-01 扩 p2/小表袋宽）：值域 = 浮点
+    # 窗（parse 窗，出窗丢弃=未观测）；物理窗在 derive 钳制。模型只报 0~1
+    # 比例、绝不报 cm
+    "ratio_front_pocket_p1": (0.10, 0.90),
+    "ratio_front_pocket_p2": (0.10, 0.90),
+    "ratio_watch_pocket_width": (0.10, 0.90),
+    "ratio_back_patch_width": (0.10, 0.90),
 }
 
 AXIS_KEYS = ("waist_position", "gender", "body_shape", "fit_level", "stretch")
@@ -56,6 +64,12 @@ SWITCH_KEYS = ("front_pocket", "front_pocket_facing", "front_patch",
 ENUM_KEYS = ("waistband_type", "fit", "back_patch_shape", "front_pocket_mouth_mode",
              "front_pocket_mouth_depth", "front_pocket_facing_mode",
              "watch_pocket_mode")
+
+# 比例读图键（K5-d）：MODEL_KEYS 里 float 窗值域的键（parse 窗）；物理窗
+# （p1 [0.40,0.65] / p2 [0.20,0.40] / 小表袋宽 [0.22,0.40] / 贴袋宽
+# [0.55,0.80]）在 derive._adopted_ratio 钳制
+RATIO_KEYS = ("ratio_front_pocket_p1", "ratio_front_pocket_p2",
+              "ratio_watch_pocket_width", "ratio_back_patch_width")
 
 # 枚举键的引擎默认（无照片/无预判时的预填值，options.py 同源；mouth_depth
 # 伪轴默认 standard → families 弧深 0.4）
@@ -145,7 +159,8 @@ _PHOTO_FOCUS = {"front": "正面平铺：重点看前口袋形态与弧深、门
 def build_template(measurements: dict[str, float],
                    prejudged: dict[str, tuple[str, str]],
                    priors: dict[str, bool]) -> dict[str, dict]:
-    """构造预填模板：轴=预判（缺锚点惯例预填）、开关=先验、枚举=引擎默认。"""
+    """构造预填模板：轴=预判（缺锚点惯例预填）、开关=先验、枚举=引擎默认、
+    比例键=null 未观测（K5-d，模型看照片目测比例后填）。"""
     template: dict[str, dict] = {}
     for axis in AXIS_KEYS:
         if axis in prejudged:
@@ -171,6 +186,9 @@ def build_template(measurements: dict[str, float],
             continue
         template[key] = {"value": default, "confidence": 0.4,
                          "evidence": "引擎默认（照片可见形态差异时改值并写判据）"}
+    for key in RATIO_KEYS:   # K5-d 比例读图：null=未观测，模型看照片才填
+        template[key] = {"value": None, "confidence": 0.0,
+                         "evidence": "未观测（看不清保持 null；只报比例、绝不报 cm）"}
     return template
 
 
@@ -212,6 +230,18 @@ def build_prompt(describe: str, measurements: dict[str, float],
         "两条斜边交于底中一点=baker_shield 夹角大小不管、底中留水平段仅两角被斜切"
         "=angular、一条直线到底无尖无切=rectangle）。照片清单中有「工程自动辅助图」"
         "字样的后贴袋区放大图时，以它为准细读袋底轮廓再判。",
+        "- 比例读图是必看项（只报 0~1 的小数比例、绝不报 cm，代码会乘已知尺寸"
+        "换算；横向比例的分母一律用**单侧腰宽**=该侧侧缝腰点到前中门襟纽扣"
+        "中线（背面照则后中到侧缝腰点）的腰头可见长度，约为整条腰头全宽的"
+        "一半，勿用全宽）：① ratio_front_pocket_p1——正面照前口袋袋口上端"
+        "（靠侧缝一端）到侧缝腰点的距离 ÷ 该侧单侧前腰宽，"
+        "目测约几成（例 0.55）；② ratio_back_patch_width——背面照单只后贴袋"
+        "袋口宽 ÷ 贴袋所在那一侧的单侧后腰宽；③ ratio_front_pocket_p2——"
+        "正面照前口袋袋口下端（靠侧缝一端）到腰头下缘（腰头与裤身交界的"
+        "缝线）的竖直距离 ÷ 腰头下缘到裆底（两腿分叉处）的竖直距离"
+        "（例 0.30）；④ ratio_watch_pocket_width——正面照小表袋（前口袋"
+        "袋口内的小袋）袋口宽 ÷ 该侧单侧前腰宽。evidence 写「约 55%」式"
+        "目测读数；看不清/被遮挡/照片没拍到就保持 null 不填。",
         "- 看不清 / 被遮挡 / 照片没拍到：保持预判值不动，confidence 下调。",
         "- 尺寸数值（cm）不在你的职责内，不要改任何数字、不要新增尺寸。",
         "- 只输出一个 JSON 对象（可包 json 代码围栏），不要输出其它文字。",

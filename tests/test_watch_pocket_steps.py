@@ -311,3 +311,32 @@ def test_watch_pocket_options_validation():
         PatternOptions(watch_pocket=True, watch_pocket_points=[(0, 0), (1, 0), (0, 1)],
                        watch_pocket_edges=[("line",), ("bezier", 30, 0.5, -30, 1.5),
                                            ("line",)])
+
+
+# ==============================================================================
+# K5 小码射线相交回归（extract p1=7.1 全套，2026-09-30 袋贴×门襟重合修复）
+# ==============================================================================
+
+def test_watch_pocket_small_size_extract_p1():
+    """W=66 小码 + extract K5 产物整链通过：p1 被 K5-b 腰弧预算 clamp 至
+    7.1（弦 15.65 − 4 − 3.5 − 1 = 7.15 floor 0.1），s_fw = 7.1+3.5 = 10.6
+    落历史灰色带（8~12，12.0 有炸点实证）——此回归钉住 facing_intersect
+    射线相交在该配置下不空（预案 B 才需要联动减 offset_from_side）。"""
+    m = Measurements(waist=66, hip=92, knee=44, hem=36,
+                     front_rise=25, back_rise=33, outseam=102, thigh=58)
+    o = PatternOptions(
+        delta=1.85, waist_balance=1.85,
+        front_pocket=True, front_pocket_p1_dist=7.1, front_pocket_p2_drop=7.5,
+        front_pocket_dart_width=1.0, front_pocket_mouth_bulge=1.25,
+        front_pocket_facing=True, front_pocket_facing_width=3.5,
+        front_pocket_facing_side_w=3.5,
+        fly=True, fly_separate=True, fly_width=4.0,
+        watch_pocket=True, watch_pocket_mode="facing_intersect",
+        watch_pocket_width=5.5, watch_pocket_taper=0.2,
+        watch_pocket_offset_from_top=1.0, watch_pocket_offset_from_side=2.0,
+        watch_pocket_rotate_deg=8.0)
+    ctx = FlowRunner(m, o).run(FRONT_FLOW)
+    # 相交成功才上版四角点；底边段在（单曲线/折角链两形态都至少 4 段）
+    ctx.point("front.watch_pocket_pt3")
+    ctx.point("front.watch_pocket_pt4")
+    assert "front.watch_pocket_seg3" in ctx.sheet

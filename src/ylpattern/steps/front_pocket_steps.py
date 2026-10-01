@@ -83,15 +83,33 @@ def draw_front_pocket(ctx: DraftContext) -> NamedCurve | NamedLine | None:
     if o.front_pocket_p1_dist >= lw:
         raise ValueError(
             f"P1 弧长距离 {o.front_pocket_p1_dist} 超过腰弧总长 {lw:.2f}")
+    # 独立门襟共占腰弧伴随守卫（2026-09-30 袋贴×门襟重合事故，袋贴关闭态）：
+    # 门襟顶边占腰弧前中端 [lw−fly_width, lw]、吃省端点 P1′ 占 [0, p1+dw]，
+    # 相交即重合；袋贴开启时由袋贴步主守卫统一覆盖（消息含袋贴键更可归因）。
+    # 连裁门襟凸向外侧不占腰弧天然豁免；>= 拒零间隙。消息嵌选项键字面量
+    # （探针 L1 按异常消息子串归因），刻意不写 fly_separate 字面量——防 L1
+    # 弹开关静默改构造，改法写进建议文案。
+    if o.fly_separate and not o.front_pocket_facing and (
+            o.front_pocket_p1_dist + o.front_pocket_dart_width
+            + o.fly_width >= lw):
+        raise ValueError(
+            f"袋口吃省端点与独立门襟在腰弧上重合：front_pocket_p1_dist "
+            f"{o.front_pocket_p1_dist:.2f} + front_pocket_dart_width "
+            f"{o.front_pocket_dart_width:.2f} + fly_width {o.fly_width:.2f} "
+            f"≥ 腰弧总长 {lw:.2f}——请调小 front_pocket_p1_dist 或 "
+            f"fly_width，或改用连裁门襟（关闭独立门襟开关）")
     t1 = w_arc.t_at_length(o.front_pocket_p1_dist)
     p1 = w_arc.point_at(t1)
 
     # P2：外缝弧自侧缝腰点（弯腰头 B' / 直腰头 B）向下沿弧量取
     s_p2 = s_side - o.front_pocket_p2_drop
     if s_p2 <= 0:
+        # 消息嵌选项键字面量（探针 L1 按异常消息子串归因；p2 自 2026-10-01
+        # 起 K5-d 照片比例可直达、违规需可归因到键）
         raise ValueError(
-            f"P2 弧长深度 {o.front_pocket_p2_drop} 超过侧缝腰点以下外缝弧长 "
-            f"{s_side:.2f}")
+            f"front_pocket_p2_drop {o.front_pocket_p2_drop:.2f} 超过侧缝腰点"
+            f"以下外缝弧长 {s_side:.2f}——请调小 front_pocket_p2_drop"
+            "（低腰档竖向空间小）")
     t2 = s_arc.t_at_length(s_p2)
     p2 = s_arc.point_at(t2)
     t_side = s_arc.t_at_length(s_side)          # b 在外缝弧上的参数（直腰头 = 1）
@@ -314,6 +332,23 @@ def draw_front_pocket_facing(ctx: DraftContext) -> NamedCurve | NamedLine | None
         raise ValueError(
             f"袋贴腰头顶点弧长（P1 距离 {s_start:.2f} + 袋贴腰宽 {w_waist}）"
             f"超过腰弧总长 {lw:.2f}")
+    # 独立门襟共占腰弧主守卫（2026-09-30 袋贴×门襟重合事故）：门襟顶边占
+    # 腰弧前中端 [lw−fly_width, lw]、袋贴腰侧边界占 [0, s_fw]，两段相交即
+    # 重合（此前静默通过、探针 L0 无感）。max(w_waist, dw) 把吃省端点 P1′
+    # 计入占据（现实域 facing ≥ dw 恒真，max 是零成本完备化）；连裁门襟
+    # 凸向外侧不占腰弧天然豁免；>= 拒零间隙（共享一点在整版 SVG 上即相交）。
+    # 弯/直腰头都经 effective_waist，此处单点覆盖。消息嵌三键字面量（探针
+    # L1 归因生命线）；刻意不写 fly_separate 字面量（防 L1 弹开关静默改
+    # 构造），改法写进建议文案。
+    dw = o.front_pocket_dart_width
+    if o.fly_separate and s_start + max(w_waist, dw) + o.fly_width >= lw:
+        raise ValueError(
+            f"袋贴与独立门襟在腰弧上重合：front_pocket_p1_dist "
+            f"{s_start:.2f} + 袋贴占宽 front_pocket_facing_width "
+            f"{max(w_waist, dw):.2f} + fly_width {o.fly_width:.2f} ≥ 腰弧"
+            f"总长 {lw:.2f}——请调小 front_pocket_p1_dist 或 "
+            f"front_pocket_facing_width 或 fly_width，或改用连裁门襟"
+            "（关闭独立门襟开关）")
     p_fw = w_arc.point_at_length(s_fw)
     t_fw = w_arc.t_at_length(s_fw)
 

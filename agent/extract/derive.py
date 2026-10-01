@@ -13,6 +13,11 @@
   ①前中 + ②后中 + ③袋口转省（0.8 中值/大差 1.0，极限 1.5）+ ④侧缝目标
   （3.5 中值/大差 4.75）+ ⑤育克兜底（连续算出 clamp [0,5]，常规带 2.0~5.0）；
   有育克默认无后腰省；缺额 <0.5 不开省、≤2.5 单省、>2.5 双省（宽=缺额/2）。
+- K5（知识库 §五，2026-09-30 初版子规则）：p1 四则——照片比例主通道
+  （K5-d，conf>0.6 + 物理窗 [0.40,0.65]）→ 腰弧预算 clamp（K5-b，锚 =
+  waist_front_target 前腰弦，弦 ≤ 腰弧保守安全侧）→ 小表袋下界 4.5
+  （K5-c）；无比例时腰围锚点插值兜底（K5-a，64.3→8.8 / 74→10.0）。
+  back_patch_width 同款比例主通道（窗 [0.55,0.80] × 后腰弦）。
 - 直裆深推导.md §三 Δ 矩阵（C 表）：rise_adjust 低 −2.75 / 中 +0.75 / 高
   +3.75 带中值，中低/中高取相邻带线性中点（−1.0 / +2.25）。
 - 前后片臀围推导.md §四：DELTA_PRESETS 五档路由（options.py:42）。
@@ -29,7 +34,7 @@ merge 三源裁决（A 表）：描述词典 > 数字锚点(预判) > 照片 ove
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .parse import Observation
 
@@ -51,11 +56,16 @@ class KeyMeta:
 
 @dataclass
 class MergedView:
-    """merge 产物：三组键各自的终值与溯源。"""
+    """merge 产物：三组键各自的终值与溯源 + 照片比例观测（K5-d）。
+
+    ratios：比例键（ratio_front_pocket_p1 / ratio_back_patch_width）的模型
+    读数（0~1 float，parse 窗内），仅模型通道、无词典/先验源；采纳门槛
+    （conf>0.6 + 物理窗钳制）在 derive_all 消费时判。"""
 
     axes: dict[str, KeyMeta]
     switches: dict[str, KeyMeta]
     enums: dict[str, KeyMeta]
+    ratios: dict[str, KeyMeta] = field(default_factory=dict)
 
 
 # -- 数字锚点轴判定（词典/照片均不可推翻，B 表） -------------------------------
@@ -87,7 +97,7 @@ def merge(observation: Observation, measurements: dict[str, float],
           prejudged: dict[str, tuple[str, str]], priors: dict[str, bool],
           hints: dict[str, str], size_label: int | None = None) -> MergedView:
     """三源合并出轴/开关/枚举终值。优先级：描述词典 > 数字锚点 > 照片 > 惯例。"""
-    from .schema import AXIS_KEYS, ENUM_DEFAULTS
+    from .schema import AXIS_KEYS, ENUM_DEFAULTS, RATIO_KEYS
 
     from .schema import _AXIS_FALLBACK
 
@@ -137,7 +147,15 @@ def merge(observation: Observation, measurements: dict[str, float],
         if hint and hint != value:   # 2026-09-21 会话改口轮依赖此路生效）
             value, src, conf, ev = hint, DESC, 0.9, f"描述词「{hint}」"
         enums[key] = KeyMeta(key, value, src, conf, ev)
-    return MergedView(axes, switches, enums)
+
+    # 照片比例观测（K5-d）：纯模型通道直通（无词典/先验源），conf>0.6 +
+    # 物理窗钳制等采纳门槛由 derive_all 消费时判
+    ratios: dict[str, KeyMeta] = {}
+    for key in RATIO_KEYS:
+        e = observation.entries.get(key)
+        if e is not None and isinstance(e.value, float):
+            ratios[key] = KeyMeta(key, e.value, PHOTO, e.confidence, e.evidence)
+    return MergedView(axes, switches, enums, ratios)
 
 
 def enforce_dependencies(merged: MergedView) -> list[str]:
@@ -517,13 +535,48 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
         put("back_dart_width", round(plan.dart_width, 2),
             f"K4 余量排除法：缺额 {plan.channels} 合计外的省口宽", source=DERIVED)
 
+    # K5 部件规则上下文（families 消费，知识库 §五）：前/后腰弦 + 前浪
+    # （K5-b/d 锚——W 缺失 → chord None 跳 clamp 并由 K5-a 兜底披露）+
+    # 开关快照 + 照片比例主通道采纳（K5-d 四键：conf>0.6 才采纳、物理窗
+    # 钳制后传入；钳制不改写 merged.ratios，报告仍记模型原始读数）
+    from ylpattern.formulas.waist import waist_front_target
+
+    w_meas = measurements.get("waist")
+    pocket_dw = plan.channels["③袋口"] if switches["front_pocket"] else 0.0
+    chord = (round(waist_front_target(w_meas, wb, 0.0, pocket_dw), 2)
+             if w_meas is not None else None)
+    darts_total = (plan.dart_count * plan.dart_width) if plan.dart_on else 0.0
+    chord_back = (round(w_meas / 4 + wb + darts_total, 2)
+                  if w_meas is not None else None)
+
+    def _adopted_ratio(key: str, lo: float, hi: float) -> float | None:
+        m = merged.ratios.get(key)
+        if m is None or m.confidence <= 0.6 or not isinstance(m.value, float):
+            return None
+        return min(hi, max(lo, m.value))
+
+    # watch_w：小表袋宽 K5-d 换算值在此单点算出——front_pocket 族 K5-c
+    # 动态下界与 watch_pocket 族宽度共用同一值（2026-10-01）
+    ratio_wpw = _adopted_ratio("ratio_watch_pocket_width", 0.22, 0.40)
+    watch_w = (round(ratio_wpw * chord, 1)
+               if ratio_wpw is not None and chord is not None else None)
+    extra = {"chord": chord, "chord_back": chord_back,
+             "fly_sep": bool(switches.get("fly_separate")),
+             "facing_on": bool(switches.get("front_pocket_facing")),
+             "watch_on": bool(switches.get("watch_pocket")),
+             "ratio_p1": _adopted_ratio("ratio_front_pocket_p1", 0.40, 0.65),
+             "ratio_bp": _adopted_ratio("ratio_back_patch_width", 0.55, 0.80),
+             "ratio_p2": _adopted_ratio("ratio_front_pocket_p2", 0.20, 0.40),
+             "front_rise": measurements.get("front_rise"),
+             "ratio_wpw": ratio_wpw, "watch_w": watch_w}
+
     # ⑤ 部件族调用矩阵（K4 省组键在上面，族内只补模板键）
     for part, switch in _PART_MATRIX:
         if switch is not None and not switches.get(switch):
             continue
         if part == "yoke":   # 育克深度证据附加 K4 ⑤ 兜底注记
-            for k, (v, ev) in part_family(part, axes, enums,
-                                          measurements).items():
+            for k, (v, ev) in part_family(part, axes, enums, measurements,
+                                          extra=extra).items():
                 note = f"；K4 ⑤ 育克兜底 takeup≈{plan.yoke_takeup:.2f}"
                 if plan.yoke_note:
                     note += f"（{plan.yoke_note}）"
@@ -532,13 +585,14 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
         if part == "dart" and plan.dart_on:
             # 省长随省宽联动（省角恒定）优先于族模板 10.5；dart_on=False
             # （S2 视觉强制开开关而缺额不足）时族模板 10.5 兜底
-            for k, (v, ev) in part_family(part, axes, enums,
-                                          measurements).items():
+            for k, (v, ev) in part_family(part, axes, enums, measurements,
+                                          extra=extra).items():
                 if k == "back_dart_length":
                     v, ev = dart_length_linked(plan.dart_width)
                 put(k, v, ev)
             continue
-        for k, (v, ev) in part_family(part, axes, enums, measurements).items():
+        for k, (v, ev) in part_family(part, axes, enums, measurements,
+                                      extra=extra).items():
             put(k, v, ev)
 
     # ⑬ 条件键 4

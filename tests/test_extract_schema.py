@@ -1,9 +1,9 @@
 """S2 注入协议测试（schema.build_prompt / build_template + parse 的 S2 半部）。
 
 金标约定：
-- 白名单 22 键 = 5 轴 + 10 开关 + 7 枚举（含 mouth_depth 弧深伪轴；
-  front_pouch 袋布不在模型面——无判据通道，未分析到不发射），枚举值域与
-  PatternOptions 校验器同源；
+- 白名单 26 键 = 5 轴 + 10 开关 + 7 枚举 + 4 比例读图（含 mouth_depth 弧深
+  伪轴；front_pouch 袋布不在模型面——无判据通道，未分析到不发射），枚举值域
+  与 PatternOptions 校验器同源；比例键值域 = parse 浮点窗（K5-d）；
 - prompt 四级注入齐全（尺寸/预判/先验/判据手册）且内嵌预填模板可被
   parse_model_json 原样解析、sanitize 归一回预填值（prompt<->解析回环）；
 - _CRITERIA 与 .doc/参数预测/款式判据手册.md 同源（哨兵短语双向在册）。
@@ -22,6 +22,7 @@ from agent.extract.schema import (
     AXIS_KEYS,
     ENUM_DEFAULTS,
     MODEL_KEYS,
+    RATIO_KEYS,
     SWITCH_KEYS,
     build_prompt,
     build_template,
@@ -44,8 +45,15 @@ def _fixture():
 
 
 def test_model_keys_coverage():
-    assert set(MODEL_KEYS) == set(AXIS_KEYS) | set(SWITCH_KEYS) | set(ENUM_DEFAULTS)
-    assert len(MODEL_KEYS) == 22   # front_pouch 不在模型面（无判据通道）
+    assert set(MODEL_KEYS) == set(AXIS_KEYS) | set(SWITCH_KEYS) | \
+        set(ENUM_DEFAULTS) | set(RATIO_KEYS)
+    assert len(MODEL_KEYS) == 26   # front_pouch 不在模型面（无判据通道）；
+    # 比例读图 4 键（K5-d，2026-10-01 扩 p2/小表袋宽）值域 = parse 浮点窗
+    # （物理窗在 derive 钳制）
+    assert MODEL_KEYS["ratio_front_pocket_p1"] == (0.10, 0.90)
+    assert MODEL_KEYS["ratio_front_pocket_p2"] == (0.10, 0.90)
+    assert MODEL_KEYS["ratio_watch_pocket_width"] == (0.10, 0.90)
+    assert MODEL_KEYS["ratio_back_patch_width"] == (0.10, 0.90)
     assert MODEL_KEYS["front_pocket_mouth_depth"] == ("shallow", "standard", "deep")
 
 
