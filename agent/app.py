@@ -12,6 +12,8 @@ def：FastAPI 自动走 Starlette threadpool，不阻塞事件循环。一期同
 
 from __future__ import annotations
 
+import time
+
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -39,6 +41,18 @@ def healthz() -> dict:
     return {"status": "ok", "vlm_configured": configured}
 
 
+def _progress_sink(t0: float, lines: list[str]):
+    """管线 progress 回调 -> 「[相对秒] 消息」行收集器（随响应体回传前端）。
+
+    CLI 走 stderr 直打不受影响；HTTP 侧此前 progress=None 静默（同步等待
+    无处展示），带图轮次动辄分钟级，分阶段耗时对用户是关键反馈
+    （S2 行自带「耗时 xx s」，2026-10-01）。
+    """
+    def sink(msg: str) -> None:
+        lines.append(f"[{time.monotonic() - t0:6.1f}s] {msg}")
+    return sink
+
+
 @app.post("/api/chat/turn")
 def api_chat_turn(session: str = Form(...), text: str = Form(default=""),
                   photos: list[UploadFile] = File(default=[]),
@@ -57,8 +71,11 @@ def api_chat_turn(session: str = Form(...), text: str = Form(default=""),
     S2）+ photo_meta（可选 JSON 串：[{name, category, note}] 按 photos
     顺序对齐，C 照片三类 2026-09-29）+ fulfill（可选，当前仅 "recheck"：
     定向复查两段握手轮次 B，D 2026-09-29——响应 directive 后前端自动附
-    类别照片续发）。响应：{ok, session, card, delivery, directive}——
-    card/delivery/directive 三选一；缺必填不 422，转求援卡（零打扰口径）。
+    类别照片续发）。响应：{ok, session, card, delivery, directive,
+    progress}——card/delivery/directive 三选一；缺必填不 422，转求援卡
+    （零打扰口径）；progress = 分阶段耗时行（2026-10-01：管线 progress
+    回调带「[相对秒] 前缀」随响应回传，前端气泡展示——此前 HTTP 侧同步
+    等待无处展示，只有 CLI 打 stderr）。
 
     错误口径同 /api/extract：照片非法 422、会话 JSON 非法 400、
     photo_meta 非法 422、fulfill 非法 422、VLM 未配置/上游失败 503
@@ -88,6 +105,8 @@ def api_chat_turn(session: str = Form(...), text: str = Form(default=""),
         raise HTTPException(422,
                             detail=f"fulfill 非法：{fulfill!r}（当前仅支持 recheck）")
     tmp = None
+    t0 = time.monotonic()
+    progress_lines: list[str] = []
     try:
         # _save_photos 的 ValueError（照片后缀/空文件/超限/超张数）同走照片
         # 非法 422 契约——此前在 try 外，实炸为 500（2026-09-30 修）
@@ -97,7 +116,8 @@ def api_chat_turn(session: str = Form(...), text: str = Form(default=""),
                            provider=_build_provider(config_path),
                            thinking=thinking, run_probe=run_probe,
                            run_score=run_score, max_refeed=max_refeed,
-                           config_path=config_path)
+                           config_path=config_path,
+                           progress=_progress_sink(t0, progress_lines))
     except ValueError as e:
         raise HTTPException(422, detail=str(e)) from None
     except ExtractError as e:
@@ -109,6 +129,7 @@ def api_chat_turn(session: str = Form(...), text: str = Form(default=""),
             tmp.cleanup()
     body = outcome.to_dict()
     body["ok"] = True
+    body["progress"] = progress_lines
     return body
 
 

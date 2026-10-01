@@ -13,9 +13,10 @@
 - front_pocket_p1_dist 走 K5 四则（K5-d 照片比例主通道 → K5-b 腰弧预算
   clamp → K5-c 小表袋下界〔袋口宽随 K5-d 动态、过 G 表带 5.0~6.5 钳制〕
   → K5-a 腰围锚点插值兜底）；
-  front_pocket_p2_drop / watch_pocket_width 亦有 K5-d 比例主通道
-  （2026-10-01，兜底 = 腰位分档 / G 表 5.5；分母一律单侧腰宽），extra 由
-  derive 注入。
+  front_pocket_p2_drop / watch_pocket_width / watch_pocket_offset_from_top /
+  watch_pocket_rotate_deg 亦有 K5-d 比例主通道（2026-10-01，兜底 = 腰位
+  分档 / G 表 5.5 / G 表 1.0 / G 表 8°；分母一律单侧腰宽或前浪有效高），
+  extra 由 derive 注入。
 """
 
 from __future__ import annotations
@@ -30,6 +31,14 @@ _WATCH_SIDE = 2.0       # 小表袋配套包：离口袋侧边距离
 _WATCH_WIDTH = 5.5      # 小表袋袋口宽（K5-d 无比例时的 G 表兜底值）
 _WATCH_W_MIN = 5.0      # G 表带下限（浅小兜 5~6.5；K5-d 换算值钳制，2026-10-01）
 _WATCH_W_MAX = 6.5      # G 表带上限
+# 小表袋顶 drop×倾角联合可行域（金标 W74 标定，2026-10-01 实照事故补防线）：
+# top ≤ _TOP_CAP0 − _TOP_CAP_SLOPE×rot（cm/度）。几何本质 = 内上角
+# pt_b 必须在袋贴内边弧线上方（倾角×袋口宽把 pt_b 压沉：19.3°×5.7 压 1.9cm，
+# pt_b 沉过内边即射线起点在弧线下方永不相交）。实测边界 8°→3.0+/19.3°→
+# 2.0~2.5/24.2°→1.0+，31° 连 1.0 都炸（rot 物理窗因此收窄 0.45）。保守
+# 必要条件（尺寸泛化未标定），充分性由探针 L0 兜底——与 K5-c 同构。
+_TOP_CAP0 = 3.4
+_TOP_CAP_SLOPE = 0.088
 _WAISTBAND_W = 4.0      # 腰头宽（waistband 族同值；p2 锚 = 前浪 − 本值）
 _P1_ANCHORS = ((64.3, 8.8), (74.0, 10.0))   # K5-a 插值锚（W→p1）
 _P1_FLY_MARGIN = 1.0    # K5-b 门襟侧安全间隙
@@ -68,10 +77,10 @@ def part_family(part: str, axes: dict[str, str], enums: dict[str, str],
 
     extra（derive 注入的 K5 上下文，缺省 None = 纯 G 表旧行为）：
     chord 前腰弦 | chord_back 后腰弦 | fly_sep/facing_on/watch_on 开关快照
-    | ratio_p1 / ratio_bp / ratio_p2 / ratio_wpw K5-d 已采纳照片比例
-    （conf>0.6 + 钳物理窗后，None = 未观测/低置信走兜底）| front_rise 前浪
-    （p2 锚）| watch_w 小表袋宽 K5-d 换算值（derive 单点算出，K5-c 动态
-    下界与 watch 族宽度共用）。
+    | ratio_p1 / ratio_bp / ratio_p2 / ratio_wpw / ratio_wpt / ratio_wps
+    K5-d 已采纳照片比例（conf>0.6 + 钳物理窗后，None = 未观测/低置信走
+    兜底）| front_rise 前浪（p2 / 小表袋顶 drop 锚）| watch_w 小表袋宽
+    K5-d 换算值（derive 单点算出，K5-c 动态下界与 watch 族宽度共用）。
     """
     fam: dict[str, tuple[object, str]] = {}
     g = "G 表（部件参数族模板 v1，K5 待收集）"
@@ -122,8 +131,9 @@ def part_family(part: str, axes: dict[str, str], enums: dict[str, str],
                            "重合，独立门襟才占腰弧）")
         # K5-c 小表袋下界（watch 开；2026-10-01 袋口宽动态化——K5-d 比例可
         # 改 watch_w，取 G 表带 5.0~6.5 钳后值，兜底 5.5 时 = 旧常数 4.5
-        # 零漂移）；ceil0.1（−1e-9 护浮点尘）。必要非充分：充分性由探针
-        # L0 兜底
+        # 零漂移）；ceil0.1（−1e-9 护浮点尘）。cos8° 取兜底平角 = x 向投影
+        # 上界（倾角照片通道可到 ~30°，cos 更小 → 下界更松，保守安全侧）。
+        # 必要非充分：充分性由探针 L0 兜底
         w_watch = ex.get("watch_w")
         if w_watch is None:
             w_watch = _WATCH_WIDTH
@@ -198,9 +208,10 @@ def part_family(part: str, axes: dict[str, str], enums: dict[str, str],
         # nodes/edges 走引擎默认底弧（与袋口形状同风格），报告标注，不发射
 
     elif part == "watch_pocket":
-        # 顶部对齐口径（2026-09-02 实照核对，用户定标）：照片只能看到小表袋
-        # 顶部（贴腰口位置 + 袋口宽），下半段由 facing_intersect 自动延伸
-        # 入袋、藏住不可见——只需顶部一致，深度不管控。
+        # 定位口径（2026-10-01 实照再校准，取代 09-02 单照片「顶部对齐」
+        # 单一定标）：小表袋定位三件套（顶边离腰 drop / 顶边斜率 / 袋口宽）
+        # 均照片可见，K5-d 比例主通道优先，G 表兜底（无照片金标零漂移）；
+        # 深度仍不管控（facing_intersect 自动延伸入袋）。
         ex = extra or {}
         wv = _WATCH_WIDTH
         wev = f"{g}：浅小兜 5~6.5 取 5.5（实照核对，旧 7.0 偏大）"
@@ -219,11 +230,38 @@ def part_family(part: str, axes: dict[str, str], enums: dict[str, str],
             wev += "（覆盖 G 表 5.5）"
         fam["watch_pocket_width"] = (wv, wev)
         fam["watch_pocket_taper"] = (0.2, f"{g}：两侧收 0.2")
-        fam["watch_pocket_offset_from_top"] = (
-            1.0, f"{g}：贴腰头下缘 ~1.0（实照核对，旧 3.0 顶部下沉过多）")
+        # 顶边离腰 drop：比例 × 前浪有效高（与 p2 同分母锚），覆盖 G 表 1.0
+        top = 1.0
+        topev = f"{g}：贴腰头下缘 ~1.0（09-02 单照片定标，兜底值）"
+        r_top, fr = ex.get("ratio_wpt"), ex.get("front_rise")
+        if r_top is not None and fr is not None:
+            top = round(r_top * (fr - _WAISTBAND_W), 1)
+            topev = (f"K5-d 照片比例主通道：比例 {r_top:.2f} × 前浪有效高 "
+                     f"{fr - _WAISTBAND_W:.1f} = {top:.1f}（覆盖 G 表 1.0；"
+                     "宽腰照实测 0.13×26≈3.4 挂腰头下缘偏高失真）")
+        # 顶边斜率：模型报「内端比外端低多少 ÷ 袋口宽」（= tan 倾角），
+        # 代码 atan 换算度数，覆盖 G 表 8°
+        rot = 8.0
+        rotev = f"{g}：顺时针倾 8°（兜底值）"
+        r_sl = ex.get("ratio_wps")
+        if r_sl is not None:
+            rot = round(math.degrees(math.atan(r_sl)), 1)
+            rotev = (f"K5-d 照片比例主通道：顶边落差 ÷ 袋口宽 {r_sl:.2f} → "
+                     f"atan ≈ {rot:.1f}°（覆盖 G 表 8°；实照 0.35→19.3°）")
+        # 联合可行域钳（金标 W74 标定必要条件）：内上角须在袋贴内边上方，
+        # 照片构造常为顶部外露式（顶边深+大倾角）超 facing_intersect 藏头式
+        # 可行域——钳至可行域内保守近似，照片读数披露不静默
+        top_cap = round(_TOP_CAP0 - _TOP_CAP_SLOPE * rot, 1)
+        if top > top_cap:
+            top = max(1.0, top_cap)
+            topev += (f" → 联合可行域钳 {top:.1f}（top ≤ {_TOP_CAP0:g} − "
+                      f"{_TOP_CAP_SLOPE:g}×{rot:.1f}° = {top_cap:.1f}，内上角"
+                      "须在袋贴内边上方的保守必要条件；照片构造疑为顶部外露式"
+                      "超藏头式可行域，充分性由探针 L0 兜底）")
+        fam["watch_pocket_offset_from_top"] = (top, topev)
         fam["watch_pocket_offset_from_side"] = (
             _WATCH_SIDE, "小表袋配套包（引擎缺口实测 66–84 码全过）")
-        fam["watch_pocket_rotate_deg"] = (8.0, f"{g}：顺时针倾 8°")
+        fam["watch_pocket_rotate_deg"] = (rot, rotev)
 
     elif part == "back_patch":
         w, hgt, sizev = _back_patch_size(axes)

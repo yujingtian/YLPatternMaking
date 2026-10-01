@@ -48,13 +48,15 @@ MODEL_KEYS: dict[str, tuple | str] = {
     "front_pocket_mouth_depth": ("shallow", "standard", "deep"),
     "front_pocket_facing_mode": ("tangent", "offset", "bulge"),
     "watch_pocket_mode": ("custom", "facing_intersect"),
-    # 比例读图 4（K5-d，2026-09-30 起；10-01 扩 p2/小表袋宽）：值域 = 浮点
-    # 窗（parse 窗，出窗丢弃=未观测）；物理窗在 derive 钳制。模型只报 0~1
-    # 比例、绝不报 cm
+    # 比例读图 6（K5-d，2026-09-30 起；10-01 扩 p2/小表袋宽，同日再扩
+    # 小表袋顶 drop/顶边斜率）：值域 = 浮点窗（parse 窗，出窗丢弃=未观测）；
+    # 物理窗在 derive 钳制。模型只报 0~1 比例、绝不报 cm
     "ratio_front_pocket_p1": (0.10, 0.90),
     "ratio_front_pocket_p2": (0.10, 0.90),
     "ratio_watch_pocket_width": (0.10, 0.90),
     "ratio_back_patch_width": (0.10, 0.90),
+    "ratio_watch_pocket_top": (0.0, 0.50),
+    "ratio_watch_pocket_slope": (0.0, 0.90),
 }
 
 AXIS_KEYS = ("waist_position", "gender", "body_shape", "fit_level", "stretch")
@@ -67,9 +69,11 @@ ENUM_KEYS = ("waistband_type", "fit", "back_patch_shape", "front_pocket_mouth_mo
 
 # 比例读图键（K5-d）：MODEL_KEYS 里 float 窗值域的键（parse 窗）；物理窗
 # （p1 [0.40,0.65] / p2 [0.20,0.40] / 小表袋宽 [0.22,0.40] / 贴袋宽
-# [0.55,0.80]）在 derive._adopted_ratio 钳制
+# [0.55,0.80] / 小表袋顶 drop [0.04,0.25] / 顶边斜率 [0.05,0.45]）在
+# derive._adopted_ratio 钳制
 RATIO_KEYS = ("ratio_front_pocket_p1", "ratio_front_pocket_p2",
-              "ratio_watch_pocket_width", "ratio_back_patch_width")
+              "ratio_watch_pocket_width", "ratio_back_patch_width",
+              "ratio_watch_pocket_top", "ratio_watch_pocket_slope")
 
 # 枚举键的引擎默认（无照片/无预判时的预填值，options.py 同源；mouth_depth
 # 伪轴默认 standard → families 弧深 0.4）
@@ -240,7 +244,14 @@ def build_prompt(describe: str, measurements: dict[str, float],
         "正面照前口袋袋口下端（靠侧缝一端）到腰头下缘（腰头与裤身交界的"
         "缝线）的竖直距离 ÷ 腰头下缘到裆底（两腿分叉处）的竖直距离"
         "（例 0.30）；④ ratio_watch_pocket_width——正面照小表袋（前口袋"
-        "袋口内的小袋）袋口宽 ÷ 该侧单侧前腰宽。evidence 写「约 55%」式"
+        "袋口内的小袋）袋口宽 ÷ 该侧单侧前腰宽；⑤ ratio_watch_pocket_top"
+        "——正面照小表袋顶边靠侧缝一端（外上角）离腰头下缘（腰头与裤身"
+        "交界的缝线）的竖直距离 ÷ 腰头下缘到裆底"
+        "（两腿分叉处）的竖直距离（与 ③ 同分母，例 0.13）；⑥ "
+        "ratio_watch_pocket_slope——正面照小表袋顶边倾斜程度：内端"
+        "（靠门襟一侧）比外端（靠侧缝一侧）低多少 ÷ 小表袋袋口宽"
+        "（内端低约三成就报 0.30；目测水平报 0；内端反而翘起报 0 并在 "
+        "evidence 说明）。evidence 写「约 55%」式"
         "目测读数；看不清/被遮挡/照片没拍到就保持 null 不填。",
         "- 看不清 / 被遮挡 / 照片没拍到：保持预判值不动，confidence 下调。",
         "- 尺寸数值（cm）不在你的职责内，不要改任何数字、不要新增尺寸。",

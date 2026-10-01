@@ -663,6 +663,49 @@ def test_k5_watch_band_clamp():
     assert "0.40" in wv.evidence and "钳 6.5" in wv.evidence
 
 
+def test_k5_watch_top_rotate_channel():
+    """K5-d 小表袋定位两键（2026-10-01 实照校准：G 表 offset_top 1.0 /
+    rotate 8° 系单照片定标，换照片失真）：顶 drop = 比例 × 前浪有效高
+    覆盖 G 表 1.0（与 p2 同分母锚）；斜率（内端低多少 ÷ 袋口宽 = tan 倾角）
+    代码 atan 换算度数覆盖 G 表 8°。金标 W74/前浪 30：0.13×26.0=3.4 →
+    联合可行域钳 3.4−0.088×19.3=1.7（19.3°×袋口宽把内上角压沉过袋贴
+    内边 = 射线永不相交，金标 W74 实测边界 19.3°→2.0~2.5）；平角组合
+    0.10×26.0=2.6 ≤ 3.4−0.088×8.5=2.7 不钳。conf≤0.6 不采纳 → G 表
+    兜底同值（无照片金标零漂移）。"""
+    obs = Observation(entries={
+        "ratio_watch_pocket_top": _entry(0.13, 0.9, "约 13% 目测"),
+        "ratio_watch_pocket_slope": _entry(0.35, 0.9, "内端低约三成半")})
+    _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
+    top = out["watch_pocket_offset_from_top"]
+    assert top.value == 1.7
+    assert "K5-d" in top.evidence and "26.0" in top.evidence
+    assert "联合可行域钳" in top.evidence and "1.7" in top.evidence
+    rot = out["watch_pocket_rotate_deg"]
+    assert rot.value == 19.3
+    assert "K5-d" in rot.evidence and "0.35" in rot.evidence
+    # 平角浅 drop 组合：换算值在可行域内不钳、无钳披露
+    obs = Observation(entries={
+        "ratio_watch_pocket_top": _entry(0.10, 0.9, "约 10% 目测"),
+        "ratio_watch_pocket_slope": _entry(0.15, 0.9, "内端低约一成半")})
+    _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
+    top = out["watch_pocket_offset_from_top"]
+    assert top.value == 2.6
+    assert "联合可行域钳" not in top.evidence
+    # 斜率物理窗 [0.05,0.45]：0.60=31° 连 G 表 top 1.0 都撞射线不相交
+    obs = Observation(entries={
+        "ratio_watch_pocket_slope": _entry(0.60, 0.9, "目测极陡")})
+    _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
+    assert out["watch_pocket_rotate_deg"].value == 24.2   # atan(0.45)
+    obs = Observation(entries={
+        "ratio_watch_pocket_top": _entry(0.13, conf=0.5, ev="拿不准"),
+        "ratio_watch_pocket_slope": _entry(0.35, conf=0.5, ev="拿不准")})
+    _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
+    assert out["watch_pocket_offset_from_top"].value == 1.0
+    assert "K5-d" not in out["watch_pocket_offset_from_top"].evidence
+    assert out["watch_pocket_rotate_deg"].value == 8.0
+    assert "K5-d" not in out["watch_pocket_rotate_deg"].evidence
+
+
 def test_k5_watch_band_floor_consistency():
     """K5-c 动态下界取 G 表带钳后值（与 watch 族宽度同源防漂）：raw 4.2 →
     按 5.0 算下界 ceil0.1(2+4.9513+0.5−3.5)=4.0（raw 直算仅 3.2）；K5-a

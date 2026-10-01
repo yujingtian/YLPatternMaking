@@ -537,7 +537,7 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
 
     # K5 部件规则上下文（families 消费，知识库 §五）：前/后腰弦 + 前浪
     # （K5-b/d 锚——W 缺失 → chord None 跳 clamp 并由 K5-a 兜底披露）+
-    # 开关快照 + 照片比例主通道采纳（K5-d 四键：conf>0.6 才采纳、物理窗
+    # 开关快照 + 照片比例主通道采纳（K5-d 六键：conf>0.6 才采纳、物理窗
     # 钳制后传入；钳制不改写 merged.ratios，报告仍记模型原始读数）
     from ylpattern.formulas.waist import waist_front_target
 
@@ -568,7 +568,14 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
              "ratio_bp": _adopted_ratio("ratio_back_patch_width", 0.55, 0.80),
              "ratio_p2": _adopted_ratio("ratio_front_pocket_p2", 0.20, 0.40),
              "front_rise": measurements.get("front_rise"),
-             "ratio_wpw": ratio_wpw, "watch_w": watch_w}
+             "ratio_wpw": ratio_wpw, "watch_w": watch_w,
+             # 小表袋定位 K5-d（2026-10-01 实照校准：G 表 offset_top 1.0 /
+             # rotate 8° 系单照片定标，宽高比例换照片即失真——顶边离腰
+             # drop 与顶边斜率（tan 倾角）同样走比例通道，families 换算）；
+             # slope 物理窗上限 0.45（24.2°）：0.60=31° 连 G 表 top 1.0 都
+             # 撞射线不相交（联合可行域见 families._TOP_CAP*）
+             "ratio_wpt": _adopted_ratio("ratio_watch_pocket_top", 0.04, 0.25),
+             "ratio_wps": _adopted_ratio("ratio_watch_pocket_slope", 0.05, 0.45)}
 
     # ⑤ 部件族调用矩阵（K4 省组键在上面，族内只补模板键）
     for part, switch in _PART_MATRIX:

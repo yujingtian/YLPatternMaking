@@ -381,6 +381,25 @@ def test_http_chat_bad_session_400(monkeypatch):
     assert "会话" in r.json()["detail"]
 
 
+def test_http_chat_progress_lines(monkeypatch):
+    """分阶段耗时行随响应回传（2026-10-01）：「[相对秒] 消息」格式；
+    带照轮必含「S2 视觉确认」行——前端灰字气泡的数据源（此前 HTTP 侧
+    progress=None 静默，只有 CLI 打 stderr）。"""
+    client = _client()
+    import agent.runner
+    vlm = FakeVLM([_S2_REPLY])
+    monkeypatch.setattr(agent.runner, "_build_provider", lambda p: vlm)
+    r = client.post("/api/chat/turn",
+                    data={"session": Session().to_json(), "text": _DESC},
+                    files=[("photos", ("front.png", b"png-bytes",
+                                       "image/png"))])
+    assert r.status_code == 200, r.text
+    lines = r.json()["progress"]
+    assert len(lines) > 0
+    assert all(ln.startswith("[") and "s] " in ln for ln in lines)
+    assert any("S2 视觉确认" in ln for ln in lines)
+
+
 # -- HTTP 复盘金标（2026-09-30 用户「对话失败 422」实炸链） -----------------------
 
 def _browser_multipart(fields, photo=None):

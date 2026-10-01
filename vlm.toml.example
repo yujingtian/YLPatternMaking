@@ -8,6 +8,6 @@ base_url = "https://open.bigmodel.cn/api/coding/paas/v4"
 model = "glm-5.3-flash"
 
 # 可选项（省略走默认）：
-# max_tokens = 16384      # 思维链计入 completion，勿低于此值（8192 会掐断 JSON）
+# max_tokens = 32768      # 思维链计入 completion，勿低于此值（16384 曾被 S2 带图思维链耗尽）
 # timeout_idle = 300.0    # SSE 相邻数据行间隔上限（秒）；推理模型思维链数百秒，勿设短
 # thinking = "off"        # 不配置=不发送该参数；"on"/"off" 强制；数值调用建议 off

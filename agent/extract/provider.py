@@ -16,8 +16,9 @@
 - 恒流式 SSE：空闲超时按「两次有数据行间隔」计（默认 300s，socket timeout 落在
   每次 recv 上即自然达成），**不设整包短超时**——推理模型思维链数百秒，
   整包 300s 超时会废掉生成重发全价重跑。
-- max_tokens 默认 16384：思维链计入 completion，8192 会把 30+ 键 JSON 掐到
-  0 字符（finish_reason=length 时显式报错而非静默截断）。
+- max_tokens 默认 32768：思维链计入 completion，8192 会把 30+ 键 JSON 掐到
+  0 字符；16384 也曾被 S2 带图思维链整轮耗尽（2026-10-01（二）实炸，
+  finish_reason=length 时显式报错而非静默截断）。
 - thinking 参数默认**不发送**（走服务端默认）；"on"/"off" 才发送
   （数值调用建议 off，实测 4.7s vs 思维链全开数百秒）。HTTP 400 自动摘参重发
   一次并 sticky（后续调用不再带）——部分端点不认该参数。
@@ -63,7 +64,8 @@ class VLMConfig:
     api_key: str
     base_url: str = _DEFAULT_BASE_URL
     model: str = _DEFAULT_MODEL
-    max_tokens: int = 16384          # 思维链计入 completion，勿低于此值
+    max_tokens: int = 32768          # 思维链计入 completion；16384 被 S2 带图
+                                     # 思维链耗尽过（2026-10-01），勿降回
     timeout_idle: float = 300.0      # SSE 相邻数据行间隔上限（秒）
     thinking: str | None = None      # None=不发送该参数；"on"/"off" 强制
 
@@ -86,7 +88,7 @@ class VLMConfig:
             api_key=api_key,
             base_url=str(data.get("base_url") or _DEFAULT_BASE_URL),
             model=str(data.get("model") or _DEFAULT_MODEL),
-            max_tokens=int(data.get("max_tokens") or 16384),
+            max_tokens=int(data.get("max_tokens") or 32768),
             timeout_idle=float(data.get("timeout_idle") or 300.0),
             thinking=thinking,
         )
@@ -198,7 +200,8 @@ def _read_sse(resp, timeout_idle: float) -> str:
                       "推理模型思维链可能仍在生成，勿设整包短超时）") from e
     if finish == "length":
         raise VLMError("VLM 输出被 max_tokens 掐断（finish_reason=length）："
-                       "思维链计入 completion，请保持 max_tokens >= 16384")
+                       "思维链计入 completion，请保持 max_tokens >= 32768"
+                       "（vlm.toml 可配）；急用可临时关 thinking 绕行")
     if not parts:
         raise VLMError("VLM 返回空内容（无 delta.content）")
     return "".join(parts)

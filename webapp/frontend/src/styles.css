@@ -349,6 +349,13 @@ html, body, #root { height: 100%; margin: 0; }
   display: flex; align-items: center; gap: 8px;
   color: #999; font-size: 12.5px;
 }
+/* 分阶段耗时行（2026-10-01 后端 progress 回传）：等宽灰字，日志观感 */
+.chat-progress {
+  max-width: 88%; padding: 4px 10px;
+  color: #999; font-size: 11.5px; line-height: 1.6;
+  font-family: Consolas, 'Courier New', monospace;
+  white-space: pre-wrap;
+}
 .chat-sheet-hint { color: #999; font-size: 12.5px; }
 .chat-input-bar {
   border-top: 1px solid #f0f0f0; padding-top: 12px; margin-top: 12px;

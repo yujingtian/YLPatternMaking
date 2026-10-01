@@ -36,6 +36,8 @@ export type ChatMsg =
   | { id: number; role: 'agent'; kind: 'card'; turn: number; card: ChatCard }
   | { id: number; role: 'agent'; kind: 'deliver'; turn: number; delivery: ChatDelivery }
   | { id: number; role: 'agent'; kind: 'directive'; message: string }
+  // 分阶段耗时行（2026-10-01 后端 progress 回传）：灰字小号逐行渲染
+  | { id: number; role: 'agent'; kind: 'progress'; lines: string[] }
   | { id: number; role: 'agent'; kind: 'error'; message: string }
 
 interface AgentHealth {
@@ -53,8 +55,8 @@ export interface SmartDraftState {
   elapsed: number                // 本轮已耗时（秒）
   health: AgentHealth | null     // null = agent 未启动/未知
   healthLoading: boolean
-  thinking: string
-  setThinking: (v: string) => void
+  thinking: '' | 'on' | 'off'    // ''=不发送（服务端默认，推理开）
+  setThinking: (v: '' | 'on' | 'off') => void
   // 成功才 true（组件据此清输入框）；失败消息内联、输入未清可重发
   send: (text: string) => Promise<boolean>
   addPhoto: (item: PhotoItem) => void   // 满 MAX_PHOTOS 由组件拦
@@ -73,7 +75,7 @@ export function useSmartDraft(): SmartDraftState {
   const [elapsed, setElapsed] = useState(0)
   const [health, setHealth] = useState<AgentHealth | null>(null)
   const [healthLoading, setHealthLoading] = useState(true)
-  const [thinking, setThinking] = useState('')
+  const [thinking, setThinking] = useState<'' | 'on' | 'off'>('')
 
   // 响应 session 对象（大 JSON 不进 state，避免每轮整串触发渲染）；
   // 首轮 null -> sessionToJson 出 '{}'
@@ -169,6 +171,11 @@ export function useSmartDraft(): SmartDraftState {
       }
       setPhotos([])
       setSentPhotoCount((n) => n + turnPhotoCount)
+      // 分阶段耗时行（2026-10-01）：日志先于结论气泡（S2/探针各段秒数）
+      if (res.progress && res.progress.length > 0) {
+        appendMsg({ id: ++idRef.current, role: 'agent',
+                    kind: 'progress', lines: res.progress })
+      }
       if (res.directive) {
         // D5 两段握手（§3.4）：directive 气泡 + 自动附类别照片续发
         // （缺片发空照片 → 后端降级按类别求援卡）；busy/秒表跨两请求
@@ -189,6 +196,10 @@ export function useSmartDraft(): SmartDraftState {
           })),
         ))
         sessionRef.current = res2.session
+        if (res2.progress && res2.progress.length > 0) {
+          appendMsg({ id: ++idRef.current, role: 'agent',
+                      kind: 'progress', lines: res2.progress })
+        }
         if (res2.card) {
           appendMsg({
             id: ++idRef.current, role: 'agent', kind: 'card',

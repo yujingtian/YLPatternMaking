@@ -47,13 +47,15 @@ def _fixture():
 def test_model_keys_coverage():
     assert set(MODEL_KEYS) == set(AXIS_KEYS) | set(SWITCH_KEYS) | \
         set(ENUM_DEFAULTS) | set(RATIO_KEYS)
-    assert len(MODEL_KEYS) == 26   # front_pouch 不在模型面（无判据通道）；
-    # 比例读图 4 键（K5-d，2026-10-01 扩 p2/小表袋宽）值域 = parse 浮点窗
-    # （物理窗在 derive 钳制）
+    assert len(MODEL_KEYS) == 28   # front_pouch 不在模型面（无判据通道）；
+    # 比例读图 6 键（K5-d，2026-10-01 扩 p2/小表袋宽/小表袋定位两键）值域
+    # = parse 浮点窗（物理窗在 derive 钳制）
     assert MODEL_KEYS["ratio_front_pocket_p1"] == (0.10, 0.90)
     assert MODEL_KEYS["ratio_front_pocket_p2"] == (0.10, 0.90)
     assert MODEL_KEYS["ratio_watch_pocket_width"] == (0.10, 0.90)
     assert MODEL_KEYS["ratio_back_patch_width"] == (0.10, 0.90)
+    assert MODEL_KEYS["ratio_watch_pocket_top"] == (0.0, 0.50)
+    assert MODEL_KEYS["ratio_watch_pocket_slope"] == (0.0, 0.90)
     assert MODEL_KEYS["front_pocket_mouth_depth"] == ("shallow", "standard", "deep")
 
 

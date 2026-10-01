@@ -377,8 +377,12 @@ def template_detail(name: str) -> dict:
 
 # agent 服务同源转发（一期前端接线 §10.9）：dev 由 Vite proxy /agent -> 8001，
 # 生产（dist 由本进程托管）无 Vite，故此处 httpx 原样字节透传——前端 dev/prod
-# 同构、零 CORS 依赖。multipart 直传（≤4×10MB，内存可承受）；超时 310s 对齐
-# agent uvicorn 空闲 300s；agent 未启动 -> 502（中文消息，前端弹层直显）。
+# 同构、零 CORS 依赖。multipart 直传（≤4×10MB，内存可承受）；超时 600s 是
+# **整轮**上限（httpx 读超时=首字节等待，agent 同步到轮末才回包）：带图轮次
+# thinking 思维链单次 S2 可达数百秒（provider 实测），旧 310s 会把正常长轮次
+# 误报成「服务未启动」（2026-10-01 修；310 旧口径对错了维度——VLM 的 300s
+# 是 SSE 行间空闲，思维链吐字不触发）；agent 未启动 -> 502（中文消息，前端
+# 弹层直显）。
 _AGENT_BASE = os.environ.get("YLP_AGENT_BASE", "http://localhost:8001")
 
 
@@ -387,7 +391,7 @@ async def agent_forward(path: str, request: Request) -> Response:
     import httpx   # 懒加载（同 ezdxf 先例）：未装 httpx 只影响本路由
     try:
         async with httpx.AsyncClient(base_url=_AGENT_BASE,
-                                     timeout=httpx.Timeout(310)) as client:
+                                     timeout=httpx.Timeout(600)) as client:
             resp = await client.request(
                 request.method, f"/{path}", content=await request.body(),
                 headers={"content-type": request.headers.get("content-type", "")})

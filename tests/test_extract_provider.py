@@ -4,7 +4,7 @@
 - VLMConfig.load 优先级：显式 path > ./vlm.toml > YLP_VLM_* 环境变量 > 均缺 raise；
   toml 缺 api_key / thinking 非法值 raise。
 - FakeVLM 队列重放 + calls 记录。
-- OpenAICompatibleVLM 请求体：max_tokens=16384 / stream=True / 图片 base64 data URI /
+- OpenAICompatibleVLM 请求体：max_tokens=32768 / stream=True / 图片 base64 data URI /
   Authorization Bearer；SSE 解析（data: 行聚合 delta.content、[DONE] 收尾、
   非 data 行与坏 JSON 行忽略、finish_reason=length 显式报错、空内容报错）。
 - thinking：None 不发送；400 自动摘参重发一次并 sticky；
@@ -85,7 +85,7 @@ def test_config_load_explicit_path(tmp_path):
     assert cfg.api_key == "k1"
     assert cfg.base_url == "https://x/v4"
     assert cfg.model == "m1"
-    assert cfg.max_tokens == 16384        # 省略走默认
+    assert cfg.max_tokens == 32768        # 省略走默认（16384 被 S2 思维链耗尽过）
     assert cfg.timeout_idle == 300.0
     assert cfg.thinking is None           # 默认不发送
 
@@ -166,7 +166,7 @@ def test_request_body_and_data_uri(tmp_path, monkeypatch):
     assert vlm.complete("看图", [str(img)]) == "hello world"
     body = bodies[0]
     assert body["stream"] is True
-    assert body["max_tokens"] == 16384
+    assert body["max_tokens"] == 32768
     assert "thinking" not in body                    # 默认不发送
     content = body["messages"][0]["content"]
     assert content[0] == {"type": "text", "text": "看图"}

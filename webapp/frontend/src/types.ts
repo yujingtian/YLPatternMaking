@@ -455,6 +455,9 @@ export interface ChatTurnResponse {
   card: ChatCard | null
   delivery: ChatDelivery | null   // card/delivery/directive 三选一
   directive: ChatDirective | null
+  // 分阶段耗时行（2026-10-01 后端 progress 回传）：'[ 12.3s] S2 视觉确认
+  // 完成（耗时 8.1s）'——带图轮次分钟级，耗时可见性靠它
+  progress?: string[]
 }
 
 // ---- MS 机器排料契约（二期对接 §10.3.2；MS 侧 /api/machine/* 五端点） ----

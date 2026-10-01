@@ -2,8 +2,11 @@
 // 全幅「左对话右预览」工作面——多轮对话是长驻交互（VLM 解析动辄数十秒）、
 // 审图是确认前的质量闸口，860px 弹框把整版挤成缩略图审不了图，故升独立
 // 界面镜像主应用「左参数右视图」心智。
-//   左栏 = 对话流（消息 + 求援卡白话批量问 + busy 秒表）+ 底部输入区
-//   （照片池 + 文本 + 高级 thinking）——对话内交卷一律折叠为摘要行；
+//   左栏 = 对话流（消息 + 求援卡白话批量问 + busy 秒表 + 分阶段耗时行）+
+//   底部输入区（照片池 + 文本 + 高级 thinking 三态开关：''=不发送走服务端
+//   默认〔推理开〕/ off=快速关思维链 / on=强制开；2026-10-01 修正——旧
+//   「附加提示词」TextArea 接错，自由文本不进 prompt 也不进请求体完全
+//   丢失，恰好填 on/off 才会变开关）——对话内交卷一律折叠为摘要行；
 //   右栏 = 最新交卷的整版大图预览（SheetPreview：滚轮缩放 + 拖曳平移，
 //   跟最新 delivery 自动刷新）+ 摘要行 + 确认/继续调整。
 // 零打扰口径：全料喂入直接交卷、缺啥批量问一次；照片 = 待提交池
@@ -16,8 +19,8 @@
 // 「确认并进入工作台」走 App 侧换源收口 switchDraftSource。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert, App as AntApp, Button, Collapse, Input, Popconfirm, Spin,
-  Upload,
+  Alert, App as AntApp, Button, Collapse, Input, Popconfirm, Radio,
+  Spin, Upload,
 } from 'antd'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import {
@@ -184,7 +187,7 @@ export default function SmartDraftView({ chat, onConfirm }: {
               <div className="chat-msg agent">
                 <div className="chat-typing">
                   <Spin size="small" />
-                  正在思考…已耗时 {chat.elapsed}s（含照片解析可能需要数十秒）
+                  正在思考…已耗时 {chat.elapsed}s（含照片解析可能需要数分钟）
                 </div>
               </div>
             )}
@@ -253,14 +256,16 @@ export default function SmartDraftView({ chat, onConfirm }: {
               style={{ marginTop: 8 }}
               items={[{
                 key: 'advanced',
-                label: '高级：思考模式（给识别模型的附加提示，一般留空）',
+                label: '高级：思考模式（默认走模型默认=思维链开；带图可达数分钟）',
                 children: (
-                  <Input.TextArea
-                    rows={2}
+                  <Radio.Group
                     value={chat.thinking}
                     onChange={(e) => chat.setThinking(e.target.value)}
-                    placeholder="可选：附加提示词"
-                  />
+                  >
+                    <Radio value="">默认（推荐）</Radio>
+                    <Radio value="off">快速（关思维链）</Radio>
+                    <Radio value="on">深度（强制开）</Radio>
+                  </Radio.Group>
                 ),
               }]}
             />
@@ -359,6 +364,17 @@ function MessageRow({ m }: { m: ChatMsg }) {
     return (
       <div className="chat-msg agent">
         <Alert type="error" showIcon message={m.message} />
+      </div>
+    )
+  }
+  if (m.kind === 'progress') {
+    // 分阶段耗时行（2026-10-01 后端 progress 回传）：灰字小号逐行——
+    // 带图轮次分钟级，S2 视觉确认等各段秒数是关键反馈
+    return (
+      <div className="chat-msg agent">
+        <div className="chat-progress">
+          {m.lines.map((l, i) => <div key={i}>{l}</div>)}
+        </div>
       </div>
     )
   }
