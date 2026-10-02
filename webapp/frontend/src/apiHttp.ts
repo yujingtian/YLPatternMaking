@@ -8,6 +8,7 @@ import { AGENT_BASE } from './agentConfig'
 import { normalizeChatError } from './chatPayload'
 import { MS_PROXY_BASE, demoteMsChannel, resolveMsChannel } from './msBase'
 import type { MsChannel } from './msBase'
+import type { NestArchiveMeta } from './nestArchive'
 import { normalizeExtractError } from './extractPayload'
 
 async function handle<T>(res: Response): Promise<T> {
@@ -418,6 +419,49 @@ export async function msStateFile(
     blob: await res.blob(),
     filename: cdFilename(res, `yl-nest-${taskId}.msn`),
   }
+}
+
+// ---- 排料终态回传存档（四期 US-005；US-004 后端契约） ----
+// POST /api/nest/tasks/{task_id}/archive（**YL 后端**，非 MS——两通道结果
+// 统一收口到 YL 落盘，与任务绑定通道无关；PLT/.msn 取件仍走绑定通道，
+// 由调用方 NestSolveModal 先行取件后一并上送）。multipart 三件：file_plt
+//（PLT blob）+ file_msn（.msn gzip blob）+ meta（Form 字段，JSON 串——
+// 字段集见 nestArchive.buildArchiveMeta）。落盘文件名服务端钉死
+//（result.plt/state.msn/meta.json），上传 filename 仅出现在空文件/超限的
+// 422/413 错误回执里（透传 MS cdFilename 取件真名，排障可对号）。错误体
+// FastAPI {'detail': 中文}（US-004：路径安全闸/meta 不一致/空文件/超限）
+// 透传展示；非 JSON 体（代理 502 HTML 等）回落 HTTP 状态码文案。网络级
+// 失败是原生 TypeError，由调用方映射「YL 后端不可达」提示（回传 best-effort
+// 语义，不阻塞结果展示与下载）。30s 超时兜底同 msJson 口径（挂死不悬挂）
+export interface NestArchiveOk {
+  ok: boolean
+  task_id: string
+  dir: string
+  files: Record<string, string>
+  sizes: Record<string, number>
+}
+
+export async function archiveNest(
+  taskId: string,
+  plt: { blob: Blob; filename: string },
+  msn: { blob: Blob; filename: string },
+  meta: NestArchiveMeta,
+): Promise<NestArchiveOk> {
+  const form = new FormData()
+  form.append('file_plt', plt.blob, plt.filename)
+  form.append('file_msn', msn.blob, msn.filename)
+  form.append('meta', JSON.stringify(meta))
+  const res = await fetch(
+    `/api/nest/tasks/${encodeURIComponent(taskId)}/archive`,
+    { method: 'POST', body: form, signal: AbortSignal.timeout(30_000) })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    const detail = body !== null && typeof body === 'object'
+      ? (body as Record<string, unknown>).detail : null
+    throw new Error(typeof detail === 'string' && detail
+      ? detail : `回传存档失败（HTTP ${res.status}）`)
+  }
+  return res.json() as Promise<NestArchiveOk>
 }
 
 // Content-Disposition 文件名解析：RFC 5987 filename*=UTF-8''<pct-encoded>

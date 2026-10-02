@@ -19,19 +19,33 @@
 // US-003：非 idle 期置顶通道徽标（channelLabel/channelNote，PRD 钉死文案）
 // ——「本地排料(直连)」/「服务器排料(回退)」+ proxy 回退提示；下载 PLT/.msn
 // 与工作台引导链接随任务绑定通道（solve.channel 透传，弹窗层零分派逻辑）。
-import { useEffect, useMemo, useState } from 'react'
+// 四期 US-005：done 终态自动回传存档——PLT + .msn + meta 统一回传 YL 后端
+//（out/nest_archive/<task_id>/ 落盘，两通道收口与任务通道无关）；失败不动
+// 终态不锁下载（busy 态独立），小字指示 + 手动重试；口径全在 nestArchive
+// 模块（shouldAutoArchive 触发判定 / buildArchiveMeta 字段集 / archiveNote
+// 文案），本组件只做接线。
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   Alert, Button, InputNumber, Modal, Progress, Select, Space, Spin, Tag,
 } from 'antd'
 import {
-  DownloadOutlined, FileZipOutlined, SendOutlined, StopOutlined,
+  CheckCircleOutlined, DownloadOutlined, FileZipOutlined, LoadingOutlined,
+  RedoOutlined, SendOutlined, StopOutlined, WarningOutlined,
 } from '@ant-design/icons'
-import type { MsPerSeed, MsRunMode, NestResult } from '../types'
+import type {
+  MsMachineConfig, MsPerSeed, MsRunMode, NestResult,
+} from '../types'
 import type { NestSolveState } from '../hooks/useNestSolve'
-import { downloadBlob, downloadBlobBytes, msExport, msStateFile } from '../api'
+import {
+  archiveNest, downloadBlob, downloadBlobBytes, msExport, msStateFile,
+} from '../api'
 import type { MsChannel } from '../msBase'
 import { msWorkbenchUrl } from '../msBase'
+import {
+  archiveNote, buildArchiveMeta, shouldAutoArchive,
+} from '../nestArchive'
+import type { NestArchivePhase } from '../nestArchive'
 import {
   DEFAULT_GATE_CM, DEFAULT_RUN_MODE, RUN_MODE_OPTIONS, buildMachineConfig,
 } from '../msConfig'
@@ -134,6 +148,39 @@ function MsnDownload({
   )
 }
 
+// 回传存档状态行（US-005）：done 自动回传的小字指示——busy/ok/fail 三态，
+// fail 附手动重试出口。与下载入口互不相干（AC：回传失败不影响结果展示与
+// 「下载 PLT」「下载 .msn」）：本行不持任何下载 busy 态，下载按钮禁用逻辑
+// 恒只看 taskId 在场与否。idle 不渲染（stopped/取果失败期无回传）
+function ArchiveStatusRow({ phase, message, onRetry }: {
+  phase: NestArchivePhase
+  message: string | null
+  onRetry: () => void
+}) {
+  if (phase === 'idle') return null
+  return (
+    <div className="nest-result-actions">
+      {phase === 'busy'
+        ? <LoadingOutlined spin style={{ color: '#999' }} />
+        : null}
+      {phase === 'ok'
+        ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
+        : null}
+      {phase === 'fail'
+        ? <WarningOutlined style={{ color: '#faad14' }} />
+        : null}
+      <span className="extract-meta" style={{ marginBottom: 0 }}>
+        {archiveNote(phase, message)}
+      </span>
+      {phase === 'fail'
+        ? <Button size="small" icon={<RedoOutlined />} onClick={onRetry}>
+          重试回传
+        </Button>
+        : null}
+    </div>
+  )
+}
+
 // per_seed 阶段标签（seed 完成后入账；current.seed 命中且未杀 = 在跑高亮）
 function SeedTags({
   perSeed, currentSeed,
@@ -184,6 +231,15 @@ export default function NestSolveModal({
   const [pltError, setPltError] = useState<string | null>(null)
   const [msnBusy, setMsnBusy] = useState(false)
   const [msnError, setMsnError] = useState<string | null>(null)
+  // 回传存档态（US-005）：与下载 busy 态（pltBusy/msnBusy）完全独立——
+  // 回传进行中/失败都不锁「下载 PLT」「下载 .msn」；triedRef 记已自动触发
+  // 过的任务（重渲染/重开窗去重，失败重试只走手动按钮）；lastConfigRef 记
+  // 提交期 config 快照（meta 码套/回退 run_mode 来源，attach 重连场景为
+  // null——不臆造）
+  const [archivePhase, setArchivePhase] = useState<NestArchivePhase>('idle')
+  const [archiveMsg, setArchiveMsg] = useState<string | null>(null)
+  const archiveTriedRef = useRef<string | null>(null)
+  const lastConfigRef = useRef<MsMachineConfig | null>(null)
 
   // 码号套数表（2026-09-22 用户口径）：码号按数字升序展示（solveCtx 码表
   // 快照为用户配置序，MS sizes 顺序无语义）；套数不跨会话记忆——码表内容
@@ -218,6 +274,11 @@ export default function NestSolveModal({
       return
     }
     setFormError(null)
+    // 提交现场快照（US-005）：config 进 meta（码套/run_mode 回退）；回传态
+    // 复位——上一任务的回传指示不带入新任务（再次排料重开自动回传）
+    lastConfigRef.current = config
+    setArchivePhase('idle')
+    setArchiveMsg(null)
     saveNestSolveParams(params)
     // TS 5.7 起 BlobPart 不再接受 ArrayBufferLike（同 downloadBlobBytes
     // 形参注记）：atob/Uint8Array.from 产物显式收窄
@@ -271,6 +332,50 @@ export default function NestSolveModal({
       setMsnBusy(false)
     }
   }
+
+  // 回传存档（US-005）：done 后自动/手动重试同一入口——按任务绑定通道取
+  // PLT + .msn（并行双取件，msExport/msStateFile 显式通道直发），连同
+  // buildArchiveMeta 产物一并 POST 到 YL 后端 archive 端点落盘。best-effort：
+  // 任何失败只落 fail 小字 + 重试出口，不动终态、不锁下载（下载 busy 态
+  // 独立）；网络级 TypeError 归一「后端不可达」提示（裸 fetch 消息不可读）。
+  // 取件成功而回传失败时重试会重新取件——MS 端点只读幂等，多取无副作用
+  const doArchive = async () => {
+    if (solve.taskId === null || solve.result === null) return
+    setArchivePhase('busy')
+    setArchiveMsg(null)
+    try {
+      const ch = solve.channel ?? undefined
+      const [plt, msn] = await Promise.all([
+        msExport(solve.taskId, ch), msStateFile(solve.taskId, ch)])
+      await archiveNest(solve.taskId, plt, msn, buildArchiveMeta({
+        taskId: solve.taskId,
+        channel: solve.channel,
+        result: solve.result,
+        status: solve.status,
+        config: lastConfigRef.current,
+        startedAt: solve.startedAt,
+      }))
+      setArchivePhase('ok')
+    } catch (e) {
+      setArchiveMsg(e instanceof TypeError
+        ? '网络错误（排料服务或 YL 后端不可达）' : (e as Error).message)
+      setArchivePhase('fail')
+    }
+  }
+
+  // done 自动触发（US-005 AC）：判定/去重口径在 shouldAutoArchive
+  //（nestArchive 模块金标）；triedRef 在触发时落 taskId——effect 重渲染/
+  // StrictMode 双挂载天然只发一次。doArchive 刻意不进依赖数组：它读的是
+  // effect 触发当拍的 solve 现场（phase/taskId/result 已是依赖），闭包
+  // 语义正确；再次排料由 doSubmit 复位 triedRef 外的回传态衔接
+  useEffect(() => {
+    if (!shouldAutoArchive(
+      solve.phase, solve.taskId, solve.result, archiveTriedRef.current))
+      return
+    archiveTriedRef.current = solve.taskId
+    void doArchive()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [solve.phase, solve.taskId, solve.result])
 
   const { phase } = solve
   const pct = solve.totalSec !== null && solve.totalSec > 0
@@ -458,6 +563,14 @@ export default function NestSolveModal({
                 </a>）</>}
               onDownload={() => void doDownloadMsn()}
             />
+            {/* 回传存档状态行（US-005）：done 自动回传（两通道统一收口 YL
+                落盘）——busy/ok/fail 小字 + fail 手动重试；stopped 不自动
+                存档不渲染（口径 shouldAutoArchive） */}
+            {phase === 'done'
+              ? <ArchiveStatusRow
+                phase={archivePhase} message={archiveMsg}
+                onRetry={() => void doArchive()} />
+              : null}
             {pltError !== null
               ? <Alert type="error" showIcon
                 message={`PLT 导出失败：${pltError}`}

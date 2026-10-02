@@ -47,7 +47,12 @@ export const msStop = http.msStop
 export const msDeleteTask = http.msDeleteTask
 export const msExport = http.msExport
 export const msStateFile = http.msStateFile
-export type { MsError } from './apiHttp'
+
+// 排料终态回传存档（四期 US-005）：同族纯 HTTP（YL 后端落盘端点，非 MS
+// 直连），done 后由 NestSolveModal 自动取件 PLT/.msn 并回传；meta 编排在
+// nestArchive 模块（buildArchiveMeta/shouldAutoArchive/archiveNote）
+export const archiveNest = http.archiveNest
+export type { MsError, NestArchiveOk } from './apiHttp'
 
 // 本地引擎单命令超时（ms）：超时本次回落 HTTP 并计数，连续 3 次会话降级
 const TIMEOUTS: Record<EngineCmd, number> = {

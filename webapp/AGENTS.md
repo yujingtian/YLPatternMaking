@@ -130,3 +130,26 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
   env `YLP_NEST_ARCHIVE_DIR` 只在导入期读）；超限用例 monkeypatch
   `_NEST_ARCHIVE_MAX_FILE_BYTES`。`python-multipart` 已进 `[web]` extra
   （UploadFile 硬依赖，此前只在 `[agent]`）。
+
+## 前端 done 终态自动回传存档（2026-10-02 四期 US-005）
+
+- 契约闭环：`archiveNest(taskId, {blob,filename}×2, meta)`（apiHttp，api.ts
+  re-export）→ POST `/api/nest/tasks/{id}/archive`；meta 编排在
+  `src/nestArchive.ts`（buildArchiveMeta/shouldAutoArchive/archiveNote 三件
+  纯函数）——组件 NestSolveModal 只接线，弹窗常驻挂载故**关窗后台守望期
+  done 也自动回传**。`shouldAutoArchive` 只钉 done（stopped 不存档），
+  attemptedTaskId ref 去重防 effect 重触发；失败走「重试回传」手动出口
+  （重试会重新取件 PLT/.msn——MS 端点只读幂等）。
+- **TS 语法坑（本机 5.9.3 实测）**：`as` 断言**不能换行接在表达式后**
+  （`x\n as T` 被 ASI 吃掉成两条语句 → TS1005/TS1011 连环报错），长断言
+  要么同行要么先落 const 带类型注解。vitest 报 esbuild 解析错时先查这个。
+- **route mock ping 的坑**：`context.route(base + '/**')` 会**先于**专用
+  ping route（LIFO）截获 ping URL——mock 分派器必须自带
+  `GET /api/machine/ping → 200 {ok,service}` 分支，否则 ping 被 404 →
+  探测 miss → 全部落 proxy 通道（out/us005_archive_verify.mjs 首跑踩过）。
+- 验证脚本套路（out/us005_archive_verify.mjs）：真 mock MS Node server 服务
+  backend /ms httpx（proxy 通道）+ context.route fulfill 同分派器带 CORS
+  头（direct 通道，OPTIONS 预检 204 + ACAO *）；archive 失败注入用
+  `page.route('**/api/nest/tasks/*/archive')` 首发 fulfill 500 再
+  `route.fallback()` 放行；「不阻塞下载」断言 = 按钮 isEnabled + 点击
+  waitForEvent('download')。14 项断言两通道全绿。

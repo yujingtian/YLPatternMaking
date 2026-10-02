@@ -78,6 +78,12 @@
         "title": "useNestSolve 通道绑定与弹窗通道体验",
         "description": "作为 YL 用户，我希望排料弹窗明示当前通道、本地 MS 中断时有清晰出路，知道任务在哪跑、断了怎么恢复（PRD US-003，依赖 US-002）。\n\n具体任务：\n1. webapp/frontend/src/hooks/useNestSolve.ts — 提交流程前置通道探测；任务生命周期（task_id）绑定通道，localStorage 锚 'ylpattern.msNestTask.v1' 附通道标记（kind+base），恢复轮询走原通道\n2. 状态机 2s/15s 双档轮询、409/404 幂等容错零改动复用；直连任务轮询连续网络失败（本地 MS 中途死）→ error 态，引导「重启本地 MS 后恢复（锚点在，MS 重启后 marker 在 → orphan 恢复）/ 转服务器重跑」，不自动切换通道\n3. webapp/frontend/src/components/NestSolveModal.tsx — 通道指示：「本地排料(直连)」/「服务器排料(回退)」；回退触发时提示「未检测到本地 VB超排,已使用服务器排料(性能受限);启动本地 VB超排可获得更快速度」\n4. 「下载 PLT」「下载状态文件(.msn)」随通道自动切换（走 US-002 分派，弹窗层零特殊逻辑）\n5. 更新 useNestSolve.test.ts / NestSolveModal.test.tsx 既有先例单测\n\n验收标准：\n- 提交前探测通道并随 task_id 绑定，刷新页面恢复轮询走原通道\n- 弹窗正确显示通道标识与回退提示文案\n- 直连任务中断 → error 态引导两条出路，不自动切换通道、不自动重跑\n- cd webapp/frontend && npm run test 全绿",
         "passes": true
+      },
+      {
+        "id": "US-004",
+        "title": "回传存档后端 archive 端点",
+        "description": "作为生产管理者，我希望排料结果统一存档到 YL 服务器，排料历史可追溯、版师可随时取 .msn 续调，且不依赖 MS 侧 7 天 run_dir 清理窗口（PRD US-004 后端部分；与 US-001~003 无依赖，可并行开发）。\n\n具体任务：\n1. webapp/backend/app.py — 新增 POST /api/nest/tasks/{task_id}/archive：multipart 接收 file_plt（PLT 文本）+ file_msn（.msn gzip）+ meta（JSON 字符串：task_id/通道标记/density/width_mm/码套/seed/run_mode/时间）→ 落盘 out/nest_archive/<task_id>/（env YLP_NEST_ARCHIVE_DIR 覆盖）；meta 索引行追加 out/nest_archive/index.jsonl\n2. 形态参照 agent 服务 UploadFile multipart 先例（agent/app.py 约 42-50 行）；幂等（同 task_id 重传覆盖同路径）；文件大小上限与既有上传约定一致\n3. 鉴权按 YL 现状不新增（app.py 约 455 行注释先例）；YL 服务器整体鉴权为独立课题，不在本 PRD 范围\n4. tests/（test_nest_api.py 先例）— pytest：正常落盘三件/幂等覆盖/index.jsonl 追加/meta 字段完整\n\n验收标准：\n- POST 上传 PLT+.msn+meta 后 out/nest_archive/<task_id>/ 三件落盘、index.jsonl 追加索引行\n- 同 task_id 重传覆盖同路径，不报错不产生重复条目\n- python -m pytest tests/ -q 全绿",
+        "passes": true
       }
     ]
   }

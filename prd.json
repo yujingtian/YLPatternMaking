@@ -2,16 +2,10 @@
   "branchName": "ralph/machine-direct-channel",
   "stories": [
     {
-      "id": "US-004",
-      "title": "回传存档后端 archive 端点",
-      "description": "作为生产管理者，我希望排料结果统一存档到 YL 服务器，排料历史可追溯、版师可随时取 .msn 续调，且不依赖 MS 侧 7 天 run_dir 清理窗口（PRD US-004 后端部分；与 US-001~003 无依赖，可并行开发）。\n\n具体任务：\n1. webapp/backend/app.py — 新增 POST /api/nest/tasks/{task_id}/archive：multipart 接收 file_plt（PLT 文本）+ file_msn（.msn gzip）+ meta（JSON 字符串：task_id/通道标记/density/width_mm/码套/seed/run_mode/时间）→ 落盘 out/nest_archive/<task_id>/（env YLP_NEST_ARCHIVE_DIR 覆盖）；meta 索引行追加 out/nest_archive/index.jsonl\n2. 形态参照 agent 服务 UploadFile multipart 先例（agent/app.py 约 42-50 行）；幂等（同 task_id 重传覆盖同路径）；文件大小上限与既有上传约定一致\n3. 鉴权按 YL 现状不新增（app.py 约 455 行注释先例）；YL 服务器整体鉴权为独立课题，不在本 PRD 范围\n4. tests/（test_nest_api.py 先例）— pytest：正常落盘三件/幂等覆盖/index.jsonl 追加/meta 字段完整\n\n验收标准：\n- POST 上传 PLT+.msn+meta 后 out/nest_archive/<task_id>/ 三件落盘、index.jsonl 追加索引行\n- 同 task_id 重传覆盖同路径，不报错不产生重复条目\n- python -m pytest tests/ -q 全绿",
-      "passes": true
-    },
-    {
       "id": "US-005",
       "title": "前端 done 终态自动回传存档",
       "description": "作为生产管理者，我希望排料任务完成后前端自动回传 PLT/.msn/摘要到 YL 后端存档，两通道结果统一收口（PRD US-004 前端部分，依赖 US-003 弹窗终态与 US-004 archive 端点）。\n\n具体任务：\n1. webapp/frontend/src/apiHttp.ts（或同族位置，api.ts 按先例 re-export）— 新增回传函数：POST /api/nest/tasks/{task_id}/archive，multipart file_plt + file_msn + meta JSON（task_id/通道标记/density/width_mm/码套/seed/run_mode/时间）\n2. webapp/frontend/src/components/NestSolveModal.tsx — done 终态后自动回传（PLT blob + .msn blob + meta）；失败可手动重试、不阻塞结果展示与下载；回传状态小字指示\n3. 前端单测：done 自动触发回传/失败重试不阻塞下载/状态指示渲染\n\n验收标准：\n- 两通道 done 后自动回传，out/nest_archive/<task_id>/ 落盘 PLT + .msn + meta，index.jsonl 追加正确\n- 回传失败不影响结果展示与「下载 PLT」「下载 .msn」，可手动重试\n- cd webapp/frontend && npm run test 全绿；python -m pytest tests/ -q 全绿",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-006",

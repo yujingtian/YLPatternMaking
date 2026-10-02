@@ -9,10 +9,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  msDeleteTask, msExport, msResult, msSolveStart, msStateFile, msStatus,
-  msStop, normalizeMsError,
+  archiveNest, msDeleteTask, msExport, msResult, msSolveStart, msStateFile,
+  msStatus, msStop, normalizeMsError,
 } from './apiHttp'
 import { resetMsChannelCache } from './msBase'
+import type { NestArchiveMeta } from './nestArchive'
 import type { MsMachineConfig, MsStatus } from './types'
 
 const fetchMock = vi.fn()
@@ -439,5 +440,74 @@ describe('显式通道（任务级绑定，US-003）：零探测零降级直发'
     await msStateFile('m9', { kind: 'direct', base: BASE })
     expect(endpointCalls().map((c) => c[0]))
       .toEqual([`${BASE}/api/machine/solve/m9/state-file`])
+  })
+})
+
+describe('archiveNest（US-005 回传存档：YL 端点 multipart 三件）', () => {
+  // archiveNest 走 YL 后端 /api/nest/…（非 MS，不经 resolveMsChannel——
+  // 零 ping 探测）；stubProxy 语义同样适用（ping 全 miss 不影响本端点）
+  const META: NestArchiveMeta = {
+    task_id: 'us005-m1',
+    channel: { kind: 'direct', base: 'http://127.0.0.1:8011' },
+    density: 0.8157, density_pct: 81.57, width_mm: 1710, gate_mm: 1750,
+    seed: 3, run_mode: 'normal', quantities: { g01: { 29: 2 } },
+    started_at: '2026-10-02T08:00:00Z', uploaded_at: '2026-10-02T08:01:00Z',
+  }
+  const PLT = { blob: new Blob(['IN;PU10,10;PD250,250;PU;']),
+    filename: 'yl-nest-us005-m1.plt' }
+  const MSN = { blob: new Blob([new Uint8Array([0x1f, 0x8b, 0x08, 0x00])]),
+    filename: 'yl-nest-us005-m1.msn' }
+
+  it('POST /api/nest/tasks/{id}/archive：file_plt/file_msn/meta 三字段 + 响应透传', async () => {
+    stubProxy(() => ok({ ok: true, task_id: 'us005-m1',
+      dir: 'out/nest_archive/us005-m1',
+      files: { plt: 'result.plt', msn: 'state.msn', meta: 'meta.json' },
+      sizes: { plt: 22, msn: 4, meta: 300 } }))
+    const res = await archiveNest('us005-m1', PLT, MSN, META)
+    expect(res.dir).toBe('out/nest_archive/us005-m1')
+    // 恰一次端点请求（无通道探测混入——非 MS 端点不经 resolveMsChannel）
+    expect(endpointCalls()).toHaveLength(1)
+    const [url, init] = endpointCalls()[0]
+    expect(url).toBe('/api/nest/tasks/us005-m1/archive')
+    expect(init?.method).toBe('POST')
+    expect(init?.headers).toBeUndefined()   // 不手设 Content-Type（boundary 浏览器补）
+    const form = init?.body as FormData
+    expect(form.get('meta')).toBe(JSON.stringify(META))
+    const plt = form.get('file_plt') as File
+    const msn = form.get('file_msn') as File
+    expect(plt).toBeInstanceOf(Blob)
+    expect(plt.name).toBe('yl-nest-us005-m1.plt')
+    expect(await plt.text()).toBe('IN;PU10,10;PD250,250;PU;')
+    expect(msn.name).toBe('yl-nest-us005-m1.msn')
+    expect([...new Uint8Array(await msn.arrayBuffer())])
+      .toEqual([0x1f, 0x8b, 0x08, 0x00])    // gzip 字节原样（.msn 不透明）
+    // 30s 超时兜底同 msJson 口径
+    expect((init?.signal as AbortSignal).aborted).toBe(false)
+  })
+
+  it('taskId 特殊字符走 encodeURIComponent（同 msStatus 路径安全闸）', async () => {
+    stubProxy(() => ok({ ok: true }))
+    await archiveNest('a b/c', PLT, MSN, META)
+    expect(endpointCalls()[0][0])
+      .toBe('/api/nest/tasks/a%20b%2Fc/archive')
+  })
+
+  it("FastAPI {'detail'} 透传（400 meta 不一致 / 413 超限）", async () => {
+    stubProxy(() => fail(400,
+      { detail: "meta.task_id 与路径不一致（'m2' != 'm1'）" }))
+    await expect(archiveNest('m1', PLT, MSN, META))
+      .rejects.toThrow("meta.task_id 与路径不一致（'m2' != 'm1'）")
+  })
+
+  it('非 JSON 体（代理 502 HTML）→ HTTP 状态码兜底文案；detail 非串不理会', async () => {
+    stubProxy(() => ({
+      ok: false, status: 502,
+      json: async () => Promise.reject(new SyntaxError('Unexpected token')),
+    }))
+    await expect(archiveNest('m1', PLT, MSN, META))
+      .rejects.toThrow('回传存档失败（HTTP 502）')
+    stubProxy(() => fail(422, { detail: [{ param: 'file_plt' }] }))
+    await expect(archiveNest('m1', PLT, MSN, META))
+      .rejects.toThrow('回传存档失败（HTTP 422）')
   })
 })
