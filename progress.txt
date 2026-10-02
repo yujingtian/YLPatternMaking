@@ -14,10 +14,6 @@ Started: Mon, Sep 21, 2026  7:53:26 PM
 
 
 
-  - 测试: npx tsc --noEmit 零错误; npm test 364 全绿(新增 nestArchive 10+archiveNest 4); py -m pytest tests/ -q 1213 passed 18 skipped; 浏览器活体验证 out/us005_archive_verify.mjs 14/14 PASS(直连+回退两通道 done 自动落盘字节级/meta 通道标记/index.jsonl 追加/500 注入失败不锁下载+手动重试)
-  - 备注: stopped 不自动存档(PRD 只钉 done); attach 重连 quantities=null 不臆造; route mock ping 须在分派器内 200 否则通道误判 proxy(踩坑记录 webapp/AGENTS.md); 下一故事 US-006: 冒烟脚本扩展三场景+文档翻案(翻案补记指向 tasks/prd-machine-direct-channel.md)
 
-[2026-10-02 10:52] US-006 - 双通道冒烟与文档翻案 - DONE
-  - 改动: webapp/frontend/scripts/smoke_ms_nest.mjs, tasks/prd-ms-nesting-integration.md, .doc/python工程设计.md, webapp/AGENTS.md, prd.json
   - 测试: smoke:ms-nest 64/64 全绿(新增 D 直连全链 mock 本地 MS 10 项 + P 回退+回传 9 项 + M5 通道徽标 1 项, 首跑 62/63 修 P2 result 异步时序误判); npx tsc --noEmit 零错误; npm test 364 全绿(零改动); py -m pytest tests/ 1213 passed 18 skipped(test_ms_proxy.py 16 例零改动通过)
   - 备注: 三实例自举(A 真 MS/B 502/C mock+存档隔离); ping 确定性夹具=回退相全 abort/直连相 mock 口 fulfill 200(带 CORS 头); 「前端永不直连 MS」翻案补记落 prd-ms-nesting-integration.md:105 + 工程设计 §10.3.2 双通道拓扑图/端口环境变量/服务器 MS 部署口径五步清单(pip materialsorting[web] 恒绑 127.0.0.1 + YLP_MS_TOKEN↔MS_MACHINE_TOKEN 同值); PRD 全故事完结

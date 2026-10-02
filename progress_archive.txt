@@ -53,3 +53,7 @@
   - 备注: 落盘 out/nest_archive/<task_id>/{result.plt,state.msn,meta.json}+index.jsonl(每 task_id 恰一行, meta 全字段+archive_dir/files/archived_at); 校验前置拒绝即零落盘; 测试面 monkeypatch _NEST_ARCHIVE_DIR/_NEST_ARCHIVE_MAX_FILE_BYTES(同 _MS_BASE 先例); 下一故事 US-005: 前端 done 终态自动回传(apiHttp 新增 archiveNest 函数+NestSolveModal 回传态/重试), 契约细节见 webapp/AGENTS.md US-004 节
 [2026-10-02 10:40] US-005 - 前端 done 终态自动回传存档 - DONE
   - 改动: webapp/frontend/src/nestArchive.ts(新, meta构建/触发判定/文案三件纯函数), apiHttp.ts+api.ts(archiveNest multipart 回传函数+re-export), components/NestSolveModal.tsx(done 自动回传+失败重试+状态小字行, 下载 busy 态独立), nestArchive.test.ts(新 10 例), apiHttp.test.ts(+4 例), .doc/python工程设计.md(§10.3.2 US-005 条), webapp/AGENTS.md
+  - 测试: npx tsc --noEmit 零错误; npm test 364 全绿(新增 nestArchive 10+archiveNest 4); py -m pytest tests/ -q 1213 passed 18 skipped; 浏览器活体验证 out/us005_archive_verify.mjs 14/14 PASS(直连+回退两通道 done 自动落盘字节级/meta 通道标记/index.jsonl 追加/500 注入失败不锁下载+手动重试)
+  - 备注: stopped 不自动存档(PRD 只钉 done); attach 重连 quantities=null 不臆造; route mock ping 须在分派器内 200 否则通道误判 proxy(踩坑记录 webapp/AGENTS.md); 下一故事 US-006: 冒烟脚本扩展三场景+文档翻案(翻案补记指向 tasks/prd-machine-direct-channel.md)
+[2026-10-02 10:52] US-006 - 双通道冒烟与文档翻案 - DONE
+  - 改动: webapp/frontend/scripts/smoke_ms_nest.mjs, tasks/prd-ms-nesting-integration.md, .doc/python工程设计.md, webapp/AGENTS.md, prd.json
