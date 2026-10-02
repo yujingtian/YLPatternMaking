@@ -1,8 +1,10 @@
-// MS 排料服务（MaterialSorting）的唯一 base 来源（二期机器排料对接 §10.3.2）：
-//   dev  缺省 '/ms' -> Vite proxy -> http://127.0.0.1:8010
-//   prod 缺省 '/ms' -> webapp backend /ms/{path} httpx 同源转发
-//   特殊部署可用构建变量 VITE_MS_BASE 覆盖（绝对地址，此时自负 CORS 责任）
-export const MS_BASE: string = import.meta.env.VITE_MS_BASE ?? '/ms'
+// MS 排料服务（MaterialSorting）请求通道 base（二期机器排料对接 §10.3.2；
+// 四期双通道 US-002 起请求层通道感知）：proxy 通道/直连降级兜底恒用同源
+// 前缀 '/ms'——dev 由 Vite proxy 转 http://127.0.0.1:8010、prod 由 webapp
+// backend /ms/{path} httpx 转发，两形态同前缀零构建变量；直连通道的绝对
+// 地址（探测发现或 VITE_MS_BASE 运维钉死）由 resolveMsChannel 出，与本
+// 常量解耦——钉死的是「首选通道」，降级兜底恒回 YL 自己的 /ms 代理
+export const MS_PROXY_BASE = '/ms'
 
 // MS 排料工作台（版师日常访问地址，三期 .msn 引导链接用）：缺省直连 MS
 // 服务根（:8010 静态托管工作台页）——刻意不走 '/ms' 代理前缀（那是 API 通道；
@@ -87,6 +89,19 @@ export async function resolveMsChannel(): Promise<MsChannel> {
 export function resetMsChannelCache(): void {
   probeSeq += 1
   cachedChannel = null
+  inflightProbe = null
+}
+
+// 请求层降级钩子（US-002，apiHttp 请求壳调用）：直连通道的网络级失败
+// （fetch TypeError——CORS/PNA 预检被拒、拒连，JS 侧不可区分；半新半旧
+// 部署的兜底）时把会话缓存钉回 proxy，后续请求不再先各撞一次死直连；
+// 在飞探测同步作废（迟到回填被 seq 拒收）。任务级通道绑定（US-003
+// localStorage 锚 kind+base）不经过会话缓存，锚点恢复轮询不受降级影响；
+// VITE_MS_BASE 钉死形态 override 恒优先于缓存，demote 对其不生效（运维
+// 口径：配置即钉死，降级重试仍会发出但通道解析不变）
+export function demoteMsChannel(): void {
+  probeSeq += 1
+  cachedChannel = { kind: 'proxy' }
   inflightProbe = null
 }
 

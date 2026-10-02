@@ -79,3 +79,19 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
   无 task_id，200 `{ok:true, service:'machine'}` 恰两键——常驻 :8010 二期
   旧构建**没有**该端点（404），四期联调自起新 MS 实例（先例见上节
   MS_WEB_PORT 套路）。
+
+## 双通道请求层（2026-10-02 四期 US-002）
+
+- apiHttp MS 段七函数每请求先 `resolveMsChannel()`——**stub fetch 的用例每轮
+  混入 10 个 ping 探测调用**，端点断言用 `endpointCalls()` 滤（或按 URL 前缀
+  分流 stubProxy/stubDirect，先例 apiHttp.test.ts）；跨用例须 beforeEach
+  `resetMsChannelCache()`。
+- 直连降级（AC#4）：direct 请求 fetch TypeError（CORS/PNA/拒连不可区分）
+  → `demoteMsChannel()`（会话缓存钉回 proxy）+ 同请求 proxy 形态重发。
+  **只有 TypeError 降级**——30s 超时（DOMException TimeoutError）不降级，
+  照旧落 useNestSolve 连续失败计数；HTTP 非 2xx 永不降级。
+- `MS_BASE` 已删，改 `MS_PROXY_BASE '/ms'`：VITE_MS_BASE 只钉「首选
+  direct 通道」（resolveMsChannel 调用期读），降级兜底恒回 YL 自己的 /ms。
+- msStateFile 双端点分派：direct → MS 原生 `{base}/api/machine/solve/{id}/
+  state-file`（无 token；需 MS 侧浏览器直连新构建）；proxy → YL 代理
+  `/api/nest/tasks/{id}/state-file`（token 注入）。

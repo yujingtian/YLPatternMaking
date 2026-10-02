@@ -57,5 +57,16 @@
         "passes": true
       }
     ]
+  },
+  {
+    "branchName": "ralph/machine-direct-channel",
+    "stories": [
+      {
+        "id": "US-001",
+        "title": "msBase 通道选择层（直连端口发现+代理回退）",
+        "description": "作为 YL 用户，我希望排料发起时自动探测本地 VB超排并选择通道，有本地 MS 走高性能直连、没有则无感回退服务器排料（PRD：tasks/prd-machine-direct-channel.md US-001）。\n\n具体任务：\n1. webapp/frontend/src/msBase.ts — 新增异步 resolveMsChannel(): Promise<{kind:'direct', base:string} | {kind:'proxy'}>：并发 fetch http://127.0.0.1:8010..8019/api/machine/ping（AbortSignal 短超时 ~300ms，10 候选并发毫秒级），首个命中 → direct 并缓存 base；全败 → proxy\n2. 地址必须用 127.0.0.1 字面量（MS 只绑 IPv4 loopback；localhost 可能解析 ::1；局域网 IP 被 HTTPS mixed content 硬拦）\n3. VITE_MS_BASE 显式覆盖保留（运维兜底）；MS_WORKBENCH_URL（三期引导链接，现写死 8010）跟随发现端口，未发现时保持缺省\n4. webapp/frontend/src/msBase.test.ts — 单测（已有先例）：命中/全败回退/VITE_MS_BASE 覆盖/缓存语义（mock fetch）\n\n验收标准：\n- 任一端口 ping 命中时返回 {kind:'direct', base:'http://127.0.0.1:80xx'}，全败返回 {kind:'proxy'}\n- 探测总墙钟 <1s（300ms 超时 × 10 并发，不拖慢发起）\n- VITE_MS_BASE 配置时优先于探测结果\n- cd webapp/frontend && npm run test 全绿；npx tsc --noEmit 零错误",
+        "passes": true
+      }
+    ]
   }
 ]

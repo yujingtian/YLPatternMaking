@@ -8,8 +8,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  msWorkbenchUrl, MS_DIRECT_PORTS, MS_PING_TIMEOUT_MS, MS_WORKBENCH_URL,
-  resetMsChannelCache, resolveMsChannel,
+  demoteMsChannel, msWorkbenchUrl, MS_DIRECT_PORTS, MS_PING_TIMEOUT_MS,
+  MS_WORKBENCH_URL, resetMsChannelCache, resolveMsChannel,
 } from './msBase'
 
 const fetchMock = vi.fn()
@@ -140,5 +140,27 @@ describe('msWorkbenchUrl：三期引导链接跟随通道', () => {
   it('非 127.0.0.1 直连 base（VITE_MS_BASE 钉远端）不自动跟随，回缺省', () => {
     expect(msWorkbenchUrl({ kind: 'direct', base: 'https://ms.example.com' }))
       .toBe(MS_WORKBENCH_URL)
+  })
+})
+
+describe('demoteMsChannel：请求层降级钩子（US-002）', () => {
+  it('钉缓存 proxy——后续 resolve 零探测直返；在飞探测迟到回填被拒收', async () => {
+    stubFetch((url) => (url.includes(':8010/') ? pingOk()
+      : Promise.reject(new Error('miss'))))
+    expect(await resolveMsChannel())
+      .toEqual({ kind: 'direct', base: 'http://127.0.0.1:8010' })
+    demoteMsChannel()
+    // 钉回 proxy：不发新探测（fetch 计数不增），resolve 直接命中缓存
+    expect(await resolveMsChannel()).toEqual({ kind: 'proxy' })
+    expect(fetchMock).toHaveBeenCalledTimes(MS_DIRECT_PORTS.length)
+  })
+
+  it('demote 后 resetMsChannelCache 可恢复探测（测试复位语义不变）', async () => {
+    stubFetch(() => Promise.reject(new Error('miss')))
+    expect(await resolveMsChannel()).toEqual({ kind: 'proxy' })
+    demoteMsChannel()
+    resetMsChannelCache()
+    expect(await resolveMsChannel()).toEqual({ kind: 'proxy' })
+    expect(fetchMock).toHaveBeenCalledTimes(MS_DIRECT_PORTS.length * 2)
   })
 })

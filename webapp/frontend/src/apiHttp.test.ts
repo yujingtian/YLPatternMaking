@@ -1,16 +1,24 @@
-// apiHttp MS 段金标（vitest node env，fetch 全程 stub 不触网）：六函数
-// URL/方法/载荷口径 + normalizeMsError 两形态归一（msStateFile 走 YL 代理
-// 端点 /api/nest 前缀，非 /ms）。MS_BASE 取缺省 '/ms'
-//（vitest 无 VITE_MS_BASE 构建变量）。
+// apiHttp MS 段金标（vitest node env，fetch 全程 stub 不触网）：七函数
+// URL/方法/载荷口径 + normalizeMsError 两形态归一 + 双通道跟随（US-002）。
+// ms* 函数每请求先 resolveMsChannel——每用例首轮 10 个 ping 探测调用混入
+// fetchMock，端点断言经 endpointCalls() 滤掉；缺省用例走 proxy 形态
+//（ping 全 miss → '/ms'，现状断言口径），direct 形态（ping 命中发现
+// base）与直连网络级失败降级（TypeError → demote + '/ms' 重试）各有
+// 专述 describe。vitest 无 VITE_MS_BASE 构建变量（探测必发）。
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   msDeleteTask, msExport, msResult, msSolveStart, msStateFile, msStatus,
   msStop, normalizeMsError,
 } from './apiHttp'
+import { resetMsChannelCache } from './msBase'
 import type { MsMachineConfig, MsStatus } from './types'
 
 const fetchMock = vi.fn()
+
+beforeEach(() => {
+  resetMsChannelCache()   // 会话通道缓存跨用例串台防线（msBase 先例）
+})
 
 afterEach(() => {
   fetchMock.mockReset()
@@ -20,6 +28,38 @@ afterEach(() => {
 function stubFetch(impl: (url: string, init?: RequestInit) => unknown) {
   fetchMock.mockImplementation(impl)
   vi.stubGlobal('fetch', fetchMock)
+}
+
+// ---- 通道探测与端点请求的 stub 分流（US-002 起 ms* 先取通道再发请求）----
+
+const isPing = (url: unknown): boolean =>
+  typeof url === 'string' && url.endsWith('/api/machine/ping')
+
+// 探测 ping 之外的端点请求（每用例恰一轮 10 ping，demote 后零新探测）
+const endpointCalls = () =>
+  fetchMock.mock.calls.filter(([url]) => !isPing(url))
+
+// proxy 通道形态：ping 全 miss（连接拒绝）→ 通道回退 '/ms'（现状断言口径）
+function stubProxy(impl: (url: string, init?: RequestInit) => unknown) {
+  stubFetch((url, init) => (isPing(url)
+    ? Promise.reject(new TypeError('Failed to fetch'))
+    : impl(url, init)))
+}
+
+// direct 通道形态：仅 <base> 端口 ping 命中（端口序低口优先的发现语义
+// 由 msBase.test 覆盖，此处钉单一命中口），端点请求交 impl
+function stubDirect(
+  base: string,
+  impl: (url: string, init?: RequestInit) => unknown,
+) {
+  stubFetch((url, init) => {
+    if (isPing(url)) {
+      return url === `${base}/api/machine/ping`
+        ? { ok: true, status: 200 }
+        : Promise.reject(new TypeError('Failed to fetch'))
+    }
+    return impl(url, init)
+  })
 }
 
 // 够用形状的成功/失败响应壳（本模块只消费 ok/status/json/blob/headers.get）
@@ -37,6 +77,18 @@ const CONFIG: MsMachineConfig = {
   sizes: [29, 30],
   per_type: { g01: { d: 0, tol: 0 } },
   quantities: { g01: { 29: 2, 30: 2 } },
+}
+
+// 二进制附件响应壳（msExport PLT / msStateFile .msn 共用形状）：gzip 魔数
+// 1f 8b 起头钉死「blob 零解析透传」口径（.msn 对前端不透明，严禁 text()
+// 字符串通道在别处复活）；headers.get 仅服务 content-disposition
+function okAttachment(cd: string | null, bytes = [0x1f, 0x8b, 0x08, 0x00]) {
+  return {
+    ok: true, status: 200,
+    json: async () => ({}),
+    blob: async () => new Blob([new Uint8Array(bytes)]),
+    headers: { get: (k: string) => (k === 'content-disposition' ? cd : null) },
+  }
 }
 
 describe('normalizeMsError（两形态归一 + status 兜底）', () => {
@@ -72,11 +124,11 @@ describe('normalizeMsError（两形态归一 + status 兜底）', () => {
 
 describe('msSolveStart（multipart 口径）', () => {
   it('file + config 两字段；config JSON 含 client_ref；不手设 Content-Type', async () => {
-    stubFetch(() => ok({ task_id: 'm1', run_name: 'machine_x', started_at: 't' }))
+    stubProxy(() => ok({ task_id: 'm1', run_name: 'machine_x', started_at: 't' }))
     const res = await msSolveStart(new Blob(['dxf']), 'nest_size_run.dxf',
       { ...CONFIG, client_ref: 'yl-ref-1' })
     expect(res.task_id).toBe('m1')
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = endpointCalls()[0]
     expect(url).toBe('/ms/api/machine/solve')
     expect(init.method).toBe('POST')
     expect(init.headers).toBeUndefined()   // multipart boundary 交给浏览器
@@ -87,7 +139,7 @@ describe('msSolveStart（multipart 口径）', () => {
   })
 
   it('409 重复提交 → MsError 透传中文 + taskId', async () => {
-    stubFetch(() => fail(409, {
+    stubProxy(() => fail(409, {
       error: "client_ref 'x' 已有在飞任务（task_id=m9）", task_id: 'm9',
     }))
     await expect(msSolveStart(new Blob(['d']), 'n.dxf', CONFIG))
@@ -99,7 +151,7 @@ describe('msSolveStart（multipart 口径）', () => {
   })
 
   it('MS 未启动（代理 502）→ detail 透传', async () => {
-    stubFetch(() => fail(502, {
+    stubProxy(() => fail(502, {
       detail: 'MS 排料服务未启动或不可达（默认 http://127.0.0.1:8010）',
     }))
     await expect(msSolveStart(new Blob(['d']), 'n.dxf', CONFIG))
@@ -120,9 +172,9 @@ describe('msStatus / msStop / msResult（路径与方法）', () => {
       },
       current: null, per_seed: [], error: null, exit_code: null,
     }
-    stubFetch(() => ok(st))
+    stubProxy(() => ok(st))
     expect(await msStatus('m1')).toEqual(st)
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = endpointCalls()[0]
     expect(url).toBe('/ms/api/machine/solve/m1/status')
     // 2026-09-29：msJson 恒带 30s 超时 signal（挂死连接兜底，别再裸 fetch）
     expect(init?.method).toBeUndefined()
@@ -131,32 +183,32 @@ describe('msStatus / msStop / msResult（路径与方法）', () => {
   })
 
   it('taskId 特殊字符走 encodeURIComponent（路径安全闸）', async () => {
-    stubFetch(() => fail(404, { error: '任务不存在' }))
+    stubProxy(() => fail(404, { error: '任务不存在' }))
     await expect(msStatus('a/b c')).rejects.toMatchObject({ status: 404 })
-    expect(fetchMock.mock.calls[0][0])
+    expect(endpointCalls()[0][0])
       .toBe('/ms/api/machine/solve/a%2Fb%20c/status')
   })
 
   it('msStop POST .../stop，响应透传', async () => {
-    stubFetch(() => ok({ stopped: true, pid: 123 }))
+    stubProxy(() => ok({ stopped: true, pid: 123 }))
     expect(await msStop('m1')).toEqual({ stopped: true, pid: 123 })
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = endpointCalls()[0]
     expect(url).toBe('/ms/api/machine/solve/m1/stop')
     expect(init.method).toBe('POST')
   })
 
   it('msResult GET .../result；running 409 归一', async () => {
-    stubFetch(() => fail(409, { error: '机器排料任务尚未结束' }))
+    stubProxy(() => fail(409, { error: '机器排料任务尚未结束' }))
     await expect(msResult('m1')).rejects.toMatchObject({
       status: 409, message: '机器排料任务尚未结束',
     })
-    expect(fetchMock.mock.calls[0][0]).toBe('/ms/api/machine/solve/m1/result')
+    expect(endpointCalls()[0][0]).toBe('/ms/api/machine/solve/m1/result')
   })
 
   it('msDeleteTask DELETE .../solve/{id}（结果期关窗 best-effort 回收）', async () => {
-    stubFetch(() => ok({ deleted: true }))
+    stubProxy(() => ok({ deleted: true }))
     await expect(msDeleteTask('m1')).resolves.toBeUndefined()
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = endpointCalls()[0]
     expect(url).toBe('/ms/api/machine/solve/m1')
     expect(init.method).toBe('DELETE')
     // 非 2xx 仍归一 MsError（调用方 catch 静默——MS 侧 TTL+7 天兜底）
@@ -166,84 +218,64 @@ describe('msStatus / msStop / msResult（路径与方法）', () => {
 })
 
 describe('msExport（{task_id} 最小体 + 文件名解析）', () => {
-  function okPlt(cd: string | null) {
-    return {
-      ok: true, status: 200,
-      json: async () => ({}),
-      blob: async () => new Blob(['IN;PU']),
-      headers: { get: (k: string) => (k === 'content-disposition' ? cd : null) },
-    }
-  }
-
   it('请求体仅 {task_id}；UTF-8 filename* 优先解码中文真名', async () => {
-    stubFetch(() => okPlt(
+    stubProxy(() => okAttachment(
       'attachment; filename="nest_m1.plt"; '
       + "filename*=UTF-8''%E6%8E%92%E6%96%99.plt"))
     const res = await msExport('m1')
     expect(res.filename).toBe('排料.plt')
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = endpointCalls()[0]
     expect(url).toBe('/ms/api/machine/export')
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body as string)).toEqual({ task_id: 'm1' })
   })
 
   it('仅 ASCII filename="…" 亦可用', async () => {
-    stubFetch(() => okPlt('attachment; filename="nest_m1.plt"'))
+    stubProxy(() => okAttachment('attachment; filename="nest_m1.plt"'))
     expect((await msExport('m1')).filename).toBe('nest_m1.plt')
   })
 
   it('缺 Content-Disposition → 本地合成 yl-nest-{taskId}.plt', async () => {
-    stubFetch(() => okPlt(null))
+    stubProxy(() => okAttachment(null))
     expect((await msExport('m9')).filename).toBe('yl-nest-m9.plt')
   })
 
   it('非 2xx → normalizeMsError（404 任务不存在）', async () => {
-    stubFetch(() => fail(404, { error: '任务不存在（task_id=m9）' }))
+    stubProxy(() => fail(404, { error: '任务不存在（task_id=m9）' }))
     await expect(msExport('m9')).rejects.toMatchObject({
       status: 404, message: '任务不存在（task_id=m9）',
     })
   })
 })
 
-describe('msStateFile（YL 代理端点 + .msn 文件名解析）', () => {
-  // gzip 魔数 1f 8b 起头的二进制体——钉死「blob 零解析透传」口径（.msn
-  // 对前端不透明，严禁 text() 字符串通道在别处复活）
-  function okMsn(cd: string | null) {
-    return {
-      ok: true, status: 200,
-      json: async () => ({}),
-      blob: async () => new Blob([new Uint8Array([0x1f, 0x8b, 0x08, 0x00])]),
-      headers: { get: (k: string) => (k === 'content-disposition' ? cd : null) },
-    }
-  }
-
+describe('msStateFile（proxy 通道 YL 代理端点 + .msn 文件名解析）', () => {
   it('GET /api/nest/tasks/{id}/state-file（YL 代理非 /ms 直连）；UTF-8 filename* 优先解码中文真名；blob 二进制原样透出', async () => {
-    stubFetch(() => okMsn('attachment; filename="machine_m1.msn"; '
+    stubProxy(() => okAttachment('attachment; filename="machine_m1.msn"; '
       + "filename*=UTF-8''%E6%8E%92%E6%96%99.msn"))
     const res = await msStateFile('m1')
     expect(res.filename).toBe('排料.msn')
     expect(res.blob.size).toBe(4)
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = endpointCalls()[0]
     expect(url).toBe('/api/nest/tasks/m1/state-file')
     expect(init).toBeUndefined()   // 纯 GET：无方法/载荷/头
   })
 
   it('仅 ASCII filename="…" 亦可用；缺头 → 本地合成 yl-nest-{id}.msn', async () => {
-    stubFetch(() => okMsn('attachment; filename="machine_m1.msn"'))
+    stubProxy(() => okAttachment('attachment; filename="machine_m1.msn"'))
     expect((await msStateFile('m1')).filename).toBe('machine_m1.msn')
-    stubFetch(() => okMsn(null))
+    stubFetch(() => okAttachment(null))
     expect((await msStateFile('m9')).filename).toBe('yl-nest-m9.msn')
   })
 
   it('taskId 特殊字符走 encodeURIComponent（路径安全闸，同 msStatus）', async () => {
-    stubFetch(() => fail(404, { detail: '任务不存在或已清理' }))
+    stubProxy(() => fail(404, { detail: '任务不存在或已清理' }))
     await expect(msStateFile('a/b c')).rejects.toMatchObject({ status: 404 })
-    expect(fetchMock.mock.calls[0][0])
+    expect(endpointCalls()[0][0])
       .toBe('/api/nest/tasks/a%2Fb%20c/state-file')
   })
 
   it('非 2xx → US-001 映射中文文案经 detail 原样透出（不重写）', async () => {
-    stubFetch(() => fail(404, { detail: '任务不存在或已清理' }))
+    stubProxy(() => fail(404, { detail: '任务不存在或已清理' }))
     await expect(msStateFile('m9')).rejects.toMatchObject({
       status: 404, message: '任务不存在或已清理',
     })
@@ -258,3 +290,113 @@ describe('msStateFile（YL 代理端点 + .msn 文件名解析）', () => {
   })
 })
 
+
+describe('通道跟随（direct 发现 base，US-002）', () => {
+  const BASE = 'http://127.0.0.1:8013'
+
+  it('msSolveStart 走 {base}/api/machine/solve；multipart/30s 超时约定不变', async () => {
+    stubDirect(BASE, () =>
+      ok({ task_id: 'm1', run_name: 'machine_x', started_at: 't' }))
+    const res = await msSolveStart(new Blob(['dxf']), 'nest_size_run.dxf', CONFIG)
+    expect(res.task_id).toBe('m1')
+    const [url, init] = endpointCalls()[0]
+    expect(url).toBe(`${BASE}/api/machine/solve`)
+    expect(init.method).toBe('POST')
+    expect(init.headers).toBeUndefined()   // multipart boundary 交给浏览器
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('msStatus/msStop/msResult/msDeleteTask/msExport 同款跟随（签名零改动）', async () => {
+    stubDirect(BASE, (url) =>
+      url.endsWith('/export') ? okAttachment(null) : ok({ stopped: true, pid: 1 }))
+    await msStatus('m7')
+    expect(endpointCalls()[0][0]).toBe(`${BASE}/api/machine/solve/m7/status`)
+    await msStop('m7')
+    expect(endpointCalls()[1][0]).toBe(`${BASE}/api/machine/solve/m7/stop`)
+    await msResult('m7')
+    expect(endpointCalls()[2][0]).toBe(`${BASE}/api/machine/solve/m7/result`)
+    await msDeleteTask('m7')
+    expect(endpointCalls()[3][0]).toBe(`${BASE}/api/machine/solve/m7`)
+    expect((await msExport('m7')).filename).toBe('yl-nest-m7.plt')
+    expect(endpointCalls()[4][0]).toBe(`${BASE}/api/machine/export`)
+  })
+
+  it('msStateFile direct → MS 原生端点 {base}/api/machine/solve/{id}/state-file（纯 GET 无 token 头）', async () => {
+    stubDirect(BASE, () =>
+      okAttachment('attachment; filename="machine_m1.msn"'))
+    const res = await msStateFile('m1')
+    expect(res.filename).toBe('machine_m1.msn')
+    const [url, init] = endpointCalls()[0]
+    expect(url).toBe(`${BASE}/api/machine/solve/m1/state-file`)
+    expect(init).toBeUndefined()
+  })
+})
+
+describe('直连网络级失败 → 降级 proxy（AC#4：归一为回退，不抛裸网络错误）', () => {
+  const BASE = 'http://127.0.0.1:8013'
+
+  // 直连尝试一律 TypeError（CORS/PNA 预检被拒、拒连 JS 侧同形态不可区分），
+  // proxy 形态（'/ms' 或 YL 端点）按 impl 落定
+  function stubDirectDead(proxyImpl: (url: string) => unknown) {
+    stubDirect(BASE, (url) => (url.startsWith(`${BASE}/`)
+      ? Promise.reject(new TypeError('Failed to fetch'))
+      : proxyImpl(url)))
+  }
+
+  it('TypeError → demote + 同请求 /ms 重试成功；会话通道钉回 proxy（后续请求零新探测、直奔 /ms）', async () => {
+    stubDirectDead(() => ok({ stopped: true, pid: 5 }))
+    expect(await msStop('m1')).toEqual({ stopped: true, pid: 5 })
+    expect(endpointCalls().map((c) => c[0])).toEqual([
+      `${BASE}/api/machine/solve/m1/stop`,
+      '/ms/api/machine/solve/m1/stop',
+    ])
+    // 降级已钉缓存：第二次请求不再先撞直连、也不再发探测
+    expect(await msStop('m1')).toEqual({ stopped: true, pid: 5 })
+    expect(endpointCalls().map((c) => c[0])).toEqual([
+      `${BASE}/api/machine/solve/m1/stop`,
+      '/ms/api/machine/solve/m1/stop',
+      '/ms/api/machine/solve/m1/stop',
+    ])
+    expect(fetchMock.mock.calls.filter(([u]) => isPing(u))).toHaveLength(10)
+  })
+
+  it('msSolveStart multipart 体在 proxy 重试中原样重发（FormData 可复用）', async () => {
+    stubDirectDead(() => ok({ task_id: 'm2', run_name: 'r', started_at: 't' }))
+    const res = await msSolveStart(new Blob(['dxf']), 'nest_size_run.dxf',
+      { ...CONFIG, client_ref: 'yl-ref-2' })
+    expect(res.task_id).toBe('m2')
+    const calls = endpointCalls()
+    expect(calls.map((c) => c[0])).toEqual([
+      `${BASE}/api/machine/solve`, '/ms/api/machine/solve'])
+    const retryForm = calls[1][1].body as FormData
+    expect(retryForm.get('config'))
+      .toBe(JSON.stringify({ ...CONFIG, client_ref: 'yl-ref-2' }))
+    expect((retryForm.get('file') as File).name).toBe('nest_size_run.dxf')
+  })
+
+  it('msStateFile 直连失败 → 降级切 YL 代理端点（两形态路径不同，随形态切换）', async () => {
+    stubDirectDead(() => okAttachment('attachment; filename="machine_m9.msn"'))
+    const res = await msStateFile('m9')
+    expect(res.filename).toBe('machine_m9.msn')
+    expect(endpointCalls().map((c) => c[0])).toEqual([
+      `${BASE}/api/machine/solve/m9/state-file`,
+      '/api/nest/tasks/m9/state-file',
+    ])
+  })
+
+  it('非 TypeError（30s 超时 TimeoutError）不降级——原样抛给调用方计连续失败', async () => {
+    stubDirect(BASE, () =>
+      Promise.reject(new DOMException('signal timed out', 'TimeoutError')))
+    await expect(msStatus('m1')).rejects.toBeInstanceOf(DOMException)
+    expect(endpointCalls()).toHaveLength(1)   // 无 proxy 重试
+  })
+
+  it('proxy 也网络失败 → TypeError 透出（useNestSolve「可重试」口径不变）', async () => {
+    stubDirectDead(() => Promise.reject(new TypeError('Failed to fetch')))
+    await expect(msStatus('m1')).rejects.toBeInstanceOf(TypeError)
+    expect(endpointCalls().map((c) => c[0])).toEqual([
+      `${BASE}/api/machine/solve/m1/status`,
+      '/ms/api/machine/solve/m1/status',
+    ])
+  })
+})

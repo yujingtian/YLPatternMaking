@@ -2,16 +2,10 @@
   "branchName": "ralph/machine-direct-channel",
   "stories": [
     {
-      "id": "US-001",
-      "title": "msBase 通道选择层（直连端口发现+代理回退）",
-      "description": "作为 YL 用户，我希望排料发起时自动探测本地 VB超排并选择通道，有本地 MS 走高性能直连、没有则无感回退服务器排料（PRD：tasks/prd-machine-direct-channel.md US-001）。\n\n具体任务：\n1. webapp/frontend/src/msBase.ts — 新增异步 resolveMsChannel(): Promise<{kind:'direct', base:string} | {kind:'proxy'}>：并发 fetch http://127.0.0.1:8010..8019/api/machine/ping（AbortSignal 短超时 ~300ms，10 候选并发毫秒级），首个命中 → direct 并缓存 base；全败 → proxy\n2. 地址必须用 127.0.0.1 字面量（MS 只绑 IPv4 loopback；localhost 可能解析 ::1；局域网 IP 被 HTTPS mixed content 硬拦）\n3. VITE_MS_BASE 显式覆盖保留（运维兜底）；MS_WORKBENCH_URL（三期引导链接，现写死 8010）跟随发现端口，未发现时保持缺省\n4. webapp/frontend/src/msBase.test.ts — 单测（已有先例）：命中/全败回退/VITE_MS_BASE 覆盖/缓存语义（mock fetch）\n\n验收标准：\n- 任一端口 ping 命中时返回 {kind:'direct', base:'http://127.0.0.1:80xx'}，全败返回 {kind:'proxy'}\n- 探测总墙钟 <1s（300ms 超时 × 10 并发，不拖慢发起）\n- VITE_MS_BASE 配置时优先于探测结果\n- cd webapp/frontend && npm run test 全绿；npx tsc --noEmit 零错误",
-      "passes": true
-    },
-    {
       "id": "US-002",
       "title": "apiHttp 通道感知（七函数跟随+双通道分派）",
       "description": "作为 YL 前端开发者，我希望 MS 请求层通道感知，使七个 ms* 函数与 .msn 下载在直连/代理两通道下都正确工作（PRD US-002，依赖 US-001 的 resolveMsChannel）。\n\n具体任务：\n1. webapp/frontend/src/apiHttp.ts — msJson 壳（约 252-260 行）base 改为通道感知：direct → US-001 发现的 base；proxy → '/ms'（现状路径零变化）\n2. msSolveStart/msStatus/msResult/msStop/msDeleteTask/msExport（约 266-330 行）自动跟随通道，函数签名与调用方零改动；multipart 手不设 Content-Type、30s timeout 既有约定不变\n3. msStateFile（约 339-352 行）双通道分派：direct → GET {base}/api/machine/solve/{id}/state-file（MS 侧浏览器直连模式不设 token）；proxy → 现状 GET /api/nest/tasks/{id}/state-file（YL 后端注入 token）零改动\n4. 直连通道的跨源失败（CORS/PNA 未放行、MS 版本过旧无 ping）归一为「回退 proxy」——通道降级容错在请求层兜底\n5. 更新 apiHttp 相关单测（normalizeMsError 双形态既有约定保持）\n\n验收标准：\n- 七个 ms* 函数在 direct/proxy 两通道下请求目标正确，调用方零改动\n- msStateFile 直连走 MS 原生端点（无 token）、代理走 YL 后端端点（token 注入）\n- 直连 CORS/PNA 失败时自动降级 proxy，不向用户抛裸网络错误\n- cd webapp/frontend && npm run test 全绿；npx tsc --noEmit 零错误",
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-003",

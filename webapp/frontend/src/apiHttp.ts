@@ -6,7 +6,8 @@ import type {
 import type { ChatTurnResponse, ExtractResponse } from './types'
 import { AGENT_BASE } from './agentConfig'
 import { normalizeChatError } from './chatPayload'
-import { MS_BASE } from './msBase'
+import { MS_PROXY_BASE, demoteMsChannel, resolveMsChannel } from './msBase'
+import type { MsChannel } from './msBase'
 import { normalizeExtractError } from './extractPayload'
 
 async function handle<T>(res: Response): Promise<T> {
@@ -207,12 +208,15 @@ export async function postChatTurn(form: FormData): Promise<ChatTurnResponse> {
   return res.json() as Promise<ChatTurnResponse>
 }
 
-// ---- MS 机器排料六端点（/ms 前缀；dev=Vite proxy、prod=backend httpx 转发） ----
+// ---- MS 机器排料六端点（通道感知：direct 发现 base / proxy '/ms' 前缀）----
 // 纯 HTTP（求解/轮询/取果/停止/PLT 导出全在 MS 服务侧，Pyodide 不做排料），
-// 同 postNest 先例不进 route() 引擎通道。错误体两形态：MS {'error': 中文}
+// 同 postNest 先例不进 route() 引擎通道。四期双通道 US-002：每请求经
+// resolveMsChannel 取通道（会话缓存命中零网络成本）——direct → US-001
+// 发现的 base（浏览器直连本地 MS）；proxy → '/ms'（dev=Vite proxy、
+// prod=backend httpx 转发，现状路径零变化）。错误体两形态：MS {'error': 中文}
 //（solve 409 重复提交另带 task_id）、YL /ms 代理 {'detail': 中文}（502）——
 // normalizeMsError 归一成可读中文；网络级失败是原生 TypeError（不归一），
-// 由调用方（useNestSolve）按「可重试」处理。
+// 由调用方（useNestSolve）按「可重试」处理（直连 TypeError 先经降级兜底）。
 
 // MS 错误归一产物：带 HTTP status（404/400 等不可重试判定用）与 409 带回的
 // 既有 task_id（幂等冲突提示用）
@@ -245,13 +249,46 @@ export function normalizeMsError(status: number, body: unknown): MsError {
   return err
 }
 
+// 通道分派 + 直连降级兜底（US-002 tasks/prd-machine-direct-channel.md）：
+// attempt 收当前通道组请求（直连/代理两形态的 URL 或路径可不同，如
+// msStateFile 的双端点分派），direct 的**网络级**失败（fetch TypeError：
+// CORS/PNA 预检被拒、拒连、跨源响应被拦——JS 侧不可区分；「MS 版本过旧
+// 无 ping」在探测层已天然归 miss 回退）在此归一为「回退 proxy」——先把
+// 会话通道钉回 proxy（demoteMsChannel：半新半旧部署的后续请求不再各撞
+// 一次死直连），同一请求再按 proxy 形态重发一次（multipart/JSON 体可
+// 复用重发；不向用户抛裸网络错误，PRD AC#4）。proxy 形态无二次兜底
+//（降级无更下去处）；非 TypeError（30s 超时 TimeoutError 等）不降级——
+// 挂死是另一病理，照旧落到调用方连续失败计数。HTTP 非 2xx 不在此吞
+//（含降级后 proxy 404 任务不存在）：各端点归一 MsError，由 useNestSolve
+// 按 status 裁决
+async function runMsRequest(
+  attempt: (channel: MsChannel) => Promise<Response>,
+): Promise<Response> {
+  const channel = await resolveMsChannel()
+  if (channel.kind === 'proxy') return attempt(channel)
+  try {
+    return await attempt(channel)
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e
+    demoteMsChannel()
+    return attempt({ kind: 'proxy' })
+  }
+}
+
+// 通道化 URL：direct → 通道 base + 路径；proxy → '/ms' 同源代理前缀
+function msUrl(channel: MsChannel, path: string): string {
+  return channel.kind === 'direct' ? `${channel.base}${path}`
+    : `${MS_PROXY_BASE}${path}`
+}
+
 // 五端点公共壳：非 2xx → 错误体归一抛 MsError；30s 超时兜底——裸 fetch
 // 在连接建立但不响应（MS/代理挂死）时永不落定，轮询 failRef 不累计、
 // 按钮永久卡「排料中」（2026-09-29 报障成因之三）；到点 abort 计一次
-// 网络失败，连续 3 次自然转 error（与后端代理 status 30s 档对齐）
+// 网络失败，连续 3 次自然转 error（与后端代理 status 30s 档对齐）。超时
+// signal 在 attempt 回调内构造：降级重试各起各的 30s 窗
 async function msJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${MS_BASE}${path}`,
-                          { ...init, signal: AbortSignal.timeout(30_000) })
+  const res = await runMsRequest((ch) =>
+    fetch(msUrl(ch, path), { ...init, signal: AbortSignal.timeout(30_000) }))
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -298,9 +335,9 @@ export async function msStop(
 // 回收 MS 会话名额（并发任务上限）——失败由调用方静默，MS 侧 TTL+7 天
 // 兜底；非 2xx 仍走 normalizeMsError 抛 MsError（调用方 catch 吞掉）
 export async function msDeleteTask(taskId: string): Promise<void> {
-  const res = await fetch(
-    `${MS_BASE}/api/machine/solve/${encodeURIComponent(taskId)}`,
-    { method: 'DELETE' })
+  const res = await runMsRequest((ch) =>
+    fetch(msUrl(ch, `/api/machine/solve/${encodeURIComponent(taskId)}`),
+      { method: 'DELETE' }))
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -314,11 +351,12 @@ export async function msDeleteTask(taskId: string): Promise<void> {
 export async function msExport(
   taskId: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(`${MS_BASE}/api/machine/export`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task_id: taskId }),
-  })
+  const res = await runMsRequest((ch) =>
+    fetch(msUrl(ch, '/api/machine/export'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskId }),
+    }))
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -329,18 +367,26 @@ export async function msExport(
   }
 }
 
-// .msn 状态文件下载（三期机器对接 US-002，tasks/prd-machine-state-file-yl.md）：
-// 走 YL 后端专用代理端点而非 /ms 直连（US-001：代理服务端注入 MS token，
-// token 永不下发前端）——GET /api/nest/tasks/{id}/state-file 返回 gzip 附件。
-// blob 零解析（.msn 对前端是不透明字节流，不感知 MS schema 升级）；文件名
-// 与 msExport 共用 cdFilename 解析器（Content-Disposition 优先，缺头本地
-// 合成 yl-nest-{taskId}.msn）。错误体 {'detail': 中文}（US-001 映射文案）
-// 经 normalizeMsError 原样透出不重写
+// .msn 状态文件下载（三期机器对接 US-002，tasks/prd-machine-state-file-yl.md；
+// 四期双通道 US-002 起双通道分派——两形态端点不同，走 runMsRequest 通道化
+// attempt 而非 msUrl）：
+//   direct → MS 原生端点 GET {base}/api/machine/solve/{id}/state-file
+//     （浏览器直连模式 MS 侧不设 token——CORS 白名单即访问边界）
+//   proxy → YL 后端专用代理 GET /api/nest/tasks/{id}/state-file（现状零
+//     改动；服务端注入 MS token，token 永不下发前端，三期 US-001 先例）
+// 直连网络级失败同款降级（proxy 形态 = YL 端点重试）。blob 零解析（.msn
+// 对前端是不透明字节流，不感知 MS schema 升级）；文件名与 msExport 共用
+// cdFilename 解析器（Content-Disposition 优先，缺头本地合成
+// yl-nest-{taskId}.msn）。错误体 {'detail': 中文}（US-001 映射文案）经
+// normalizeMsError 原样透出不重写
 export async function msStateFile(
   taskId: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(
-    `/api/nest/tasks/${encodeURIComponent(taskId)}/state-file`)
+  const id = encodeURIComponent(taskId)
+  const res = await runMsRequest((ch) => fetch(
+    ch.kind === 'direct'
+      ? `${ch.base}/api/machine/solve/${id}/state-file`
+      : `/api/nest/tasks/${id}/state-file`))
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
