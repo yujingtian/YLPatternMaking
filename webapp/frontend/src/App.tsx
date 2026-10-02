@@ -114,10 +114,11 @@ function DraftApp() {
   const [solveCtx, setSolveCtx] =
     useState<{ payload: NestResult; sizes: string[] } | null>(null)
   // 「继续查看」刷新恢复：锚在 → 后台慢档 attach（首拍轮询自对齐真实终
-  // 态）；弹窗开合同步双档轮询（开 = 在视 2s / 关 = 降频 15s 即时重排）
+  // 态；随锚通道标记走原通道，US-003）；弹窗开合同步双档轮询（开 = 在视
+  // 2s / 关 = 降频 15s 即时重排）
   useEffect(() => {
     const stored = readStoredMsTask()
-    if (stored) solve.attach(stored.taskId)
+    if (stored) solve.attach(stored.taskId, stored.channel)
     // 仅挂载时执行（attach/setVisible 均 useCallback 稳定引用）
   }, [])
   useEffect(() => { solve.setVisible(solveOpen) }, [solveOpen])
@@ -157,7 +158,7 @@ function DraftApp() {
     solve.reset()
     setSolveCtx(null)
     if (behavior.deleteTask && id !== null)
-      void msDeleteTask(id).catch(() => {})
+      void msDeleteTask(id, solve.channel ?? undefined).catch(() => {})
   }
   const closeSolveModal = () => {
     if (solve.phase === 'done' || solve.phase === 'stopped') {
@@ -186,7 +187,8 @@ function DraftApp() {
     const id = solve.taskId
     solve.reset()
     setSolveCtx(null)
-    if (terminal && id !== null) void msDeleteTask(id).catch(() => {})
+    if (terminal && id !== null)
+      void msDeleteTask(id, solve.channel ?? undefined).catch(() => {})
     void startNestFlow()
   }
   // 排料按钮状态投影（2026-09-22 收口，原「排料进度」按钮并入）：在飞 =

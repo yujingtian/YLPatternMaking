@@ -1,10 +1,11 @@
 // apiHttp MS 段金标（vitest node env，fetch 全程 stub 不触网）：七函数
-// URL/方法/载荷口径 + normalizeMsError 两形态归一 + 双通道跟随（US-002）。
-// ms* 函数每请求先 resolveMsChannel——每用例首轮 10 个 ping 探测调用混入
-// fetchMock，端点断言经 endpointCalls() 滤掉；缺省用例走 proxy 形态
-//（ping 全 miss → '/ms'，现状断言口径），direct 形态（ping 命中发现
-// base）与直连网络级失败降级（TypeError → demote + '/ms' 重试）各有
-// 专述 describe。vitest 无 VITE_MS_BASE 构建变量（探测必发）。
+// URL/方法/载荷口径 + normalizeMsError 两形态归一 + 双通道跟随（US-002）+
+// 显式通道任务级绑定（US-003：零探测零降级直发）。ms* 函数无显式通道时每
+// 请求先 resolveMsChannel——每用例首轮 10 个 ping 探测调用混入 fetchMock，
+// 端点断言经 endpointCalls() 滤掉；缺省用例走 proxy 形态（ping 全 miss →
+// '/ms'，现状断言口径），direct 形态（ping 命中发现 base）与直连网络级
+// 失败降级（TypeError → demote + '/ms' 重试）各有专述 describe。
+// vitest 无 VITE_MS_BASE 构建变量（探测必发）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -398,5 +399,45 @@ describe('直连网络级失败 → 降级 proxy（AC#4：归一为回退，不�
       `${BASE}/api/machine/solve/m1/status`,
       '/ms/api/machine/solve/m1/status',
     ])
+  })
+})
+
+describe('显式通道（任务级绑定，US-003）：零探测零降级直发', () => {
+  const BASE = 'http://127.0.0.1:8013'
+
+  it('显式 direct 通道：不发 ping 探测、直奔 {base} 端点（锚点恢复轮询走原通道）', async () => {
+    stubFetch((url) => {
+      if (isPing(url)) throw new Error('任务级绑定不应触发通道探测')
+      return ok({ state: 'done', mode: 'machine', run_mode: 'normal',
+        total_budget_sec: 180, elapsed_sec: 5, incumbent: null, current: null,
+        per_seed: [], error: null, exit_code: null })
+    })
+    const st = await msStatus('m1', { kind: 'direct', base: BASE })
+    expect(st.state).toBe('done')
+    expect(fetchMock.mock.calls).toHaveLength(1)   // 全程恰一次端点请求
+    expect(fetchMock.mock.calls[0][0])
+      .toBe(`${BASE}/api/machine/solve/m1/status`)
+  })
+
+  it('显式 direct 网络级失败 → TypeError 原样上抛，不降级不切 proxy、会话缓存不动', async () => {
+    stubFetch(() => Promise.reject(new TypeError('Failed to fetch')))
+    await expect(msStatus('m1', { kind: 'direct', base: BASE }))
+      .rejects.toBeInstanceOf(TypeError)
+    // 无 '/ms' 重试（「不自动切换」交 useNestSolve 连续失败计数裁决）
+    expect(endpointCalls().map((c) => c[0]))
+      .toEqual([`${BASE}/api/machine/solve/m1/status`])
+  })
+
+  it('显式 proxy 通道 → /ms 前缀；msStateFile 显式通道随形态分派端点', async () => {
+    stubFetch((url) => (isPing(url)
+      ? Promise.reject(new TypeError('Failed to fetch'))
+      : okAttachment('attachment; filename="machine_m9.msn"')))
+    await msStateFile('m9', { kind: 'proxy' })
+    expect(endpointCalls().map((c) => c[0]))
+      .toEqual(['/api/nest/tasks/m9/state-file'])
+    fetchMock.mockClear()
+    await msStateFile('m9', { kind: 'direct', base: BASE })
+    expect(endpointCalls().map((c) => c[0]))
+      .toEqual([`${BASE}/api/machine/solve/m9/state-file`])
   })
 })

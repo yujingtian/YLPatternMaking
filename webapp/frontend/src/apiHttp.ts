@@ -213,10 +213,13 @@ export async function postChatTurn(form: FormData): Promise<ChatTurnResponse> {
 // 同 postNest 先例不进 route() 引擎通道。四期双通道 US-002：每请求经
 // resolveMsChannel 取通道（会话缓存命中零网络成本）——direct → US-001
 // 发现的 base（浏览器直连本地 MS）；proxy → '/ms'（dev=Vite proxy、
-// prod=backend httpx 转发，现状路径零变化）。错误体两形态：MS {'error': 中文}
-//（solve 409 重复提交另带 task_id）、YL /ms 代理 {'detail': 中文}（502）——
-// normalizeMsError 归一成可读中文；网络级失败是原生 TypeError（不归一），
-// 由调用方（useNestSolve）按「可重试」处理（直连 TypeError 先经降级兜底）。
+// prod=backend httpx 转发，现状路径零变化）。四期 US-003：七函数可选尾参
+// channel = 任务级绑定通道（useNestSolve 锚定 task_id 所在通道，生命周期
+// 请求/下载随绑定直发，零探测零降级——见 runMsRequest 注）。错误体两形态：
+// MS {'error': 中文}（solve 409 重复提交另带 task_id）、YL /ms 代理
+// {'detail': 中文}（502）——normalizeMsError 归一成可读中文；网络级失败是
+// 原生 TypeError（不归一），由调用方（useNestSolve）按「可重试」处理
+//（无绑定请求的直连 TypeError 先经降级兜底）。
 
 // MS 错误归一产物：带 HTTP status（404/400 等不可重试判定用）与 409 带回的
 // 既有 task_id（幂等冲突提示用）
@@ -260,14 +263,21 @@ export function normalizeMsError(status: number, body: unknown): MsError {
 //（降级无更下去处）；非 TypeError（30s 超时 TimeoutError 等）不降级——
 // 挂死是另一病理，照旧落到调用方连续失败计数。HTTP 非 2xx 不在此吞
 //（含降级后 proxy 404 任务不存在）：各端点归一 MsError，由 useNestSolve
-// 按 status 裁决
+// 按 status 裁决。
+// 显式 channel（US-003 任务级通道绑定）：任务生命周期请求带锚定的通道
+// 直发——**零探测零降级**（降级 = 改判通道，任务绑定语义下「不自动切换」；
+// direct 死连的 TypeError 原样上抛，由 useNestSolve 连续失败计数裁决成
+// error 引导）。提交层的降级重试在 useNestSolve.submit 自理（要知道任务
+// 实际落在哪个通道才能绑定）
 async function runMsRequest(
   attempt: (channel: MsChannel) => Promise<Response>,
+  channel?: MsChannel,
 ): Promise<Response> {
-  const channel = await resolveMsChannel()
-  if (channel.kind === 'proxy') return attempt(channel)
+  if (channel) return attempt(channel)
+  const resolved = await resolveMsChannel()
+  if (resolved.kind === 'proxy') return attempt(resolved)
   try {
-    return await attempt(channel)
+    return await attempt(resolved)
   } catch (e) {
     if (!(e instanceof TypeError)) throw e
     demoteMsChannel()
@@ -286,9 +296,12 @@ function msUrl(channel: MsChannel, path: string): string {
 // 按钮永久卡「排料中」（2026-09-29 报障成因之三）；到点 abort 计一次
 // 网络失败，连续 3 次自然转 error（与后端代理 status 30s 档对齐）。超时
 // signal 在 attempt 回调内构造：降级重试各起各的 30s 窗
-async function msJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function msJson<T>(
+  path: string, init?: RequestInit, channel?: MsChannel,
+): Promise<T> {
   const res = await runMsRequest((ch) =>
-    fetch(msUrl(ch, path), { ...init, signal: AbortSignal.timeout(30_000) }))
+    fetch(msUrl(ch, path), { ...init, signal: AbortSignal.timeout(30_000) }),
+    channel)
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -303,41 +316,51 @@ async function msJson<T>(path: string, init?: RequestInit): Promise<T> {
 export async function msSolveStart(
   file: Blob, filename: string,
   config: MsMachineConfig & { client_ref?: string },
+  channel?: MsChannel,
 ): Promise<MsSolveStart> {
   const form = new FormData()
   form.append('file', file, filename)
   form.append('config', JSON.stringify(config))
-  return msJson<MsSolveStart>('/api/machine/solve', { method: 'POST', body: form })
+  return msJson<MsSolveStart>(
+    '/api/machine/solve', { method: 'POST', body: form }, channel)
 }
 
 // 状态轮询（GET .../status：控载荷 {state, incumbent, current, per_seed, …}）
-export async function msStatus(taskId: string): Promise<MsStatus> {
+export async function msStatus(
+  taskId: string, channel?: MsChannel,
+): Promise<MsStatus> {
   return msJson<MsStatus>(
-    `/api/machine/solve/${encodeURIComponent(taskId)}/status`)
+    `/api/machine/solve/${encodeURIComponent(taskId)}/status`, undefined,
+    channel)
 }
 
 // 终态取果（GET .../result：{manifest, best, summary}；running → 409）
-export async function msResult(taskId: string): Promise<MsResult> {
+export async function msResult(
+  taskId: string, channel?: MsChannel,
+): Promise<MsResult> {
   return msJson<MsResult>(
-    `/api/machine/solve/${encodeURIComponent(taskId)}/result`)
+    `/api/machine/solve/${encodeURIComponent(taskId)}/result`, undefined,
+    channel)
 }
 
 // 终止（POST .../stop：在飞树杀 → {'stopped': true, pid}；orphan marker
 // 清理带 orphan: true；已终态 400）
 export async function msStop(
-  taskId: string,
+  taskId: string, channel?: MsChannel,
 ): Promise<{ stopped: boolean; pid: number | null; orphan?: boolean }> {
   return msJson(`/api/machine/solve/${encodeURIComponent(taskId)}/stop`,
-    { method: 'POST' })
+    { method: 'POST' }, channel)
 }
 
 // 任务清理（DELETE .../solve/{task_id}）：结果期显式关闭时 best-effort
 // 回收 MS 会话名额（并发任务上限）——失败由调用方静默，MS 侧 TTL+7 天
 // 兜底；非 2xx 仍走 normalizeMsError 抛 MsError（调用方 catch 吞掉）
-export async function msDeleteTask(taskId: string): Promise<void> {
+export async function msDeleteTask(
+  taskId: string, channel?: MsChannel,
+): Promise<void> {
   const res = await runMsRequest((ch) =>
     fetch(msUrl(ch, `/api/machine/solve/${encodeURIComponent(taskId)}`),
-      { method: 'DELETE' }))
+      { method: 'DELETE' }), channel)
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -349,14 +372,14 @@ export async function msDeleteTask(taskId: string): Promise<void> {
 // blob + 文件名（Content-Disposition 优先，ASCII/UTF-8 双形态；缺头本地
 // 合成）。落盘时机由调用方（结果区「下载 PLT」按钮）决定
 export async function msExport(
-  taskId: string,
+  taskId: string, channel?: MsChannel,
 ): Promise<{ blob: Blob; filename: string }> {
   const res = await runMsRequest((ch) =>
     fetch(msUrl(ch, '/api/machine/export'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task_id: taskId }),
-    }))
+    }), channel)
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -380,13 +403,13 @@ export async function msExport(
 // yl-nest-{taskId}.msn）。错误体 {'detail': 中文}（US-001 映射文案）经
 // normalizeMsError 原样透出不重写
 export async function msStateFile(
-  taskId: string,
+  taskId: string, channel?: MsChannel,
 ): Promise<{ blob: Blob; filename: string }> {
   const id = encodeURIComponent(taskId)
   const res = await runMsRequest((ch) => fetch(
     ch.kind === 'direct'
       ? `${ch.base}/api/machine/solve/${id}/state-file`
-      : `/api/nest/tasks/${id}/state-file`))
+      : `/api/nest/tasks/${id}/state-file`), channel)
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)

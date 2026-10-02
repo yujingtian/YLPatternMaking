@@ -15,7 +15,10 @@
 // 按钮（右上 X / footer 关闭），语义随期别分派 solveCloseBehavior（进度期 =
 // 关窗降频 15s 后台守望，可点击左栏「排料」按钮继续查看；结果期 = 停表 +
 // best-effort msDeleteTask——由 App 接线执行，关闭前 confirm 二次确认）。
-// useNestSolve 实例由 App 持有跨关窗存活，本组件纯视图零状态机。
+// useNestSolve 实例由 App 持有跨关窗存活，本组件纯视图零状态机。四期双通道
+// US-003：非 idle 期置顶通道徽标（channelLabel/channelNote，PRD 钉死文案）
+// ——「本地排料(直连)」/「服务器排料(回退)」+ proxy 回退提示；下载 PLT/.msn
+// 与工作台引导链接随任务绑定通道（solve.channel 透传，弹窗层零分派逻辑）。
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
@@ -27,7 +30,8 @@ import {
 import type { MsPerSeed, MsRunMode, NestResult } from '../types'
 import type { NestSolveState } from '../hooks/useNestSolve'
 import { downloadBlob, downloadBlobBytes, msExport, msStateFile } from '../api'
-import { MS_WORKBENCH_URL } from '../msBase'
+import type { MsChannel } from '../msBase'
+import { msWorkbenchUrl } from '../msBase'
 import {
   DEFAULT_GATE_CM, DEFAULT_RUN_MODE, RUN_MODE_OPTIONS, buildMachineConfig,
 } from '../msConfig'
@@ -60,6 +64,40 @@ function saveNestSolveParams(p: NestSolveParams): void {
   try {
     localStorage.setItem(NEST_PARAMS_STORAGE_KEY, JSON.stringify(p))
   } catch { /* 静默：记忆丢失不阻塞主流程 */ }
+}
+
+// ---- 通道指示与回退提示（四期双通道 US-003 AC#3，PRD 钉死文案） ----
+// 任务绑定通道随 useNestSolve 透出（submit 落点/attach 锚标记）；本组件
+// 纯展示零通道逻辑，下载动作随绑定通道直发（apiHttp 显式通道分派）
+
+// 通道标签文案：「任务在哪跑」的产品诚实（服务器通道多用户并发互相挤压）
+export function channelLabel(channel: MsChannel): string {
+  return channel.kind === 'direct' ? '本地排料(直连)' : '服务器排料(回退)'
+}
+
+// 回退触发提示（PRD US-003 AC#3 原文）：proxy = 提交时未探测到本地
+// VB超排（或直连失败已降级），明示性能受限 + 引导启动本地 MS
+export const MS_FALLBACK_NOTE =
+  '未检测到本地 VB超排,已使用服务器排料(性能受限);启动本地 VB超排可获得更快速度'
+
+// direct 无提示（本地算力满速，无事发生）；proxy 附加回退提示
+export function channelNote(channel: MsChannel): string | null {
+  return channel.kind === 'proxy' ? MS_FALLBACK_NOTE : null
+}
+
+// 通道徽标（非 idle 期统一置顶：submitting/running/done/stopped/error）
+function ChannelBadge({ channel }: { channel: MsChannel }) {
+  const note = channelNote(channel)
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <Tag color={channel.kind === 'direct' ? 'geekblue' : 'purple'}>
+        {channelLabel(channel)}
+      </Tag>
+      {note !== null
+        ? <span className="extract-meta">{note}</span>
+        : null}
+    </div>
+  )
 }
 
 // .msn 状态文件下载入口（三期机器对接 US-002，PRD FR-4）：三态共用——
@@ -194,13 +232,15 @@ export default function NestSolveModal({
   // MS 侧缺省 plt-clean 毛版 + 唛架表格全算）→ blob → downloadBlob 落盘。
   // PLT 是纯 ASCII HPGL 文本（MS write_marker_plt 末步 encode('ascii')），
   // blob.text() 往返字节安全；失败消息经 normalizeMsError 已是可读中文，
-  // 不动终态（弹窗留在结果区，可重按重试）
+  // 不动终态（弹窗留在结果区，可重按重试）。通道 = 任务绑定通道透传
+  //（US-003：结果在哪个通道产生就去哪个通道取，弹窗层零分派逻辑）
   const doExportPlt = async () => {
     if (solve.taskId === null) return
     setPltBusy(true)
     setPltError(null)
     try {
-      const { blob, filename } = await msExport(solve.taskId)
+      const { blob, filename } =
+        await msExport(solve.taskId, solve.channel ?? undefined)
       downloadBlob(await blob.text(), filename, 'application/plt')
     } catch (e) {
       setPltError((e as Error).message)
@@ -209,17 +249,19 @@ export default function NestSolveModal({
     }
   }
 
-  // 下载 .msn 状态文件（三期 US-002）：msStateFile 走 YL 代理端点（US-001，
-  // MS token 服务端注入）→ blob 字节直存 downloadBlobBytes。落盘刻意不走
-  // PLT 的 blob.text() 字符串通道——.msn 是 gzip 二进制，UTF-8 解码往返即
-  // 毁字节（PLT 纯 ASCII 才安全）；内容零解析（对前端不透明）。MS 端点只读
-  // 幂等：任何态（running 快照 / error 纯配置档）可按，失败不动终态可重试
+  // 下载 .msn 状态文件（三期 US-002）：msStateFile 双通道分派（US-002 起
+  // 显式通道——direct → MS 原生端点 / proxy → YL 代理端点注入 token）→
+  // blob 字节直存 downloadBlobBytes。落盘刻意不走 PLT 的 blob.text() 字符
+  // 串通道——.msn 是 gzip 二进制，UTF-8 解码往返即毁字节（PLT 纯 ASCII 才
+  // 安全）；内容零解析（对前端不透明）。MS 端点只读幂等：任何态（running
+  // 快照 / error 纯配置档）可按，失败不动终态可重试
   const doDownloadMsn = async () => {
     if (solve.taskId === null) return
     setMsnBusy(true)
     setMsnError(null)
     try {
-      const { blob, filename } = await msStateFile(solve.taskId)
+      const { blob, filename } =
+        await msStateFile(solve.taskId, solve.channel ?? undefined)
       const bytes: Uint8Array<ArrayBuffer> =
         new Uint8Array(await blob.arrayBuffer())
       downloadBlobBytes(bytes, filename, 'application/gzip')
@@ -403,12 +445,15 @@ export default function NestSolveModal({
               </span>
             </div>
             {/* .msn 主推入口（三期 US-002）：「一个任务一个取件区」——PLT
-                动作行下方；引导文案一处（PRD FR-5）附 MS 工作台入口链接 */}
+                动作行下方；引导文案一处（PRD FR-5）附 MS 工作台入口链接
+                （随任务绑定通道走同实例端口，US-003；proxy/未发现保持
+                缺省 8010） */}
             <MsnDownload
               taskId={solve.taskId} busy={msnBusy} error={msnError}
               note={<>下载后可在排料系统(MS)『状态恢复』中打开，继续调整
                 布局、微调、改数量重解或导出图纸（
-                <a href={MS_WORKBENCH_URL} target="_blank" rel="noreferrer">
+                <a href={msWorkbenchUrl(solve.channel)}
+                  target="_blank" rel="noreferrer">
                   打开 MS 工作台
                 </a>）</>}
               onDownload={() => void doDownloadMsn()}
@@ -515,6 +560,12 @@ export default function NestSolveModal({
       width={760}
       footer={footer}
     >
+      {/* 通道徽标（US-003 AC#3）：任务在手（channel 绑定 = submit 落点/
+          attach 锚标记）即示「任务在哪跑」；proxy 附回退提示。idle 参数
+          页无任务不示；submitting 探测/上传期 channel 尚未绑定也不示 */}
+      {phase !== 'idle' && solve.channel !== null
+        ? <ChannelBadge channel={solve.channel} />
+        : null}
       {body}
     </Modal>
   )

@@ -95,3 +95,22 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
 - msStateFile 双端点分派：direct → MS 原生 `{base}/api/machine/solve/{id}/
   state-file`（无 token；需 MS 侧浏览器直连新构建）；proxy → YL 代理
   `/api/nest/tasks/{id}/state-file`（token 注入）。
+
+## 双通道任务绑定（2026-10-02 四期 US-003）
+
+- 任务生命周期请求带**显式通道**（七 ms 函数可选尾参 channel）→ 零 ping
+  探测零降级直发——**只有无参调用才走会话解析 + demote 降级**。测试里显式
+  通道用例断言 `fetchMock.mock.calls` 恰 1 次（探测调用不混入）。
+- 直连提交的降级重试在 **useNestSolve.submit 层**（不在 apiHttp）：请求层
+  内部降级对外不可见、任务锚会绑错通道；VITE_MS_BASE 钉死形态事后
+  resolveMsChannel 恒返 override，读不到降级——提交层 catch direct 的
+  TypeError → demote + 显式 proxy 重试 → 拿到落点绑定。
+- 锚 `ylpattern.msNestTask.v1` 附 `channel:{kind,base?}`：**缺标记 = US-003
+  前旧锚**（/ms 代理唯一通道时代）按 proxy 绑定恢复；`attach(taskId,
+  channel)` 双参（App 挂载从 readStoredMsTask 透传）。
+- 常驻 :8010 已是新构建（有 ping 端点）：对外来 Origin 回 **403 白名单拒绝**
+  （env MS_MACHINE_ALLOWED_ORIGINS / sidecar machine_allowed_origins.txt）
+  ——浏览器探测天然归 miss 回退 proxy，活体验证的免费「半新半旧」夹具；
+  直连全链验证用 `context.route` mock（ping 命中低口 8010 + solve/status/
+  state-file fulfill 带 `access-control-allow-origin` 头 + 其余端口 abort），
+  先例 out/us003_verify.mjs（US-006 冒烟扩展时吸收）。
