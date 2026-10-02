@@ -11,10 +11,10 @@ Started: Mon, Sep 21, 2026  7:53:26 PM
 
 
 
-  - 测试: npx tsc --noEmit 零错误; npm test 342 passed(25 files, apiHttp 28 例+msBase 15 例, 新增 direct 跟随 3+降级 5+demote 2); py -m pytest tests/ -q 1204 passed 18 skipped 无回归
-  - 备注: runMsRequest 壳=每请求 resolveMsChannel+直连 TypeError 降级(demote 钉缓存+proxy 形态重发, 非 TypeError 不降级); MS_BASE→MS_PROXY_BASE '/ms'(VITE_MS_BASE 只钉首选 direct); msStateFile 双端点分派(direct=MS 原生无 token/proxy=YL 代理); 无渲染/几何改动且 fetch 全 stub, 浏览器验证不适用; 下一故事 US-003: useNestSolve 提交前探测+锚点通道绑定, submit 后可再 resolveMsChannel 读降级后通道做弹窗指示
 
-[2026-10-02 10:20] US-003 - useNestSolve 通道绑定与弹窗通道体验 - DONE
-  - 改动: webapp/frontend/src/hooks/useNestSolve.ts(前置探测+提交层降级重试+锚通道标记+pollFailMessage), apiHttp.ts(七函数可选尾参 channel, runMsRequest 显式通道零探测零降级), components/NestSolveModal.tsx(channelLabel/channelNote 徽标+下载/工作台链接随通道), App.tsx(attach 双参+msDeleteTask 透传), useNestSolve.test.ts/NestSolveModal.test.ts/apiHttp.test.ts, .doc/python工程设计.md(§10.3.2 四期 US-003 条), webapp/AGENTS.md
   - 测试: npx tsc --noEmit 零错误; npm test 350 passed(25 files, 新增锚通道归义/pollFailMessage/channelLabel/channelNote/显式通道零降级共 8 例); py -m pytest tests/ -q 1204 passed 18 skipped 无回归; npm run build(dist 刷新)+活体 17 项全过(out/us003_verify.mjs: 真 MS proxy 相徽标/锚/DELETE 回收 + route mock 直连相徽标/直连轮询/.msn 原生端点/中断引导零 /ms/刷新恢复原通道; backend :8043 已杀, 截图 out/us003_*.png)
   - 备注: 显式通道=任务绑定零降级(TypeError 上抛连败计数), 无参=会话解析+demote; 提交层降级因需拿落点绑定(VITE_MS_BASE 钉死形态事后读不到降级); 常驻 :8010 新构建 ping 对外源 403=天然半新半旧夹具; 下一故事 US-004: 后端 POST /api/nest/tasks/{id}/archive multipart 三件落盘(参照 agent/app.py UploadFile 先例)
+[2026-10-02 19:35] US-004 - 回传存档后端 archive 端点 - DONE
+  - 改动: webapp/backend/app.py(POST /api/nest/tasks/{id}/archive), pyproject.toml([web] +python-multipart), tests/test_nest_archive.py, .doc/python工程设计.md(四期 US-004 条目), webapp/AGENTS.md(US-004 节)
+  - 测试: py -m pytest tests/ -q 1213 passed 18 skipped(新增 test_nest_archive.py 9 例: 三件字节级落盘/meta 字段完整/幂等覆盖 index 恰一行/双任务两行/非法 meta+task_id 不一致+安全闸 400/空 422/超限 413/上限=10MB 约定值) 全绿; 后端无前端改动免 tsc/vitest
+  - 备注: 落盘 out/nest_archive/<task_id>/{result.plt,state.msn,meta.json}+index.jsonl(每 task_id 恰一行, meta 全字段+archive_dir/files/archived_at); 校验前置拒绝即零落盘; 测试面 monkeypatch _NEST_ARCHIVE_DIR/_NEST_ARCHIVE_MAX_FILE_BYTES(同 _MS_BASE 先例); 下一故事 US-005: 前端 done 终态自动回传(apiHttp 新增 archiveNest 函数+NestSolveModal 回传态/重试), 契约细节见 webapp/AGENTS.md US-004 节

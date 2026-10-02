@@ -114,3 +114,19 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
   直连全链验证用 `context.route` mock（ping 命中低口 8010 + solve/status/
   state-file fulfill 带 `access-control-allow-origin` 头 + 其余端口 abort），
   先例 out/us003_verify.mjs（US-006 冒烟扩展时吸收）。
+
+## 回传存档端点（2026-10-02 四期 US-004，后端部分）
+
+- 契约（US-005 前端接线用）：`POST /api/nest/tasks/{task_id}/archive`
+  multipart 三件——`file_plt`（PLT blob）+ `file_msn`（.msn gzip blob）+
+  `meta`（**Form 字段**，JSON 字符串：task_id/通道标记/density/width_mm/
+  码套/seed/run_mode/时间）；落盘 `out/nest_archive/<task_id>/{result.plt,
+  state.msn,meta.json}`（文件名**服务端钉死**，与上传 filename 无关）+
+  `index.jsonl`（每 task_id 恰一行，重传覆盖）。响应
+  `{ok, task_id, dir, files, sizes}`。
+- task_id 须过路径安全闸（字母数字起头 + `._-`）否则 400；meta 的
+  task_id 与路径不一致 400；空文件 422、单文件 >10MB 413；**拒绝即零落盘**。
+- 测试面：monkeypatch `backend._NEST_ARCHIVE_DIR`（同 `_MS_BASE` 先例，
+  env `YLP_NEST_ARCHIVE_DIR` 只在导入期读）；超限用例 monkeypatch
+  `_NEST_ARCHIVE_MAX_FILE_BYTES`。`python-multipart` 已进 `[web]` extra
+  （UploadFile 硬依赖，此前只在 `[agent]`）。

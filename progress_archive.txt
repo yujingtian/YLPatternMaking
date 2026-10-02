@@ -41,3 +41,7 @@
   - 备注: resolveMsChannel=会话缓存+在飞去重(每页面会话一次, 中途启 MS 须刷新); VITE_MS_BASE 配置=钉死 direct 零探测; msWorkbenchUrl(channel) 跟随发现端口; 下一故事 US-002: apiHttp msJson 壳 base 改调 resolveMsChannel, msStateFile 双通道分派
 [2026-10-02 09:58] US-002 - apiHttp 通道感知（七函数跟随+双通道分派） - DONE
   - 改动: webapp/frontend/src/apiHttp.ts, src/msBase.ts, src/api.ts, src/apiHttp.test.ts, src/msBase.test.ts, .doc/python工程设计.md(§10.3.2), webapp/AGENTS.md
+  - 测试: npx tsc --noEmit 零错误; npm test 342 passed(25 files, apiHttp 28 例+msBase 15 例, 新增 direct 跟随 3+降级 5+demote 2); py -m pytest tests/ -q 1204 passed 18 skipped 无回归
+  - 备注: runMsRequest 壳=每请求 resolveMsChannel+直连 TypeError 降级(demote 钉缓存+proxy 形态重发, 非 TypeError 不降级); MS_BASE→MS_PROXY_BASE '/ms'(VITE_MS_BASE 只钉首选 direct); msStateFile 双端点分派(direct=MS 原生无 token/proxy=YL 代理); 无渲染/几何改动且 fetch 全 stub, 浏览器验证不适用; 下一故事 US-003: useNestSolve 提交前探测+锚点通道绑定, submit 后可再 resolveMsChannel 读降级后通道做弹窗指示
+[2026-10-02 10:20] US-003 - useNestSolve 通道绑定与弹窗通道体验 - DONE
+  - 改动: webapp/frontend/src/hooks/useNestSolve.ts(前置探测+提交层降级重试+锚通道标记+pollFailMessage), apiHttp.ts(七函数可选尾参 channel, runMsRequest 显式通道零探测零降级), components/NestSolveModal.tsx(channelLabel/channelNote 徽标+下载/工作台链接随通道), App.tsx(attach 双参+msDeleteTask 透传), useNestSolve.test.ts/NestSolveModal.test.ts/apiHttp.test.ts, .doc/python工程设计.md(§10.3.2 四期 US-003 条), webapp/AGENTS.md
