@@ -67,3 +67,15 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
   服务仍须 bash 起并记 PID；批量取证脚本命令过长会被截断（heredoc 追加式
   写入）。
   内完成，否则比 `A[:4]==B[:4] and A[8:]==B[8:]`（剥 mtime 段）+ 解压载荷。
+
+## 双通道路由层（2026-10-02 四期 US-001，tasks/prd-machine-direct-channel.md）
+
+- `resolveMsChannel()`（src/msBase.ts）会话缓存 + 在飞去重——测试须先
+  `resetMsChannelCache()`（beforeEach）再 stub fetch，否则跨用例串台；
+  `vi.stubEnv('VITE_MS_BASE', …)` 只对**调用期读取** import.meta.env 的
+  源码生效（模块顶层求值的常量 import 时已冻结）——覆盖语义源码一律
+  调用期读 env。
+- MS 侧 ping 端点（浏览器直连 US-003）：`GET /api/machine/ping` 无 token
+  无 task_id，200 `{ok:true, service:'machine'}` 恰两键——常驻 :8010 二期
+  旧构建**没有**该端点（404），四期联调自起新 MS 实例（先例见上节
+  MS_WEB_PORT 套路）。
