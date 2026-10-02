@@ -124,7 +124,8 @@ def test_criteria_synchronized_with_manual():
     manual = _MANUAL.read_text(encoding="utf-8")
     _, _, _, prompt = _fixture()
     sentinels = ["等宽直条", "下凹弧线", "弯月弧线", "底中点尖出",
-                 "钝角浅尖也算尖", "J 形", "三段判读", "近似直线",
+                 "钝角浅尖也算尖", "J 形", "大圆弧", "侧缝顶点",
+                 "还要往下", "单调收拢",
                  "自身参考线", "当作水平基准线",
                  "一体裁出", "横向分割线", "第五袋", "卡胯骨", "紧身包腿",
                  "只分档不报数"]
@@ -225,6 +226,20 @@ def test_prompt_back_patch_must_look():
     assert "后贴袋形状是必看项" in prompt
     assert "夹角大小不管" in prompt             # 钝角浅尖也算尖的口径进 prompt
     assert "后贴袋区放大图" in prompt           # 有辅助图时的读法指引
+
+
+def test_prompt_mouth_mode_vertex_rule():
+    """必看项点名 mouth_mode 弧线落点判据（2026-10-02 三次补强）：弯月弧
+    一律先按 tangent；bulge 唯一判据=大圆弧且弧线最低点比前口袋侧缝顶点
+    还要往下（旧「三段判读/两端直不直」分支退役——通体弯曲照样是 tangent）。"""
+    measurements = {"waist": 74.0, "hip": 91.0}
+    prompt = build_prompt("女款牛仔裤", measurements,
+                          prejudge_axes(measurements, {}, None),
+                          prior_switches(), 1)
+    assert "弯月弧一律先按 tangent" in prompt
+    assert "大圆弧" in prompt and "侧缝顶点" in prompt
+    assert "单调收拢" in prompt                  # tangent 最低点=侧缝端点本身
+    assert "三段" not in prompt                  # 退役措辞不再进 prompt
 
 
 def test_prompt_photo_list_renders_crop_entries():

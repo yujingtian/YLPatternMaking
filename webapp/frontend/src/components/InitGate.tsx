@@ -1,9 +1,10 @@
 // 启动初始化选择层（2026-09-19，替代 localStorage 静默恢复的知情权缺失）：
-// 每次启动先选参数来源——继续上次草稿 / 款式模板 / 智能打版 / 空白默认，
-// 显式选择后才进工作台（App 侧 initialized 门控：选择层期间 header/main
-// 不挂载，3D 视图不发隐藏首挂请求）。header「新建」2026-09-24 起为二次
-// 确认后整体还原（工作台卸载、initialized 复位），本层恒以「继续上次草稿」
-// 出现——原「中途重开不卸载 + 返回当前参数」分支随还原语义退役删除。
+// 每次启动先选参数来源——继续上次草稿 / 款式模板 / 智能打版 / 空白默认 /
+// 导入配置，显式选择后才进工作台（App 侧 initialized 门控：选择层期间
+// header/main 不挂载，3D 视图不发隐藏首挂请求）。header「新建」2026-09-24
+// 起为二次确认后整体还原（工作台卸载、initialized 复位），本层恒以
+// 「继续上次草稿」出现——原「中途重开不卸载 + 返回当前参数」分支随还原
+// 语义退役删除。
 // 遮罩 zIndex 900 < 智能打版独立界面 950 < antd Modal 1000：从本层进入的
 // SmartDraftView 天然盖上，返回即自然退回本层（initOpen 从未关过，
 // 零分支返回路径）。
@@ -13,14 +14,19 @@
 // 空白默认（2026-09-20 用户口径）：直接载 examples/size_female_zhitong.toml
 // 直筒全特征基样（口袋/袋贴/育克/裤耳全开），不再 schema default 合成；
 // 码表不预填（size_run 段显式丢弃，第三参 null 清空）。
+// 导入配置（2026-10-02 用户口径，入口仅本层）：选尺寸单 toml 文件（本工具
+// 导出 / 手写 / CLI --size 同构）-> 后端 /api/toml/parse 解析 -> 与模板载入
+// 同管线回显（normalizeSizeRun + onLoadValues）；文件无 [size_run] 段即
+// 清空码表，语法错 / 缺 [measurements] 以 toast 报因。
 
 import { useState } from 'react'
-import { Button } from 'antd'
+import { App as AntApp, Button, Upload } from 'antd'
 import {
-  HistoryOutlined, PlusOutlined, RobotOutlined,
+  HistoryOutlined, ImportOutlined, PlusOutlined, RobotOutlined,
 } from '@ant-design/icons'
 import type { SizeRunSpec, Values } from '../types'
-import { fetchTemplateDetail } from '../api'
+import { fetchTemplateDetail, postTomlParse } from '../api'
+import { normalizeSizeRun } from '../sizeRun'
 import TemplatePicker from './TemplatePicker'
 
 // 空白默认基样（examples/ 直筒全特征款）
@@ -43,6 +49,8 @@ export default function InitGate({
 }) {
   const canContinue = hasSavedDraft
   const [blank, setBlank] = useState<BlankState>('idle')
+  const { message } = AntApp.useApp()
+  const [imp, setImp] = useState<'idle' | 'loading'>('idle')
 
   async function loadBlank() {
     setBlank('loading')
@@ -52,6 +60,25 @@ export default function InitGate({
       onLoadValues(detail.measurements, detail.options, null)
     } catch {
       setBlank('error')
+    }
+  }
+
+  // 导入配置：file.text() 恒 UTF-8（BOM 由解码器剥除）-> 后端 tomllib 解析
+  // -> 模板载入同管线。第三参必须显式传：文件有 [size_run] 段则恢复、无段
+  // 则清空（loadValues 第三参缺省 null 陷阱，与空白默认同构）
+  async function importToml(file: File) {
+    setImp('loading')
+    try {
+      const detail = await postTomlParse(await file.text())
+      const { spec, droppedOverrides } = normalizeSizeRun(detail.size_run)
+      onLoadValues(detail.measurements, detail.options, spec)
+      if (droppedOverrides) {
+        message.warning('文件含逐码覆盖 [size_run.sizes.X]，暂不支持，已忽略')
+      }
+    } catch (e) {
+      message.error(e instanceof Error && e.message ? e.message : '导入失败')
+    } finally {
+      setImp('idle')
     }
   }
 
@@ -105,6 +132,23 @@ export default function InitGate({
             >
               {blank === 'error' ? '重试' : '开始'}
             </Button>
+          </div>
+          <div className="init-option">
+            <div className="init-option-title"><ImportOutlined /> 导入配置</div>
+            <div className="init-option-desc">
+              选择尺寸单 toml 文件（本工具导出或手写），恢复测量、选项与推板码表
+            </div>
+            {/* beforeUpload 返回 LIST_IGNORE：antd 不接文件列表，只借选文件
+                （SmartDraftView 照片上传同款惯例） */}
+            <Upload accept=".toml" showUploadList={false}
+                    beforeUpload={(f) => {
+                      void importToml(f)
+                      return Upload.LIST_IGNORE
+                    }}>
+              <Button icon={<ImportOutlined />} loading={imp === 'loading'}>
+                选择文件…
+              </Button>
+            </Upload>
           </div>
         </div>
       </div>

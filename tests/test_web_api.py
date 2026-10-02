@@ -215,3 +215,45 @@ def test_templates_list_and_detail():
     name = r.json()[0]["file"]
     d = client.get(f"/api/templates/{name}")
     assert "measurements" in d.json()
+
+
+def test_toml_parse_roundtrip():
+    """金标：/api/toml 导出 -> /api/toml/parse 导回全等（Web 导出 → 启动层
+    「导入配置」回显闭环；响应与模板详情同构）。"""
+    r = client.post("/api/toml", json={"measurements": BASE_M,
+                                       "options": {"delta": 1.35,
+                                                   "size_label": "30"},
+                                       "size_run": SIZE_RUN})
+    assert r.status_code == 200
+    p = client.post("/api/toml/parse", json={"text": r.text})
+    assert p.status_code == 200
+    data = p.json()
+    assert data["measurements"] == BASE_M
+    assert data["options"]["delta"] == 1.35
+    assert data["options"]["size_label"] == "30"
+    assert data["size_run"]["base"] == "30"
+    assert data["size_run"]["order"] == ["29", "30", "31"]
+
+
+def test_toml_parse_accepts_examples():
+    """examples 尺寸单（模板同源文件）逐一经 parse 端点可导入。"""
+    from webapp.backend.app import _EXAMPLES
+    for t in client.get("/api/templates").json():
+        text = (_EXAMPLES / t["file"]).read_text(encoding="utf-8")
+        p = client.post("/api/toml/parse", json={"text": text})
+        assert p.status_code == 200, t["file"]
+        assert p.json()["measurements"], t["file"]
+
+
+def test_toml_parse_syntax_error_422():
+    p = client.post("/api/toml/parse",
+                    json={"text": "[measurements\nwaist = "})
+    assert p.status_code == 422
+    assert "TOML" in p.json()["detail"]
+
+
+def test_toml_parse_missing_measurements_422():
+    p = client.post("/api/toml/parse",
+                    json={"text": "[options]\ndelta = 1.0\n"})
+    assert p.status_code == 422
+    assert "measurements" in p.json()["detail"]

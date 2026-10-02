@@ -283,3 +283,15 @@ export function validateTable(t: GradeTable): string[] {
   }
   return errors
 }
+
+/** 关闭意图分派（抽屉「关闭即保存」口径，2026-10-02 用户拍板：X/遮罩/ESC
+ *  共用 onClose 单通道）：pristine → silent（直接关，绝不物化配置——
+ *  null spec 的空表不许凭关闭变成已配置）；dirty 且校验不过 → refuse
+ *  （保持打开）；dirty 且合法 → commit（保存后关）。「取消」不经此分派
+ *  （裸 onClose 弃稿）。「保存」按钮是显式意图，pristine 也可用（本实现
+ *  另以 !dirty 禁用防垃圾 spec 物化，与导出对 pristine 放行不冲突）。 */
+export type CloseIntent = 'commit' | 'refuse' | 'silent'
+export function closeIntent(dirty: boolean, errors: string[]): CloseIntent {
+  if (!dirty) return 'silent'
+  return errors.length > 0 ? 'refuse' : 'commit'
+}

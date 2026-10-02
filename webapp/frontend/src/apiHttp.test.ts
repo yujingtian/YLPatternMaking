@@ -2,11 +2,12 @@
 // URL/方法/载荷口径 + normalizeMsError 两形态归一（msStateFile 走 YL 代理
 // 端点 /api/nest 前缀，非 /ms）。MS_BASE 取缺省 '/ms'
 //（vitest 无 VITE_MS_BASE 构建变量）。
+// 另含 postTomlParse（导入配置）：/api/toml/parse 的 URL/载荷与 422 归一。
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   msDeleteTask, msExport, msResult, msSolveStart, msStateFile, msStatus,
-  msStop, normalizeMsError,
+  msStop, normalizeMsError, postTomlParse,
 } from './apiHttp'
 import type { MsMachineConfig, MsStatus } from './types'
 
@@ -255,6 +256,42 @@ describe('msStateFile（YL 代理端点 + .msn 文件名解析）', () => {
     await expect(msStateFile('m9')).rejects.toMatchObject({
       status: 502, message: '排料服务暂不可用，请稍后重试',
     })
+  })
+})
+
+describe('postTomlParse（导入配置 /api/toml/parse）', () => {
+  it('POST JSON {text}；成功透传 measurements/options/size_run', async () => {
+    stubFetch(() => ok({
+      measurements: { waist: 68 }, options: { delta: 1.35 },
+      size_run: { base: '30', order: ['30'], band: [] },
+    }))
+    const text = '[measurements]\nwaist = 68\n'
+    const res = await postTomlParse(text)
+    expect(res.measurements).toEqual({ waist: 68 })
+    expect(res.options).toEqual({ delta: 1.35 })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/toml/parse')
+    expect(init.method).toBe('POST')
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json' })
+    expect(JSON.parse(init.body as string)).toEqual({ text })
+  })
+
+  it('422 字符串 detail 原样透出（语法错/缺段可读）', async () => {
+    stubFetch(() => fail(422, { detail: 'TOML 解析失败：坏文本' }))
+    await expect(postTomlParse('x')).rejects.toThrow('TOML 解析失败：坏文本')
+    stubFetch(() => fail(422, {
+      detail: '缺少非空 [measurements] 段（不是有效的尺寸单）',
+    }))
+    await expect(postTomlParse('[options]'))
+      .rejects.toThrow('缺少非空 [measurements] 段')
+  })
+
+  it('错误体不可解析 → HTTP 状态兜底中文', async () => {
+    stubFetch(() => ({
+      ok: false, status: 500,
+      json: async () => { throw new Error('bad body') },
+    }))
+    await expect(postTomlParse('x')).rejects.toThrow('导入失败（HTTP 500）')
   })
 })
 

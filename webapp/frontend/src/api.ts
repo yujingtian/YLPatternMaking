@@ -25,6 +25,8 @@ export const postNest = http.postNest
 export const fetchSchema = http.fetchSchema
 export const fetchTemplates = http.fetchTemplates
 export const fetchTemplateDetail = http.fetchTemplateDetail
+// 导入配置（尺寸单 toml 文本解析）：纯 HTTP（tomllib 在服务端），同模板族
+export const postTomlParse = http.postTomlParse
 
 // agent 照片参数提取（一期前端接线）：纯网络调用（VLM/照片均不进
 // Pyodide 本地引擎），不进 route() 引擎通道

@@ -33,7 +33,8 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   「生成」按钮 2026-09-12 随 3D payload 消费移除、2026-09-20 回归左栏动作条
 #   （重算当前右栏视图：2D ensureSheet / 3D fitting，3D 侧栏「重新生成」收口），2D 进高级编辑/导出中心时
 #   ensureSheet/ensurePieces 自动补算；启动初始化选择层（2026-09-19）：每次启动
-#   先选参数来源（继续上次草稿/模板/智能打版/空白默认，详见 §10.7）；
+#   先选参数来源（继续上次草稿/模板/智能打版/空白默认/导入配置
+#   〔尺寸单 toml 文件回显，2026-10-02〕，详见 §10.7）；
 #   header「新建」= 二次确认后整体还原回选择层（2026-09-24，详见 §10.7）；
 #   需 pip install -e ".[web]"）：
 #   uvicorn webapp.backend.app:app 后访问 http://127.0.0.1:8000

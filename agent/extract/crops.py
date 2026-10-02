@@ -150,9 +150,10 @@ def make_back_pocket_crops(photos, photo_meta, out_dir):
 def make_front_pocket_crops(photos, photo_meta, out_dir):
     """从首张正面照裁前袋口区放大图（2026-10-02 特征尺度第三贴）。
 
-    整照上袋口曲线经端点降采样仅几十像素，三段判读（bulge/tangent 判型：
-    看两端末段直不直）低于模型可分辨阈值——判据已教而放大不足，模型
-    「看了但分不清」（实照判 bulge conf 0.65 vs 用户/像素定标 tangent）。
+    整照上袋口曲线经端点降采样仅几十像素，弧线落点判读（bulge/tangent
+    判型：弧线最低点是否越过侧缝端点）低于模型可分辨阈值——判据已教
+    而放大不足，模型「看了但分不清」（实照判 bulge conf 0.65 vs
+    用户/像素定标 tangent）。
     选图口径同 make_back_pocket_crops（保守）：只认 meta 明示的 front
     照；无 meta 且单照也裁（分面模型自辨）；多照无 meta 不猜——前袋口
     在背面照上不存在，裁错面是主动错误证据。框取整幅宽（两侧袋口都
@@ -178,6 +179,7 @@ def make_front_pocket_crops(photos, photo_meta, out_dir):
     return ([out],
             [{"category": "other",
               "note": "工程自动辅助图：正面照的两侧前袋口区放大裁剪"
-                      "（非用户上传），专用于细读袋口三段（上段/中段/下段）"
-                      "判型（front_pocket_mouth_mode）、弧深与小表袋细节"}],
+                      "（非用户上传），专用于细读袋口弧线落点（弧线最低点"
+                      "是否越过侧缝端点）判型（front_pocket_mouth_mode）、"
+                      "弧深与小表袋细节"}],
             ["前袋口放大辅助图 1 张已附（正面照自动裁剪，特征尺度修复）"])

@@ -144,7 +144,7 @@ def test_front_pocket_crop_from_marked_front(tmp_path):
         [p1, p2], [{"category": "front"}, {"category": "back"}], str(tmp_path))
     assert len(paths) == len(metas) == 1
     assert "前袋口区放大" in metas[0]["note"] and metas[0]["category"] == "other"
-    assert "三段（上段/中段/下段）" in metas[0]["note"]
+    assert "弧线落点" in metas[0]["note"]      # 判型读法=弧线最低点 vs 侧缝端点
     assert notes and "1 张" in notes[0]
     # 裁剪框 x∈[6%,94%] y∈[12%,56%]，×2 放大（口径同 _crop_one）
     from PIL import Image

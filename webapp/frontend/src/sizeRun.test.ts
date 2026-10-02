@@ -6,8 +6,9 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  absoluteValues, defaultSteps, emptySteps, fromGradeTable, insertRowAfter,
-  normalizeSizeRun, rebaseTable, toGradeTable, validateTable, type GradeTable,
+  absoluteValues, closeIntent, defaultSteps, emptySteps, fromGradeTable,
+  insertRowAfter, normalizeSizeRun, rebaseTable, toGradeTable, validateTable,
+  type GradeTable,
 } from './sizeRun'
 import type { MeasureKey, SizeRunSpec } from './types'
 
@@ -170,6 +171,19 @@ describe('validateTable', () => {
     expect(validateTable(table([['30', steps()]], 0, '订单ABC')))
       .toContainEqual(expect.stringContaining('ASCII'))
     expect(validateTable(table([['30', steps()]], 0, ''))).toEqual([])
+  })
+})
+
+describe('closeIntent（关闭即保存分派真值表）', () => {
+  // 口径 2026-10-02：pristine 恒静默关（null spec 空表不许凭关闭物化成
+  // 已配置）；dirty 且合法才提交关；dirty 不合法拒关（保持打开改完再走）
+  it('pristine → silent（含校验本就不过的存量表——没改就不物化）', () => {
+    expect(closeIntent(false, [])).toBe('silent')
+    expect(closeIntent(false, ['码标签重复：30'])).toBe('silent')
+  })
+  it('dirty 合法 → commit；dirty 不合法 → refuse', () => {
+    expect(closeIntent(true, [])).toBe('commit')
+    expect(closeIntent(true, ['码标签重复：30'])).toBe('refuse')
   })
 })
 

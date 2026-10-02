@@ -471,6 +471,14 @@ function DraftApp() {
             .then(() => setSizeRunOpen(false))
             .catch(() => {})
         }}
+        // 关闭即保存（X/遮罩/ESC 走抽屉 requestClose 守卫）与「保存」按钮
+        // 的提交口：setSizeRun 即入 localStorage 草稿（防抖 500ms）并随
+        // toml 导出携带；不触发整版重算（无版本计数）
+        onSave={(s) => {
+          d.setSizeRun(s)
+          setSizeRunOpen(false)
+          message.success('推板设置已保存')
+        }}
       />
       <NestSolveModal
         open={solveOpen}

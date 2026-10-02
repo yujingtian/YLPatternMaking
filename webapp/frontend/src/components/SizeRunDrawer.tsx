@@ -1,15 +1,20 @@
 // 推板设置抽屉：相邻码档差表（基码锚定口径，用户拍板 2026-08-27——基码
 // 行是锚：档差格恒「—」、绝对值只读取参数面板；上方行录「与更大相邻码
-// 之差」、下方行录「与上一码之差」）。编辑模型 GradeTable 是草稿——打开
-// 时由 canonical 重建、取消即弃；底部主按钮「导出推板 DXF」= 保存 + 下载
-// 一步完成（onExport 回传 canonical，App 侧以显式覆盖参传 download 规避
-// 闭包旧值）。换基码走 rebaseTable 重投影（放码关系不变）；行插入/删除/
-// 换位档差跟行走（码序重组，灰字所见即所得）；插入行预填默认值
-// （insertRowAfter：档差沿用最近非基码行/工厂缺省 + 数值码标签自动
-// 推算，免逐格手填）。转换/校验纯函数在 src/sizeRun.ts。
+// 之差」、下方行录「与上一码之差」）。保存语义（2026-10-02 用户拍板
+// 「关闭即保存 + 保留取消」）：X/遮罩/ESC 关闭走 requestClose——dirty 且
+// 合法即 onSave 提交后关（pristine 直接关不物化配置、校验不过拒关）；
+// 「取消」= 裸 onClose 弃稿（open 翻 false 触发重建 effect 回滚）；「保存」
+// = 只提交不下载；主按钮「导出推板 DXF」= 保存 + 下载一步完成（onExport
+// 回传 canonical，App 侧以显式覆盖参传 download 规避闭包旧值）。换基码
+// 走 rebaseTable 重投影（放码关系不变）；行插入/删除/换位档差跟行走
+// （码序重组，灰字所见即所得）；插入行预填默认值（insertRowAfter：档差
+// 沿用最近非基码行/工厂缺省 + 数值码标签自动推算，免逐格手填）。
+// 转换/校验纯函数在 src/sizeRun.ts。
 
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Drawer, Input, InputNumber, Radio, Space, Tag } from 'antd'
+import {
+  App as AntApp, Button, Drawer, Input, InputNumber, Radio, Space, Tag,
+} from 'antd'
 import {
   ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined,
 } from '@ant-design/icons'
@@ -17,8 +22,8 @@ import {
   MEASURE_KEYS, type MeasureKey, type SizeRunSpec, type Values,
 } from '../types'
 import {
-  absoluteValues, emptySteps, fromGradeTable, insertRowAfter, rebaseTable,
-  toGradeTable, validateTable, type GradeRow, type GradeTable,
+  absoluteValues, closeIntent, emptySteps, fromGradeTable, insertRowAfter,
+  rebaseTable, toGradeTable, validateTable, type GradeRow, type GradeTable,
 } from '../sizeRun'
 
 const MEASURE_LABELS: Record<MeasureKey, string> = {
@@ -27,7 +32,7 @@ const MEASURE_LABELS: Record<MeasureKey, string> = {
 }
 
 export default function SizeRunDrawer({
-  open, onClose, spec, measurements, defaultLabel, busy, onExport,
+  open, onClose, spec, measurements, defaultLabel, busy, onExport, onSave,
 }: {
   open: boolean
   onClose: () => void
@@ -36,13 +41,26 @@ export default function SizeRunDrawer({
   defaultLabel: string
   busy: boolean
   onExport: (spec: SizeRunSpec) => void
+  // 关闭即保存提交口（X/遮罩/ESC 与「保存」按钮共用；App 侧 setSizeRun
+  // + 关抽屉 + 成功 toast）
+  onSave: (spec: SizeRunSpec) => void
 }) {
+  const { message } = AntApp.useApp()
   const [table, setTable] = useState<GradeTable>(
     () => toGradeTable(spec, defaultLabel))
-  // 草稿随开合重建（打开期间 spec 不会变：setSizeRun 只发生在导出/模板载入）
+  // 草稿随开合重建 + 脏标记复位：任一提交路径后 App 同批更新 spec 与
+  // open=false，抽屉关着的状态下 effect 重建为新 spec、dirty 复位——
+  // 重开所见即已存内容（canonical 单一事实源）
+  const [dirty, setDirty] = useState(false)
   useEffect(() => {
     setTable(toGradeTable(spec, defaultLabel))
+    setDirty(false)
   }, [open, spec, defaultLabel])
+  // 编辑一律走 editTable（置脏）——关闭守卫与「保存」按钮按 dirty 分派
+  const editTable = (fn: (t: GradeTable) => GradeTable) => {
+    setDirty(true)
+    setTable(fn)
+  }
 
   // 基码 8 参数（面板值，Number coerce；缺省 0 仅防 NaN，导出走引擎校验）
   const baseVals = useMemo(() => {
@@ -59,16 +77,16 @@ export default function SizeRunDrawer({
   const fmt = (v: number) => (Math.round(v * 10) / 10).toFixed(1)
 
   const setLabel = (i: number, label: string) =>
-    setTable((t) => ({ ...t, rows: t.rows.map((r, k) =>
+    editTable((t) => ({ ...t, rows: t.rows.map((r, k) =>
       (k === i ? { ...r, label } : r)) }))
   const setStep = (i: number, key: MeasureKey, v: number | null) =>
-    setTable((t) => ({ ...t, rows: t.rows.map((r, k) =>
+    editTable((t) => ({ ...t, rows: t.rows.map((r, k) =>
       (k === i ? { ...r, steps: { ...r.steps, [key]: v ?? 0 } } : r)) }))
   // 行下插入（纯函数 insertRowAfter）：预填默认值——档差沿用最近非基码
   // 行（全表仅基码用工厂档差缺省）、码标签按相邻数值码推算，免逐格手填
-  const insertAfter = (i: number) => setTable((t) => insertRowAfter(t, i))
+  const insertAfter = (i: number) => editTable((t) => insertRowAfter(t, i))
   const removeRow = (i: number) =>
-    setTable((t) => {
+    editTable((t) => {
       if (t.rows.length <= 1) return t
       const rows = t.rows.filter((_, k) => k !== i)
       let baseIndex = t.baseIndex
@@ -80,7 +98,7 @@ export default function SizeRunDrawer({
     })
   // 换位：基码锚定逻辑码（随行走），不是位置下标；锚位差值恒清 0（不变式）
   const moveRow = (i: number, dir: -1 | 1) =>
-    setTable((t) => {
+    editTable((t) => {
       const j = i + dir
       if (j < 0 || j >= t.rows.length) return t
       const rows = [...t.rows]
@@ -109,19 +127,39 @@ export default function SizeRunDrawer({
     )
   }
 
+  // 关闭守卫（antd 的 X/遮罩/ESC 全走 onClose 单通道；open 由 App 受控，
+  // 不调 props.onClose 即拒关）：pristine 静默关、dirty 合法提交关、dirty
+  // 不合法拒关。「取消」不走这里（裸 onClose = 弃稿），「保存」按钮是显式
+  // 意图不经分派（但 !dirty 禁用，防 pristine 空表物化垃圾 spec）
+  const requestClose = () => {
+    const intent = closeIntent(dirty, errors)
+    if (intent === 'refuse') {
+      message.error('档差表校验未通过：请修正后关闭，或点「取消」放弃修改')
+      return
+    }
+    if (intent === 'commit') onSave(fromGradeTable(table))
+    else onClose()
+  }
+
   return (
-    <Drawer title="推板设置（多码推码）" width={1080} open={open} onClose={onClose}
+    <Drawer title="推板设置（多码推码）" width={1080} open={open}
+            onClose={requestClose}
       footer={
         <div className="sr-footer">
           {errors.length > 0 ? (
             <span className="sr-error">{errors.join('；')}</span>
           ) : (
             <span className="sr-muted">
-              导出将保存配置并下载 size_run.dxf（多码单文件，逐码完整重打版）
+              关闭抽屉将自动保存；导出将保存配置并下载 size_run.dxf
+              （多码单文件，逐码完整重打版）
             </span>
           )}
           <Space>
             <Button onClick={onClose}>取消</Button>
+            <Button disabled={errors.length > 0 || !dirty}
+                    onClick={() => onSave(fromGradeTable(table))}>
+              保存
+            </Button>
             <Button type="primary" loading={busy} disabled={errors.length > 0}
                     onClick={() => onExport(fromGradeTable(table))}>
               导出推板 DXF
@@ -141,7 +179,7 @@ export default function SizeRunDrawer({
           <span>订单号：</span>
           <Input size="small" style={{ width: 180 }} placeholder="noname"
                  value={table.style}
-                 onChange={(e) => setTable((t) => ({ ...t, style: e.target.value }))} />
+                 onChange={(e) => editTable((t) => ({ ...t, style: e.target.value }))} />
           <span className="sr-muted">（可打印 ASCII，进 DXF 头；留空 = noname）</span>
           {table.rows.length < 2 && (
             <Tag color="orange">仅 1 码：导出等同单码裁片合集</Tag>
@@ -168,7 +206,7 @@ export default function SizeRunDrawer({
                 </td>
                 <td>
                   <Radio checked={i === table.baseIndex}
-                         onChange={() => setTable((t) => rebaseTable(t, i))} />
+                         onChange={() => editTable((t) => rebaseTable(t, i))} />
                 </td>
                 {MEASURE_KEYS.map((k) => (
                   <td key={k}>{renderCell(row, i, k)}</td>

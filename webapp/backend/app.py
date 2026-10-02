@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -35,6 +36,11 @@ from ylpattern.params import (Issue, Measurements, PatternOptions,
                               build_issues)
 
 from .schema import binding_for, build_schema, handles, seed_shape
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - 3.10 环境（tomli 为 pyproject 声明依赖）
+    import tomli as tomllib
 
 app = FastAPI(title="YLPattern Web", version="0.1.0")
 app.add_middleware(
@@ -351,6 +357,36 @@ def export_toml(req: DraftRequest) -> Response:
                              'attachment; filename="size_draft.toml"'})
 
 
+def _parse_size_toml(text: str) -> dict:
+    """toml 文本 -> {measurements, options, size_run}（导入配置与模板详情
+    共用解析口径）：只做结构最低校验（语法 + [measurements] 非空），
+    参数合法性交 _build / 前端 IssueStrip 呈现（模板载入同构）。"""
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        raise HTTPException(422, f"TOML 解析失败：{e}")
+    m = data.get("measurements")
+    if not isinstance(m, dict) or not m:
+        raise HTTPException(422, "缺少非空 [measurements] 段（不是有效的尺寸单）")
+    opts = data.get("options")
+    return {"measurements": m,
+            "options": opts if isinstance(opts, dict) else {},
+            "size_run": data.get("size_run")}
+
+
+class TomlParseRequest(BaseModel):
+    """导入配置（启动选择层「导入配置」卡）：前端读入的尺寸单 toml 文本
+    （web 导出物 / 手写 / CLI --size 同构）。"""
+    text: str
+
+
+@app.post("/api/toml/parse")
+def parse_toml(req: TomlParseRequest) -> dict:
+    """尺寸单 toml 文本 -> {measurements, options, size_run}（响应与
+    /api/templates/{name} 同构，前端复用 normalizeSizeRun 管线）。"""
+    return _parse_size_toml(req.text)
+
+
 @app.get("/api/templates")
 def templates() -> list[dict]:
     return [{"name": p.stem, "file": p.name}
@@ -360,19 +396,10 @@ def templates() -> list[dict]:
 @app.get("/api/templates/{name}")
 def template_detail(name: str) -> dict:
     """模板内容（measurements + options，前端表单一键填充）。"""
-    import tomllib
     path = _EXAMPLES / name
     if not path.is_file():
         raise HTTPException(404, f"模板不存在:{name}")
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
-    # 展平缝份子表到 options（与生成端点的 options 口径一致）
-    options = {k: v for k, v in data.get("options", {}).items()}
-    for key, val in list(options.items()):
-        if isinstance(val, dict):
-            options[key] = val
-    return {"measurements": data.get("measurements", {}),
-            "options": options,
-            "size_run": data.get("size_run")}
+    return _parse_size_toml(path.read_text(encoding="utf-8"))
 
 
 # agent 服务同源转发（一期前端接线 §10.9）：dev 由 Vite proxy /agent -> 8001，

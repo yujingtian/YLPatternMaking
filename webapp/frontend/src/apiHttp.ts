@@ -164,6 +164,27 @@ export async function fetchTemplateDetail(
   return handle(await fetch(`/api/templates/${file}`))
 }
 
+// 导入配置（启动选择层「导入配置」卡）：POST /api/toml/parse。纯 HTTP
+// （模板同族：toml 解析在后端 tomllib，前端无 TOML 库，不进 route() 引擎
+// 通道）。422 detail 恒为字符串（语法错 / 缺 [measurements]），归一成可读
+// 消息——handle<T> 的 IssueDetail[] 口径不适用，走 postNest 式手写归一
+export async function postTomlParse(
+  text: string,
+): Promise<{ measurements: Values; options: Values; size_run?: unknown }> {
+  const res = await fetch('/api/toml/parse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    const detail: unknown = body?.detail
+    throw new Error(typeof detail === 'string' && detail
+      ? detail : `导入失败（HTTP ${res.status}）`)
+  }
+  return res.json() as Promise<{ measurements: Values; options: Values; size_run?: unknown }>
+}
+
 // ---- agent 提取服务（/agent 前缀；dev=Vite proxy、prod=backend 转发） ----
 
 // agent /api/extract 的 422 detail 是双形态（字符串=照片非法 |
