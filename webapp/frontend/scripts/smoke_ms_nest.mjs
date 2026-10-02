@@ -1,11 +1,16 @@
 // 机器排料（MS 对接二期 §10.3.2）端到端冒烟（playwright，手动脚本不入
-// vitest）——US-007：主链路 + 四异常分支回归锁。
+// vitest）——US-007：主链路 + 四异常分支回归锁；四期 US-006 扩展：双通道
+// （直连 mock 本地 MS / 回退无本地 MS）+ done 自动回传落盘断言。
 //
-// **自举起服**（无需手工起 YL 后端）：spawn py -m uvicorn 起两份 webapp
+// **自举起服**（无需手工起 YL 后端）：spawn py -m uvicorn 起三份 webapp
 // backend——A :8040（缺省 YLP_MS_BASE → 真 MS :8010，prod 形态：托管 dist +
-// /ms httpx 转发，连 US-001 代理通道一起回归）与 B :8041（YLP_MS_BASE 指向
-// 死端口 = 502 夹具）。MS :8010 由环境常驻（**本脚本不 spawn 不杀**，起跑前
-// 探针不在则退出 2）。脚本退出树杀两份 uvicorn（taskkill /T）。
+// /ms httpx 转发，连 US-001 代理通道一起回归）、B :8041（YLP_MS_BASE 指向
+// 死端口 = 502 夹具）与 C :8042（YLP_MS_BASE → 本脚本自举的 **mock 本地 MS**
+// + YLP_NEST_ARCHIVE_DIR 隔离到 out/smoke_ms_nest/archive——直连/回退两通道
+// done 自动回传落盘断言的承载实例，mock 秒回 done 不空等 180s 自然完成）。
+// MS :8010 由环境常驻（**本脚本不 spawn 不杀**，起跑前探针不在则退出 2）。
+// mock 本地 MS 是 Node http 恒真服务（8011..8019 候选口择一，带 CORS 头），
+// 脚本退出关停。脚本退出树杀三份 uvicorn（taskkill /T）。
 //
 // 前置：webapp/frontend/dist/ 为 npm run build 产物（backend GET / 直接托管）；
 //       MS :8010 在跑；playwright 可解析（本仓 devDependencies 未装——先试
@@ -36,10 +41,27 @@
 //      client_ref 为同长定值（字节替换不动 content-length）→ tab1 提交任务 A
 //      在飞 → tab2（清锚 init script 避免 attach）同 ref 二次提交 → 409 错误
 //      Alert「已有在飞任务」（含既有 task_id）→ Node 侧 DELETE 任务 A 清场。
+//   [D 直连通道全链]（四期 US-006，backend C + mock 本地 MS）ping 归一夹具
+//      （mock 端口 route.fulfill 200、其余候选口全 abort——端口发现确定性
+//      归一，不赌真 MS :8010 白名单配置）→ 浏览器真跨源直连 mock 全链
+//      solve/status/result/export/state-file（页面 /ms 台账必须为空）→ done
+//      → 自动回传 → 落盘三件字节级 + meta（channel direct+base）/index.jsonl
+//      断言 → 确定关闭 DELETE 直发 mock + 锚清。
+//   [P 回退通道 + done 回传]（四期 US-006，backend C）ping 全 abort = 无本地
+//      MS 夹具 → 回退 /ms 代理 → backend C httpx → mock MS done → 自动回传
+//      → 落盘三件字节级 + meta（channel proxy 无 base）/index.jsonl 两行互异；
+//      .msn 取件走 YL 代理端点 /api/nest/tasks/{id}/state-file（token 服务端
+//      注入形态）；除被 abort 的 ping 外零 801x 业务流量。
 //
-// 报告落 out/smoke_ms_nest/report.txt；退出码 0 = 全 PASS。
-import { writeFileSync, mkdirSync, accessSync, constants, readFileSync } from 'node:fs'
+// 通道确定性口径：M/W/T/F/C 相的 context 一律 ping 全 abort（回退相夹具——
+// 真 MS :8010 对外来 Origin ping 本就 403 白名单拒，此处显式 abort 不赌配置）；
+// D 相唯一放行 mock 端口 ping。报告落 out/smoke_ms_nest/report.txt；退出码
+// 0 = 全 PASS。
+import { writeFileSync, mkdirSync, accessSync, constants, readFileSync,
+  rmSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
+import { gzipSync, gunzipSync } from 'node:zlib'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
@@ -51,8 +73,11 @@ mkdirSync(OUT, { recursive: true })
 
 const PORT_A = 8040                                // 真 MS 形态（避开常驻 8000）
 const PORT_B = 8041                                // 502 夹具
+const PORT_C = 8042                                // mock MS + 回传存档断言承载
 const BASE_A = 'http://127.0.0.1:' + PORT_A
 const BASE_B = 'http://127.0.0.1:' + PORT_B
+const BASE_C = 'http://127.0.0.1:' + PORT_C
+const ARCHIVE_DIR = OUT + '/archive'               // backend C 隔离存档目录
 const MS_PROBE = 'http://127.0.0.1:8010/'
 const PY = process.env.SMOKE_PY || 'py'
 // 409 夹具 client_ref 定值前缀（padEnd 补零保持与原值等长，charset 合法）
@@ -80,7 +105,7 @@ try {
   console.error('前置缺失：MS 排料服务 ' + MS_PROBE + ' 不可达（' + e + '）—— 冒烟走真 MS，请先启动')
   process.exit(2)
 }
-for (const base of [BASE_A, BASE_B]) {
+for (const base of [BASE_A, BASE_B, BASE_C]) {
   try {
     const r = await fetch(base + '/', { signal: AbortSignal.timeout(1000) })
     if (r.ok) {
@@ -105,7 +130,119 @@ if (DEAD_PORT === null) {
   process.exit(2)
 }
 
-// ---------------------------------------------------------------- 起服（自举双实例）
+// ---------------------------------------------------------------- mock 本地 MS（直连通道夹具，四期 US-006）
+// Node http 恒真服务（候选口 8011..8019 = MS_DIRECT_PORTS 减常驻真 MS :8010）：
+// D 相浏览器真跨源直连走真 HTTP（响应带 CORS 头），P 相由 backend C /ms 代理
+// httpx 打进来；ping 命中归一由 D 相 context.route 控制端口选择确定性。任务
+// 级 PLT/.msn 载荷带 task 标记，供回传落盘字节级对拍；status 恒 done（秒回，
+// 不空等 180s 自然完成）。mockHits 是**服务侧**台账（区别浏览器侧网络台账），
+// phase 标签区分 D（浏览器直连）/P（代理）两拨来客。
+let MOCK_PORT = null
+for (const p of [8011, 8012, 8013, 8014, 8015, 8016, 8017, 8018, 8019]) {
+  const busy = await fetch('http://127.0.0.1:' + p + '/',
+    { signal: AbortSignal.timeout(400) }).then((r) => true, () => false)
+  if (!busy) { MOCK_PORT = p; break }
+}
+if (MOCK_PORT === null) {
+  console.error('前置缺失：mock 本地 MS 候选口 8011..8019 全被占用')
+  process.exit(2)
+}
+const MOCK_BASE = 'http://127.0.0.1:' + MOCK_PORT
+const MOCK_CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET,POST,DELETE,OPTIONS',
+  'access-control-allow-headers': 'content-type',
+}
+const MOCK_DENSITY = 0.7111
+let mockSeq = 0
+const mockTasks = new Map()
+let mockPhase = 'D'                                // D=浏览器直连 / P=backend 代理
+const mockHits = []
+function mockTaskId() {
+  const id = 'smoke-mock-' + String(++mockSeq).padStart(2, '0')
+  mockTasks.set(id, {
+    plt: 'IN;PU0,0;PD1750,250;PU;SMOKE-MOCK-PLT-' + id + ';',
+    msn: 'smoke-mock-msn-' + id,
+  })
+  return id
+}
+function mockStatusBody() {
+  return {
+    state: 'done', mode: 'machine', run_mode: 'normal',
+    total_budget_sec: 180, elapsed_sec: 3,
+    incumbent: { density: MOCK_DENSITY, width_mm: 1710, seed: 2,
+      frame_index: 5, elapsed: 3 },
+    current: { seed: 2, density: MOCK_DENSITY, density_sparrow: null, ext: false },
+    per_seed: [{ seed: 2, killed: false, kill_reason: null,
+      best_density: MOCK_DENSITY, elapsed: 3 }],
+    error: null, exit_code: 0,
+  }
+}
+const MOCK_SQ = [[0, 0], [250, 0], [250, 250], [0, 250]]
+function mockResultBody() {
+  const piece = {
+    id: 'g01', size: 29, color: '#1f77b4', area_mm2: 62500,
+    polygon: MOCK_SQ, raw_polygon: MOCK_SQ, d_mm: 0, label: 'g01', demand: 2,
+    net_polygon: MOCK_SQ, internal_lines: null, notches: null, grain_line: null,
+  }
+  return {
+    state: 'done', mode: 'machine', run_dir: 'mock-smoke',
+    manifest: { gate_mm: 1750, total_area_mm2: 2000000, n_eroded: 0,
+      pieces: [piece] },
+    best: { seed: 2, frame_index: 5, elapsed: 3, density: MOCK_DENSITY,
+      density_sparrow: null, width_mm: 1710,
+      placed_items: [
+        { id: 'g01', rotation: 0, translation: [10, 10] },
+        { id: 'g01', rotation: 180, translation: [400, 10] },
+      ] },
+    summary: { per_seed: [] },
+  }
+}
+function mockDispatch(method, pathname) {
+  const json = (status, obj) => ({ status, headers: { ...MOCK_CORS,
+    'content-type': 'application/json' }, body: JSON.stringify(obj) })
+  if (method === 'OPTIONS')
+    return { status: 204, headers: { ...MOCK_CORS }, body: '' }
+  if (method === 'GET' && pathname === '/api/machine/ping')
+    return json(200, { ok: true, service: 'machine' })
+  if (method === 'POST' && pathname === '/api/machine/solve')
+    return json(202, { task_id: mockTaskId(), run_name: 'smoke-mock',
+      started_at: new Date().toISOString() })
+  let m = pathname.match(/^\/api\/machine\/solve\/([^/]+)\/status$/)
+  if (method === 'GET' && m) return json(200, mockStatusBody())
+  m = pathname.match(/^\/api\/machine\/solve\/([^/]+)\/result$/)
+  if (method === 'GET' && m) return json(200, mockResultBody())
+  if (method === 'POST' && pathname === '/api/machine/export') {
+    const id = [...mockTasks.keys()].pop() || mockTaskId()
+    return { status: 200, headers: { ...MOCK_CORS,
+      'content-type': 'application/octet-stream',
+      'content-disposition': 'attachment; filename="yl-nest-' + id + '.plt"' },
+    body: mockTasks.get(id).plt }
+  }
+  m = pathname.match(/^\/api\/machine\/solve\/([^/]+)\/state-file$/)
+  if (method === 'GET' && m) {
+    const id = m[1]
+    return { status: 200, headers: { ...MOCK_CORS,
+      'content-type': 'application/gzip',
+      'content-disposition': 'attachment; filename="yl-nest-' + id + '.msn"' },
+    body: gzipSync(Buffer.from(mockTasks.get(id)?.msn || 'smoke-mock-msn')) }
+  }
+  m = pathname.match(/^\/api\/machine\/solve\/([^/]+)$/)
+  if (method === 'DELETE' && m) return json(200, { ok: true })
+  return json(404, { detail: 'mock MS Not Found' })
+}
+const mockServer = createServer((req, res) => {
+  const u = new URL(req.url, MOCK_BASE)
+  mockHits.push({ phase: mockPhase, method: req.method, path: u.pathname })
+  const r = mockDispatch(req.method, u.pathname)
+  res.writeHead(r.status, r.headers)
+  res.end(r.body)
+})
+await new Promise((ok, err) =>
+  mockServer.listen(MOCK_PORT, '127.0.0.1', ok).once('error', err))
+log('mock 本地 MS 就绪 ' + MOCK_BASE + '（done 秒回 + CORS 通配）')
+
+// ---------------------------------------------------------------- 起服（自举三实例）
 function bootBackend(port, extraEnv) {
   const server = spawn(PY, ['-m', 'uvicorn', 'webapp.backend.app:app',
     '--host', '127.0.0.1', '--port', String(port)], {
@@ -139,14 +276,23 @@ async function waitReady(srv, base) {
 }
 const srvA = bootBackend(PORT_A, {})
 const srvB = bootBackend(PORT_B, { YLP_MS_BASE: 'http://127.0.0.1:' + DEAD_PORT })
-for (const [srv, base, label] of [[srvA, BASE_A, 'A'], [srvB, BASE_B, 'B']]) {
+// C：YLP_MS_BASE → mock MS（P 相回退链路承载）+ 存档目录隔离（D/P 相落盘
+// 断言不污染仓级 out/nest_archive/；起跑前清空保 index.jsonl 断言确定性）
+rmSync(ARCHIVE_DIR, { recursive: true, force: true })
+mkdirSync(ARCHIVE_DIR, { recursive: true })
+const srvC = bootBackend(PORT_C, { YLP_MS_BASE: MOCK_BASE,
+  YLP_NEST_ARCHIVE_DIR: ARCHIVE_DIR })
+for (const [srv, base, label] of [[srvA, BASE_A, 'A'], [srvB, BASE_B, 'B'],
+  [srvC, BASE_C, 'C']]) {
   if (!(await waitReady(srv, base))) {
     console.error('起服失败（:' + label + ' 未就绪）—— 服务日志尾：\n' + srv.log.join('').slice(-1500))
-    killBackend(srvA); killBackend(srvB)
+    killBackend(srvA); killBackend(srvB); killBackend(srvC)
     process.exit(2)
   }
 }
-log('服务就绪 A=' + BASE_A + '（真 MS :8010）/ B=' + BASE_B + '（死链 :' + DEAD_PORT + ' 502 夹具）')
+log('服务就绪 A=' + BASE_A + '（真 MS :8010）/ B=' + BASE_B
+  + '（死链 :' + DEAD_PORT + ' 502 夹具）/ C=' + BASE_C + '（mock MS ' + MOCK_BASE
+  + ' + 存档隔离 ' + ARCHIVE_DIR + '）')
 
 // ---------------------------------------------------------------- playwright 装载
 async function loadChromium() {
@@ -227,6 +373,10 @@ try {
   const ctxA = await browser.newContext({
     viewport: { width: 1600, height: 1200 }, acceptDownloads: true,
   })
+  // 无本地 MS 夹具（四期 US-006）：ping 探测全 abort → 通道确定性归一
+  // proxy 回退（真 MS :8010 对外来 Origin ping 本就 403 白名单拒，此处显式
+  // abort 不赌 MS 白名单配置；M/W/T/C 相共用 ctxA）
+  await ctxA.route('**/api/machine/ping', (route) => route.abort())
   const pageA = await ctxA.newPage()
   pageA.setDefaultTimeout(30_000)
   const netA = []
@@ -287,6 +437,12 @@ try {
     && r.url.endsWith('/status') && r.status === 200)
   check('M5 status 轮询进行中（2s 档 ≥2 次，走 /ms 代理通道）', polls.length >= 2,
     'polls=' + polls.length)
+  // 通道指示（四期 US-006）：无本地 MS 夹具下徽标明示回退 + 性能受限提示
+  check('M5 通道徽标「服务器排料(回退)」+ 回退提示（无本地 MS 夹具）',
+    await pageA.locator('.ant-modal-wrap:visible .ant-tag',
+      { hasText: '服务器排料(回退)' }).isVisible().catch(() => false)
+    && await visModalOf(pageA, '机器排料')
+      .getByText('未检测到本地 VB超排').isVisible().catch(() => false))
 
   // ==================== W 误关防护：ESC/遮罩不关 + 后台守望 + 刷新重连 ====================
   await pageA.keyboard.press('Escape')
@@ -415,6 +571,8 @@ try {
   const ctxB = await browser.newContext({
     viewport: { width: 1600, height: 1000 }, acceptDownloads: true,
   })
+  // 无本地 MS 夹具同 ctxA：ping 全 abort → 回退 /ms → 死链 502（四期 US-006）
+  await ctxB.route('**/api/machine/ping', (route) => route.abort())
   await ctxB.addInitScript((entries) => {
     for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v)
   }, lsA)
@@ -511,12 +669,199 @@ try {
     cleanup.status === 200 && cleanupJson && cleanupJson.ok === true,
     cleanup.status + ' ' + JSON.stringify(cleanupJson))
   await ctxA.close()
+
+  // ==================== D 直连通道全链（mock 本地 MS + done 自动回传落盘） ====================
+  // （四期 US-006）backend C 页源（回传 POST 同源落隔离存档）+ 浏览器真跨源
+  // 直连 mock MS：ping 归一夹具只放行 mock 端口（fulfill 200 须带 CORS 头
+  // ——跨源 fetch 无 CORS 头即 reject，等于 miss），其余候选口（含常驻真 MS
+  // :8010）全 abort——端口发现确定性归一，任务锚绑 direct+mock base
+  mockPhase = 'D'
+  const ctxD = await browser.newContext({
+    viewport: { width: 1600, height: 1200 }, acceptDownloads: true,
+  })
+  await ctxD.route('**/api/machine/ping', (route) => {
+    if (route.request().url() === MOCK_BASE + '/api/machine/ping')
+      return route.fulfill({ status: 200, headers: MOCK_CORS,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, service: 'machine' }) })
+    return route.abort()
+  })
+  await ctxD.addInitScript((entries) => {
+    for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v)
+  }, lsA)
+  const pageD = await ctxD.newPage()
+  pageD.setDefaultTimeout(30_000)
+  const netD = []                     // 直连相必须为空（零 /ms 代理请求）
+  tapMs(pageD, netD)
+  const directReqs = []               // 浏览器侧直连 URL 台账（含 fulfill 的 ping）
+  pageD.on('request', (req) => {
+    if (req.url().startsWith(MOCK_BASE))
+      directReqs.push(req.method() + ' ' + req.url())
+  })
+  await pageD.goto(BASE_C)
+  await pageD.getByText('继 续', { exact: true }).click()
+  await pageD.waitForSelector('.app-header')
+  await openSolveModal(pageD)
+  check('D1 草稿注入生效（D 页码表恢复 → 开始排料可用）', true)
+  await visBtnOf(pageD, '机器排料', '开始排料').click()
+  await pageD.locator('.ant-modal-wrap:visible .ant-tag',
+    { hasText: '本地排料(直连)' }).waitFor({ timeout: 30_000 })
+  check('D1 通道徽标「本地排料(直连)」（ping 命中 mock 端口 → direct）', true)
+  const anchorD = await anchorOf(pageD)
+  check('D1 锚通道标记 = direct + mock base（任务生命周期绑定）',
+    anchorD !== null && anchorD.channel != null
+    && anchorD.channel.kind === 'direct' && anchorD.channel.base === MOCK_BASE,
+    anchorD ? JSON.stringify(anchorD.channel) : '锚缺失')
+  const taskIdD = anchorD.taskId
+
+  await pageD.locator('.ant-modal-wrap:visible .ant-tag', { hasText: '排料完成' })
+    .waitFor({ timeout: 30_000 })
+  check('D2 done 终态（mock 秒回，无终止介入）', true)
+  const cnt = (pfx) => directReqs.filter((u) => u.startsWith(pfx)).length
+  check('D2 请求全链直发 mock（POST solve + GET status/result ≥2）',
+    cnt('POST ' + MOCK_BASE + '/api/machine/solve') >= 1
+    && cnt('GET ' + MOCK_BASE + '/api/machine/solve/') >= 2,
+    directReqs.join(' | ').slice(0, 160))
+  check('D2 零 /ms 代理请求（直连相不走同源代理）', netD.length === 0,
+    JSON.stringify(netD))
+
+  // done 自动回传（US-005）：PLT/.msn 按绑定通道取件（.msn 走直连原生端点）
+  // → POST archive 同源 → 落盘三件 + index.jsonl
+  await visModalOf(pageD, '机器排料')
+    .getByText('结果已回传存档（PLT / 状态文件 / 元数据）')
+    .waitFor({ timeout: 15_000 })
+  check('D3 done 自动回传：ok 小字出现（直连通道）', true)
+  check('D3 .msn 取件走直连原生端点 {base}/solve/{id}/state-file',
+    directReqs.some((u) => /\/api\/machine\/solve\/[^/]+\/state-file$/.test(u)))
+  await sleep(300)   // 落盘收尾
+  const metaD = JSON.parse(
+    readFileSync(ARCHIVE_DIR + '/' + taskIdD + '/meta.json', 'utf8'))
+  const pltD = readFileSync(ARCHIVE_DIR + '/' + taskIdD + '/result.plt', 'utf8')
+  const msnD = gunzipSync(
+    readFileSync(ARCHIVE_DIR + '/' + taskIdD + '/state.msn')).toString()
+  check('D4 result.plt / state.msn 字节级 = mock 载荷（gunzip 后对拍）',
+    pltD === mockTasks.get(taskIdD).plt && msnD === mockTasks.get(taskIdD).msn,
+    pltD.slice(0, 40) + ' / ' + msnD)
+  check('D4 meta 全字段（channel direct+base / density+pct / gate / run_mode / seed / 码套）',
+    metaD.task_id === taskIdD
+    && metaD.channel.kind === 'direct' && metaD.channel.base === MOCK_BASE
+    && metaD.density === MOCK_DENSITY && metaD.density_pct === 71.11
+    && metaD.gate_mm === 1750 && metaD.run_mode === 'normal' && metaD.seed === 2
+    && metaD.quantities !== null && Object.keys(metaD.quantities).length > 0
+    && typeof metaD.uploaded_at === 'string'
+    && typeof metaD.started_at === 'string', JSON.stringify(metaD).slice(0, 200))
+  const idxD = readFileSync(ARCHIVE_DIR + '/index.jsonl', 'utf8')
+    .trim().split('\n')
+  const rowD = JSON.parse(idxD[0])
+  check('D4 index.jsonl 恰一行含 task_id/archive_dir/files/archived_at',
+    idxD.length === 1 && rowD.task_id === taskIdD
+    && typeof rowD.archive_dir === 'string'
+    && typeof rowD.archived_at === 'string', idxD.length + ' 行')
+  await pageD.screenshot({ path: OUT + '/d_direct_done.png' })
+
+  // 结果期确定关闭 → DELETE 随绑定通道直发 mock（US-003 显式通道语义）
+  netD.length = 0
+  await visBtnOf(pageD, '机器排料', '关 闭').click()
+  await pageD.locator('.ant-modal-confirm',
+    { hasText: '关闭后排料结果将清空' }).waitFor()
+  await pageD.locator('.ant-modal-confirm')
+    .getByText('确定关闭', { exact: true }).click()
+  await sleep(1500)
+  check('D5 确定关闭 → DELETE 直发 mock（服务台账）+ 零 /ms + 锚清',
+    mockHits.some((h) => h.phase === 'D' && h.method === 'DELETE')
+    && netD.length === 0 && (await anchorOf(pageD)) === null,
+    JSON.stringify(mockHits.filter((h) => h.phase === 'D')))
+  await ctxD.close()
+
+  // ==================== P 回退通道 + done 自动回传（无本地 MS：ping 全 abort） ====================
+  // （四期 US-006）同 backend C 页源，ping 全 abort = 本地无 VB超排 → 回退
+  // /ms 同源代理 → backend C httpx → mock MS；done 自动回传统一收口 YL 后端
+  mockPhase = 'P'
+  const ctxP = await browser.newContext({
+    viewport: { width: 1600, height: 1200 }, acceptDownloads: true,
+  })
+  await ctxP.route('**/api/machine/ping', (route) => route.abort())
+  await ctxP.addInitScript((entries) => {
+    for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v)
+  }, lsA)
+  const pageP = await ctxP.newPage()
+  pageP.setDefaultTimeout(30_000)
+  const netP = []
+  tapMs(pageP, netP)
+  const pLog = []                     // 代理相专用端点台账（state-file/archive）
+  const pDirect = []                  // 除 ping 外的 801x 直连尝试（必须为空）
+  pageP.on('request', (req) => {
+    const u = req.url()
+    if (u.includes('/state-file') || u.includes('/archive'))
+      pLog.push(req.method() + ' ' + u)
+    else if (/^http:\/\/127\.0\.0\.1:801\d\//.test(u)
+      && !u.includes('/api/machine/ping')) pDirect.push(u)
+  })
+  await pageP.goto(BASE_C)
+  await pageP.getByText('继 续', { exact: true }).click()
+  await pageP.waitForSelector('.app-header')
+  await openSolveModal(pageP)
+  await visBtnOf(pageP, '机器排料', '开始排料').click()
+  await pageP.locator('.ant-modal-wrap:visible .ant-tag',
+    { hasText: '服务器排料(回退)' }).waitFor({ timeout: 30_000 })
+  check('P1 通道徽标「服务器排料(回退)」（ping 全 abort → 回退）', true)
+  check('P1 回退提示文案（未检测到本地 VB超排…性能受限）',
+    await visModalOf(pageP, '机器排料')
+      .getByText('未检测到本地 VB超排').isVisible())
+  const anchorP = await anchorOf(pageP)
+  check('P1 锚通道标记 = proxy', anchorP !== null
+    && anchorP.channel != null && anchorP.channel.kind === 'proxy',
+    anchorP ? JSON.stringify(anchorP.channel) : '锚缺失')
+  const taskIdP = anchorP.taskId
+
+  await pageP.locator('.ant-modal-wrap:visible .ant-tag', { hasText: '排料完成' })
+    .waitFor({ timeout: 30_000 })
+  // done 相首拍即终态：solve/status 已在台账；result 取果在 done 后异步发出，
+  // 其 200 断言挪到回传 ok 之后（取果是回传前置，ok 即必已发生）
+  check('P2 全链走 /ms 同源代理（solve 202 + status 200）',
+    netP.some((r) => r.url.endsWith('/api/machine/solve') && r.status === 202)
+    && netP.filter((r) => r.url.endsWith('/status') && r.status === 200).length >= 1,
+    JSON.stringify(netP.slice(0, 6)))
+  await visModalOf(pageP, '机器排料')
+    .getByText('结果已回传存档（PLT / 状态文件 / 元数据）')
+    .waitFor({ timeout: 15_000 })
+  check('P2 result 取果亦走 /ms（终态取果 done 后异步发出）',
+    netP.some((r) => r.url.endsWith('/result') && r.status === 200),
+    JSON.stringify(netP.filter((r) => r.url.endsWith('/result'))))
+  check('P2 除被 abort 的 ping 外零 801x 直连业务流量', pDirect.length === 0,
+    pDirect.join(' | ').slice(0, 120))
+  check('P3 done 自动回传 ok（回退通道统一收口 YL 后端）', true)
+  check('P3 .msn 取件走 YL 代理端点 /api/nest/tasks/{id}/state-file（token 注入形态）',
+    pLog.includes('GET ' + BASE_C + '/api/nest/tasks/' + taskIdP
+      + '/state-file'), pLog.join(' | '))
+  check('P3 回传 POST /api/nest/tasks/{id}/archive 同源',
+    pLog.includes('POST ' + BASE_C + '/api/nest/tasks/' + taskIdP + '/archive'))
+  await sleep(300)
+  const metaP = JSON.parse(
+    readFileSync(ARCHIVE_DIR + '/' + taskIdP + '/meta.json', 'utf8'))
+  const pltP = readFileSync(ARCHIVE_DIR + '/' + taskIdP + '/result.plt', 'utf8')
+  const msnP = gunzipSync(
+    readFileSync(ARCHIVE_DIR + '/' + taskIdP + '/state.msn')).toString()
+  check('P4 落盘三件字节级 = mock 载荷 + meta channel=proxy（无 base 键）',
+    pltP === mockTasks.get(taskIdP).plt && msnP === mockTasks.get(taskIdP).msn
+    && metaP.channel.kind === 'proxy' && !('base' in metaP.channel),
+    JSON.stringify(metaP.channel))
+  const idxP = readFileSync(ARCHIVE_DIR + '/index.jsonl', 'utf8')
+    .trim().split('\n')
+  const idsP = idxP.map((l) => JSON.parse(l).task_id)
+  check('P4 index.jsonl 两行互异（直连/回退各一，追加不覆盖）',
+    idxP.length === 2 && new Set(idsP).size === 2, idsP.join(','))
+  await pageP.screenshot({ path: OUT + '/p_proxy_archive.png' })
+  await ctxP.close()
 } catch (e) {
   check('脚本异常中断', false, String(e && e.stack || e).slice(0, 400))
 } finally {
   await browser.close().catch(() => {})
   killBackend(srvA)
   killBackend(srvB)
+  killBackend(srvC)
+  mockServer.close()
+  mockServer.closeAllConnections?.()
   await sleep(1000)
 }
 

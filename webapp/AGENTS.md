@@ -153,3 +153,28 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
   `page.route('**/api/nest/tasks/*/archive')` 首发 fulfill 500 再
   `route.fallback()` 放行；「不阻塞下载」断言 = 按钮 isEnabled + 点击
   waitForEvent('download')。14 项断言两通道全绿。
+
+## 冒烟双通道/回传三场景扩展（2026-10-02 四期 US-006，smoke_ms_nest.mjs）
+
+- **通道确定性夹具**：`context.route('**/api/machine/ping')` 是通道选择
+  唯一开关——回退相全 `route.abort()`（比依赖真 MS :8010 对外来 Origin 回
+  403 白名单拒更稳，不赌 MS 配置）；直连相 mock 端口 `route.fulfill` 200、
+  其余候选口 abort（端口发现确定性归一到 mock 端口）。**fulfill ping 必须
+  带 CORS 头**（`access-control-allow-origin`）——跨源 fetch 响应无该头
+  直接 reject TypeError = miss，与真 403 等效归一。
+- **mock 本地 MS 走真线上**（区别 us005_verify 的 route.fulfill 全拦截）：
+  Node http server 监听 8011..8019 择一（= MS_DIRECT_PORTS 减常驻 :8010），
+  浏览器直连相打**真跨源 HTTP**（响应带 ACAO *，multipart POST 属 CORS
+  simple request 无预检）；`mockHits` 服务侧台账 + `mockPhase` 变量区分
+  D（浏览器直连）/P（backend /ms httpx 代理）两拨来客——浏览器侧
+  `page.on('request')` 台账只认 URL 前缀，两者对拍零歧义。
+- **backend 三实例自举**：C 实例 `YLP_MS_BASE` → mock + `YLP_NEST_ARCHIVE_DIR`
+  隔离到 `out/smoke_ms_nest/archive`（起跑 rmSync 清空保 index.jsonl
+  「恰 N 行」断言确定性，不污染仓级 out/nest_archive/）。
+- **done 相异步时序坑**：`排料完成` tag 在 **status 响应**置 done 时即出现，
+  result 取果与其后回传取件（export/state-file）都是**之后异步发出**——
+  网络台账断言（result 200 / state-file 端点）须等「结果已回传存档」小字
+  或 sleep 后再做（首跑 P2 误判即此：tag 出现时 result 尚未发出）。
+- mock server 退出清理：`close()` 后追加 `closeAllConnections?.()`（Node
+  ≥18.2）——backend httpx keep-alive 连接不掐，`close()` 回调永不触发但
+  句柄滞留事件循环；脚本末尾 process.exit 兜底，但显式掐干净更稳。

@@ -2,16 +2,10 @@
   "branchName": "ralph/machine-direct-channel",
   "stories": [
     {
-      "id": "US-005",
-      "title": "前端 done 终态自动回传存档",
-      "description": "作为生产管理者，我希望排料任务完成后前端自动回传 PLT/.msn/摘要到 YL 后端存档，两通道结果统一收口（PRD US-004 前端部分，依赖 US-003 弹窗终态与 US-004 archive 端点）。\n\n具体任务：\n1. webapp/frontend/src/apiHttp.ts（或同族位置，api.ts 按先例 re-export）— 新增回传函数：POST /api/nest/tasks/{task_id}/archive，multipart file_plt + file_msn + meta JSON（task_id/通道标记/density/width_mm/码套/seed/run_mode/时间）\n2. webapp/frontend/src/components/NestSolveModal.tsx — done 终态后自动回传（PLT blob + .msn blob + meta）；失败可手动重试、不阻塞结果展示与下载；回传状态小字指示\n3. 前端单测：done 自动触发回传/失败重试不阻塞下载/状态指示渲染\n\n验收标准：\n- 两通道 done 后自动回传，out/nest_archive/<task_id>/ 落盘 PLT + .msn + meta，index.jsonl 追加正确\n- 回传失败不影响结果展示与「下载 PLT」「下载 .msn」，可手动重试\n- cd webapp/frontend && npm run test 全绿；python -m pytest tests/ -q 全绿",
-      "passes": true
-    },
-    {
       "id": "US-006",
       "title": "双通道冒烟与文档翻案",
       "description": "作为 YL 维护者，我希望冒烟脚本覆盖双通道+回传、文档反映新架构，回归有自动化护栏且架构认知不漂移（PRD US-005 收尾；联调验收依赖 MS 仓 PRD D:\\code\\MaterialSorting\\tasks\\prd-machine-browser-direct.md 落地）。\n\n具体任务：\n1. webapp/frontend/scripts/smoke_ms_nest.mjs — 扩展：直连通道全链（mock 本地 MS）/ 回退通道全链（无本地 MS）/ done 自动回传落盘断言；package.json script 保持 smoke:ms-nest\n2. tasks/prd-ms-nesting-integration.md 约 105 行「前端永不直连 MS」设计决策翻案补记（指向本 PRD tasks/prd-machine-direct-channel.md）\n3. .doc/python工程设计.md §10.3.2 — 更新双通道拓扑与部署口径\n4. 服务器 MS 部署口径文档化：pip 装 ms-web（恒绑 127.0.0.1 与 YL 后端同机）+ env YLP_MS_TOKEN ↔ MS_MACHINE_TOKEN 同值；运维步骤清单\n\n验收标准：\n- smoke:ms-nest 覆盖直连/回退/回传三场景全绿\n- 「前端永不直连 MS」旧决策有指向本 PRD 的翻案补记；§10.3.2 双通道拓扑与部署口径更新到位\n- npm run test + python -m pytest tests/ + smoke:ms-nest 全绿；现有 /ms 代理测试（test_ms_proxy.py）零改动通过",
-      "passes": false
+      "passes": true
     }
   ]
 }
