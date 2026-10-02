@@ -393,7 +393,8 @@ META: dict[str, MetaEntry] = {
                                                step=0.5, lo=1.5, hi=6.0,
                                                gate="watch_pocket"),
     "watch_pocket_rotate_deg": MetaEntry("小表袋旋转角", "小表袋",
-                                         "整体旋转（顺时针为正，绕参考点）",
+                                         "整体旋转（顺时针为正＝内端"
+                                         "〔门襟侧〕低，以腰线水平为参照）",
                                          step=5.0, lo=-30.0, hi=30.0,
                                          gate="watch_pocket"),
     # 前贴袋

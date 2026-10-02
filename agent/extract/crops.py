@@ -32,6 +32,10 @@ _BOX = (0.06, 0.0, 0.94, 0.42)
 #   后贴袋 = 育克之下、裆部之上的中带（平铺背面照双袋惯例落位；框取
 #   宽松——裁多由模型按画面自辨，裁不到时判据退回整照读法兜底）
 _POCKET_BOX = (0.05, 0.24, 0.95, 0.64)
+#   前袋口 = 腰头下缘到臀线的中带、整幅宽（两侧袋口都进框，模型读任一
+#   侧；2026-10-02 特征尺度第三贴——整照上袋口曲线仅几十像素，VLM 分
+#   不清上端切向，bulge/tangent 误判的根因与腰头/后贴袋同族）
+_MOUTH_BOX = (0.06, 0.12, 0.94, 0.56)
 # 长边放大目标：小图 ×2（端点降采样后仍比整照里的特征区大 ~2 倍），
 # 大图不再放大（端点反正要压，省字节）
 _UPSCALE_LONG = 1200
@@ -141,3 +145,39 @@ def make_back_pocket_crops(photos, photo_meta, out_dir):
                       "（非用户上传），专用于细看后贴袋形状"
                       "（back_patch_shape）与袋底细节"}],
             ["后贴袋放大辅助图 1 张已附（背面照自动裁剪，特征尺度修复）"])
+
+
+def make_front_pocket_crops(photos, photo_meta, out_dir):
+    """从首张正面照裁前袋口区放大图（2026-10-02 特征尺度第三贴）。
+
+    整照上袋口曲线经端点降采样仅几十像素，三段判读（bulge/tangent 判型：
+    看两端末段直不直）低于模型可分辨阈值——判据已教而放大不足，模型
+    「看了但分不清」（实照判 bulge conf 0.65 vs 用户/像素定标 tangent）。
+    选图口径同 make_back_pocket_crops（保守）：只认 meta 明示的 front
+    照；无 meta 且单照也裁（分面模型自辨）；多照无 meta 不猜——前袋口
+    在背面照上不存在，裁错面是主动错误证据。框取整幅宽（两侧袋口都
+    进框）。返回同 make_waistband_crops。
+    """
+    paths = [str(p) for p in (photos or []) if p]
+    if not paths:
+        return [], [], []
+    metas = list(photo_meta or [])
+    src = None
+    for i, p in enumerate(paths):
+        if i < len(metas) and metas[i] and \
+                str((metas[i] or {}).get("category") or "").strip() == "front":
+            src = p
+            break
+    if src is None and len(paths) == 1:
+        src = paths[0]
+    if src is None:
+        return [], [], []
+    out = _crop_one(src, out_dir, "fp_crop_front", _MOUTH_BOX)
+    if out is None:
+        return [], [], []
+    return ([out],
+            [{"category": "other",
+              "note": "工程自动辅助图：正面照的两侧前袋口区放大裁剪"
+                      "（非用户上传），专用于细读袋口三段（上段/中段/下段）"
+                      "判型（front_pocket_mouth_mode）、弧深与小表袋细节"}],
+            ["前袋口放大辅助图 1 张已附（正面照自动裁剪，特征尺度修复）"])

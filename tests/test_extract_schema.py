@@ -124,7 +124,8 @@ def test_criteria_synchronized_with_manual():
     manual = _MANUAL.read_text(encoding="utf-8")
     _, _, _, prompt = _fixture()
     sentinels = ["等宽直条", "下凹弧线", "弯月弧线", "底中点尖出",
-                 "钝角浅尖也算尖", "J 形",
+                 "钝角浅尖也算尖", "J 形", "三段判读", "近似直线",
+                 "自身参考线", "当作水平基准线",
                  "一体裁出", "横向分割线", "第五袋", "卡胯骨", "紧身包腿",
                  "只分档不报数"]
     for s in sentinels:

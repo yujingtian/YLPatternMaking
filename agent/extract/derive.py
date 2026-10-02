@@ -14,7 +14,7 @@
   （3.5 中值/大差 4.75）+ ⑤育克兜底（连续算出 clamp [0,5]，常规带 2.0~5.0）；
   有育克默认无后腰省；缺额 <0.5 不开省、≤2.5 单省、>2.5 双省（宽=缺额/2）。
 - K5（知识库 §五，2026-09-30 初版子规则）：p1 四则——照片比例主通道
-  （K5-d，conf>0.6 + 物理窗 [0.40,0.65]）→ 腰弧预算 clamp（K5-b，锚 =
+  （K5-d，conf≥0.5 + 物理窗 [0.40,0.65]）→ 腰弧预算 clamp（K5-b，锚 =
   waist_front_target 前腰弦，弦 ≤ 腰弧保守安全侧）→ 小表袋下界 4.5
   （K5-c）；无比例时腰围锚点插值兜底（K5-a，64.3→8.8 / 74→10.0）。
   back_patch_width 同款比例主通道（窗 [0.55,0.80] × 后腰弦）。
@@ -60,7 +60,7 @@ class MergedView:
 
     ratios：比例键（ratio_front_pocket_p1 / ratio_back_patch_width）的模型
     读数（0~1 float，parse 窗内），仅模型通道、无词典/先验源；采纳门槛
-    （conf>0.6 + 物理窗钳制）在 derive_all 消费时判。"""
+    （conf≥0.5 + 物理窗钳制）在 derive_all 消费时判。"""
 
     axes: dict[str, KeyMeta]
     switches: dict[str, KeyMeta]
@@ -148,7 +148,7 @@ def merge(observation: Observation, measurements: dict[str, float],
             value, src, conf, ev = hint, DESC, 0.9, f"描述词「{hint}」"
         enums[key] = KeyMeta(key, value, src, conf, ev)
 
-    # 照片比例观测（K5-d）：纯模型通道直通（无词典/先验源），conf>0.6 +
+    # 照片比例观测（K5-d）：纯模型通道直通（无词典/先验源），conf≥0.5 +
     # 物理窗钳制等采纳门槛由 derive_all 消费时判
     ratios: dict[str, KeyMeta] = {}
     for key in RATIO_KEYS:
@@ -537,7 +537,7 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
 
     # K5 部件规则上下文（families 消费，知识库 §五）：前/后腰弦 + 前浪
     # （K5-b/d 锚——W 缺失 → chord None 跳 clamp 并由 K5-a 兜底披露）+
-    # 开关快照 + 照片比例主通道采纳（K5-d 六键：conf>0.6 才采纳、物理窗
+    # 开关快照 + 照片比例主通道采纳（K5-d 六键：conf≥0.5 才采纳、物理窗
     # 钳制后传入；钳制不改写 merged.ratios，报告仍记模型原始读数）
     from ylpattern.formulas.waist import waist_front_target
 
@@ -551,7 +551,7 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
 
     def _adopted_ratio(key: str, lo: float, hi: float) -> float | None:
         m = merged.ratios.get(key)
-        if m is None or m.confidence <= 0.6 or not isinstance(m.value, float):
+        if m is None or m.confidence < 0.5 or not isinstance(m.value, float):
             return None
         return min(hi, max(lo, m.value))
 
@@ -564,18 +564,25 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
              "fly_sep": bool(switches.get("fly_separate")),
              "facing_on": bool(switches.get("front_pocket_facing")),
              "watch_on": bool(switches.get("watch_pocket")),
+             # K5-b 预算扣减与引擎守卫同口径需要吃省宽（max(袋贴, dw)）
+             "pocket_dw": pocket_dw,
              "ratio_p1": _adopted_ratio("ratio_front_pocket_p1", 0.40, 0.65),
              "ratio_bp": _adopted_ratio("ratio_back_patch_width", 0.55, 0.80),
-             "ratio_p2": _adopted_ratio("ratio_front_pocket_p2", 0.20, 0.40),
+             # p2 窗上限 2026-10-02 放宽 0.40→0.50：实照深袋口款实测
+             # 0.38~0.50（袋口下端深 10~13cm），旧上限把这类读数钳丢
+             "ratio_p2": _adopted_ratio("ratio_front_pocket_p2", 0.20, 0.50),
              "front_rise": measurements.get("front_rise"),
              "ratio_wpw": ratio_wpw, "watch_w": watch_w,
              # 小表袋定位 K5-d（2026-10-01 实照校准：G 表 offset_top 1.0 /
              # rotate 8° 系单照片定标，宽高比例换照片即失真——顶边离腰
              # drop 与顶边斜率（tan 倾角）同样走比例通道，families 换算）；
-             # slope 物理窗上限 0.45（24.2°）：0.60=31° 连 G 表 top 1.0 都
-             # 撞射线不相交（联合可行域见 families._TOP_CAP*）
+             # slope 物理窗 0.0~0.45（0~24.2°）：下限 0.0 = 顶边与腰线平行
+             # 是合法读数（2026-10-02 参照系口径：倾角以腰头下缘线为基准，
+             # 勿钳 0.05 再 atan 出假 2.9°）；上限 0.45（24.2°）：0.60=31°
+             # 连 G 表 top 1.0 都撞射线不相交（联合可行域见
+             # families._TOP_CAP*）
              "ratio_wpt": _adopted_ratio("ratio_watch_pocket_top", 0.04, 0.25),
-             "ratio_wps": _adopted_ratio("ratio_watch_pocket_slope", 0.05, 0.45)}
+             "ratio_wps": _adopted_ratio("ratio_watch_pocket_slope", 0.0, 0.45)}
 
     # ⑤ 部件族调用矩阵（K4 省组键在上面，族内只补模板键）
     for part, switch in _PART_MATRIX:

@@ -68,9 +68,10 @@ ENUM_KEYS = ("waistband_type", "fit", "back_patch_shape", "front_pocket_mouth_mo
              "watch_pocket_mode")
 
 # 比例读图键（K5-d）：MODEL_KEYS 里 float 窗值域的键（parse 窗）；物理窗
-# （p1 [0.40,0.65] / p2 [0.20,0.40] / 小表袋宽 [0.22,0.40] / 贴袋宽
-# [0.55,0.80] / 小表袋顶 drop [0.04,0.25] / 顶边斜率 [0.05,0.45]）在
-# derive._adopted_ratio 钳制
+# （p1 [0.40,0.65] / p2 [0.20,0.50] / 小表袋宽 [0.22,0.40] / 贴袋宽
+# [0.55,0.80] / 小表袋顶 drop [0.04,0.25] / 顶边斜率 [0.0,0.45]——下限
+# 0.0 = 平行腰线合法读数，2026-10-02 参照系口径）在 derive._adopted_ratio
+# 钳制
 RATIO_KEYS = ("ratio_front_pocket_p1", "ratio_front_pocket_p2",
               "ratio_watch_pocket_width", "ratio_back_patch_width",
               "ratio_watch_pocket_top", "ratio_watch_pocket_slope")
@@ -221,8 +222,18 @@ def build_prompt(describe: str, measurements: dict[str, float],
         "- 只有明确看到不同才改 value，且必须在 evidence 写你看见的具体视觉特征"
         "（判据见下方手册段落），confidence 给 0.7 以上。",
         "- 前口袋袋口是必看项，先判形态再量弧深：①形态 front_pocket_mouth_mode——"
-        "袋口是一道平滑弯月弧线=保持 bulge、近似直线斜切仅端部小圆角=改 tangent、"
-        "两段直线折点明显=改 polyline（判据见手册）；②弧深 front_pocket_mouth_depth"
+        "三段判读：整体月牙弯不等于 bulge，垂直式（tangent）袋口中段完全可以"
+        "有明显月牙弯。把袋口分三段看**两端那两截直不直**：上段（贴腰头约 1/3）"
+        "近乎竖直下行且近似直线、下段（贴侧缝约 1/3）近乎水平拐入侧缝且近似"
+        "直线、弯集中在**中段**=改 tangent（两端垂直式）；通体弯曲、上段下段"
+        "走向跟着弧线一起倾斜（两端都找不到近似直线的一截）=保持 bulge；"
+        "两段直线折点明显=改 polyline。两条铁律：判直不直以服装**自身参考线**"
+        "为参照（腰头线/侧缝线），不以照片画框为准（实拍常带旋转透视，画面"
+        " 45° 不等于身上 45°）；不盯端点切向——端点处已进入中段转弯，要看"
+        "端点附近那一截线是不是直的（判据见手册：三段判读/近垂直近直优先 "
+        "tangent）；照片清单中有「工程自动辅助图」字样的袋口区放大图时，"
+        "以它为准细读三段再判，没有辅助图时才按整照细读；"
+        "②弧深 front_pocket_mouth_depth"
         "（仅 bulge 时）——目测弧线最深处到袋口弦（袋口两端点连线）的垂距占弦长比例"
         "——不足 12% 改 shallow、约 20% 保持 standard、超 25% 改 deep，"
         "evidence 写目测比例（例「弧深约为弦长 28%」）。",
@@ -248,10 +259,12 @@ def build_prompt(describe: str, measurements: dict[str, float],
         "——正面照小表袋顶边靠侧缝一端（外上角）离腰头下缘（腰头与裤身"
         "交界的缝线）的竖直距离 ÷ 腰头下缘到裆底"
         "（两腿分叉处）的竖直距离（与 ③ 同分母，例 0.13）；⑥ "
-        "ratio_watch_pocket_slope——正面照小表袋顶边倾斜程度：内端"
+        "ratio_watch_pocket_slope——正面照小表袋顶边相对**腰头线**的倾斜"
+        "程度：先把腰头下缘缝线当作水平基准线（相当于把照片转到腰线水平"
+        "再看；照片常带整车旋转，严禁按画面水平量），再看小表袋顶边内端"
         "（靠门襟一侧）比外端（靠侧缝一侧）低多少 ÷ 小表袋袋口宽"
-        "（内端低约三成就报 0.30；目测水平报 0；内端反而翘起报 0 并在 "
-        "evidence 说明）。evidence 写「约 55%」式"
+        "（顶边与腰头线平行报 0；相对腰线内端低约一成报 0.10；内端反而"
+        "翘起报 0 并在 evidence 说明）。evidence 写「约 55%」式"
         "目测读数；看不清/被遮挡/照片没拍到就保持 null 不填。",
         "- 看不清 / 被遮挡 / 照片没拍到：保持预判值不动，confidence 下调。",
         "- 尺寸数值（cm）不在你的职责内，不要改任何数字、不要新增尺寸。",

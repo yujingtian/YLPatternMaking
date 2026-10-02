@@ -160,6 +160,7 @@ def test_s2_waistband_crops_off_switch(monkeypatch):
 
     monkeypatch.setattr(crops_mod, "make_waistband_crops", _boom)
     monkeypatch.setattr(crops_mod, "make_back_pocket_crops", _boom)
+    monkeypatch.setattr(crops_mod, "make_front_pocket_crops", _boom)
     vlm = FakeVLM([_S2_REPLY])
     result = extract_from_input(describe=_DESC, photos=("f.jpg", "b.jpg"),
                                 provider=vlm, run_probe=False,

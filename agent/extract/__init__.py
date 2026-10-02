@@ -307,6 +307,15 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
                 crop_notes += bp_notes
             except Exception:
                 pass
+            try:                           # 前袋口区第三贴（2026-10-02）
+                from .crops import make_front_pocket_crops
+                fp_paths, fp_metas, fp_notes = make_front_pocket_crops(
+                    photos, photo_meta, tmp_crop.name)
+                crop_paths += fp_paths
+                crop_metas += fp_metas
+                crop_notes += fp_notes
+            except Exception:
+                pass
             if crop_paths:
                 p(f"放大辅助图 {len(crop_paths)} 张已附（自动裁剪）")
         if crop_paths:

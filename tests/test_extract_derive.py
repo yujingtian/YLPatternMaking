@@ -32,14 +32,24 @@ K5 p1 四则（知识库 §五，2026-09-30 袋贴×门襟腰弧重合事故起�
 chord 前腰弦 = W/4 − balance + ③袋口（waist_front_target，弦 ≤ 腰弧安全侧）
 - W74 金标（mid_high/straight/高弹/skinny，delta=wb=0.4，③=0.8）：
   chord 18.9；K5-a 插值 8.8+(74−64.3)×1.2/9.7=10.0 封顶上锚；
-  bound 18.9−4−3.5−1=10.4 不 clamp → p1=10.0 零漂移
+  bound 18.9−4−3.5−0.3=11.1 不 clamp → p1=10.0 零漂移
 - W66 小码（high/curvy d=26，delta=wb=1.85，③=1.0）：chord 15.65；
-  K5-a 插值 9.0 → K5-b bound 15.65−8.5=7.15 floor 0.1 → p1=7.1
+  K5-a 插值 9.0 → K5-b bound 15.65−7.8=7.85 floor 0.1 → p1=7.8
+  （2026-10-01 间隙 1.0→0.3：阔腿小腰款实照袋口上端在弦 ~55%，1.0
+  压到 ~45%；扣减与引擎守卫同口径 max(袋贴, dw)，弦−扣减−0.3 < 弧
+  恒不触引擎零间隙 raise）。K5-a 兜底路径不伴生让位（无照片比例
+  维持旧钳口径）；照片比例在库时先收伴生宽带下限（袋贴 3.5→3.0、
+  fly 4.0→3.5）重算界 15.65−3.5−3.0−0.3=8.8，装得下照片袋宽就不钳
+  （K5-b' 2026-10-02，小表袋被袋口线埋进的三根因之一根治）
 - K5-d 照片比例主通道：ratio × chord（物理窗 p1 [0.40,0.65] 钳制、
-  conf>0.6 才采纳）；conf≤0.6/无照片回退 K5-a；
+  conf≥0.5 才采纳，2026-10-01 自 0.6 下调——真实 VLM 诚实目测读数
+  全落 0.50~0.60 档，0.6 门槛实测五键全灭走兜底）；conf<0.5/无照片
+  回退 K5-a；
   back_patch_width = ratio × 后腰弦（W/4+balance+Σ省口，金标 W74=18.9）
 - K5-d 扩展（2026-10-01）p2_drop：ratio × 前浪有效高（front_rise−腰头宽 4；
-  物理窗 [0.20,0.40]），金标 W74：0.35×26.0=9.1，兜底腰位分档 mid_high 7.5；
+  物理窗 [0.20,0.50]，上限 2026-10-02 放宽 0.40→0.50——实照深袋口款
+  0.38~0.50 旧上限钳丢读数），金标 W74：0.35×26.0=9.1、0.50 窗内直算
+  13.0，兜底腰位分档 mid_high 7.5；
   watch_pocket_width：ratio × 前腰弦（窗 [0.22,0.40]），金标 W74：
   0.30×18.9=5.7（带内不钳），兜底 G 表 5.5
 - K5-c 小表袋下界（2026-10-01 袋口宽动态）：ceil0.1(2+w·cos8°+0.5−3.5)，
@@ -482,20 +492,21 @@ def _m66():
 
 
 def test_k5_p1_golden_anchors():
-    """W74 金标零漂移（K5-a 封顶上锚 10.0、bound 10.4 不 clamp）；
-    W66 小码 K5-a 插值 9.0 被 K5-b 腰弧预算 clamp 压至 7.1（弦 15.65−8.5
-    = 7.15 floor 0.1——2026-09-30 袋贴×门襟腰弧重合事故的 extract 侧修复）。"""
+    """W74 金标零漂移（K5-a 封顶上锚 10.0、bound 11.1 不 clamp）；
+    W66 小码 K5-a 插值 9.0 被 K5-b 腰弧预算 clamp 压至 7.8（弦 15.65−7.8
+    = 7.85 floor 0.1——2026-09-30 袋贴×门襟腰弧重合事故的 extract 侧修复，
+    2026-10-01 间隙 1.0→0.3 + 扣减对齐引擎守卫 max(袋贴, dw)）。"""
     _, out = _derive(_m74(), 29, hints={"stretch": "high"})
     p1 = out["front_pocket_p1_dist"]
     assert p1.value == 10.0                       # 金标 example 值零漂移
     assert "K5-a 腰围锚点插值" in p1.evidence
-    assert "clamp" not in p1.evidence             # bound 10.4 > 10.0
+    assert "clamp" not in p1.evidence             # bound 11.1 > 10.0
     _, out = _derive(_m66(), 27)
     p1 = out["front_pocket_p1_dist"]
-    assert p1.value == 7.1
+    assert p1.value == 7.8
     assert "K5-a" in p1.evidence and "K5-b 腰弧预算 clamp" in p1.evidence
     assert "15.65" in p1.evidence                 # 弦值入证
-    assert "K5-c" not in p1.evidence              # 7.1 ≥ 4.5 不踩小表袋下界
+    assert "K5-c" not in p1.evidence              # 7.8 ≥ 4.5 不踩小表袋下界
 
 
 def test_k5_p1_no_clamp_without_separate_fly():
@@ -524,16 +535,16 @@ def test_k5_part_family_unit():
 
     v, ev = _p1({"waist": 74.0}, {"chord": 13.5, "fly_sep": True,
                                   "facing_on": True, "watch_on": True})
-    assert v == 5.0 and "K5-b" in ev               # 13.5−8.5=5.0 整档无尘
+    assert v == 5.7 and "K5-b" in ev               # 13.5−7.8=5.7 整档无尘
     v, ev = _p1({"waist": 74.0}, {"chord": 13.0, "fly_sep": True,
                                   "facing_on": True, "watch_on": True})
-    assert v == 4.5 and "K5-c" not in ev           # 4.5 不低于下界
+    assert v == 5.2 and "K5-c" not in ev           # 5.2 不低于下界
     v, ev = _p1({"waist": 74.0}, {"chord": 12.0, "fly_sep": True,
                                   "facing_on": True, "watch_on": True})
-    assert v == 4.5 and "K5-c" in ev and "冲突" in ev   # bound 3.5 < 4.5 下界胜出
+    assert v == 4.5 and "K5-c" in ev and "冲突" in ev   # bound 4.2 < 4.5 下界胜出
     v, ev = _p1({"waist": 74.0}, {"chord": 12.0, "fly_sep": True,
                                   "facing_on": True, "watch_on": False})
-    assert v == 3.5 and "K5-c" not in ev           # 无小表袋不设下界
+    assert v == 4.2 and "K5-c" not in ev           # 无小表袋不设下界
     v, ev = _p1({"waist": 64.3})
     assert v == 8.8 and "下锚" in ev               # 端点=下锚
     v, ev = _p1({"waist": 80.0})
@@ -542,7 +553,9 @@ def test_k5_part_family_unit():
 
 def test_k5_ratio_primary_channel():
     """K5-d 照片比例主通道：ratio × 前腰弦直接作带值（K5-a 不参与）；
-    W66 换算 8.6 仍被 K5-b 压制至 7.1——两通道统一防重合。"""
+    W74 10.4 ≤ bound 11.1 不触 K5-b；W66 8.6 超标准界 7.8 → K5-b' 伴生宽
+    让位（袋贴 3.5→3.0、fly 4.0→3.5）重算界 8.8 保住照片袋宽，facing/fly
+    族同步收窄发射（2026-10-02，小表袋被袋口线埋进的根因之一根治）。"""
     obs = Observation(entries={
         "ratio_front_pocket_p1": _entry(0.55, 0.9, "约 55% 目测")})
     _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
@@ -550,17 +563,50 @@ def test_k5_ratio_primary_channel():
     assert p1.value == 10.4                        # 0.55×18.9=10.395 → 10.4
     assert "K5-d" in p1.evidence and "0.55" in p1.evidence
     assert "18.9" in p1.evidence                   # 弦值入证
-    assert "K5-b" not in p1.evidence               # 10.4 ≤ bound 10.4
+    assert "K5-b" not in p1.evidence               # 10.4 ≤ bound 11.1
+    assert out["fly_width"].value == 4.0           # 无让位不动
     _, out = _derive(_m66(), 27, obs=obs)
     p1 = out["front_pocket_p1_dist"]
-    assert p1.value == 7.1                         # 8.6 被 K5-b clamp 压制
-    assert "K5-d" in p1.evidence and "K5-b" in p1.evidence
+    assert p1.value == 8.6                         # 照片袋宽保住不钳
+    assert "K5-d" in p1.evidence and "伴生宽让位" in p1.evidence
+    assert "8.80" in p1.evidence                   # 让位后界入证
+    assert out["front_pocket_facing_width"].value == 3.0   # 收带下限发射
+    assert out["fly_width"].value == 3.5
+    assert "伴生宽让位" in out["front_pocket_facing_width"].evidence
+    assert "伴生宽让位" in out["fly_width"].evidence
+
+
+def test_k5_companion_yield_unit():
+    """K5-b' 伴生宽让位（part_family 直调）：照片比例在库时伴生宽先收引擎
+    带下限重算预算界——装得下照片袋宽就不钳并经 extra 记账（facing/fly 族
+    后续消费）；仍装不下才按收窄后的界钳、伴生宽保持收窄值自洽过守卫；
+    无照片比例不收缩（旧钳口径，见 test_k5_p1_golden_anchors W66 7.8）。"""
+    axes = {"waist_position": "mid", "gender": "female",
+            "body_shape": "standard", "fit_level": "regular", "stretch": "low"}
+
+    def _run(chord, ratio, dw=1.0):
+        extra = {"chord": chord, "ratio_p1": ratio, "fly_sep": True,
+                 "facing_on": True, "watch_on": True, "pocket_dw": dw}
+        res = part_family("front_pocket", axes, {}, {}, extra=extra)
+        return res["front_pocket_p1_dist"], extra
+
+    # 实照 W66 复算：0.55×15.65=8.6 > 标准界 7.8 → 让位后界 8.8 装得下
+    (v, ev), extra = _run(15.65, 0.55)
+    assert v == 8.6
+    assert "伴生宽让位" in ev and "8.80" in ev
+    assert extra["facing_w_eff"] == 3.0 and extra["fly_w_eff"] == 3.5
+    # 比例 0.60 → 9.4 > 收窄后界 8.8 → 按收窄后的界钳 + 记账保持自洽
+    (v, ev), extra = _run(15.65, 0.60)
+    assert v == 8.8
+    assert "仍不足" in ev and "伴生宽让位" not in ev
+    assert extra["facing_w_eff"] == 3.0 and extra["fly_w_eff"] == 3.5
 
 
 def test_k5_ratio_adoption_gates():
-    """采纳门槛：conf≤0.6 不采纳回退 K5-a；出物理窗 [0.40,0.65] 钳窗再算。"""
+    """采纳门槛：conf<0.5 不采纳回退 K5-a（2026-10-01 自 0.6 下调——真实
+    VLM 诚实目测全落 0.50~0.60 档）；出物理窗 [0.40,0.65] 钳窗再算。"""
     obs = Observation(entries={
-        "ratio_front_pocket_p1": _entry(0.55, conf=0.5, ev="拿不准")})
+        "ratio_front_pocket_p1": _entry(0.55, conf=0.45, ev="拿不准")})
     _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
     p1 = out["front_pocket_p1_dist"]
     assert p1.value == 10.0 and "K5-d" not in p1.evidence
@@ -588,8 +634,10 @@ def test_k5_ratio_back_patch_width():
 
 def test_k5_ratio_p2_drop_channel():
     """K5-d p2_drop（2026-10-01 扩展）：比例 × 前浪有效高（前浪 30 − 腰头宽
-    4 = 26.0）覆盖腰位分档兜底；conf≤0.6 回退分档、出物理窗 [0.20,0.40]
-    钳窗再算。金标：0.35×26.0=9.1；0.50 钳 0.40×26.0=10.4。"""
+    4 = 26.0）覆盖腰位分档兜底；conf<0.5 回退分档、出物理窗 [0.20,0.50]
+    钳窗再算（上限 2026-10-02 放宽 0.40→0.50：实照深袋口款 0.38~0.50 旧
+    上限钳丢读数，引擎 P2 主切口守卫兜底不变）。金标：0.35×26.0=9.1；
+    0.50 窗内直算 0.50×26.0=13.0。"""
     obs = Observation(entries={
         "ratio_front_pocket_p2": _entry(0.35, 0.9, "约 35% 目测")})
     _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
@@ -598,7 +646,7 @@ def test_k5_ratio_p2_drop_channel():
     assert "K5-d" in p2.evidence and "0.35" in p2.evidence
     assert "26.0" in p2.evidence                    # 前浪有效高入证
     obs = Observation(entries={
-        "ratio_front_pocket_p2": _entry(0.35, conf=0.5, ev="拿不准")})
+        "ratio_front_pocket_p2": _entry(0.35, conf=0.45, ev="拿不准")})
     _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
     p2 = out["front_pocket_p2_drop"]
     assert p2.value == 7.5 and "K5-d" not in p2.evidence   # mid_high 分档兜底
@@ -606,7 +654,8 @@ def test_k5_ratio_p2_drop_channel():
         "ratio_front_pocket_p2": _entry(0.50, 0.9, "目测偏深")})
     _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
     p2 = out["front_pocket_p2_drop"]
-    assert p2.value == 10.4 and "0.40" in p2.evidence      # 钳后比例入证
+    assert p2.value == 13.0 and "K5-d" in p2.evidence      # 窗内直算不钳
+    assert "0.50" in p2.evidence                           # 照片比例入证
 
 
 def test_k5_ratio_watch_width_channel():
@@ -630,7 +679,7 @@ def test_k5_ratio_watch_width_channel():
 
 def test_k5_watch_dynamic_floor_unit():
     """K5-c 动态下界（袋口宽随 K5-d 可变）：part_family 直调 watch_w=6.3 →
-    下界 ceil0.1(2+6.3·cos8°+0.5−3.5)=5.3；K5-b bound 3.5 < 5.3 冲突
+    下界 ceil0.1(2+6.3·cos8°+0.5−3.5)=5.3；K5-b bound 4.2 < 5.3 冲突
     下界胜出（w=5.5 兜底时 = 4.5 旧常数，见 test_k5_part_family_unit）。"""
     axes = {"waist_position": "mid", "gender": "female",
             "body_shape": "standard", "fit_level": "regular", "stretch": "low"}
@@ -666,11 +715,12 @@ def test_k5_watch_band_clamp():
 def test_k5_watch_top_rotate_channel():
     """K5-d 小表袋定位两键（2026-10-01 实照校准：G 表 offset_top 1.0 /
     rotate 8° 系单照片定标，换照片失真）：顶 drop = 比例 × 前浪有效高
-    覆盖 G 表 1.0（与 p2 同分母锚）；斜率（内端低多少 ÷ 袋口宽 = tan 倾角）
+    覆盖 G 表 1.0（与 p2 同分母锚）；斜率（相对腰头线，内端低多少 ÷
+    袋口宽 = tan 倾角，2026-10-02 参照系口径）
     代码 atan 换算度数覆盖 G 表 8°。金标 W74/前浪 30：0.13×26.0=3.4 →
     联合可行域钳 3.4−0.088×19.3=1.7（19.3°×袋口宽把内上角压沉过袋贴
     内边 = 射线永不相交，金标 W74 实测边界 19.3°→2.0~2.5）；平角组合
-    0.10×26.0=2.6 ≤ 3.4−0.088×8.5=2.7 不钳。conf≤0.6 不采纳 → G 表
+    0.10×26.0=2.6 ≤ 3.4−0.088×8.5=2.7 不钳。conf<0.5 不采纳 → G 表
     兜底同值（无照片金标零漂移）。"""
     obs = Observation(entries={
         "ratio_watch_pocket_top": _entry(0.13, 0.9, "约 13% 目测"),
@@ -691,14 +741,20 @@ def test_k5_watch_top_rotate_channel():
     top = out["watch_pocket_offset_from_top"]
     assert top.value == 2.6
     assert "联合可行域钳" not in top.evidence
-    # 斜率物理窗 [0.05,0.45]：0.60=31° 连 G 表 top 1.0 都撞射线不相交
+    # 斜率物理窗 [0.0,0.45]：0.60=31° 连 G 表 top 1.0 都撞射线不相交
     obs = Observation(entries={
         "ratio_watch_pocket_slope": _entry(0.60, 0.9, "目测极陡")})
     _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
     assert out["watch_pocket_rotate_deg"].value == 24.2   # atan(0.45)
+    # 平行腰线 = 合法读数（2026-10-02 参照系口径）→ rot 0，不回落 G 表 8°
     obs = Observation(entries={
-        "ratio_watch_pocket_top": _entry(0.13, conf=0.5, ev="拿不准"),
-        "ratio_watch_pocket_slope": _entry(0.35, conf=0.5, ev="拿不准")})
+        "ratio_watch_pocket_slope": _entry(0.0, 0.9, "顶边与腰头线平行")})
+    _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
+    rot = out["watch_pocket_rotate_deg"]
+    assert rot.value == 0.0 and "K5-d" in rot.evidence
+    obs = Observation(entries={
+        "ratio_watch_pocket_top": _entry(0.13, conf=0.45, ev="拿不准"),
+        "ratio_watch_pocket_slope": _entry(0.35, conf=0.45, ev="拿不准")})
     _, out = _derive(_m74(), 29, hints={"stretch": "high"}, obs=obs)
     assert out["watch_pocket_offset_from_top"].value == 1.0
     assert "K5-d" not in out["watch_pocket_offset_from_top"].evidence
@@ -709,7 +765,7 @@ def test_k5_watch_top_rotate_channel():
 def test_k5_watch_band_floor_consistency():
     """K5-c 动态下界取 G 表带钳后值（与 watch 族宽度同源防漂）：raw 4.2 →
     按 5.0 算下界 ceil0.1(2+4.9513+0.5−3.5)=4.0（raw 直算仅 3.2）；K5-a
-    W=64.3 → 8.8 → K5-b chord 11 bound 2.5 → 下界 4.0 胜出。"""
+    W=64.3 → 8.8 → K5-b chord 11 bound 3.2 → 下界 4.0 胜出。"""
     axes = {"waist_position": "mid", "gender": "female",
             "body_shape": "standard", "fit_level": "regular", "stretch": "low"}
     v, ev = part_family("front_pocket", axes, {}, {"waist": 64.3},
