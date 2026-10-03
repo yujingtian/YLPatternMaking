@@ -33,3 +33,27 @@
   - 备注: 新端点 GET /api/nest/tasks/{task_id}/state-file(send stream=True+StreamingResponse 逐块, BackgroundTask 回收); 新环境变量 YLP_MS_TOKEN(服务端注入 X-Machine-Token 不下发); 超时专用 60s 档; 401/404/409 原码+固定中文, 其余/超时/连不上->502 通用文案; 坑1: starlette TestClient 先跑完 ASGI 才出响应, 流式证明须 YL app 另起真 uvicorn; 坑2: 常驻 MS :8010 是二期旧构建无 state-file 端点, US-002 冒烟需自起 MS 新实例(MS_WEB_PORT, 勿杀常驻); MS gzip mtime 非确定, 双取对拍同秒内 raw 相同否则 mod-mtime 比对; MS quantities 外键=g码 内键=码号字符串(首次活体提交写反致 solver 400)
 [2026-09-22 11:55] US-002 - 前端「下载状态文件(.msn)」入口与引导 - DONE
   - 改动: webapp/frontend/src/apiHttp.ts(msStateFile+cdFilename 公共解析器), api.ts(re-export), msBase.ts(MS_WORKBENCH_URL), vite-env.d.ts(构建变量登记), components/NestSolveModal.tsx(MsnDownload 三态入口+引导+doDownloadMsn), apiHttp.test.ts(+4 例), .doc/python工程设计.md(§10.3.2 US-002 条+环境变量表), webapp/AGENTS.md
+  - 测试: npx tsc --noEmit 零错误; npm test 242 passed(21 files); py -m pytest tests/ -q 1083 passed 无回归; npm run build 成功; 浏览器取证 us002_verify 20 例(19 过+1 测试设计误设: DELETE 后理应 404 Alert 已由 S5 证)/us002_orphan 6/6(杀 MS 落 error 相重启后 marker 仍可下载)/us002_layout 盒模型 6/7(唯一 fail 是自己断言错期望同行, 实设计为双行); prod 形态 :8042 dist + MS 三期自起 :8012, 收尾已杀双实例
+  - 备注: .msn 落盘必须 downloadBlobBytes(gzip 二进制禁 text() 往返); msStateFile 走 /api/nest YL 代理非 /ms; MS 工作台「状态恢复」上传还原的人工冒烟依赖 MS 侧三期 UI; 常驻 :8010/:8000 未动
+[2026-10-02 09:45] US-001 - msBase 通道选择层（直连端口发现+代理回退） - DONE
+  - 改动: webapp/frontend/src/msBase.ts, webapp/frontend/src/msBase.test.ts(新), webapp/frontend/src/vite-env.d.ts, .doc/python工程设计.md(§10.3.2 新增双通道路由层条), webapp/AGENTS.md, prd.json
+  - 测试: npx tsc --noEmit 零错误; npm test 332 passed(25 files, 新增 msBase.test.ts 13 例); py -m pytest tests/ -q 1204 passed 18 skipped 无回归; dist 未入 git 无需重建; 无渲染/几何改动且 resolveMsChannel 尚无消费方(接线在 US-002/003), 浏览器验证不适用
+  - 备注: resolveMsChannel=会话缓存+在飞去重(每页面会话一次, 中途启 MS 须刷新); VITE_MS_BASE 配置=钉死 direct 零探测; msWorkbenchUrl(channel) 跟随发现端口; 下一故事 US-002: apiHttp msJson 壳 base 改调 resolveMsChannel, msStateFile 双通道分派
+[2026-10-02 09:58] US-002 - apiHttp 通道感知（七函数跟随+双通道分派） - DONE
+  - 改动: webapp/frontend/src/apiHttp.ts, src/msBase.ts, src/api.ts, src/apiHttp.test.ts, src/msBase.test.ts, .doc/python工程设计.md(§10.3.2), webapp/AGENTS.md
+  - 测试: npx tsc --noEmit 零错误; npm test 342 passed(25 files, apiHttp 28 例+msBase 15 例, 新增 direct 跟随 3+降级 5+demote 2); py -m pytest tests/ -q 1204 passed 18 skipped 无回归
+  - 备注: runMsRequest 壳=每请求 resolveMsChannel+直连 TypeError 降级(demote 钉缓存+proxy 形态重发, 非 TypeError 不降级); MS_BASE→MS_PROXY_BASE '/ms'(VITE_MS_BASE 只钉首选 direct); msStateFile 双端点分派(direct=MS 原生无 token/proxy=YL 代理); 无渲染/几何改动且 fetch 全 stub, 浏览器验证不适用; 下一故事 US-003: useNestSolve 提交前探测+锚点通道绑定, submit 后可再 resolveMsChannel 读降级后通道做弹窗指示
+[2026-10-02 10:20] US-003 - useNestSolve 通道绑定与弹窗通道体验 - DONE
+  - 改动: webapp/frontend/src/hooks/useNestSolve.ts(前置探测+提交层降级重试+锚通道标记+pollFailMessage), apiHttp.ts(七函数可选尾参 channel, runMsRequest 显式通道零探测零降级), components/NestSolveModal.tsx(channelLabel/channelNote 徽标+下载/工作台链接随通道), App.tsx(attach 双参+msDeleteTask 透传), useNestSolve.test.ts/NestSolveModal.test.ts/apiHttp.test.ts, .doc/python工程设计.md(§10.3.2 四期 US-003 条), webapp/AGENTS.md
+  - 测试: npx tsc --noEmit 零错误; npm test 350 passed(25 files, 新增锚通道归义/pollFailMessage/channelLabel/channelNote/显式通道零降级共 8 例); py -m pytest tests/ -q 1204 passed 18 skipped 无回归; npm run build(dist 刷新)+活体 17 项全过(out/us003_verify.mjs: 真 MS proxy 相徽标/锚/DELETE 回收 + route mock 直连相徽标/直连轮询/.msn 原生端点/中断引导零 /ms/刷新恢复原通道; backend :8043 已杀, 截图 out/us003_*.png)
+  - 备注: 显式通道=任务绑定零降级(TypeError 上抛连败计数), 无参=会话解析+demote; 提交层降级因需拿落点绑定(VITE_MS_BASE 钉死形态事后读不到降级); 常驻 :8010 新构建 ping 对外源 403=天然半新半旧夹具; 下一故事 US-004: 后端 POST /api/nest/tasks/{id}/archive multipart 三件落盘(参照 agent/app.py UploadFile 先例)
+[2026-10-02 19:35] US-004 - 回传存档后端 archive 端点 - DONE
+  - 改动: webapp/backend/app.py(POST /api/nest/tasks/{id}/archive), pyproject.toml([web] +python-multipart), tests/test_nest_archive.py, .doc/python工程设计.md(四期 US-004 条目), webapp/AGENTS.md(US-004 节)
+  - 测试: py -m pytest tests/ -q 1213 passed 18 skipped(新增 test_nest_archive.py 9 例: 三件字节级落盘/meta 字段完整/幂等覆盖 index 恰一行/双任务两行/非法 meta+task_id 不一致+安全闸 400/空 422/超限 413/上限=10MB 约定值) 全绿; 后端无前端改动免 tsc/vitest
+  - 备注: 落盘 out/nest_archive/<task_id>/{result.plt,state.msn,meta.json}+index.jsonl(每 task_id 恰一行, meta 全字段+archive_dir/files/archived_at); 校验前置拒绝即零落盘; 测试面 monkeypatch _NEST_ARCHIVE_DIR/_NEST_ARCHIVE_MAX_FILE_BYTES(同 _MS_BASE 先例); 下一故事 US-005: 前端 done 终态自动回传(apiHttp 新增 archiveNest 函数+NestSolveModal 回传态/重试), 契约细节见 webapp/AGENTS.md US-004 节
+[2026-10-02 10:40] US-005 - 前端 done 终态自动回传存档 - DONE
+  - 改动: webapp/frontend/src/nestArchive.ts(新, meta构建/触发判定/文案三件纯函数), apiHttp.ts+api.ts(archiveNest multipart 回传函数+re-export), components/NestSolveModal.tsx(done 自动回传+失败重试+状态小字行, 下载 busy 态独立), nestArchive.test.ts(新 10 例), apiHttp.test.ts(+4 例), .doc/python工程设计.md(§10.3.2 US-005 条), webapp/AGENTS.md
+  - 测试: npx tsc --noEmit 零错误; npm test 364 全绿(新增 nestArchive 10+archiveNest 4); py -m pytest tests/ -q 1213 passed 18 skipped; 浏览器活体验证 out/us005_archive_verify.mjs 14/14 PASS(直连+回退两通道 done 自动落盘字节级/meta 通道标记/index.jsonl 追加/500 注入失败不锁下载+手动重试)
+  - 备注: stopped 不自动存档(PRD 只钉 done); attach 重连 quantities=null 不臆造; route mock ping 须在分派器内 200 否则通道误判 proxy(踩坑记录 webapp/AGENTS.md); 下一故事 US-006: 冒烟脚本扩展三场景+文档翻案(翻案补记指向 tasks/prd-machine-direct-channel.md)
+[2026-10-02 10:52] US-006 - 双通道冒烟与文档翻案 - DONE
+  - 改动: webapp/frontend/scripts/smoke_ms_nest.mjs, tasks/prd-ms-nesting-integration.md, .doc/python工程设计.md, webapp/AGENTS.md, prd.json

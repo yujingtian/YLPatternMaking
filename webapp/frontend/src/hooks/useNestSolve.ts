@@ -9,9 +9,16 @@
 // client_ref（MS 幂等引用）由本层追加，不进 buildMachineConfig 产物（US-002
 // 口径）。reset 只停表清锚、不删 MS 任务——结果期清理（best-effort DELETE，
 // MS 侧 TTL+7 天兜底）是弹窗显式关闭动作（US-004）的职责。
+// 四期双通道 US-003（tasks/prd-machine-direct-channel.md）：任务生命周期
+// 绑定通道——submit 前置 resolveMsChannel 探测，直连提交网络级失败在提交
+// 层降级回退 proxy 重试一次（要拿到任务实际落点才能绑定）；锚/状态/取果/
+// 终止全走绑定通道（零探测零自动切换——本地 MS 中途死 → 连续失败计数落
+// error 引导两条出路，详见 pollFailMessage）。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MsError } from '../api'
 import { msResult, msSolveStart, msStatus, msStop } from '../api'
+import type { MsChannel } from '../msBase'
+import { demoteMsChannel, resolveMsChannel } from '../msBase'
 import type { MsMachineConfig, MsPerSeed, MsResult, MsStatus } from '../types'
 import { RUN_MODE_OPTIONS } from '../msConfig'
 
@@ -30,7 +37,23 @@ export const MS_TASK_STORAGE_KEY = 'ylpattern.msNestTask.v1'
 export interface StoredMsTask {
   taskId: string
   runMode: MsMachineConfig['run_mode']
+  // 任务绑定的通道标记（US-003：direct 含发现 base / proxy）；readStoredMsTask
+  // 归一后恒在场——US-003 前的旧锚缺失/坏标记一律归 proxy（旧锚任务全落
+  // 在「/ms 代理唯一通道」时代，按 proxy 绑定恢复轮询才不串台）
+  channel: MsChannel
   at?: string
+}
+
+// 锚通道标记归一（读侧防御）：direct 须带非空 string base，proxy 无参；
+// 其余形态（缺标记/坏 JSON 字段/未知 kind）→ proxy（见 StoredMsTask 注）
+function normalizeStoredChannel(raw: unknown): MsChannel {
+  if (typeof raw === 'object' && raw !== null) {
+    const c = raw as { kind?: unknown; base?: unknown }
+    if (c.kind === 'direct' && typeof c.base === 'string' && c.base)
+      return { kind: 'direct', base: c.base }
+    if (c.kind === 'proxy') return { kind: 'proxy' }
+  }
+  return { kind: 'proxy' }
 }
 
 export function readStoredMsTask(): StoredMsTask | null {
@@ -50,7 +73,12 @@ export function readStoredMsTask(): StoredMsTask | null {
         return null
       }
     }
-    return parsed as StoredMsTask
+    return {
+      taskId: parsed.taskId,
+      runMode: parsed.runMode,
+      channel: normalizeStoredChannel(parsed.channel),
+      at: parsed.at,
+    }
   } catch {
     return null
   }
@@ -87,6 +115,22 @@ export function solveCloseBehavior(
   return { background: false, deleteTask: false }
 }
 
+// 连续网络失败（POLL_FAIL_LIMIT 达限）的 error 引导文案（US-003 AC#2）：
+// - direct：本地 MS 中途死——两条出路（重启本地 MS 后凭锚点恢复，MS 重启
+//   后任务 marker 在 → orphan 宽限窗自然判定 / 重新提交转服务器排料重跑），
+//   **不自动切换通道、不自动重跑**（PRD FR-3：转服务器是用户显式动作）
+// - proxy：现状通用文案（服务器 MS 视角，零改动）
+export function pollFailMessage(channel: MsChannel): string {
+  if (channel.kind === 'direct')
+    return `本地排料服务连续 ${POLL_FAIL_LIMIT} 次无响应（本地 VB超排 可能已退出）。`
+      + '出路一：重启本地 VB超排 后点击左栏「排料」继续查看——任务锚点仍在，'
+      + 'MS 重启后任务标记会以遗留任务恢复判定；'
+      + '出路二：重试/再次排料 改用服务器排料重跑。'
+      + '本任务不会自动切换通道，也不会自动重跑'
+  return `MS 排料服务连续 ${POLL_FAIL_LIMIT} 次无响应（服务可能未启动；`
+    + '任务在 MS 侧可能仍在运行，可稍后「继续查看」重连）'
+}
+
 // 利用率%（物理口径，MS NestLabel 同源：density 分数×100 两位小数）；
 // incumbent（best-so-far 摘要）优先、回落 current（最新帧）
 export function densityPctOf(status: MsStatus): number | null {
@@ -112,6 +156,10 @@ export interface NestSolveState {
   phase: NestSolvePhase
   visible: boolean               // 弹窗在视（双档轮询开关的 UI 镜像）
   taskId: string | null
+  // 任务绑定的通道（US-003）：submit 成功/attach 时绑定（任务实际落点），
+  // 弹窗通道指示与生命周期请求（轮询/取果/终止/下载）随它走；null = 无
+  // 任务在手（idle/提交失败期）
+  channel: MsChannel | null
   startedAt: string | null       // solve 202 的 started_at（attach 重连为 null）
   error: string | null           // 最近一次可读中文错误（phase=error 或取果失败）
   // running 期进度投影（终态后保留最后一拍）
@@ -122,10 +170,13 @@ export interface NestSolveState {
   status: MsStatus | null        // 最后一次原始状态（orphan/exit_code 等 UI 细节）
   result: MsResult | null        // done/stopped 自动取果（{manifest, best, …}）
   // 提交（互斥：idle/error 之外丢弃）；成功 true。config 为 buildMachineConfig
-  // 产物，client_ref 由本层追加
+  // 产物，client_ref 由本层追加。前置 resolveMsChannel 探测，直连网络级
+  // 失败降级 proxy 重试一次（绑定落点通道）
   submit: (file: Blob, filename: string, config: MsMachineConfig) =>
     Promise<boolean>
-  attach: (taskId: string) => void   // 重连既有任务（首拍轮询自会对齐终态）
+  // 重连既有任务（首拍轮询自会对齐终态）：channel = 锚点绑定通道（恢复
+  // 轮询走原通道，US-003 AC#1）
+  attach: (taskId: string, channel: MsChannel) => void
   stop: () => void                   // 终止 → stopped（fire-and-forget）
   setVisible: (v: boolean) => void   // 双档切换（即时重排待发的一拍）
   reset: () => void                  // 回 idle：停表 + 清任务锚（不删 MS 任务）
@@ -135,6 +186,7 @@ export function useNestSolve(): NestSolveState {
   const [phase, setPhase] = useState<NestSolvePhase>('idle')
   const [visible, setVisibleState] = useState(true)
   const [taskId, setTaskId] = useState<string | null>(null)
+  const [channel, setChannel] = useState<MsChannel | null>(null)
   const [startedAt, setStartedAt] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [densityPct, setDensityPct] = useState<number | null>(null)
@@ -149,6 +201,7 @@ export function useNestSolve(): NestSolveState {
   const tickRef = useRef<() => Promise<void>>(async () => {})
   const phaseRef = useRef<NestSolvePhase>('idle')
   const taskIdRef = useRef<string | null>(null)
+  const channelRef = useRef<MsChannel | null>(null)
   const visibleRef = useRef(true)
   const failRef = useRef(0)
   const aliveRef = useRef(true)
@@ -182,7 +235,7 @@ export function useNestSolve(): NestSolveState {
     const terminal = () =>
       phaseRef.current === 'done' || phaseRef.current === 'stopped'
     try {
-      const r = await msResult(id)
+      const r = await msResult(id, channelRef.current ?? undefined)
       if (!aliveRef.current || !terminal()) return
       setResult(r)
       setError(null)
@@ -196,7 +249,7 @@ export function useNestSolve(): NestSolveState {
     const id = taskIdRef.current
     if (id === null || phaseRef.current !== 'running') return
     try {
-      const st = await msStatus(id)
+      const st = await msStatus(id, channelRef.current ?? undefined)
       if (!aliveRef.current || phaseRef.current !== 'running') return
       failRef.current = 0
       setStatus(st)
@@ -224,8 +277,11 @@ export function useNestSolve(): NestSolveState {
       failRef.current += 1
       if (failRef.current >= POLL_FAIL_LIMIT) {
         goPhase('error')
-        setError(`MS 排料服务连续 ${POLL_FAIL_LIMIT} 次无响应（服务可能未启动；`
-          + '任务在 MS 侧可能仍在运行，可稍后「继续查看」重连）')
+        // 引导随绑定通道分派（US-003 AC#2）：direct 死连给两条出路且明示
+        // 不自动切换；proxy 保持现状文案。taskId 在场 ⇒ channel 必已绑定
+        //（submit 成功/attach 均先绑），proxy 兜底仅防御
+        setError(pollFailMessage(
+          channelRef.current ?? { kind: 'proxy' }))
         return
       }
       schedule(visibleRef.current ? POLL_FAST_MS : POLL_SLOW_MS)
@@ -242,6 +298,8 @@ export function useNestSolve(): NestSolveState {
     // 清上一任务现场（error 重试场景）
     taskIdRef.current = null
     setTaskId(null)
+    channelRef.current = null
+    setChannel(null)
     setStartedAt(null)
     setError(null)
     setResult(null)
@@ -252,15 +310,35 @@ export function useNestSolve(): NestSolveState {
     setPerSeed([])
     failRef.current = 0
     try {
-      const res = await msSolveStart(file, filename,
-        { ...config, client_ref: newClientRef() })
+      // 前置通道探测（US-003 AC#1）：resolveMsChannel 会话缓存命中零网络
+      // 成本，首提交 ~300ms 探测在 submitting Spin 内不拖慢感知
+      let ch = await resolveMsChannel()
+      const full = { ...config, client_ref: newClientRef() }
+      let res
+      try {
+        res = await msSolveStart(file, filename, full, ch)
+      } catch (e) {
+        // 直连提交网络级失败（本地 MS 提交中途退出/CORS 拦截）→ 提交层
+        // 降级回退 proxy 重试一次（US-002 AC#4「归一为回退」口径上移到此：
+        // 任务通道绑定要求提交层拿到任务**实际落点**——请求层内部降级对
+        // 外不可见，锚会绑错通道；同 client_ref 跨通道不冲突——两通道是
+        // 不同 MS 实例）。非 TypeError（30s 超时等）不降级照旧落 error
+        if (ch.kind !== 'direct' || !(e instanceof TypeError)) throw e
+        demoteMsChannel()
+        ch = { kind: 'proxy' }
+        res = await msSolveStart(file, filename, full, ch)
+      }
       if (!aliveRef.current) return false
+      // 通道随 task_id 绑定（锚附通道标记 kind+base，恢复轮询走原通道）
+      channelRef.current = ch
+      setChannel(ch)
       taskIdRef.current = res.task_id
       setTaskId(res.task_id)
       setStartedAt(res.started_at)
       try {
         localStorage.setItem(MS_TASK_STORAGE_KEY, JSON.stringify({
           taskId: res.task_id, runMode: config.run_mode, at: res.started_at,
+          channel: ch,
         }))
       } catch { /* 存储被禁等：重连锚丢失不阻塞主流程 */ }
       goPhase('running')
@@ -278,8 +356,9 @@ export function useNestSolve(): NestSolveState {
   // 非 15s 降频档——挂载/刷新恢复秒级对齐真实终态：done 转会话态、
   // 404/连续失败转 error，按钮不再空挂「排料中」）；submitting/running
   // 中是无效调用，但计时器已死时补一拍（dev StrictMode 双挂载：卸载
-  // 清理停表后 attach 早退会让 running 态永久失表——报障成因之二）
-  const attach = useCallback((id: string) => {
+  // 清理停表后 attach 早退会让 running 态永久失表——报障成因之二）。
+  // channel = 锚点绑定通道（US-003）：恢复轮询走原通道，不重新探测
+  const attach = useCallback((id: string, ch: MsChannel) => {
     if (phaseRef.current === 'submitting' || phaseRef.current === 'running') {
       if (timerRef.current === null) schedule(0)   // 死表补拍：立即对账
       return
@@ -288,6 +367,8 @@ export function useNestSolve(): NestSolveState {
     failRef.current = 0
     taskIdRef.current = id
     setTaskId(id)
+    channelRef.current = ch
+    setChannel(ch)
     setStartedAt(null)
     setError(null)
     setResult(null)
@@ -301,12 +382,13 @@ export function useNestSolve(): NestSolveState {
   }, [clearTimer, goPhase, schedule])
 
   // 终止（→ stopped 可返回）：fire-and-forget——已终态 400 等静默，状态由
-  // 补发的一拍（0ms）轮询对齐
+  // 补发的一拍（0ms）轮询对齐（走绑定通道）
   const stop = useCallback(() => {
     const id = taskIdRef.current
     if (id === null || phaseRef.current !== 'running') return
     void (async () => {
-      try { await msStop(id) } catch { /* 静默：轮询对齐 */ }
+      try { await msStop(id, channelRef.current ?? undefined) }
+      catch { /* 静默：轮询对齐 */ }
       if (aliveRef.current && phaseRef.current === 'running') schedule(0)
     })()
   }, [schedule])
@@ -323,9 +405,11 @@ export function useNestSolve(): NestSolveState {
     clearTimer()
     failRef.current = 0
     taskIdRef.current = null
+    channelRef.current = null
     try { localStorage.removeItem(MS_TASK_STORAGE_KEY) } catch { /* 同上 */ }
     goPhase('idle')
     setTaskId(null)
+    setChannel(null)
     setStartedAt(null)
     setError(null)
     setResult(null)
@@ -348,7 +432,7 @@ export function useNestSolve(): NestSolveState {
   }, [clearTimer])
 
   return {
-    phase, visible, taskId, startedAt, error,
+    phase, visible, taskId, channel, startedAt, error,
     densityPct, elapsedSec, totalSec, perSeed, status, result,
     submit, attach, stop, setVisible, reset,
   }

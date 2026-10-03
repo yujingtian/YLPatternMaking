@@ -6,7 +6,9 @@ import type {
 import type { ChatTurnResponse, ExtractResponse } from './types'
 import { AGENT_BASE } from './agentConfig'
 import { normalizeChatError } from './chatPayload'
-import { MS_BASE } from './msBase'
+import { MS_PROXY_BASE, demoteMsChannel, resolveMsChannel } from './msBase'
+import type { MsChannel } from './msBase'
+import type { NestArchiveMeta } from './nestArchive'
 import { normalizeExtractError } from './extractPayload'
 
 async function handle<T>(res: Response): Promise<T> {
@@ -230,12 +232,18 @@ export async function postChatTurn(form: FormData): Promise<ChatTurnResponse> {
   return res.json() as Promise<ChatTurnResponse>
 }
 
-// ---- MS 机器排料六端点（/ms 前缀；dev=Vite proxy、prod=backend httpx 转发） ----
+// ---- MS 机器排料六端点（通道感知：direct 发现 base / proxy '/ms' 前缀）----
 // 纯 HTTP（求解/轮询/取果/停止/PLT 导出全在 MS 服务侧，Pyodide 不做排料），
-// 同 postNest 先例不进 route() 引擎通道。错误体两形态：MS {'error': 中文}
-//（solve 409 重复提交另带 task_id）、YL /ms 代理 {'detail': 中文}（502）——
-// normalizeMsError 归一成可读中文；网络级失败是原生 TypeError（不归一），
-// 由调用方（useNestSolve）按「可重试」处理。
+// 同 postNest 先例不进 route() 引擎通道。四期双通道 US-002：每请求经
+// resolveMsChannel 取通道（会话缓存命中零网络成本）——direct → US-001
+// 发现的 base（浏览器直连本地 MS）；proxy → '/ms'（dev=Vite proxy、
+// prod=backend httpx 转发，现状路径零变化）。四期 US-003：七函数可选尾参
+// channel = 任务级绑定通道（useNestSolve 锚定 task_id 所在通道，生命周期
+// 请求/下载随绑定直发，零探测零降级——见 runMsRequest 注）。错误体两形态：
+// MS {'error': 中文}（solve 409 重复提交另带 task_id）、YL /ms 代理
+// {'detail': 中文}（502）——normalizeMsError 归一成可读中文；网络级失败是
+// 原生 TypeError（不归一），由调用方（useNestSolve）按「可重试」处理
+//（无绑定请求的直连 TypeError 先经降级兜底）。
 
 // MS 错误归一产物：带 HTTP status（404/400 等不可重试判定用）与 409 带回的
 // 既有 task_id（幂等冲突提示用）
@@ -268,13 +276,56 @@ export function normalizeMsError(status: number, body: unknown): MsError {
   return err
 }
 
+// 通道分派 + 直连降级兜底（US-002 tasks/prd-machine-direct-channel.md）：
+// attempt 收当前通道组请求（直连/代理两形态的 URL 或路径可不同，如
+// msStateFile 的双端点分派），direct 的**网络级**失败（fetch TypeError：
+// CORS/PNA 预检被拒、拒连、跨源响应被拦——JS 侧不可区分；「MS 版本过旧
+// 无 ping」在探测层已天然归 miss 回退）在此归一为「回退 proxy」——先把
+// 会话通道钉回 proxy（demoteMsChannel：半新半旧部署的后续请求不再各撞
+// 一次死直连），同一请求再按 proxy 形态重发一次（multipart/JSON 体可
+// 复用重发；不向用户抛裸网络错误，PRD AC#4）。proxy 形态无二次兜底
+//（降级无更下去处）；非 TypeError（30s 超时 TimeoutError 等）不降级——
+// 挂死是另一病理，照旧落到调用方连续失败计数。HTTP 非 2xx 不在此吞
+//（含降级后 proxy 404 任务不存在）：各端点归一 MsError，由 useNestSolve
+// 按 status 裁决。
+// 显式 channel（US-003 任务级通道绑定）：任务生命周期请求带锚定的通道
+// 直发——**零探测零降级**（降级 = 改判通道，任务绑定语义下「不自动切换」；
+// direct 死连的 TypeError 原样上抛，由 useNestSolve 连续失败计数裁决成
+// error 引导）。提交层的降级重试在 useNestSolve.submit 自理（要知道任务
+// 实际落在哪个通道才能绑定）
+async function runMsRequest(
+  attempt: (channel: MsChannel) => Promise<Response>,
+  channel?: MsChannel,
+): Promise<Response> {
+  if (channel) return attempt(channel)
+  const resolved = await resolveMsChannel()
+  if (resolved.kind === 'proxy') return attempt(resolved)
+  try {
+    return await attempt(resolved)
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e
+    demoteMsChannel()
+    return attempt({ kind: 'proxy' })
+  }
+}
+
+// 通道化 URL：direct → 通道 base + 路径；proxy → '/ms' 同源代理前缀
+function msUrl(channel: MsChannel, path: string): string {
+  return channel.kind === 'direct' ? `${channel.base}${path}`
+    : `${MS_PROXY_BASE}${path}`
+}
+
 // 五端点公共壳：非 2xx → 错误体归一抛 MsError；30s 超时兜底——裸 fetch
 // 在连接建立但不响应（MS/代理挂死）时永不落定，轮询 failRef 不累计、
 // 按钮永久卡「排料中」（2026-09-29 报障成因之三）；到点 abort 计一次
-// 网络失败，连续 3 次自然转 error（与后端代理 status 30s 档对齐）
-async function msJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${MS_BASE}${path}`,
-                          { ...init, signal: AbortSignal.timeout(30_000) })
+// 网络失败，连续 3 次自然转 error（与后端代理 status 30s 档对齐）。超时
+// signal 在 attempt 回调内构造：降级重试各起各的 30s 窗
+async function msJson<T>(
+  path: string, init?: RequestInit, channel?: MsChannel,
+): Promise<T> {
+  const res = await runMsRequest((ch) =>
+    fetch(msUrl(ch, path), { ...init, signal: AbortSignal.timeout(30_000) }),
+    channel)
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -289,41 +340,51 @@ async function msJson<T>(path: string, init?: RequestInit): Promise<T> {
 export async function msSolveStart(
   file: Blob, filename: string,
   config: MsMachineConfig & { client_ref?: string },
+  channel?: MsChannel,
 ): Promise<MsSolveStart> {
   const form = new FormData()
   form.append('file', file, filename)
   form.append('config', JSON.stringify(config))
-  return msJson<MsSolveStart>('/api/machine/solve', { method: 'POST', body: form })
+  return msJson<MsSolveStart>(
+    '/api/machine/solve', { method: 'POST', body: form }, channel)
 }
 
 // 状态轮询（GET .../status：控载荷 {state, incumbent, current, per_seed, …}）
-export async function msStatus(taskId: string): Promise<MsStatus> {
+export async function msStatus(
+  taskId: string, channel?: MsChannel,
+): Promise<MsStatus> {
   return msJson<MsStatus>(
-    `/api/machine/solve/${encodeURIComponent(taskId)}/status`)
+    `/api/machine/solve/${encodeURIComponent(taskId)}/status`, undefined,
+    channel)
 }
 
 // 终态取果（GET .../result：{manifest, best, summary}；running → 409）
-export async function msResult(taskId: string): Promise<MsResult> {
+export async function msResult(
+  taskId: string, channel?: MsChannel,
+): Promise<MsResult> {
   return msJson<MsResult>(
-    `/api/machine/solve/${encodeURIComponent(taskId)}/result`)
+    `/api/machine/solve/${encodeURIComponent(taskId)}/result`, undefined,
+    channel)
 }
 
 // 终止（POST .../stop：在飞树杀 → {'stopped': true, pid}；orphan marker
 // 清理带 orphan: true；已终态 400）
 export async function msStop(
-  taskId: string,
+  taskId: string, channel?: MsChannel,
 ): Promise<{ stopped: boolean; pid: number | null; orphan?: boolean }> {
   return msJson(`/api/machine/solve/${encodeURIComponent(taskId)}/stop`,
-    { method: 'POST' })
+    { method: 'POST' }, channel)
 }
 
 // 任务清理（DELETE .../solve/{task_id}）：结果期显式关闭时 best-effort
 // 回收 MS 会话名额（并发任务上限）——失败由调用方静默，MS 侧 TTL+7 天
 // 兜底；非 2xx 仍走 normalizeMsError 抛 MsError（调用方 catch 吞掉）
-export async function msDeleteTask(taskId: string): Promise<void> {
-  const res = await fetch(
-    `${MS_BASE}/api/machine/solve/${encodeURIComponent(taskId)}`,
-    { method: 'DELETE' })
+export async function msDeleteTask(
+  taskId: string, channel?: MsChannel,
+): Promise<void> {
+  const res = await runMsRequest((ch) =>
+    fetch(msUrl(ch, `/api/machine/solve/${encodeURIComponent(taskId)}`),
+      { method: 'DELETE' }), channel)
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -335,13 +396,14 @@ export async function msDeleteTask(taskId: string): Promise<void> {
 // blob + 文件名（Content-Disposition 优先，ASCII/UTF-8 双形态；缺头本地
 // 合成）。落盘时机由调用方（结果区「下载 PLT」按钮）决定
 export async function msExport(
-  taskId: string,
+  taskId: string, channel?: MsChannel,
 ): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(`${MS_BASE}/api/machine/export`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task_id: taskId }),
-  })
+  const res = await runMsRequest((ch) =>
+    fetch(msUrl(ch, '/api/machine/export'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskId }),
+    }), channel)
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -352,18 +414,26 @@ export async function msExport(
   }
 }
 
-// .msn 状态文件下载（三期机器对接 US-002，tasks/prd-machine-state-file-yl.md）：
-// 走 YL 后端专用代理端点而非 /ms 直连（US-001：代理服务端注入 MS token，
-// token 永不下发前端）——GET /api/nest/tasks/{id}/state-file 返回 gzip 附件。
-// blob 零解析（.msn 对前端是不透明字节流，不感知 MS schema 升级）；文件名
-// 与 msExport 共用 cdFilename 解析器（Content-Disposition 优先，缺头本地
-// 合成 yl-nest-{taskId}.msn）。错误体 {'detail': 中文}（US-001 映射文案）
-// 经 normalizeMsError 原样透出不重写
+// .msn 状态文件下载（三期机器对接 US-002，tasks/prd-machine-state-file-yl.md；
+// 四期双通道 US-002 起双通道分派——两形态端点不同，走 runMsRequest 通道化
+// attempt 而非 msUrl）：
+//   direct → MS 原生端点 GET {base}/api/machine/solve/{id}/state-file
+//     （浏览器直连模式 MS 侧不设 token——CORS 白名单即访问边界）
+//   proxy → YL 后端专用代理 GET /api/nest/tasks/{id}/state-file（现状零
+//     改动；服务端注入 MS token，token 永不下发前端，三期 US-001 先例）
+// 直连网络级失败同款降级（proxy 形态 = YL 端点重试）。blob 零解析（.msn
+// 对前端是不透明字节流，不感知 MS schema 升级）；文件名与 msExport 共用
+// cdFilename 解析器（Content-Disposition 优先，缺头本地合成
+// yl-nest-{taskId}.msn）。错误体 {'detail': 中文}（US-001 映射文案）经
+// normalizeMsError 原样透出不重写
 export async function msStateFile(
-  taskId: string,
+  taskId: string, channel?: MsChannel,
 ): Promise<{ blob: Blob; filename: string }> {
-  const res = await fetch(
-    `/api/nest/tasks/${encodeURIComponent(taskId)}/state-file`)
+  const id = encodeURIComponent(taskId)
+  const res = await runMsRequest((ch) => fetch(
+    ch.kind === 'direct'
+      ? `${ch.base}/api/machine/solve/${id}/state-file`
+      : `/api/nest/tasks/${id}/state-file`), channel)
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw normalizeMsError(res.status, body)
@@ -372,6 +442,49 @@ export async function msStateFile(
     blob: await res.blob(),
     filename: cdFilename(res, `yl-nest-${taskId}.msn`),
   }
+}
+
+// ---- 排料终态回传存档（四期 US-005；US-004 后端契约） ----
+// POST /api/nest/tasks/{task_id}/archive（**YL 后端**，非 MS——两通道结果
+// 统一收口到 YL 落盘，与任务绑定通道无关；PLT/.msn 取件仍走绑定通道，
+// 由调用方 NestSolveModal 先行取件后一并上送）。multipart 三件：file_plt
+//（PLT blob）+ file_msn（.msn gzip blob）+ meta（Form 字段，JSON 串——
+// 字段集见 nestArchive.buildArchiveMeta）。落盘文件名服务端钉死
+//（result.plt/state.msn/meta.json），上传 filename 仅出现在空文件/超限的
+// 422/413 错误回执里（透传 MS cdFilename 取件真名，排障可对号）。错误体
+// FastAPI {'detail': 中文}（US-004：路径安全闸/meta 不一致/空文件/超限）
+// 透传展示；非 JSON 体（代理 502 HTML 等）回落 HTTP 状态码文案。网络级
+// 失败是原生 TypeError，由调用方映射「YL 后端不可达」提示（回传 best-effort
+// 语义，不阻塞结果展示与下载）。30s 超时兜底同 msJson 口径（挂死不悬挂）
+export interface NestArchiveOk {
+  ok: boolean
+  task_id: string
+  dir: string
+  files: Record<string, string>
+  sizes: Record<string, number>
+}
+
+export async function archiveNest(
+  taskId: string,
+  plt: { blob: Blob; filename: string },
+  msn: { blob: Blob; filename: string },
+  meta: NestArchiveMeta,
+): Promise<NestArchiveOk> {
+  const form = new FormData()
+  form.append('file_plt', plt.blob, plt.filename)
+  form.append('file_msn', msn.blob, msn.filename)
+  form.append('meta', JSON.stringify(meta))
+  const res = await fetch(
+    `/api/nest/tasks/${encodeURIComponent(taskId)}/archive`,
+    { method: 'POST', body: form, signal: AbortSignal.timeout(30_000) })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    const detail = body !== null && typeof body === 'object'
+      ? (body as Record<string, unknown>).detail : null
+    throw new Error(typeof detail === 'string' && detail
+      ? detail : `回传存档失败（HTTP ${res.status}）`)
+  }
+  return res.json() as Promise<NestArchiveOk>
 }
 
 // Content-Disposition 文件名解析：RFC 5987 filename*=UTF-8''<pct-encoded>

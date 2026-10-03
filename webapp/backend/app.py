@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import os
+import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -531,6 +534,99 @@ async def nest_state_file(task_id: str) -> StreamingResponse:
 
     return StreamingResponse(resp.aiter_bytes(), headers=passthrough,
                              background=BackgroundTask(_release))
+
+
+# 排料结果回传存档（四期机器对接 US-004，tasks/prd-machine-direct-channel.md；
+# 前端 done 终态自动回传是 US-005）：两通道（直连本地 MS / 代理服务器 MS）任务
+# 终态后前端把 PLT + .msn + meta 统一回传 YL 落盘——排料历史可追溯、版师可
+# 随时取 .msn 续调，不依赖 MS 侧 7 天 run_dir 清理窗口。multipart 形态参照
+# agent 服务 UploadFile 先例（agent/app.py /api/extract）；YL 是纯落盘方：
+# .msn 仍为不透明 gzip 字节流（不解析、不感知 MS schema 升级），PLT 为 HPGL
+# ASCII 文本，meta 为 JSON 串（task_id/通道标记/density/width_mm/码套/seed/
+# run_mode/时间——字段集前端口径，后端只透传落盘 + 索引）。目录
+# out/nest_archive/<task_id>/ 三件（result.plt/state.msn/meta.json）+ 仓级
+# 索引 out/nest_archive/index.jsonl（每 task_id 恰一行，重传整行覆盖不重复）。
+# 幂等：同 task_id 重传覆盖同路径。task_id 走路径安全闸（字母数字起头 +
+# ._- ≤128，防目录穿越）；单文件上限 10MB（与 agent MAX_PHOTO_BYTES 上传
+# 约定一致）；鉴权按 YL 现状不新增（上方 nest_state_file 先例注释：本地
+# 工具无用户会话体系，整体鉴权为独立课题）。
+_NEST_ARCHIVE_DIR = Path(os.environ.get(
+    "YLP_NEST_ARCHIVE_DIR",
+    str(Path(__file__).resolve().parents[2] / "out" / "nest_archive")))
+_NEST_ARCHIVE_MAX_FILE_BYTES = 10 * 1024 * 1024   # 单文件 10MB（agent 同口径）
+_NEST_TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+@app.post("/api/nest/tasks/{task_id}/archive")
+async def nest_archive(task_id: str,
+                       file_plt: UploadFile = File(...),
+                       file_msn: UploadFile = File(...),
+                       meta: str = Form(...)) -> dict:
+    """排料终态回传存档：PLT + .msn + meta 三件落盘 + index.jsonl 索引行。
+
+    错误口径：task_id 非安全形态 400；meta 非法 JSON/非对象/与路径 task_id
+    不一致 400；空文件 422；超 10MB 单文件上限 413（校验全部前置——拒绝即
+    零落盘）。响应 {ok, task_id, dir, files, sizes}（files 为目录内三件
+    文件名，供前端回执提示）。"""
+    if not _NEST_TASK_ID_RE.fullmatch(task_id):
+        raise HTTPException(
+            400, "任务号仅支持字母数字开头、可含 ._- 的安全字符（目录名约束）")
+    plt = await file_plt.read()
+    msn = await file_msn.read()
+    for name, data in ((file_plt.filename or "file_plt", plt),
+                       (file_msn.filename or "file_msn", msn)):
+        if not data:
+            raise HTTPException(422, f"回传文件 {name!r} 为空文件")
+        if len(data) > _NEST_ARCHIVE_MAX_FILE_BYTES:
+            raise HTTPException(
+                413, f"回传文件 {name!r} 超过单文件上限 "
+                     f"{_NEST_ARCHIVE_MAX_FILE_BYTES // (1024 * 1024)}MB")
+    try:
+        meta_obj = json.loads(meta)
+    except ValueError as e:
+        raise HTTPException(400, f"meta 非法 JSON：{e}") from None
+    if not isinstance(meta_obj, dict):
+        raise HTTPException(400, "meta 必须是 JSON 对象")
+    if meta_obj.get("task_id") not in (None, task_id):
+        raise HTTPException(
+            400, f"meta.task_id 与路径不一致（{meta_obj['task_id']!r} != "
+                 f"{task_id!r}）")
+
+    task_dir = _NEST_ARCHIVE_DIR / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "result.plt").write_bytes(plt)
+    (task_dir / "state.msn").write_bytes(msn)
+    (task_dir / "meta.json").write_text(
+        json.dumps(meta_obj, ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n", encoding="utf-8")
+
+    # 索引行 = meta 全字段 + 落盘簿记（archive_dir 绝对路径/files 三件名/
+    # archived_at 服务端 UTC 时间）；同 task_id 重传旧行让位（每任务恰一行）
+    entry = dict(meta_obj)
+    entry["task_id"] = task_id
+    entry["archive_dir"] = str(task_dir)
+    entry["files"] = {"plt": "result.plt", "msn": "state.msn",
+                      "meta": "meta.json"}
+    entry["archived_at"] = datetime.now(timezone.utc).isoformat(
+        timespec="seconds")
+    index_path = _NEST_ARCHIVE_DIR / "index.jsonl"
+    kept: list[str] = []
+    if index_path.is_file():
+        for line in index_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                if json.loads(line).get("task_id") == task_id:
+                    continue
+            except ValueError:
+                pass                  # 历史脏行原样保留（不因坏行丢数据）
+            kept.append(line)
+    kept.append(json.dumps(entry, ensure_ascii=False))
+    index_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    return {"ok": True, "task_id": task_id, "dir": str(task_dir),
+            "files": entry["files"],
+            "sizes": {"plt": len(plt), "msn": len(msn)}}
 
 
 @app.get("/")

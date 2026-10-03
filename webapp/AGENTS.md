@@ -67,3 +67,114 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true })
   服务仍须 bash 起并记 PID；批量取证脚本命令过长会被截断（heredoc 追加式
   写入）。
   内完成，否则比 `A[:4]==B[:4] and A[8:]==B[8:]`（剥 mtime 段）+ 解压载荷。
+
+## 双通道路由层（2026-10-02 四期 US-001，tasks/prd-machine-direct-channel.md）
+
+- `resolveMsChannel()`（src/msBase.ts）会话缓存 + 在飞去重——测试须先
+  `resetMsChannelCache()`（beforeEach）再 stub fetch，否则跨用例串台；
+  `vi.stubEnv('VITE_MS_BASE', …)` 只对**调用期读取** import.meta.env 的
+  源码生效（模块顶层求值的常量 import 时已冻结）——覆盖语义源码一律
+  调用期读 env。
+- MS 侧 ping 端点（浏览器直连 US-003）：`GET /api/machine/ping` 无 token
+  无 task_id，200 `{ok:true, service:'machine'}` 恰两键——常驻 :8010 二期
+  旧构建**没有**该端点（404），四期联调自起新 MS 实例（先例见上节
+  MS_WEB_PORT 套路）。
+
+## 双通道请求层（2026-10-02 四期 US-002）
+
+- apiHttp MS 段七函数每请求先 `resolveMsChannel()`——**stub fetch 的用例每轮
+  混入 10 个 ping 探测调用**，端点断言用 `endpointCalls()` 滤（或按 URL 前缀
+  分流 stubProxy/stubDirect，先例 apiHttp.test.ts）；跨用例须 beforeEach
+  `resetMsChannelCache()`。
+- 直连降级（AC#4）：direct 请求 fetch TypeError（CORS/PNA/拒连不可区分）
+  → `demoteMsChannel()`（会话缓存钉回 proxy）+ 同请求 proxy 形态重发。
+  **只有 TypeError 降级**——30s 超时（DOMException TimeoutError）不降级，
+  照旧落 useNestSolve 连续失败计数；HTTP 非 2xx 永不降级。
+- `MS_BASE` 已删，改 `MS_PROXY_BASE '/ms'`：VITE_MS_BASE 只钉「首选
+  direct 通道」（resolveMsChannel 调用期读），降级兜底恒回 YL 自己的 /ms。
+- msStateFile 双端点分派：direct → MS 原生 `{base}/api/machine/solve/{id}/
+  state-file`（无 token；需 MS 侧浏览器直连新构建）；proxy → YL 代理
+  `/api/nest/tasks/{id}/state-file`（token 注入）。
+
+## 双通道任务绑定（2026-10-02 四期 US-003）
+
+- 任务生命周期请求带**显式通道**（七 ms 函数可选尾参 channel）→ 零 ping
+  探测零降级直发——**只有无参调用才走会话解析 + demote 降级**。测试里显式
+  通道用例断言 `fetchMock.mock.calls` 恰 1 次（探测调用不混入）。
+- 直连提交的降级重试在 **useNestSolve.submit 层**（不在 apiHttp）：请求层
+  内部降级对外不可见、任务锚会绑错通道；VITE_MS_BASE 钉死形态事后
+  resolveMsChannel 恒返 override，读不到降级——提交层 catch direct 的
+  TypeError → demote + 显式 proxy 重试 → 拿到落点绑定。
+- 锚 `ylpattern.msNestTask.v1` 附 `channel:{kind,base?}`：**缺标记 = US-003
+  前旧锚**（/ms 代理唯一通道时代）按 proxy 绑定恢复；`attach(taskId,
+  channel)` 双参（App 挂载从 readStoredMsTask 透传）。
+- 常驻 :8010 已是新构建（有 ping 端点）：对外来 Origin 回 **403 白名单拒绝**
+  （env MS_MACHINE_ALLOWED_ORIGINS / sidecar machine_allowed_origins.txt）
+  ——浏览器探测天然归 miss 回退 proxy，活体验证的免费「半新半旧」夹具；
+  直连全链验证用 `context.route` mock（ping 命中低口 8010 + solve/status/
+  state-file fulfill 带 `access-control-allow-origin` 头 + 其余端口 abort），
+  先例 out/us003_verify.mjs（US-006 冒烟扩展时吸收）。
+
+## 回传存档端点（2026-10-02 四期 US-004，后端部分）
+
+- 契约（US-005 前端接线用）：`POST /api/nest/tasks/{task_id}/archive`
+  multipart 三件——`file_plt`（PLT blob）+ `file_msn`（.msn gzip blob）+
+  `meta`（**Form 字段**，JSON 字符串：task_id/通道标记/density/width_mm/
+  码套/seed/run_mode/时间）；落盘 `out/nest_archive/<task_id>/{result.plt,
+  state.msn,meta.json}`（文件名**服务端钉死**，与上传 filename 无关）+
+  `index.jsonl`（每 task_id 恰一行，重传覆盖）。响应
+  `{ok, task_id, dir, files, sizes}`。
+- task_id 须过路径安全闸（字母数字起头 + `._-`）否则 400；meta 的
+  task_id 与路径不一致 400；空文件 422、单文件 >10MB 413；**拒绝即零落盘**。
+- 测试面：monkeypatch `backend._NEST_ARCHIVE_DIR`（同 `_MS_BASE` 先例，
+  env `YLP_NEST_ARCHIVE_DIR` 只在导入期读）；超限用例 monkeypatch
+  `_NEST_ARCHIVE_MAX_FILE_BYTES`。`python-multipart` 已进 `[web]` extra
+  （UploadFile 硬依赖，此前只在 `[agent]`）。
+
+## 前端 done 终态自动回传存档（2026-10-02 四期 US-005）
+
+- 契约闭环：`archiveNest(taskId, {blob,filename}×2, meta)`（apiHttp，api.ts
+  re-export）→ POST `/api/nest/tasks/{id}/archive`；meta 编排在
+  `src/nestArchive.ts`（buildArchiveMeta/shouldAutoArchive/archiveNote 三件
+  纯函数）——组件 NestSolveModal 只接线，弹窗常驻挂载故**关窗后台守望期
+  done 也自动回传**。`shouldAutoArchive` 只钉 done（stopped 不存档），
+  attemptedTaskId ref 去重防 effect 重触发；失败走「重试回传」手动出口
+  （重试会重新取件 PLT/.msn——MS 端点只读幂等）。
+- **TS 语法坑（本机 5.9.3 实测）**：`as` 断言**不能换行接在表达式后**
+  （`x\n as T` 被 ASI 吃掉成两条语句 → TS1005/TS1011 连环报错），长断言
+  要么同行要么先落 const 带类型注解。vitest 报 esbuild 解析错时先查这个。
+- **route mock ping 的坑**：`context.route(base + '/**')` 会**先于**专用
+  ping route（LIFO）截获 ping URL——mock 分派器必须自带
+  `GET /api/machine/ping → 200 {ok,service}` 分支，否则 ping 被 404 →
+  探测 miss → 全部落 proxy 通道（out/us005_archive_verify.mjs 首跑踩过）。
+- 验证脚本套路（out/us005_archive_verify.mjs）：真 mock MS Node server 服务
+  backend /ms httpx（proxy 通道）+ context.route fulfill 同分派器带 CORS
+  头（direct 通道，OPTIONS 预检 204 + ACAO *）；archive 失败注入用
+  `page.route('**/api/nest/tasks/*/archive')` 首发 fulfill 500 再
+  `route.fallback()` 放行；「不阻塞下载」断言 = 按钮 isEnabled + 点击
+  waitForEvent('download')。14 项断言两通道全绿。
+
+## 冒烟双通道/回传三场景扩展（2026-10-02 四期 US-006，smoke_ms_nest.mjs）
+
+- **通道确定性夹具**：`context.route('**/api/machine/ping')` 是通道选择
+  唯一开关——回退相全 `route.abort()`（比依赖真 MS :8010 对外来 Origin 回
+  403 白名单拒更稳，不赌 MS 配置）；直连相 mock 端口 `route.fulfill` 200、
+  其余候选口 abort（端口发现确定性归一到 mock 端口）。**fulfill ping 必须
+  带 CORS 头**（`access-control-allow-origin`）——跨源 fetch 响应无该头
+  直接 reject TypeError = miss，与真 403 等效归一。
+- **mock 本地 MS 走真线上**（区别 us005_verify 的 route.fulfill 全拦截）：
+  Node http server 监听 8011..8019 择一（= MS_DIRECT_PORTS 减常驻 :8010），
+  浏览器直连相打**真跨源 HTTP**（响应带 ACAO *，multipart POST 属 CORS
+  simple request 无预检）；`mockHits` 服务侧台账 + `mockPhase` 变量区分
+  D（浏览器直连）/P（backend /ms httpx 代理）两拨来客——浏览器侧
+  `page.on('request')` 台账只认 URL 前缀，两者对拍零歧义。
+- **backend 三实例自举**：C 实例 `YLP_MS_BASE` → mock + `YLP_NEST_ARCHIVE_DIR`
+  隔离到 `out/smoke_ms_nest/archive`（起跑 rmSync 清空保 index.jsonl
+  「恰 N 行」断言确定性，不污染仓级 out/nest_archive/）。
+- **done 相异步时序坑**：`排料完成` tag 在 **status 响应**置 done 时即出现，
+  result 取果与其后回传取件（export/state-file）都是**之后异步发出**——
+  网络台账断言（result 200 / state-file 端点）须等「结果已回传存档」小字
+  或 sleep 后再做（首跑 P2 误判即此：tag 出现时 result 尚未发出）。
+- mock server 退出清理：`close()` 后追加 `closeAllConnections?.()`（Node
+  ≥18.2）——backend httpx keep-alive 连接不掐，`close()` 回调永不触发但
+  句柄滞留事件循环；脚本末尾 process.exit 兜底，但显式掐干净更稳。
