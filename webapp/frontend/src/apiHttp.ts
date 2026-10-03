@@ -161,7 +161,9 @@ export async function fetchTemplates(): Promise<Template[]> {
 export async function fetchTemplateDetail(
   file: string,
 ): Promise<{ measurements: Values; options: Values; size_run?: unknown }> {
-  return handle(await fetch(`/api/templates/${file}`))
+  // encodeURIComponent：file 名可为中文/含空格（直筒.toml 等），裸拼 URL
+  // 时 #/? 等字符会被当分隔符截断
+  return handle(await fetch(`/api/templates/${encodeURIComponent(file)}`))
 }
 
 // 导入配置（启动选择层「导入配置」卡）：POST /api/toml/parse。纯 HTTP

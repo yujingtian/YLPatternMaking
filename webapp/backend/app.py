@@ -389,8 +389,10 @@ def parse_toml(req: TomlParseRequest) -> dict:
 
 @app.get("/api/templates")
 def templates() -> list[dict]:
+    # 款式模板命名约定（2026-10-03 用户口径）：「模板」前缀 toml 才是可选
+    # 模板（模板直筒.toml 等），显示名取 stem；其余示例文件不进下拉
     return [{"name": p.stem, "file": p.name}
-            for p in sorted(_EXAMPLES.glob("size_*.toml"))]
+            for p in sorted(_EXAMPLES.glob("模板*.toml"))]
 
 
 @app.get("/api/templates/{name}")

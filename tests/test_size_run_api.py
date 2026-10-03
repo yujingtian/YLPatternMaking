@@ -131,8 +131,8 @@ def test_examples_run_file_loads(tmp_path):
     在强制 enabled = true 的副本上做，测内容不测开关状态。"""
     import re
     from pathlib import Path
-    load_size_run("examples/size_female_zhitong.toml")   # 原文件只测不抛错
-    text = Path("examples/size_female_zhitong.toml").read_text(encoding="utf-8")
+    load_size_run("examples/模板直筒.toml")   # 原文件只测不抛错
+    text = Path("examples/模板直筒.toml").read_text(encoding="utf-8")
     f = tmp_path / "run.toml"
     f.write_text(re.sub(r"(?m)^enabled\s*=\s*false", "enabled = true", text),
                  encoding="utf-8")

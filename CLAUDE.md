@@ -175,7 +175,7 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   契约/压缩口径/踩坑见 .doc/python工程设计.md §10.9.1
 # 多码推码（尺寸单含 [size_run] 段且 enabled = true 时自动进入：逐码重打版 ->
 #   多码单文件 DXF；整版 SVG/追踪/报表只出基码，enabled = false 或删段即退化单码模式）：
-python -m ylpattern.cli draft --size examples/size_female_zhitong.toml \
+python -m ylpattern.cli draft --size examples/模板直筒.toml \
     --pieces-dxf out/pieces_run.dxf --svg out/base.svg
 # CLI 还支持 --until 步骤名：执行到该步停止，输出中间版调版
 # 代码内调用：from ylpattern import run；run(waist=..., hip=..., svg=...)（详见 api.run docstring）

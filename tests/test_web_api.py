@@ -211,7 +211,9 @@ def test_toml_size_run_roundtrip(tmp_path):
 
 def test_templates_list_and_detail():
     r = client.get("/api/templates")
-    assert r.status_code == 200 and len(r.json()) >= 2
+    # 「模板」前缀约定：至少基样模板直筒.toml 一项（下拉只认该前缀）
+    assert r.status_code == 200 and len(r.json()) >= 1
+    assert all(t["file"].startswith("模板") for t in r.json())
     name = r.json()[0]["file"]
     d = client.get(f"/api/templates/{name}")
     assert "measurements" in d.json()

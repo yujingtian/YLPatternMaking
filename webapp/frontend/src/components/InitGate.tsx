@@ -11,7 +11,7 @@
 // 智能打版（2026-09-21 二期，原「从照片提取」入口升级；2026-09-24 起
 // 为左对话右可缩放整版预览的独立界面）：对话式多轮
 // 参数推断（照片/描述均可，§10.9.2/§10.9.3）。
-// 空白默认（2026-09-20 用户口径）：直接载 examples/size_female_zhitong.toml
+// 空白默认（2026-09-20 用户口径）：直接载 examples/模板直筒.toml
 // 直筒全特征基样（口袋/袋贴/育克/裤耳全开），不再 schema default 合成；
 // 码表不预填（size_run 段显式丢弃，第三参 null 清空）。
 // 导入配置（2026-10-02 用户口径，入口仅本层）：选尺寸单 toml 文件（本工具
@@ -29,8 +29,8 @@ import { fetchTemplateDetail, postTomlParse } from '../api'
 import { normalizeSizeRun } from '../sizeRun'
 import TemplatePicker from './TemplatePicker'
 
-// 空白默认基样（examples/ 直筒全特征款）
-const BLANK_TEMPLATE = 'size_female_zhitong.toml'
+// 空白默认基样（examples/「模板」前缀约定下的直筒全特征款）
+const BLANK_TEMPLATE = '模板直筒.toml'
 
 type BlankState = 'idle' | 'loading' | 'error'
 
