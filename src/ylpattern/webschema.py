@@ -424,6 +424,13 @@ ADJUSTABLES: list[Adjustable] = [
                "front_crotch_adjust", "x", -1.5, 1.0),
     Adjustable("back.crotch_vertex", "后大裆顶点", "point",
                "back_crotch_adjust", "x", -1.0, 2.0),
+    # 前后浪裆弯 J 型弧：β 下控制柄系数兜底绑比例（无 _adjust 入口），
+    # t=0.5 横向拖动——柄长对曲线中点 x 严格单调；端点 B/C 不动，
+    # 浪长闭合只移动顶点 A，不影响定位器
+    Adjustable("front.rise_curve", "前浪裆弯弧", "curve",
+               "front_rise_beta", "x", 0.15, 0.6, t=0.5),
+    Adjustable("back.rise_curve", "后浪裆弯弧", "curve",
+               "back_rise_beta", "x", 0.35, 0.7, t=0.5),
     Adjustable("front.knee_outseam_point", "膝围外缝点", "point",
                "knee_adjust", "x", 0.0, 2.0),
     Adjustable("front.hem_outseam_point", "脚口外缝点", "point",
@@ -436,6 +443,12 @@ ADJUSTABLES: list[Adjustable] = [
                "outseam_arc_dx", "x", 0.0, 0.6, t=0.5),
     Adjustable("back.outseam_upper", "后外缝上段", "curve",
                "back_outseam_arc_dx", "x", 0.0, 0.6, t=0.5),
+    # 内缝大腿段：k1 小裆弯度兜底绑比例（同 back_intake 先例），
+    # t=0.5 横向拖动控制大腿弧线弯度（P1 对 k1 线性）
+    Adjustable("front.inseam_upper", "前内缝大腿弧", "curve",
+               "inseam_arc_k1", "x", 0.0, 0.6, t=0.5),
+    Adjustable("back.inseam_upper", "后内缝大腿弧", "curve",
+               "back_inseam_arc_k1", "x", 0.0, 0.7, t=0.5),
     Adjustable("back.outseam_hip_waist", "后臀腰弧", "curve",
                "back_hipwaist_arc_dx1", "x", 0.0, 0.5, t=0.5),
     Adjustable("front.waistline_arc", "前腰弧", "curve",

@@ -7,8 +7,8 @@
 - 往返：sheet 拿把手现值 → target = 现值 − 1.5 → /api/adjust → 200
   converged → params 回代重新生成 → 该把手坐标 == target（±0.01cm，
   引擎 tol_coord 默认值口径）；
-- handles 自门控计数：口袋开+bulge = 16 条全量；口袋关 = 13 条；
-  tangent 模式 = 15 条（袋口弧把手随形态消失）；
+- handles 自门控计数：口袋开+bulge = 20 条全量；口袋关 = 17 条；
+  tangent 模式 = 19 条（袋口弧把手随形态消失）；
 - transform 与引擎 compute_view 逐字段一致，且与 SVG 根 data-ox/top
   同源（两处不得漂移）；
 - 绑定 range ⊆ PatternOptions 硬校验：每条 range 两端点值代入
@@ -81,6 +81,41 @@ def test_adjust_curve_handle_hem_sag():
     assert _handle(body2, "front.hem")["y"] == pytest.approx(h["y"] - 0.6, abs=0.01)
 
 
+def test_adjust_curve_handle_rise_beta():
+    # 前浪裆弯 J 弧：β 柄横向拖 0.5cm，曲线中点对 β 线性（P2 柄端
+    # = C − β·|BC|·cosθ，B/C/弦长不动 → 贝塞尔点线性），往返精确金标
+    body = _sheet()
+    h = _handle(body, "front.rise_curve")
+    r = client.post("/api/adjust", json={
+        "measurements": ADJ_M, "options": POCKET_ON,
+        "element": "front.rise_curve", "param": "front_rise_beta",
+        "axis": "x", "target": h["x"] - 0.5})
+    assert r.status_code == 200
+    res = r.json()
+    assert res["converged"] and res["reason"] == "tol", res
+    assert 0.15 <= res["value"] <= 0.6
+    body2 = _sheet({**POCKET_ON, "front_rise_beta": res["value"]})
+    assert _handle(body2, "front.rise_curve")["x"] == pytest.approx(
+        h["x"] - 0.5, abs=0.01)
+
+
+def test_adjust_curve_handle_back_inseam_thigh():
+    # 后内缝大腿弧：k1 拖 0.4cm（P1 = 裆 − k1·ΔX 对 k1 线性），往返金标
+    body = _sheet()
+    h = _handle(body, "back.inseam_upper")
+    r = client.post("/api/adjust", json={
+        "measurements": ADJ_M, "options": POCKET_ON,
+        "element": "back.inseam_upper", "param": "back_inseam_arc_k1",
+        "axis": "x", "target": h["x"] + 0.4})
+    assert r.status_code == 200
+    res = r.json()
+    assert res["converged"] and res["reason"] == "tol", res
+    assert 0.0 <= res["value"] <= 0.7
+    body2 = _sheet({**POCKET_ON, "back_inseam_arc_k1": res["value"]})
+    assert _handle(body2, "back.inseam_upper")["x"] == pytest.approx(
+        h["x"] + 0.4, abs=0.01)
+
+
 def test_adjust_clamps_beyond_range():
     # 目标远超 [0, 1.5] 能力：200 + range_clamped 钳 hi（拖拽中不弹错）
     body = _sheet()
@@ -135,21 +170,21 @@ def test_sheet_transform_matches_engine():
 
 
 def test_handles_full_and_gated():
-    # 口袋开 + bulge 默认：16 条全量
+    # 口袋开 + bulge 默认：20 条全量
     body = _sheet()
-    assert len(body["handles"]) == 16
+    assert len(body["handles"]) == 20
     hem = _handle(body, "front.hem")
     assert hem["kind"] == "curve" and hem["t"] == 0.5
     assert hem["bindings"] == [{"param": "front_hem_arc_sag",
                                 "axis": "y", "range": [0.0, 1.5]}]
-    # 口袋关：3 条口袋把手消失 → 13 条
+    # 口袋关：3 条口袋把手消失 → 17 条
     body_off = _sheet({})
     elems = {h["element"] for h in body_off["handles"]}
-    assert len(body_off["handles"]) == 13
+    assert len(body_off["handles"]) == 17
     assert not any(e.startswith("front.pocket") for e in elems)
-    # tangent 模式：袋口弧把手随形态消失 → 15 条
+    # tangent 模式：袋口弧把手随形态消失 → 19 条
     body_tan = _sheet({**POCKET_ON, "front_pocket_mouth_mode": "tangent"})
-    assert len(body_tan["handles"]) == 15
+    assert len(body_tan["handles"]) == 19
 
 
 def test_schema_adjustable_points_derived():

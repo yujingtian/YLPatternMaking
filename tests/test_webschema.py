@@ -237,12 +237,12 @@ def test_gate_on_not_semantics():
 # ---------- 把手自门控（引擎直调口径同 test_web_adjust.py） ----------
 
 def test_handles_gating_counts():
-    assert len(_ctx_handles(POCKET_ON)) == 16
+    assert len(_ctx_handles(POCKET_ON)) == 20
     off = _ctx_handles({})
-    assert len(off) == 13
+    assert len(off) == 17
     assert not any(h["element"].startswith("front.pocket") for h in off)
     assert len(_ctx_handles({**POCKET_ON,
-                             "front_pocket_mouth_mode": "tangent"})) == 15
+                             "front_pocket_mouth_mode": "tangent"})) == 19
 
 
 # ---------- 薄再导出（后端旧 import 路径稳定） ----------

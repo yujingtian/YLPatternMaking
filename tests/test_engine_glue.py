@@ -41,7 +41,7 @@ def test_sheet_glue_equals_http():
     glue = _glue("sheet", REQ)
     assert glue == http
     assert glue["sheet_svg"] == http["sheet_svg"]      # SVG 逐字符
-    assert len(glue["handles"]) == len(http["handles"]) == 16
+    assert len(glue["handles"]) == len(http["handles"]) == 20
 
 
 def test_pieces_glue_equals_http():
