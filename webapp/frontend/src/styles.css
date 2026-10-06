@@ -225,6 +225,31 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .drag-bubble.fade { opacity: 0; transition: opacity 0.25s; }
 
+/* ---- 量取（两点测距，2026-10-06）：overlay 在 sheetMeasure.ts 重建 ---- */
+/* 入口按钮 = 整版右上固定悬浮（用户口径，对齐 SheetPreview smart-zoom-bar 先例）；
+   sheet-stage 打通 tabpane→sheet-view 高度链（插入的包裹层须 height:100%） */
+.sheet-stage { position: relative; height: 100%; }
+.measure-fab { position: absolute; top: 8px; right: 8px; z-index: 2; }
+.sheet-view.measuring svg { cursor: crosshair; }
+/* 晋级平移时光标让位 grabbing（同特异性下后声明胜出，需显式组合覆盖） */
+.sheet-view.measuring.panning svg { cursor: grabbing; }
+/* 量取态屏蔽把手：防 handle-hit 的 stopPropagation 吞拾取点击、误触发拖拽调版 */
+.sheet-view.measuring #yl-handles { pointer-events: none; }
+/* 标注自身不挡拾取（吸附环/线/气泡全部穿透） */
+#yl-measure { pointer-events: none; }
+#yl-measure .measure-line { stroke: #2c6e49; }
+#yl-measure .measure-preview { stroke: #2c6e49; opacity: 0.7; }
+#yl-measure .measure-endpt { fill: #c0392b; stroke: #fff; }
+#yl-measure .measure-snap { fill: none; stroke: #c0392b; }
+/* 点名标签白描边保证压线可读（paint-order 描边作底）；字号/描边宽 JS 按 1/k 设 */
+#yl-measure .measure-snaplabel {
+  fill: #303133; paint-order: stroke; stroke: #fff;
+}
+.measure-bubble rect { fill: rgba(44, 110, 73, 0.92); }
+.measure-bubble text {
+  fill: #fff; font-family: monospace; dominant-baseline: hanging;
+}
+
 /* 参数面板高亮：拖拽回写的目标参数闪烁定位 */
 .param-flash { animation: param-flash 1.2s ease-out; }
 @keyframes param-flash {

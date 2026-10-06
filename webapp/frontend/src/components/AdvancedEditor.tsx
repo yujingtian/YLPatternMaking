@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import { Button, Empty, Spin, Tabs, Tag, Tooltip } from 'antd'
 import {
-  PlayCircleOutlined, UndoOutlined, WarningOutlined,
+  ColumnWidthOutlined, PlayCircleOutlined, UndoOutlined, WarningOutlined,
 } from '@ant-design/icons'
 import type {
   DraftPayload, PiecesResult, Schema, SheetResult, Snapshot,
@@ -58,12 +58,25 @@ export default function AdvancedEditor({
   dragging: boolean
 }) {
   const [tab, setTab] = useState('sheet')
+  // 量取模式位（2026-10-06）：整版视图专属工具态——ESC / 切离整版 tab 即关，
+  // SheetView 侧关模式自动清标注；切 3D / 换源经 draftEpoch remount 天然复位
+  const [measureMode, setMeasureMode] = useState(false)
 
   // 进入自动补算：sheet 缺失或参数已改 -> 重跑整版（失败保留 Empty+重试）
   useEffect(() => {
     void onEnsureSheet()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ESC 退出量取（window 级：画布无焦点概念）
+  useEffect(() => {
+    if (!measureMode) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMeasureMode(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [measureMode])
 
   const busy = sheetBusy || piecesBusy
   const sheetReady = sheet !== null
@@ -76,16 +89,34 @@ export default function AdvancedEditor({
     ...(sheet
       ? [{ key: 'sheet', label: '整版',
           children: (
-            <SheetView
-              svg={sheet.data.sheet_svg}
-              transform={sheet.data.transform}
-              handles={sheet.data.handles}
-              schema={schema}
-              base={base}
-              onApplyAdjust={onApplyAdjust}
-              onBeginDrag={onBeginDrag}
-              onDragChange={onDragChange}
-            />
+            <div className="sheet-stage">
+              <SheetView
+                svg={sheet.data.sheet_svg}
+                transform={sheet.data.transform}
+                handles={sheet.data.handles}
+                schema={schema}
+                base={base}
+                measureMode={measureMode}
+                onApplyAdjust={onApplyAdjust}
+                onBeginDrag={onBeginDrag}
+                onDragChange={onDragChange}
+              />
+              {/* 量取入口 = 整版右上固定悬浮（2026-10-06 用户口径，原工具栏位移入；
+                  随 sheet tab 存在才渲染，无需 disabled）；对齐 SheetPreview
+                  smart-zoom-bar 悬浮先例（absolute + z-index:2） */}
+              <div className="measure-fab">
+                <Tooltip title="点两个点测直线距离，靠近要素点自动吸附；右键取消当前标注；ESC 退出">
+                  <Button
+                    size="small"
+                    icon={<ColumnWidthOutlined />}
+                    type={measureMode ? 'primary' : 'default'}
+                    onClick={() => setMeasureMode((v) => !v)}
+                  >
+                    量取
+                  </Button>
+                </Tooltip>
+              </div>
+            </div>
           ) }]
       : []),
     ...(pieces
@@ -143,7 +174,11 @@ export default function AdvancedEditor({
         <div className="preview-pane">
           <Tabs
             activeKey={active}
-            onChange={setTab}
+            onChange={(k) => {
+              setTab(k)
+              // 量取只属于整版视图：切离即关（antd Tabs 保面板挂载，需显式关）
+              if (k !== 'sheet') setMeasureMode(false)
+            }}
             size="small"
             type="card"
             items={items}

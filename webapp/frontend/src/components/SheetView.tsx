@@ -4,6 +4,9 @@ import type {
   DraftPayload, HandleBinding, HandleInfo, Schema, Transform,
 } from '../types'
 import { postAdjust } from '../api'
+import {
+  CLICK_SLOP_PX, cmToUser, screenScale, useSheetMeasure, userToCm,
+} from './sheetMeasure'
 
 // 整版交互视图（二期拖拽调版）：
 //   把手 overlay 注入 SVG 内部（styles.css 使 svg max-width:100% 响应式
@@ -12,6 +15,9 @@ import { postAdjust } from '../api'
 //   在 worker 内跑，api.ts 自动路由：引擎 ready 零网络往返，回退态走 HTTP）；
 //   滚轮以指针为中心缩放 + 空白拖曳平移（viewBox 方案，CTM 链自动正确）；
 //   双击把手复位默认值；拖拽中气泡显示参数实时值。
+//   量取（2026-10-06）：measureMode 态点击两点测直线距离（要素点 12px 吸附，
+//   逻辑/overlay 在 sheetMeasure.ts）；按下不死区立即平移——位移 ≥4px 才
+//   晋级平移，单击零位移留给拾取。
 //
 // 关键决策：
 // - dangerouslySetInnerHTML 每次刷新销毁重建整棵 SVG 子树：pointer capture
@@ -34,6 +40,7 @@ interface Props {
   handles: HandleInfo[]
   schema: Schema | null
   base: DraftPayload
+  measureMode: boolean
   onApplyAdjust: (param: string, value: number, base: DraftPayload) => void
   onBeginDrag: (param: string, prevValue: number) => void
   onDragChange: (dragging: boolean) => void
@@ -58,10 +65,7 @@ interface DragState {
   bubbleRect: SVGRectElement | null
 }
 
-// px→cm 仿射（transform 与 SVG 根 data-* 同源下发）
-function cmToUser(t: Transform, x: number, y: number) {
-  return { x: x * t.scale + t.ox, y: t.top - y * t.scale }
-}
+// px↔cm 仿射三件套（cmToUser/userToCm/screenScale）统一收口 sheetMeasure.ts
 
 function defaultOf(schema: Schema | null, param: string): number {
   for (const s of schema?.sections ?? [])
@@ -78,7 +82,7 @@ function readVb(svgEl: SVGSVGElement): ViewBox {
 }
 
 export default function SheetView({
-  svg, transform, handles, schema, base,
+  svg, transform, handles, schema, base, measureMode,
   onApplyAdjust, onBeginDrag, onDragChange,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -113,14 +117,29 @@ export default function SheetView({
 
   // ---------- 指针换算 ----------
 
-  const pointerCm = useCallback((e: { clientX: number; clientY: number }) => {
+  const pointerUser = useCallback((e: { clientX: number; clientY: number }) => {
     const svgEl = svgRef.current
     const ctm = svgEl?.getScreenCTM()
     if (!svgEl || !ctm) return null
-    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse())
-    const t = transformRef.current
-    return { x: (p.x - t.ox) / t.scale, y: (t.top - p.y) / t.scale }
+    return new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse())
   }, [])
+
+  const pointerCm = useCallback((e: { clientX: number; clientY: number }) => {
+    const p = pointerUser(e)
+    if (!p) return null
+    return userToCm(transformRef.current, p.x, p.y)
+  }, [pointerUser])
+
+  // ---------- 量取（两点测距）：逻辑与 overlay 在 sheetMeasure.ts ----------
+
+  // 量取态：点击 vs 平移死区（按下不立即开平移，位移 ≥ CLICK_SLOP_PX 才晋级）
+  const measureModeRef = useRef(measureMode)
+  measureModeRef.current = measureMode
+  const measureDownRef = useRef<{ x: number; y: number; promoted: boolean } | null>(null)
+  const {
+    hover: measureHover, pick: measurePick, cancel: measureCancel,
+    redraw: measureRedraw,
+  } = useSheetMeasure({ svgRef, transformRef, measureMode, pointerUser })
 
   // ---------- 气泡 ----------
 
@@ -158,12 +177,8 @@ export default function SheetView({
     d.bubbleRect.setAttribute('height', String(bb.height + 2 * pad))
   }, [])
 
-  // 屏幕比例（user→screen 缩放，含 viewBox 缩放与 CSS 响应式缩放两级）：
-  // 把手半径/字号按屏幕像素恒定——缩小时不糊、放大时不巨大
-  function screenScale(svgEl: SVGSVGElement): number {
-    const ctm = svgEl.getScreenCTM()
-    return ctm ? Math.hypot(ctm.a, ctm.b) || 1 : 1
-  }
+  // 屏幕比例 screenScale（user→screen，含 viewBox 缩放与 CSS 响应式缩放两级）
+  // 自 sheetMeasure.ts 导入：把手/量取的半径与字号按屏幕像素恒定共用同源
 
   // ---------- 拖拽求解（节流 + 单飞 + 过期丢弃） ----------
 
@@ -357,37 +372,81 @@ export default function SheetView({
     const host = hostRef.current
     if (!host) return
     const onMove = (e: PointerEvent) => {
-      if (dragRef.current) moveTarget(e)
-      else if (panRef.current) doPan(e)
+      if (dragRef.current) { moveTarget(e); return }
+      if (panRef.current) { doPan(e); return }
+      // 量取死区晋级：按住移动 ≥ CLICK_SLOP_PX 才接管为平移（单击零平移）
+      const md = measureDownRef.current
+      if (md) {
+        if (!md.promoted
+            && Math.hypot(e.clientX - md.x, e.clientY - md.y) >= CLICK_SLOP_PX) {
+          const svgEl = svgRef.current
+          const ctm = svgEl?.getScreenCTM()
+          if (svgEl && ctm) {
+            md.promoted = true
+            panRef.current = {
+              cx: e.clientX, cy: e.clientY,
+              s: 1 / (Math.hypot(ctm.a, ctm.b) || 1),   // px→user 取倒数（同 pan）
+              vb: vbRef.current ?? readVb(svgEl),
+            }
+            setPanning(true)
+          }
+        }
+        if (md.promoted) return
+      }
+      if (measureModeRef.current) measureHover(e)
     }
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
       if (dragRef.current) endDrag()
       if (panRef.current) {
         panRef.current = null
         setPanning(false)
+      }
+      // 量取点击：未晋级平移且位移仍在死区内（pointercancel 不算点击）
+      const md = measureDownRef.current
+      if (md) {
+        measureDownRef.current = null
+        if (e.type !== 'pointercancel' && !md.promoted
+            && Math.hypot(e.clientX - md.x, e.clientY - md.y) < CLICK_SLOP_PX) {
+          measurePick(e)
+        }
       }
     }
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 0.85 : 1 / 0.85)
     }
+    // 测量态右键 = 取消当前标注（未成线清第一点、已成线清整条）；
+    // 浏览器菜单在测量态吞掉防打断，非测量态照常弹出
+    const onCtx = (e: MouseEvent) => {
+      if (!measureModeRef.current) return
+      e.preventDefault()
+      measureCancel()
+    }
     host.addEventListener('pointermove', onMove)
     host.addEventListener('pointerup', onUp)
     host.addEventListener('pointercancel', onUp)
     host.addEventListener('wheel', onWheel, { passive: false })
+    host.addEventListener('contextmenu', onCtx)
     return () => {
       host.removeEventListener('pointermove', onMove)
       host.removeEventListener('pointerup', onUp)
       host.removeEventListener('pointercancel', onUp)
       host.removeEventListener('wheel', onWheel)
+      host.removeEventListener('contextmenu', onCtx)
     }
-  }, [moveTarget, endDrag, doPan, zoomAt])
+  }, [moveTarget, endDrag, doPan, zoomAt, measureHover, measurePick, measureCancel])
 
   const onHostPointerDown = useCallback((e: ReactPointerEvent) => {
     if (e.button !== 0) return
     const svgEl = svgRef.current
     const ctm = svgEl?.getScreenCTM()
     if (!svgEl || !ctm) return
+    if (measureModeRef.current) {
+      // 量取态：不立即开平移——留死区给点击拾取，移动超阈才晋级（onMove 判）
+      measureDownRef.current = { x: e.clientX, y: e.clientY, promoted: false }
+      hostRef.current?.setPointerCapture(e.pointerId)
+      return
+    }
     panRef.current = {
       cx: e.clientX, cy: e.clientY,
       // getScreenCTM 是 user->屏幕 px 方向：hypot(a,b)=每 user 单位多少 px，
@@ -470,14 +529,17 @@ export default function SheetView({
         }
       }
     }
+    // 量取 overlay 同相位重建（svg 变了重解析要素点并清测量；viewBox 变了
+    // 用新 screenScale 重定半径/字号——与把手同防闪帧结论）
+    measureRedraw(svg)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [svg, handles, transform, viewBox, startDrag, resetHandle, makeBubble,
-     pinHandle, updateBubble])
+     pinHandle, updateBubble, measureRedraw])
 
   return (
     <div
       ref={hostRef}
-      className={`svg-view sheet-view${panning ? ' panning' : ''}`}
+      className={`svg-view sheet-view${panning ? ' panning' : ''}${measureMode ? ' measuring' : ''}`}
       onPointerDown={onHostPointerDown}
       dangerouslySetInnerHTML={{ __html: svg }}
     />
