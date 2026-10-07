@@ -10,12 +10,17 @@
 - thinking：None 不发送；400 自动摘参重发一次并 sticky；
   400 且未带 thinking 时直接 VLMError 不重试。
 - 空闲超时：readline 期间 socket.timeout -> VLMError（idle 语义）。
+- usage 落账（商用加固 B）：末块 usage 记入 last_usage + ylagent.usage JSON
+  行（purpose 标签透传）；上游不回 usage -> 空 dict 不炸。
+- 瞬时重试（商用加固 C）：429/5xx/连接超时重试 retries 次（429 尊重
+  Retry-After、上限 10s）；SSE 中途空闲超时/400 不重试；retries=0 关闭。
 """
 
 from __future__ import annotations
 
 import io
 import json
+import logging
 import socket
 import urllib.error
 
@@ -138,10 +143,10 @@ def test_config_bad_thinking_raises(tmp_path):
 def test_fake_vlm_replay_and_record():
     vlm = FakeVLM(["r1", "r2"])
     assert vlm.complete("p1", ["a.jpg"], thinking="off") == "r1"
-    assert vlm.complete("p2") == "r2"
+    assert vlm.complete("p2", purpose="s2") == "r2"
     assert vlm.calls == [
-        {"prompt": "p1", "images": ["a.jpg"], "thinking": "off"},
-        {"prompt": "p2", "images": [], "thinking": None},
+        {"prompt": "p1", "images": ["a.jpg"], "thinking": "off", "purpose": ""},
+        {"prompt": "p2", "images": [], "thinking": None, "purpose": "s2"},
     ]
     with pytest.raises(AssertionError):
         vlm.complete("p3")
@@ -239,13 +244,21 @@ def test_http_400_without_thinking_raises_directly(monkeypatch):
 
 
 def test_http_500_raises(monkeypatch):
-    err = urllib.error.HTTPError(
-        "url", 500, "Server Error", {}, io.BytesIO(b"boom"))
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda req, timeout: (_ for _ in ()).throw(err))
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        calls.append(1)
+        # 每次新抛（HTTPError.read 消耗 BytesIO，复用同实例第二次 detail 变空）
+        raise urllib.error.HTTPError(
+            "url", 500, "Server Error", {}, io.BytesIO(b"boom"))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("agent.extract.provider.time.sleep",
+                        lambda s: None)      # 重试退避不真睡
     vlm = OpenAICompatibleVLM(_CFG)
     with pytest.raises(VLMError, match="HTTP 500"):
         vlm.complete("p")
+    assert len(calls) == 2                   # 默认 retries=1：重试一次后上抛
 
 
 def test_sse_ignores_noise_lines():
@@ -253,7 +266,9 @@ def test_sse_ignores_noise_lines():
              b"data: " + json.dumps({"choices": [{"delta": {"content": "a"}}]}).encode(),
              b"data: [DONE]",
              b"data: " + json.dumps({"choices": [{"delta": {"content": "ignored"}}]}).encode()]
-    assert _read_sse(_FakeResponse(lines), 300.0) == "a"
+    text, usage = _read_sse(_FakeResponse(lines), 300.0)
+    assert text == "a"
+    assert usage == {}                       # 无 usage 块 -> 空 dict
 
 
 def test_sse_finish_length_raises():
@@ -274,3 +289,115 @@ def test_idle_timeout_raises_vlmerror():
     resp = _FakeResponse(lines, raise_at=2)   # 第 3 行前停摆
     with pytest.raises(VLMError, match="空闲超时"):
         _read_sse(resp, 300.0)
+
+
+# -- usage 落账（商用加固 B，2026-10-07） --------------------------------------
+
+
+def test_usage_recorded_and_logged(monkeypatch, caplog):
+    """末块带 usage：last_usage 记录 + ylagent.usage JSON 行（purpose 透传）。"""
+    lines = _sse_lines("hi")
+    lines.insert(-1, b"data: " + json.dumps(
+        {"usage": {"prompt_tokens": 120, "completion_tokens": 35}}).encode())
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout: _FakeResponse(lines))
+    vlm = OpenAICompatibleVLM(_CFG)
+    with caplog.at_level(logging.INFO, logger="ylagent.usage"):
+        assert vlm.complete("p", purpose="s2") == "hi"
+    assert vlm.last_usage == {"prompt_tokens": 120, "completion_tokens": 35}
+    row = json.loads(caplog.records[-1].getMessage())
+    assert row["purpose"] == "s2"
+    assert row["prompt_tokens"] == 120 and row["completion_tokens"] == 35
+    assert row["model"] == _CFG.model and row["n_images"] == 0
+    assert "duration_s" in row and "ts" in row
+
+
+def test_usage_absent_empty_and_no_log(monkeypatch, caplog):
+    """上游不回 usage：last_usage 空 dict 不炸；INFO 级无 token 字段。"""
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout: _FakeResponse(_sse_lines("ok")))
+    vlm = OpenAICompatibleVLM(_CFG)
+    with caplog.at_level(logging.INFO, logger="ylagent.usage"):
+        assert vlm.complete("p") == "ok"
+    assert vlm.last_usage == {}
+    row = json.loads(caplog.records[-1].getMessage())
+    assert "prompt_tokens" not in row and "completion_tokens" not in row
+
+
+# -- 瞬时错误重试（商用加固 C，2026-10-07） -------------------------------------
+
+
+def test_retry_429_with_retry_after_then_success(monkeypatch):
+    calls, sleeps = [], []
+    err = urllib.error.HTTPError(
+        "url", 429, "Too Many Requests", {"Retry-After": "0"},
+        io.BytesIO(b"rate limit"))
+
+    def fake_urlopen(req, timeout):
+        calls.append(1)
+        if len(calls) == 1:
+            raise err
+        return _FakeResponse(_sse_lines("ok"))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("agent.extract.provider.time.sleep", sleeps.append)
+    vlm = OpenAICompatibleVLM(_CFG)
+    assert vlm.complete("p") == "ok"
+    assert len(calls) == 2 and sleeps == [0.0]   # 尊重 Retry-After=0
+
+
+def test_retry_connect_timeout_then_success(monkeypatch):
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        calls.append(1)
+        if len(calls) == 1:
+            raise socket.timeout("connect timed out")
+        return _FakeResponse(_sse_lines("ok"))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("agent.extract.provider.time.sleep", lambda s: None)
+    vlm = OpenAICompatibleVLM(_CFG)
+    assert vlm.complete("p") == "ok"
+    assert len(calls) == 2
+
+
+def test_retry_disabled_with_retries_zero(monkeypatch):
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        calls.append(1)
+        raise urllib.error.HTTPError(
+            "url", 429, "Too Many Requests", {}, io.BytesIO(b"rate"))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("agent.extract.provider.time.sleep", lambda s: None)
+    vlm = OpenAICompatibleVLM(VLMConfig(api_key="k", retries=0))
+    with pytest.raises(VLMError, match="HTTP 429"):
+        vlm.complete("p")
+    assert len(calls) == 1                      # retries=0：一次都不重试
+
+
+def test_sse_idle_timeout_not_retried(monkeypatch):
+    """SSE 中途空闲超时**不**重试（已烧部分 token，整单重付不划算）。"""
+    calls = []
+
+    def fake_urlopen(req, timeout):
+        calls.append(1)
+        return _FakeResponse(_sse_lines("first"), raise_at=2)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("agent.extract.provider.time.sleep", lambda s: None)
+    vlm = OpenAICompatibleVLM(_CFG)
+    with pytest.raises(VLMError, match="空闲超时"):
+        vlm.complete("p")
+    assert len(calls) == 1
+
+
+def test_retries_config_from_toml(tmp_path):
+    """vlm.toml retries 键：显式 0 生效（or 假值陷阱钉死）。"""
+    f = tmp_path / "vlm.toml"
+    f.write_text('api_key = "k"\nretries = 0\n', encoding="utf-8")
+    assert VLMConfig.load(str(f)).retries == 0
+    f.write_text('api_key = "k"\n', encoding="utf-8")
+    assert VLMConfig.load(str(f)).retries == 1          # 省略走默认 1

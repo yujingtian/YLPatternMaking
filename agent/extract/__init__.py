@@ -125,7 +125,7 @@ def _s1_fill_missing(describe: str, missing: list[str], provider,
     ]
     try:
         raw = parse_model_json(provider.complete("\n".join(prompt), (),
-                                                 thinking))
+                                                 thinking, purpose="s1"))
     except (ValueError, RuntimeError):
         # 补漏失败不阻断（VLMError 也是 RuntimeError）：走缺键清单退出
         return {}
@@ -338,7 +338,7 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
         try:
             obs_new = sanitize(parse_model_json(
                 provider.complete(prompt, list(photos) + crop_paths,
-                                  thinking)))
+                                  thinking, purpose="s2")))
         finally:
             if tmp_crop is not None:
                 tmp_crop.cleanup()

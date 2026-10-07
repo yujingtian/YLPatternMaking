@@ -12,9 +12,11 @@ def：FastAPI 自动走 Starlette threadpool，不阻塞事件循环。一期同
 
 from __future__ import annotations
 
+import hmac
+import os
 import time
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent.extract import ExtractError
@@ -29,8 +31,29 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"])
 
 
+def _require_token(authorization: str = Header(default="")) -> None:
+    """共享 token 鉴权（试点期公网部署防扫描白嫖 VLM key）。
+
+    YLP_AGENT_TOKEN 未设置/为空 = 鉴权关闭（开发模式，**默认**）；设置后
+    所有 /api/* POST 需带 Authorization: Bearer <token>，缺失/不匹配 ->
+    401（compare_digest 防时序侧信道，bytes 形式防非 ASCII 头炸 TypeError）。
+    healthz 刻意不挂：监控/LB 探活无秘密可泄，且不占业务鉴权心智。
+    每请求读 env（非启动快照）：测试 monkeypatch 即可切换，代价可忽略。
+    启用 runbook（含 webapp 转发补 Authorization 透传）见
+    .doc/agent商用加固一期设计.md A 项。
+    """
+    expected = os.environ.get("YLP_AGENT_TOKEN", "")
+    if not expected:
+        return
+    got = authorization[7:] if authorization.startswith("Bearer ") else ""
+    if not hmac.compare_digest(got.encode("utf-8"),
+                               expected.encode("utf-8")):
+        raise HTTPException(
+            401, "缺少或无效的访问令牌（Authorization: Bearer <token>）")
+
+
 @app.get("/healthz")
-def healthz() -> dict:
+async def healthz() -> dict:
     """存活 + VLM 是否已配置（只回 bool，配置内容不回显）。"""
     try:
         from agent.extract.provider import VLMConfig
@@ -53,7 +76,7 @@ def _progress_sink(t0: float, lines: list[str]):
     return sink
 
 
-@app.post("/api/chat/turn")
+@app.post("/api/chat/turn", dependencies=[Depends(_require_token)])
 def api_chat_turn(session: str = Form(...), text: str = Form(default=""),
                   photos: list[UploadFile] = File(default=[]),
                   photo_meta: str | None = Form(default=None),
@@ -133,7 +156,7 @@ def api_chat_turn(session: str = Form(...), text: str = Form(default=""),
     return body
 
 
-@app.post("/api/extract")
+@app.post("/api/extract", dependencies=[Depends(_require_token)])
 def api_extract(
     describe: str = Form(...),
     photos: list[UploadFile] = File(default=[]),

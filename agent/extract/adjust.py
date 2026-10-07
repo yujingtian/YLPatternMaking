@@ -311,7 +311,8 @@ def map_adjustment(history: list[dict], view: dict, text: str, provider,
         return AdjustResult()
     prompt = build_adjust_prompt(history, view, text)
     try:
-        raw = parse_model_json(provider.complete(prompt, (), thinking))
+        raw = parse_model_json(provider.complete(prompt, (), thinking,
+                                                 purpose="adjust"))
     except (ValueError, RuntimeError):
         # 映射失败不阻断（VLMError 也是 RuntimeError）：零打扰口径
         return AdjustResult()

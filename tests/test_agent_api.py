@@ -149,3 +149,44 @@ def test_healthz():
     body = r.json()
     assert body["status"] == "ok"
     assert isinstance(body["vlm_configured"], bool)
+
+
+# -- 共享 token 鉴权（YLP_AGENT_TOKEN，默认关；设计文档 A 项） ------------------
+
+def test_token_enabled_401_without_or_wrong(monkeypatch):
+    """设了 YLP_AGENT_TOKEN：无头/错头 -> 401；healthz 不受鉴权影响。"""
+    monkeypatch.setenv("YLP_AGENT_TOKEN", "ylp_test_token")
+    r = client.post("/api/extract", data={"describe": _DESC})
+    assert r.status_code == 401
+    r = client.post("/api/extract", data={"describe": _DESC},
+                    headers={"Authorization": "Bearer wrong"})
+    assert r.status_code == 401
+    r = client.post("/api/extract", data={"describe": _DESC},
+                    headers={"Authorization": "Basic ylp_test_token"})
+    assert r.status_code == 401
+    assert client.get("/healthz").status_code == 200   # 探活豁免
+
+
+def test_token_enabled_200_with_bearer(monkeypatch):
+    """正确 Bearer 放行（纯描述零模型调用，FakeVLM([]) 哨兵）。"""
+    monkeypatch.setenv("YLP_AGENT_TOKEN", "ylp_test_token")
+    _use_fake(monkeypatch, FakeVLM([]))
+    r = client.post("/api/extract", data={"describe": _DESC},
+                    headers={"Authorization": "Bearer ylp_test_token"})
+    assert r.status_code == 200, r.text
+
+
+def test_token_chat_turn_gated(monkeypatch):
+    """chat 端点同鉴权：无令牌 401（会话体都不进解析）。"""
+    monkeypatch.setenv("YLP_AGENT_TOKEN", "ylp_test_token")
+    r = client.post("/api/chat/turn",
+                    data={"session": "{}", "text": "腰围74"})
+    assert r.status_code == 401
+
+
+def test_token_disabled_passthrough(monkeypatch):
+    """未设 YLP_AGENT_TOKEN（默认）：无 Authorization 头照常 200。"""
+    monkeypatch.delenv("YLP_AGENT_TOKEN", raising=False)
+    _use_fake(monkeypatch, FakeVLM([]))
+    r = client.post("/api/extract", data={"describe": _DESC})
+    assert r.status_code == 200, r.text

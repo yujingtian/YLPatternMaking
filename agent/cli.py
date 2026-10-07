@@ -213,6 +213,8 @@ def _cmd_chat(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agent",
                                      description="牛仔裤打版 LLM 服务与命令行")
+    from .extract.provider import enable_usage_log
+    enable_usage_log()          # CLI 默认开 usage 日志（商用加固 B；stderr JSON 行）
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_ext = sub.add_parser(

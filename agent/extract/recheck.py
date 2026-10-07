@@ -234,7 +234,7 @@ def focus_recheck(group: str, text: str, photos, prior: Observation | None,
                                 prior.entries if prior else None, text)
     try:
         raw = parse_model_json(provider.complete(
-            prompt, list(photos) + crop_paths, thinking))
+            prompt, list(photos) + crop_paths, thinking, purpose="recheck"))
         obs = sanitize(raw)
     except (ValueError, RuntimeError):
         # VLMError 也是 RuntimeError：复查失败不阻断主流程

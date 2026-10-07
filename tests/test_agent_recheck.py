@@ -357,10 +357,10 @@ def test_focus_recheck_back_pocket_crop_attached_and_alive(tmp_path):
             super().__init__(responses)
             self.alive_at_call = None
 
-        def complete(self, prompt, images=(), thinking=None):
+        def complete(self, prompt, images=(), thinking=None, purpose=""):
             self.alive_at_call = [os.path.exists(ip) for ip in images]
             self.calls.append({"prompt": prompt, "images": list(images),
-                               "thinking": thinking})
+                               "thinking": thinking, "purpose": purpose})
             return self._responses.pop(0)
 
     prior = Observation(entries={
