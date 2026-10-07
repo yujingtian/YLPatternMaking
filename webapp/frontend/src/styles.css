@@ -396,7 +396,14 @@ html, body, #root { height: 100%; margin: 0; }
 }
 .photo-slot .ant-upload-list-item { padding: 2px; }
 .photo-slot .ant-upload-list-item-image { object-fit: cover; }
-.photo-notes { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+/* other 槽说明跟图走（2026-10-07）：条目容器放宽到槽宽、高自适应，
+   缩略图仍 64px 方卡，说明输入内联在各自缩略图正下方（宽度撑满槽） */
+.photo-slot.other-slot .ant-upload-list-item-container {
+  width: 100%; height: auto;
+}
+.photo-slot.other-slot .ant-upload-list-item { width: 64px; height: 64px; }
+.photo-note-item { display: flex; flex-direction: column; gap: 4px; }
+.photo-note-item .ant-input { font-size: 12px; }
 /* 右栏：预览头（摘要行 + 确认动作）+ 全幅可缩放整版预览 */
 .smart-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .smart-preview-head {

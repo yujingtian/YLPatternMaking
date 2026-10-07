@@ -27,7 +27,7 @@ import {
   PlusOutlined, RedoOutlined, RobotOutlined,
 } from '@ant-design/icons'
 import type { PhotoCategory, Values } from '../types'
-import type { ChatMsg, SmartDraftState } from '../hooks/useSmartDraft'
+import type { ChatMsg, PhotoItem, SmartDraftState } from '../hooks/useSmartDraft'
 import SheetPreview from './SheetPreview'
 import {
   compressImage, MAX_PHOTOS, validatePhotoFile,
@@ -39,7 +39,9 @@ import {
 
 // 照片三槽（C 照片三类，2026-09-29 用户口径）：上传时手动标注类别——
 // 类别是 S2 判据路由/复查取片/求援补照精准化的输入，不做自动分类；
-// 「其他」槽每张可附一句说明（S2【照片清单】以说明为准重点核实）
+// 「其他」槽每张可附一句说明（S2【照片清单】以说明为准重点核实），
+// 说明输入内联在各缩略图正下方（2026-10-07 用户口径：说明跟图走，
+// 不再集中一块按文件名猜对应；itemRender 包 antd 自带 hover 动作）
 const PHOTO_SLOTS: { cat: PhotoCategory; label: string }[] = [
   { cat: 'front', label: '正面' },
   { cat: 'back', label: '背面' },
@@ -198,9 +200,12 @@ export default function SmartDraftView({ chat, onConfirm }: {
               {PHOTO_SLOTS.map(({ cat, label }) => {
                 const slotPhotos = chat.photos.filter((p) => p.category === cat)
                 return (
-                  <div className="photo-slot" key={cat}>
+                  <div
+                    className={cat === 'other' ? 'photo-slot other-slot' : 'photo-slot'}
+                    key={cat}
+                  >
                     <div className="photo-slot-title">
-                      {label}{cat === 'other' && '（可附说明）'}
+                      {label}{cat === 'other' && '（图下附说明）'}
                     </div>
                     <Upload
                       listType="picture-card"
@@ -209,6 +214,19 @@ export default function SmartDraftView({ chat, onConfirm }: {
                       beforeUpload={(f) => void beforeUpload(f, cat)}
                       onRemove={(f) => chat.removePhoto(f.uid)}
                       disabled={chat.busy}
+                      itemRender={cat === 'other' ? (node, file) => (
+                        <div className="photo-note-item">
+                          {node}
+                          <Input
+                            size="small"
+                            maxLength={80}
+                            value={(file as PhotoItem).note ?? ''}
+                            disabled={chat.busy}
+                            onChange={(e) => chat.setPhotoNote(file.uid, e.target.value)}
+                            placeholder="这张拍了什么"
+                          />
+                        </div>
+                      ) : undefined}
                     >
                       {chat.photos.length + chat.sentPhotoCount < MAX_PHOTOS && (
                         <div>
@@ -217,21 +235,6 @@ export default function SmartDraftView({ chat, onConfirm }: {
                         </div>
                       )}
                     </Upload>
-                    {cat === 'other' && slotPhotos.length > 0 && (
-                      <div className="photo-notes">
-                        {slotPhotos.map((p) => (
-                          <Input
-                            key={p.uid}
-                            size="small"
-                            maxLength={80}
-                            value={p.note ?? ''}
-                            disabled={chat.busy}
-                            onChange={(e) => chat.setPhotoNote(p.uid, e.target.value)}
-                            placeholder={`${p.name}：拍了什么`}
-                          />
-                        ))}
-                      </div>
-                    )}
                   </div>
                 )
               })}
