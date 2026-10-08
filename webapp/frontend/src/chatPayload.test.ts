@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   adjustNote, balanceNotes, buildChatForm, deliverySummaryLine,
   deliveryToPrefill, normalizeChatError, recheckDiffLines, recheckNote,
-  sessionToJson,
+  reasoningText, sessionToJson,
 } from './chatPayload'
 import type { ChatDelivery, ExtractKeyMeta } from './types'
 
@@ -288,5 +288,31 @@ describe('recheck（定向复查披露，2026-09-29 D）', () => {
       ...RC, recheck: { group: '后贴袋', diff: [], note: '维持原判断' },
     }
     expect(deliverySummaryLine(kept)).not.toContain('复查')
+  })
+})
+
+describe('reasoningText（思考段折叠展示，2026-10-08）', () => {
+  it('复查轮优先（复查时 S2 未跑、delivery.reasoning 恒空）', () => {
+    const d: ChatDelivery = {
+      ...DELIVERY,
+      reasoning: '',
+      recheck: { group: '后贴袋', diff: [], note: '', reasoning: '复查草稿' },
+    }
+    expect(reasoningText(d)).toBe('复查草稿')
+  })
+
+  it('常规轮取 S2 草稿；recheck 在场但无草稿时回落 S2', () => {
+    const d: ChatDelivery = { ...DELIVERY, reasoning: 'S2 草稿' }
+    expect(reasoningText(d)).toBe('S2 草稿')
+    const rc: ChatDelivery = {
+      ...d,
+      recheck: { group: '后贴袋', diff: [], note: '' },
+    }
+    expect(reasoningText(rc)).toBe('S2 草稿')
+  })
+
+  it('快速模式/旧会话缺键 -> 空串（调用方非空才渲染折叠块）', () => {
+    expect(reasoningText(DELIVERY)).toBe('')
+    expect(reasoningText({ ...DELIVERY, reasoning: '' })).toBe('')
   })
 })

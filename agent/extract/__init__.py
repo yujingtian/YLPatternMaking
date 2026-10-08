@@ -47,6 +47,16 @@ def _noop(message: str) -> None:
     return None
 
 
+def clip_reasoning(text: str, limit: int = 6000) -> str:
+    """思考段裁剪（响应瘦身，converse 复用）：超限保头 4000 + 中略标记
+    + 尾 1500——草稿动辄上万字，整段回传撑爆响应；头尾足够看出它看了
+    什么、结论怎么来的。"""
+    t = str(text or "")
+    if len(t) <= limit:
+        return t
+    return t[:4000] + "\n……（中略）……\n" + t[-1500:]
+
+
 @dataclass
 class ExtractResult:
     """一条龙产物：终值 + 溯源 + 探针/评分 + 待写盘文本。"""
@@ -79,6 +89,10 @@ class ExtractResult:
     # 腰头放大辅助图披露（2026-09-30 特征尺度修复）：附了几张裁剪辅助图
     # （空表 = 未附——无照片/Pillow 缺失/裁剪失败降级）
     crop_notes: list[str] = field(default_factory=list)
+    # S2 思考段原文（2026-10-08）：深度模式推理草稿（provider.last_reasoning
+    # 拼接），to_web_payload 经 clip_reasoning 裁剪随响应透传——前端折叠
+    # 展示「大模型思考过程」；快速模式/无 S2 轮为空串
+    s2_reasoning: str = ""
 
     def options_meta(self) -> dict[str, KeyMeta]:
         """发射键全集（开关 + 派生），emit/report 共用。"""
@@ -98,6 +112,7 @@ class ExtractResult:
                      for k, v in self.measurements.items()}
         return {
             "measurements": self.measurements,
+            "reasoning": clip_reasoning(self.s2_reasoning),
             "options": self.options_dict(),
             "keys": {k: {"value": m.value, "source": m.source,
                          "confidence": m.confidence, "evidence": m.evidence}
@@ -269,6 +284,8 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
     dropped: list[str] = []
     # 腰头放大辅助图披露（S2 分支填写；复查/缓存路径恒空）
     crop_notes: list[str] = []
+    # S2 思考段（S2 分支填写；复查/缓存/无照片路径恒空）
+    s2_reasoning = ""
     if obs_inject is not None:
         # D 定向复查缝（2026-09-29）：调用方已跑完聚焦 VLM 调用拿到观察，
         # 常规 S2 整版读图跳过（不重复读一遍）；与 prior 按现有语义 merge
@@ -336,12 +353,15 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
           "（最耗时环节，thinking 开启时可达分钟级）…")
         t_vlm = time.monotonic()
         try:
-            obs_new = sanitize(parse_model_json(
-                provider.complete(prompt, list(photos) + crop_paths,
-                                  thinking, purpose="s2")))
+            raw = parse_model_json(provider.complete(
+                prompt, list(photos) + crop_paths, thinking, purpose="s2"))
+            # 思考段捕获（2026-10-08）：深度模式草稿随响应透传前端折叠展示；
+            # FakeVLM 等替身无 last_reasoning 属性 -> 缺省空串
+            s2_reasoning = getattr(provider, "last_reasoning", "") or ""
         finally:
             if tmp_crop is not None:
                 tmp_crop.cleanup()
+        obs_new = sanitize(raw)
         p(f"S2 视觉确认完成（耗时 {time.monotonic() - t_vlm:.1f}s）")
         if prior_observation is not None:
             obs = Observation(
@@ -476,4 +496,5 @@ def extract_from_input(*, describe: str, photos: tuple | list = (),
                          observation=obs, hints=hints,
                          size_label=size_label, shrinkage=shrinkage,
                          balance_notes=balance_notes,
-                         crop_notes=crop_notes)
+                         crop_notes=crop_notes,
+                         s2_reasoning=s2_reasoning)

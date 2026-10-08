@@ -115,6 +115,41 @@ def test_photo_batch_cache_and_hint_priority(tmp_path):
     assert out2.session.vlm_cache["photos"]            # 指纹已落账
 
 
+# -- 思考段透传（2026-10-08 前端折叠展示） ------------------------------------
+
+
+def test_s2_reasoning_threaded_to_delivery(tmp_path):
+    """S2 思考段经 provider.last_reasoning -> delivery.reasoning 透传；
+    纯文字轮（S2 未跑）恒空串——映射节点虽也 complete 了，草稿不外漏。"""
+    photo = tmp_path / "front.png"
+    photo.write_bytes(b"png-bytes")
+
+    class _ReasoningVLM(FakeVLM):
+        def complete(self, prompt, images=(), thinking=None, purpose=""):
+            r = super().complete(prompt, images, thinking, purpose)
+            self.last_reasoning = "先看腰头：上缘水平，侧缝处明显下沉——弯腰头"
+            return r
+
+    vlm = _ReasoningVLM([_S2_REPLY, _EMPTY_ADJ])
+    out1 = run_turn(Session(), _DESC, (str(photo),), provider=vlm)
+    assert out1.delivery["reasoning"] == (
+        "先看腰头：上缘水平，侧缝处明显下沉——弯腰头")
+    # 第 2 轮纯文字（映射出队 _EMPTY_ADJ，无 S2）：思考段空
+    out2 = run_turn(out1.session, "腰围75", (), provider=vlm)
+    assert out2.delivery["reasoning"] == ""
+
+
+def test_clip_reasoning_head_tail():
+    """clip_reasoning 响应瘦身：≤6000 原样；超限保头 4000 + 中略标记 + 尾 1500。"""
+    from agent.extract import clip_reasoning
+
+    assert clip_reasoning("短草稿") == "短草稿"
+    out = clip_reasoning("x" * 7001)
+    assert out.startswith("x" * 4000)
+    assert out.endswith("x" * 1500)
+    assert "中略" in out and len(out) < 7001
+
+
 def test_new_photo_second_batch(tmp_path):
     """中途补的照片是新指纹：第二轮 S2 带新照片再调一次，证据覆盖。"""
     p1 = tmp_path / "a.png"

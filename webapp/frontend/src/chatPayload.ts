@@ -140,3 +140,10 @@ export function recheckDiffLines(d: ChatDelivery): string[] {
 export function recheckNote(d: ChatDelivery): string {
   return d.recheck?.note ?? ''
 }
+
+// 思考段文本（2026-10-08 折叠展示用）：复查轮优先（复查时 S2 未跑、
+// delivery.reasoning 恒空），常规轮取 S2 草稿；快速模式/旧会话缺键
+// 回退空串（调用方非空才渲染折叠块）
+export function reasoningText(d: ChatDelivery): string {
+  return d.recheck?.reasoning || d.reasoning || ''
+}

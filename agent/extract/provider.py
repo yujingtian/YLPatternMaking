@@ -22,6 +22,10 @@
 - thinking 参数默认**不发送**（走服务端默认）；"on"/"off" 才发送
   （数值调用建议 off，实测 4.7s vs 思维链全开数百秒）。HTTP 400 自动摘参重发
   一次并 sticky（后续调用不再带）——部分端点不认该参数。
+- 思考段捕获（2026-10-08）：SSE 的 delta.reasoning_content（兼容
+  delta.reasoning 字段名）聚合进 last_reasoning——深度模式推理草稿
+  不进正文（parts 只收 delta.content），由管线读取随响应透传前端折叠
+  展示；快速模式/上游不回该字段 = 空串。
 - usage 落账（商用加固 B，2026-10-07）：SSE **任意** data chunk 出现 usage 键
   即记录（不预设位置——各供应商有的放末块、有的要 stream_options 才回，
   解析不到就空 dict 不报错）——实例属性 last_usage + "ylagent.usage" logger
@@ -193,6 +197,7 @@ class OpenAICompatibleVLM:
         self.config = config
         self._thinking_dropped = False   # 400 摘参后 sticky：后续不再发送
         self.last_usage: dict = {}       # 最近一次调用的 usage（空=上游没回）
+        self.last_reasoning: str = ""    # 最近一次调用的思考段（空=未开/未回）
 
     def complete(self, prompt: str, images: tuple[str, ...] | list[str] = (),
                  thinking: str | None = None, purpose: str = "") -> str:
@@ -204,11 +209,14 @@ class OpenAICompatibleVLM:
             effective = None
         t0 = time.monotonic()
         try:
-            text, usage = self._complete_retry(prompt, images, effective)
+            text, usage, reasoning = self._complete_retry(prompt, images,
+                                                          effective)
         except _ThinkingRejected:
             self._thinking_dropped = True
-            text, usage = self._complete_retry(prompt, images, None)
+            text, usage, reasoning = self._complete_retry(prompt, images,
+                                                          None)
         self.last_usage = usage
+        self.last_reasoning = reasoning
         self._log_usage(purpose, usage, t0, len(images))
         return text
 
@@ -246,7 +254,7 @@ class OpenAICompatibleVLM:
         _USAGE.info(json.dumps(row, ensure_ascii=False))
 
     def _request(self, prompt: str, images,
-                 thinking: str | None) -> tuple[str, dict]:
+                 thinking: str | None) -> tuple[str, dict, str]:
         cfg = self.config
         content: list[dict] = [{"type": "text", "text": prompt}]
         for p in images:
@@ -285,13 +293,17 @@ class OpenAICompatibleVLM:
             return _read_sse(resp, cfg.timeout_idle)
 
 
-def _read_sse(resp, timeout_idle: float) -> tuple[str, dict]:
-    """逐行读 SSE data: 块，聚合 delta.content + usage；空闲超时按行间隔计。
+def _read_sse(resp, timeout_idle: float) -> tuple[str, dict, str]:
+    """逐行读 SSE data: 块，聚合 delta.content + 思考段 + usage；空闲超时
+    按行间隔计。
 
     usage：任意 data chunk 出现 usage 键即并入（后块覆盖前块的部分值），
     上游不回则空 dict——不预设位置，各供应商行为不一（见模块 docstring）。
+    reasoning：delta.reasoning_content（兼容 reasoning 字段名）拼接——
+    思考段只透传展示不进正文；不回该字段 = 空串。
     """
     parts: list[str] = []
+    reasoning: list[str] = []
     finish: str | None = None
     usage: dict = {}
     try:
@@ -313,6 +325,9 @@ def _read_sse(resp, timeout_idle: float) -> tuple[str, dict]:
                 delta = choice.get("delta") or {}
                 if delta.get("content"):
                     parts.append(delta["content"])
+                r = delta.get("reasoning_content") or delta.get("reasoning")
+                if r:
+                    reasoning.append(r)
                 if choice.get("finish_reason"):
                     finish = choice["finish_reason"]
     except (socket.timeout, TimeoutError) as e:
@@ -324,7 +339,7 @@ def _read_sse(resp, timeout_idle: float) -> tuple[str, dict]:
                        "（vlm.toml 可配）；急用可临时关 thinking 绕行")
     if not parts:
         raise VLMError("VLM 返回空内容（无 delta.content）")
-    return "".join(parts), usage
+    return "".join(parts), usage, "".join(reasoning)
 
 
 class FakeVLM:

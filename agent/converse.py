@@ -30,7 +30,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .extract import ExtractError, extract_from_input
+from .extract import ExtractError, clip_reasoning, extract_from_input
 from .extract.adjust import (ADJUST_TABLE, ADJUST_TRIGGER, AdjustResult,
                              adjust_view_from_payload, map_adjustment)
 from .extract.parse import parse_describe
@@ -449,11 +449,14 @@ def run_turn(session: Session, text: str, photos: tuple | list = (), *,
     if recheck_ctx is not None:
         group = recheck_ctx["group"]
         rc_note = recheck_ctx["note"]
+        rc_provider = provider or _mapping_provider(config_path)
         obs_new, recheck_diff, rc_err = focus_recheck(
             group, recheck_ctx["text"],
             [p for p, _m in recheck_ctx["matching"]], prior,
-            provider or _mapping_provider(config_path), thinking,
+            rc_provider,
             photo_meta=[m for _p, m in recheck_ctx["matching"]])
+        # 复查思考段（恒深度模式必有草稿）：与 S2 同款折叠展示透传
+        recheck_reasoning = getattr(rc_provider, "last_reasoning", "") or ""
         if obs_new is not None:
             obs_inject = obs_new
             recheck_note = "；".join(x for x in (
@@ -531,9 +534,11 @@ def run_turn(session: Session, text: str, photos: tuple | list = (), *,
     delivery = _build_delivery(result, led, turn, adjust_data)
     if recheck_ctx is not None:
         # D 复查披露（§3.5 闸③）：key/old/new/evidence 全量 + 结论一句话
+        # + 思考段（恒深度草稿，clip 同 S2；2026-10-08）
         delivery["recheck"] = {"group": recheck_ctx["group"],
                                "diff": recheck_diff,
-                               "note": recheck_note}
+                               "note": recheck_note,
+                               "reasoning": clip_reasoning(recheck_reasoning)}
     session.events.append(Event(
         turn, "agent", "deliver",
         data={"summary": delivery["summary"], "review": delivery["review"],

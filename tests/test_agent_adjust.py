@@ -163,8 +163,8 @@ def test_resolve_drop_cases():
     # 当前值缺失（视图没这键）：步进无处起算（gate 过但值缺）
     assert "当前值缺失" in resolve_adjust(
         {"key": "front_pocket_p2_drop", "step": 1}, {"front_pocket": True})
-    # 缺 level/step
-    assert "缺 level/step" in resolve_adjust({"key": "fit"}, v)
+    # 缺 level/value/step
+    assert "缺 level/value/step" in resolve_adjust({"key": "fit"}, v)
 
 
 def test_resolve_evidence_default():
@@ -173,6 +173,67 @@ def test_resolve_evidence_default():
     r = resolve_adjust({"key": "fit", "level": "slim", "evidence": "太紧"},
                        _pocket_view())
     assert r.evidence == "太紧"
+
+
+# -- 绝对设定 value 通道（2026-10-08：原话数字逐字转述，§10.9.2） ------------------
+
+
+def _patch_view() -> dict:
+    return _view(back_patch=True, back_patch_width=12.0,
+                 back_patch_height=13.0)
+
+
+def test_resolve_absolute_value_channel():
+    """绝对设定：原话在册逐字转述 -> 咨询带内直设；模型自算数/档位虚键/
+    非数字一律丢弃——LLM 只做转述者，红线收窄为「绝不自行产出 cm」。"""
+    v = _patch_view()
+    # 原话在册：直设 13
+    r = resolve_adjust({"key": "back_patch_width", "value": 13},
+                       v, "后贴袋宽度调整到13")
+    assert (r.key, r.value) == ("back_patch_width", 13.0)
+    # 小数逐字转述
+    r = resolve_adjust({"key": "back_patch_width", "value": 13.5},
+                       v, "宽度改成 13.5")
+    assert r.value == 13.5
+    # 咨询带外钳位（hi=20）：带内夹界，真守卫仍是引擎 validate/probe
+    r = resolve_adjust({"key": "back_patch_width", "value": 25},
+                       v, "宽度调到25")
+    assert r.value == 20.0
+    # 模型自算/折中（原话只有 13）-> 丢
+    assert "未见于本轮原话" in resolve_adjust(
+        {"key": "back_patch_width", "value": 12.5}, v, "宽度调整到13")
+    # 缺省空文本 = 无从校验 -> 丢（安全缺省）
+    assert "未见于本轮原话" in resolve_adjust(
+        {"key": "back_patch_width", "value": 13}, v)
+    # 档位/虚键不吃 value（数字在册也不行——走 level/step）
+    assert "不接受绝对值" in resolve_adjust(
+        {"key": "fit", "value": 2}, _pocket_view(), "宽松调到2")
+    assert "不接受绝对值" in resolve_adjust(
+        {"key": "front_pocket_mouth_depth", "value": 2.0},
+        _pocket_view(), "弧深调到2")
+    # 非数字 / bool（int 子类须显式拒）
+    assert "绝对值须为数字" in resolve_adjust(
+        {"key": "back_patch_width", "value": "13"}, v, "宽度调到13")
+    assert "绝对值须为数字" in resolve_adjust(
+        {"key": "back_patch_width", "value": True}, v, "宽度调到1")
+    # 已等于当前值
+    assert "值不变" in resolve_adjust(
+        {"key": "back_patch_width", "value": 12}, v, "宽度调到12")
+
+
+def test_map_adjustment_absolute_and_step_mixed():
+    """绝对设定与模糊步进同轮混发：value 走原话校验、step 照旧起算。"""
+    view = _patch_view()
+    reply = json.dumps({"adjustments": [
+        {"key": "back_patch_width", "value": 13,
+         "evidence": "宽度调整到13"},
+        {"key": "back_patch_height", "step": 1, "evidence": "高度再高一点"}],
+        "note": "袋宽直设 13，袋高微升"}, ensure_ascii=False)
+    res = map_adjustment([], view, "后贴袋宽度调整到13，高度再高一点",
+                         FakeVLM([reply]))
+    got = {e.key: e.value for e in res.entries}
+    assert got == {"back_patch_width": 13.0, "back_patch_height": 13.5}
+    assert res.dropped == ()
 
 
 # -- prompt ----------------------------------------------------------------------
@@ -283,6 +344,28 @@ def test_run_turn_adjust_applies_persists_discloses():
     assert out3.delivery["options"]["front_pocket_mouth_bulge"] == 1.75
     assert out3.delivery["keys"]["front_pocket_mouth_bulge"]["source"] == "描述"
     assert len(vlm2.calls) == 2                        # 每轮一条映射（空调整）
+
+
+def test_run_turn_absolute_set_applies_persists():
+    """⑪绝对设定端到端：「后贴袋宽度调整到13」原话数字经 value 通道直设
+    参数、交卷披露，账本持久与步进同构（2026-10-08）。"""
+    out1 = run_turn(Session(), _DESC, (), provider=FakeVLM([]))
+    assert out1.delivery["options"]["back_patch"] is True   # 五袋款带后贴袋
+    w13 = json.dumps({
+        "adjustments": [{"key": "back_patch_width", "value": 13,
+                         "evidence": "后贴袋宽度调整到13"}],
+        "note": "后袋宽直接设为 13"}, ensure_ascii=False)
+    vlm2 = FakeVLM([w13, _EMPTY_ADJ])
+    out2 = run_turn(out1.session, "后贴袋宽度调整到13", (), provider=vlm2)
+    d = out2.delivery
+    assert d["options"]["back_patch_width"] == 13.0
+    assert d["adjust"]["applied"] == [
+        {"key": "back_patch_width", "value": 13.0}]
+    assert "后袋宽直接设为 13" in d["adjust"]["note"]
+    # 持久：后续无关轮账本种子照旧（与步进调整同构）
+    out3 = run_turn(out2.session, "挺好就这样", (), provider=vlm2)
+    assert out3.delivery["options"]["back_patch_width"] == 13.0
+    assert len(vlm2.calls) == 2                        # 每轮一条映射
 
 
 def test_same_turn_dictionary_wins():

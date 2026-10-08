@@ -34,7 +34,7 @@ import {
 } from '../imageCompress'
 import {
   adjustNote, balanceNotes, deliverySummaryLine, recheckDiffLines,
-  recheckNote,
+  recheckNote, reasoningText,
 } from '../chatPayload'
 
 // 照片三槽（C 照片三类，2026-09-29 用户口径）：上传时手动标注类别——
@@ -259,15 +259,15 @@ export default function SmartDraftView({ chat, onConfirm }: {
               style={{ marginTop: 8 }}
               items={[{
                 key: 'advanced',
-                label: '高级：思考模式（默认走模型默认=思维链开；带图可达数分钟）',
+                label: '高级：思考模式（默认快速；深度带图可达数分钟，附思考过程）',
                 children: (
                   <Radio.Group
                     value={chat.thinking}
                     onChange={(e) => chat.setThinking(e.target.value)}
                   >
-                    <Radio value="">默认（推荐）</Radio>
-                    <Radio value="off">快速（关思维链）</Radio>
-                    <Radio value="on">深度（强制开）</Radio>
+                    <Radio value="off">快速（推荐，关思维链）</Radio>
+                    <Radio value="">模型默认（思维链开）</Radio>
+                    <Radio value="on">深度（强制开，附思考过程）</Radio>
                   </Radio.Group>
                 ),
               }]}
@@ -311,6 +311,30 @@ export default function SmartDraftView({ chat, onConfirm }: {
                   >
                     {recheckNote(lastDeliver.delivery)}
                   </span>
+                )}
+                {reasoningText(lastDeliver.delivery) && (
+                  // 大模型思考过程（2026-10-08）：深度模式推理草稿折叠展示，
+                  // 默认收起——半结构化长文只给想看的人看
+                  <div style={{ flexBasis: '100%', minWidth: 0 }}>
+                    <Collapse
+                      size="small"
+                      items={[{
+                        key: 'reasoning',
+                        label: '大模型思考过程（深度模式草稿）',
+                        children: (
+                          <pre
+                            style={{
+                              margin: 0, fontSize: 11.5, lineHeight: 1.6,
+                              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                              maxHeight: 260, overflow: 'auto', opacity: 0.85,
+                            }}
+                          >
+                            {reasoningText(lastDeliver.delivery)}
+                          </pre>
+                        ),
+                      }]}
+                    />
+                  </div>
                 )}
                 <div className="smart-preview-actions">
                   <Button onClick={() => inputRef.current?.focus({ cursor: 'end' })}>

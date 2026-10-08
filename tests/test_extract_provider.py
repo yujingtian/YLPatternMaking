@@ -266,9 +266,10 @@ def test_sse_ignores_noise_lines():
              b"data: " + json.dumps({"choices": [{"delta": {"content": "a"}}]}).encode(),
              b"data: [DONE]",
              b"data: " + json.dumps({"choices": [{"delta": {"content": "ignored"}}]}).encode()]
-    text, usage = _read_sse(_FakeResponse(lines), 300.0)
+    text, usage, reasoning = _read_sse(_FakeResponse(lines), 300.0)
     assert text == "a"
     assert usage == {}                       # 无 usage 块 -> 空 dict
+    assert reasoning == ""                   # 无思考段 -> 空串
 
 
 def test_sse_finish_length_raises():
@@ -289,6 +290,29 @@ def test_idle_timeout_raises_vlmerror():
     resp = _FakeResponse(lines, raise_at=2)   # 第 3 行前停摆
     with pytest.raises(VLMError, match="空闲超时"):
         _read_sse(resp, 300.0)
+
+
+# -- 思考段捕获（2026-10-08 前端折叠展示） ----------------------------------------
+
+
+def test_sse_reasoning_captured_out_of_band():
+    """思考段进 last_reasoning、不进正文：reasoning_content 片段按序拼接
+    （reasoning 字段名兼容）；content 照旧只收 delta.content。"""
+    lines = [
+        b"data: " + json.dumps({"choices": [
+            {"delta": {"reasoning_content": "先看腰头：上缘水平，"}}]}).encode(),
+        b"data: " + json.dumps({"choices": [
+            {"delta": {"reasoning": "侧缝处明显下沉。"}}]}).encode(),
+        b"data: " + json.dumps({"choices": [
+            {"delta": {"content": '{"waistband_type": '}}]}).encode(),
+        b"data: " + json.dumps({"choices": [
+            {"delta": {"content": '"curved"}'}}]}).encode(),
+        b"data: [DONE]",
+    ]
+    text, usage, reasoning = _read_sse(_FakeResponse(lines), 300.0)
+    assert text == '{"waistband_type": "curved"}'
+    assert reasoning == "先看腰头：上缘水平，侧缝处明显下沉。"
+    assert usage == {}
 
 
 # -- usage 落账（商用加固 B，2026-10-07） --------------------------------------

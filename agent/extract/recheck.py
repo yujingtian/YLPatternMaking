@@ -195,8 +195,7 @@ def diff_note(group: str, diff: list[dict], keys: tuple[str, ...]) -> str:
 # -- 一次聚焦复查调用（永不抛） ----------------------------------------------------
 
 def focus_recheck(group: str, text: str, photos, prior: Observation | None,
-                  provider, thinking: str | None = None,
-                  photo_meta: list[dict] | None = None):
+                  provider, photo_meta: list[dict] | None = None):
     """一次聚焦 VLM 复查：prompt + 类别照片 -> (obs | None, diff, note)。
 
     provider 缺 / 无照片 / 调用失败 / 解析失败 -> (None, [], 原因一句话)，
@@ -205,6 +204,9 @@ def focus_recheck(group: str, text: str, photos, prior: Observation | None,
     特征区低于模型可分辨阈值，复查「维持原判断」同陷阱；失败静默降级
     整照）。临时目录必须在 complete 之后才清理（首版用 with 块在调用前
     就删了图，辅助图从未真正送达——provider 读盘即 FileNotFoundError）。
+    恒深度（2026-10-08 用户口径）：复查是用户明确要求细看的场合，
+    thinking 无视轮次三态恒 "on"（快速模式自动升级；端点不认参数时
+    provider 400 摘参兜底不受影响）。
     """
     keys = focus_keys(group)
     if provider is None:
@@ -233,8 +235,9 @@ def focus_recheck(group: str, text: str, photos, prior: Observation | None,
     prompt = build_focus_prompt(group, keys,
                                 prior.entries if prior else None, text)
     try:
+        # 恒深度（2026-10-08）：复查无视轮次 thinking 三态、恒开思维链
         raw = parse_model_json(provider.complete(
-            prompt, list(photos) + crop_paths, thinking, purpose="recheck"))
+            prompt, list(photos) + crop_paths, "on", purpose="recheck"))
         obs = sanitize(raw)
     except (ValueError, RuntimeError):
         # VLMError 也是 RuntimeError：复查失败不阻断主流程

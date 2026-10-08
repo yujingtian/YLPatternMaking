@@ -55,7 +55,7 @@ export interface SmartDraftState {
   elapsed: number                // 本轮已耗时（秒）
   health: AgentHealth | null     // null = agent 未启动/未知
   healthLoading: boolean
-  thinking: '' | 'on' | 'off'    // ''=不发送（服务端默认，推理开）
+  thinking: '' | 'on' | 'off'    // 'off'=快速（2026-10-08 起默认）；''=模型默认（思维链开）；'on'=深度
   setThinking: (v: '' | 'on' | 'off') => void
   // 成功才 true（组件据此清输入框）；失败消息内联、输入未清可重发
   send: (text: string) => Promise<boolean>
@@ -75,7 +75,9 @@ export function useSmartDraft(): SmartDraftState {
   const [elapsed, setElapsed] = useState(0)
   const [health, setHealth] = useState<AgentHealth | null>(null)
   const [healthLoading, setHealthLoading] = useState(true)
-  const [thinking, setThinking] = useState<'' | 'on' | 'off'>('')
+  // 默认快速（2026-10-08 用户拍板）：S2 主体是选择题、off 秒级出稿；
+  // 想要精度手动切「深度」，复查轮后端恒深度不受此默认影响
+  const [thinking, setThinking] = useState<'' | 'on' | 'off'>('off')
 
   // 响应 session 对象（大 JSON 不进 state，避免每轮整串触发渲染）；
   // 首轮 null -> sessionToJson 出 '{}'

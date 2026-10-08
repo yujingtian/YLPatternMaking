@@ -1,9 +1,12 @@
 """调版映射节点：交卷后的口语调版反馈 -> 参数调整（2026-09-27）。
 
 分工红线（用户口径 2026-09-26/27，.doc/python工程设计.md §10.9.2）：
-- LLM = 意图理解 + 参数定位 + 方向/步幅（档位名 / ±1/±2 整数步），
-  **永不输出绝对 cm**；代码 = 数值步进与钳位（resolve_adjust 纯函数）、
-  白名单校验、状态累积（Session 账本重放）、幂等重跑（seed 通道注入）；
+- LLM = 意图理解 + 参数定位 + 方向/步幅（档位名 / ±1/±2 整数步 /
+  用户原话明确目标数字的 value 逐字转述，2026-10-08），**绝不自行
+  产出绝对 cm**——value 只是转述用户报的数，代码校验数字确在本轮
+  原话（换算/折中/幻觉即丢），档位/虚键不吃 value；代码 = 数值
+  步进与钳位（resolve_adjust 纯函数）、白名单校验、状态累积
+  （Session 账本重放）、幂等重跑（seed 通道注入）；
 - 触发 = 交卷后每轮都调（ADJUST_TRIGGER，"off" 一键停用）；
 - thinking 恒 off（数值类短调用，provider 踩坑口径：不吃轮次参数）；
 - 零打扰：歧义最佳猜测 + note 披露，绝不反问；provider 未配置 /
@@ -17,6 +20,7 @@ agent.session**（session -> extract.parse 会成环）：history 由 converse
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .params_meta import (GROUP_ORDER, adjust_surface, default_view)
@@ -147,13 +151,45 @@ def _apply_level(spec, level: str, target_key: str, ev: str):
     return AdjustEntry(target_key, level, ev)
 
 
-def resolve_adjust(raw: object, view: dict):
+def _user_numbers(text: str) -> set[float]:
+    """本轮原话数字集合（value 逐字转述的校验面；中文数字不算在册）。"""
+    return {float(m) for m in re.findall(r"\d+(?:\.\d+)?", text or "")}
+
+
+def _apply_absolute(spec, val, view: dict, target_key: str, ev: str,
+                    text: str):
+    """绝对设定（2026-10-08）：仅数值键、数字须逐字见于本轮原话。
+
+    分工红线不变——LLM 仍不产出数字，value 只是转述用户报的目标值
+    （「后贴袋宽度调到13」）；原话没有的数字（换算/折中/幻觉）即丢。
+    钳位与步进同咨询带，真守卫仍是引擎 validate/probe（L0.5 撤回上一
+    版值）；档位/虚键/无定标键不接受绝对值（走 level/step）。
+    """
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return f"绝对值须为数字：{spec.key}={val!r}"
+    if spec.levels or not spec.step:
+        return f"档位/虚键不接受绝对值：{spec.key}"
+    if float(val) not in _user_numbers(text):
+        return f"绝对值未见于本轮原话：{spec.key}={val:g}"
+    raw_v = min(max(float(val), spec.lo), spec.hi)
+    if isinstance(spec.default, int) and not isinstance(spec.default, bool):
+        out: object = int(round(raw_v))
+    else:
+        out = round(float(raw_v), 2)
+    if out == view.get(spec.key):
+        return f"已等于当前值，值不变：{spec.key}"
+    return AdjustEntry(target_key, out, ev)
+
+
+def resolve_adjust(raw: object, view: dict, text: str = ""):
     """单条模型输出 -> AdjustEntry 或丢弃原因（str）。纯函数、永不抛。
 
     规则：表外/locked/gate 不过即丢；level 须 ∈ levels；step 须非零整数
     ∈ STEP_RANGE——ordinal 档位键沿 levels 移档（到头 = 已在最档丢弃）、
     数值键 clamp(current + step×step, lo, hi)（current 缺 / 值不变丢弃）、
-    无序档位键（nominal）+ step 丢弃；虚键经 _apply_level 落绝对值。
+    无序档位键（nominal）+ step 丢弃；虚键经 _apply_level 落绝对值；
+    value（绝对设定，2026-10-08）仅数值键且数字逐字见于本轮原话 text
+    （_apply_absolute，缺省空文本 = 无从校验一律丢——安全缺省）。
     """
     if not isinstance(raw, dict):
         return "输出项非对象"
@@ -173,9 +209,12 @@ def resolve_adjust(raw: object, view: dict):
     level = raw.get("level")
     if level is not None:
         return _apply_level(spec, str(level), target_key, ev)
+    val = raw.get("value")
+    if val is not None:
+        return _apply_absolute(spec, val, view, target_key, ev, text)
     step = raw.get("step")
     if step is None:
-        return f"缺 level/step：{key}"
+        return f"缺 level/value/step：{key}"
     if isinstance(step, bool) or not isinstance(step, int):
         return f"步数须为整数：{step!r}"
     if step == 0 or not (STEP_RANGE[0] <= step <= STEP_RANGE[1]):
@@ -214,15 +253,15 @@ _PROMPT_HEAD = """你是牛仔裤打版参数映射器：把用户的口语调�
 规则：
 0. 先判意图定 "action"：用户要求再看/复查/仔细看某部位（「再看看X」「X不对吧」「X再确认下」），但没说要怎么改 → "recheck"（此时 "adjustments" 必须为空数组，"target" 填复查部位组名：前口袋/后贴袋/腰头/育克后片/门襟/版型腰位，指不清部位或整版观感 → "兜底"）；方向性修改意图（太大/太小/太凸/太浅…要改）→ "adjust"；纯确认/寒暄/与版型无关 → "none"（adjustments 空）。action=recheck/none 时 note 禁止「暂不改动」式不作为表述——recheck 说明你要重点复查什么（例「我来重新细看后贴袋的形状与大小」），none 说明你理解到了什么。
 1. 只允许使用【当前版参数】里列出的键，绝不发明键名。键已按部位分组；用户指部位不指参数时，在该部位组内选 1~3 个最相关键联动调整，并在 note 里说明动了哪些。
-2. 档位键给 "level"（必须用列出的档名）；有序档位键和数值键可给 "step"（整数 ±1 或 ±2，沿当前值同向再进 N 步；用户重复强调 = 同向再加一步）；无序档位键不给 step。绝不输出厘米等绝对数值。
+2. 三种调法按用户话锋选一：档位键给 "level"（必须用列出的档名）；有序档位键和数值键给 "step"（整数 ±1 或 ±2，沿当前值同向再进 N 步；用户重复强调 = 同向再加一步；无序档位键不给 step）；数值键（参数行带 step 和范围的键）在用户原话给出明确目标数字时（「宽度调到13」「改成13.5」）给 "value"——数字必须逐字来自用户本轮原话，禁止换算/取整/折中/推算，中文数字（十三）不算、按模糊词走 step/level。绝不自己产出厘米等绝对数值。
 3. 相对词（"再浅一点""还是太凸"）对照【对话历史】消解——历史里列了每轮已应用的调整，只动与本次反馈相关的键。
 4. 版面方位（方向词消解的唯一权威）：前片/后片均侧缝在左、前中/后中在右，Y 向上朝腰头——用户口中的"左/右/上/下"按此换算（如"向右凸"＝朝前中方向）。
 5. 用户要求整体前后互换/侧缝前移（如"侧缝往前挪""前后片调换"）时，「前后片臀围调节量」与「腰围前后分配」两键同向同幅联动（两键同发，打版惯例臀腰同调），并在 note 里说明联动。
-6. 整体松紧找「版型松紧」；弧线形状找各弧线键；腰围/浪长/裤长等尺寸数字不归你管（用户会自己报数）。
+6. 整体松紧找「版型松紧」；弧线形状找各弧线键；腰围/浪长/裤长等人体尺寸不在参数表里、不归你管（用户会自己在尺寸单改）。
 7. 部件未开启的键不在参数表里，不要建议开启部件。
 8. 歧义时按最佳猜测执行并在 note 说明，绝不提问；与调版无关的反馈输出空 adjustments。
 严格只输出一个 JSON 对象：
-{"action": "adjust", "target": "", "adjustments": [{"key": "键名", "level": "档名"} 或 {"key": "键名", "step": -1}, "evidence": "用户原话依据"}], "note": "一句中文说明"}
+{"action": "adjust", "target": "", "adjustments": [{"key": "键名", "level": "档名"} 或 {"key": "键名", "step": -1} 或 {"key": "键名", "value": 用户原话数字}, "evidence": "用户原话依据"}], "note": "一句中文说明"}
 （action=adjust 时 target 留空串；action=recheck/none 时 adjustments 为空数组）"""
 
 
@@ -331,7 +370,7 @@ def map_adjustment(history: list[dict], view: dict, text: str, provider,
     dropped: list[str] = []
     seen: dict[str, int] = {}
     for item in items:
-        r = resolve_adjust(item, view)
+        r = resolve_adjust(item, view, text)
         if isinstance(r, str):
             dropped.append(r)
             continue

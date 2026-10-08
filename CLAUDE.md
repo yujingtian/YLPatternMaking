@@ -154,9 +154,13 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   python -m agent chat（一行一轮，:photo 补照 :quit 退出，--draft --staged 出整版
 #   + 三里程碑中间版）+ POST /api/chat/turn（会话 JSON 随请求往返、后端无状态；
 #   缺必填转求援卡不 422；照片带 photo_meta 类别 front/back/other——上传时手动
-#   标注不自动分类；响应 card/delivery/directive 三选一，口径 §10.9.2）
+#   标注不自动分类；响应 card/delivery/directive 三选一；thinking 三态前端默认
+#   快速 off（2026-10-08），深度思考草稿 delivery.reasoning / recheck.reasoning
+#   裁剪透传前端折叠展示（复查轮恒深度），口径 §10.9.2/§10.9.3）
 #   调版映射（交卷后口语调版 2026-09-27）：交卷后每轮纯文字反馈经一次小文本
-#   LLM 调用映射为 {key, 档位|整数步}（LLM 绝不输出 cm），账本重放持久、
+#   LLM 调用映射为 {key, 档位|整数步|原话数字 value}（LLM 绝不自行产出 cm——
+#   value 仅逐字转述用户原话目标数字、代码校验原话在册+钳位咨询带，2026-10-08），
+#   账本重放持久、
 #   注入现有管线幂等重跑、交卷披露；agent/extract/{adjust,params_meta}.py
 #   + tests/test_agent_adjust.py；口径权威 .doc/python工程设计.md §10.9.2 调版映射条
 #   意图层+定向复查（2026-09-29 D）：映射输出先判意图 action=adjust|recheck|none

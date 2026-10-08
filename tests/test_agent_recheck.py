@@ -378,3 +378,23 @@ def test_focus_recheck_back_pocket_crop_attached_and_alive(tmp_path):
         assert not os.path.exists(aux)               # 调用后清理、不残留
     else:                                            # 裁剪降级：至少原图在
         assert imgs == [str(p_back)] and vlm.alive_at_call == [True]
+
+
+# -- 复查恒深度（2026-10-08 前端折叠展示配套） -----------------------------------
+
+
+def test_focus_recheck_always_deep_thinking(tmp_path):
+    """复查轮无视轮次三态恒深度（thinking="on"）：「你再仔细看看」语义下
+    快速模式自相矛盾。空 JSON 无可采纳判断走降级，但调用参数已记录在案。"""
+    from agent.extract.recheck import focus_recheck
+
+    p_back = tmp_path / "back.png"
+    p_back.write_bytes(b"png-bytes")
+    prior = Observation(entries={
+        "back_patch_shape": ObservationEntry("rectangle", 0.8, "底边平直")})
+    vlm = FakeVLM(["{}"])
+    obs, diff, note = focus_recheck(
+        "后贴袋", "后贴袋你再仔细看看", [str(p_back)], prior, vlm,
+        photo_meta=[{"category": "back", "note": ""}])
+    assert vlm.calls[0]["thinking"] == "on"      # 恒深度：轮次三态不透传
+    assert obs is None and note == "模型输出无可采纳的本组判断，保持原判断"

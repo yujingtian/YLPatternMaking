@@ -422,12 +422,16 @@ export interface ChatRecheck {
   group: string
   diff: ChatRecheckDiff[]
   note: string      // 映射注语 + 复查结论一句话
+  reasoning?: string  // 复查思考段（恒深度草稿，2026-10-08；降级轮缺省）
 }
 
 // 交卷体：to_web_payload 六键 + review/ledger/summary + adjust（有调版轮才有）
 // + recheck（复查轮才有）
 export interface ChatDelivery {
   measurements: Record<string, number>
+  // S2 思考段（2026-10-08）：深度模式推理草稿（后端已裁剪），前端折叠
+  // 展示「大模型思考过程」；快速模式/无 S2 轮缺省不带
+  reasoning?: string
   options: Values
   keys: Record<string, ExtractKeyMeta>
   issues: ExtractIssue[]
