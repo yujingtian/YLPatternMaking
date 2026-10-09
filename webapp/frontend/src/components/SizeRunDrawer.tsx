@@ -9,6 +9,9 @@
 // 走 rebaseTable 重投影（放码关系不变）；行插入/删除/换位档差跟行走
 // （码序重组，灰字所见即所得）；插入行预填默认值（insertRowAfter：档差
 // 沿用最近非基码行/工厂缺省 + 数值码标签自动推算，免逐格手填）。
+// 「袋口位」列 = 选项档差（2026-10-09）：空 = 自动固定 0.5cm/码（占位
+// 灰字即自动值），显式数字 = 覆盖（0 = 不推）；清空回落自动
+// （undefined 不落 spec，保持「自动」语义）。
 // 转换/校验纯函数在 src/sizeRun.ts。
 
 import { useEffect, useMemo, useState } from 'react'
@@ -19,7 +22,8 @@ import {
   ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined,
 } from '@ant-design/icons'
 import {
-  MEASURE_KEYS, type MeasureKey, type SizeRunSpec, type Values,
+  MEASURE_KEYS, type MeasureKey, type OptionStepKey, type SizeRunSpec,
+  type Values,
 } from '../types'
 import {
   absoluteValues, closeIntent, emptySteps, fromGradeTable, insertRowAfter,
@@ -82,6 +86,11 @@ export default function SizeRunDrawer({
   const setStep = (i: number, key: MeasureKey, v: number | null) =>
     editTable((t) => ({ ...t, rows: t.rows.map((r, k) =>
       (k === i ? { ...r, steps: { ...r.steps, [key]: v ?? 0 } } : r)) }))
+  // 选项档差（袋口位）：清空 = undefined（回落引擎自动跟腰/4，不落 spec），
+  // 显式数字 = 覆盖（0 = 不推）——测量档差清空补 0，两者刻意不同
+  const setOptionStep = (i: number, key: OptionStepKey, v: number | null) =>
+    editTable((t) => ({ ...t, rows: t.rows.map((r, k) =>
+      (k === i ? { ...r, steps: { ...r.steps, [key]: v ?? undefined } } : r)) }))
   // 行下插入（纯函数 insertRowAfter）：预填默认值——档差沿用最近非基码
   // 行（全表仅基码用工厂档差缺省）、码标签按相邻数值码推算，免逐格手填
   const insertAfter = (i: number) => editTable((t) => insertRowAfter(t, i))
@@ -123,6 +132,25 @@ export default function SizeRunDrawer({
                        onChange={(v) => setStep(i, k, v)} />
         )}
         <span className="abs-hint">{abs}</span>
+      </div>
+    )
+  }
+
+  // 袋口位档差格（选项档差，proj 与测量列同式）：值空 = 未显式，占位灰字
+  // = 自动档差（固定 0.5cm/码，与引擎 _option_auto_steps 同源，不随腰围）。
+  // 无绝对值灰字——袋口位绝对值属 options 基码值，抽屉只见 measurements
+  const renderP1Cell = (i: number) => {
+    return (
+      <div className="sr-cell">
+        {i === table.baseIndex ? (
+          <span className="sr-step-empty">—</span>
+        ) : (
+          <InputNumber size="small" step={0.1}
+                       value={table.rows[i].steps.front_pocket_p1_dist}
+                       placeholder="自动 0.5"
+                       style={{ width: 88 }}
+                       onChange={(v) => setOptionStep(i, 'front_pocket_p1_dist', v)} />
+        )}
       </div>
     )
   }
@@ -171,7 +199,9 @@ export default function SizeRunDrawer({
         档差 = 相邻码之差（码序小→大，正号 = 码增大）；基码行是锚——档差
         格为「—」，各码数值取自当前参数面板（只读）。基码上方行录「与更大
         相邻码之差」、下方行录「与上一码之差」；每格下方灰字为换算出的该码
-        绝对值。切换基码只换锚点（放码关系不变，数值自动重投影）；插入/
+        绝对值。「袋口位」列是选项档差：留空 = 自动固定 0.5cm/码（不随
+        腰围联动，格内灰字即自动值），填 0 = 不推。切换基码
+        只换锚点（放码关系不变，数值自动重投影）；插入/
         删除/移动行则档差跟行走。保存时相同档差的相邻码自动合并为档差段。
       </div>
       <div className="sr-toolbar">
@@ -194,6 +224,7 @@ export default function SizeRunDrawer({
               <th>码</th>
               <th>基码</th>
               {MEASURE_KEYS.map((k) => <th key={k}>{MEASURE_LABELS[k]}</th>)}
+              <th title="选项档差：空 = 自动 0.5/码，0 = 不推">袋口位</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -211,6 +242,7 @@ export default function SizeRunDrawer({
                 {MEASURE_KEYS.map((k) => (
                   <td key={k}>{renderCell(row, i, k)}</td>
                 ))}
+                <td>{renderP1Cell(i)}</td>
                 <td>
                   <Space size={0}>
                     <Button type="text" size="small" title="上移"

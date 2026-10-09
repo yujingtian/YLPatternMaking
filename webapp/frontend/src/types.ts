@@ -264,7 +264,14 @@ export interface DraftPayload {
 export const MEASURE_KEYS = ['waist', 'hip', 'knee', 'hem', 'front_rise',
   'back_rise', 'outseam', 'thigh'] as const
 export type MeasureKey = (typeof MEASURE_KEYS)[number]
-export type GradeSteps = Record<MeasureKey, number>
+// 选项档差键（与引擎 sizerun.OPTION_KEYS 对齐，2026-10-09）：band 可携带的
+// 选项步进——袋口位随码联动（袋贴宽/门襟宽是工艺规格件不推）。表中
+// undefined = 未显式（引擎自动固定 0.5/码）；数字 = 显式
+// 档差（0 = 不推）。JSON 序列化自动丢 undefined 键 = 缺省自动
+export const OPTION_STEP_KEYS = ['front_pocket_p1_dist'] as const
+export type OptionStepKey = (typeof OPTION_STEP_KEYS)[number]
+export type GradeSteps = Record<MeasureKey, number> &
+  Partial<Record<OptionStepKey, number>>
 
 export type SizeRunBandSpec = { sizes: string[] } & GradeSteps
 

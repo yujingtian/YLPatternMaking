@@ -42,10 +42,12 @@ def _size_run_lines(size_run: dict) -> list[str]:
     """[size_run] 推板段回写（结构对齐 params/sizerun 规范段）。
 
     enabled 恒 true（导出即生效：置 false 或删段才退化单码）；band 每段
-    8 键全量显式、缺省补 0（输出确定性）；[[size_run.band]] 数组表必须
-    在 [size_run] 标量键之后（TOML 语法）。
+    测量 8 键全量显式、缺省补 0（输出确定性）；选项档差键（OPTION_KEYS，
+    如 front_pocket_p1_dist 袋口位）显式才写——缺省不落盘，加载端自动
+    固定 0.5cm/码（2026-10-09 口径）；[[size_run.band]] 数组表必须在
+    [size_run] 标量键之后（TOML 语法）。
     """
-    from ylpattern.params import MEASURE_KEYS
+    from ylpattern.params import MEASURE_KEYS, OPTION_KEYS
     lines = ["", "# 推板段（多码推码）：enabled = false 或删段退化单码",
              "", "[size_run]", "enabled = true"]
     for key in ("base", "style", "order"):
@@ -56,4 +58,7 @@ def _size_run_lines(size_run: dict) -> list[str]:
                   f"sizes = {_fmt(list(band.get('sizes', [])))}"]
         for k in MEASURE_KEYS:
             lines.append(f"{k} = {float(band.get(k, 0))!r}")
+        for k in OPTION_KEYS:
+            if band.get(k) is not None:
+                lines.append(f"{k} = {float(band[k])!r}")
     return lines

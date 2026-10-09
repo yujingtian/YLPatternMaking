@@ -943,9 +943,17 @@ def run_size_run_groups(run: SizeRun, o: PatternOptions, *,
     rows: list[tuple[str, float | None, int]] = []
     base_trace = ""
     for label in run.labels:
-        ctx_s, trace_s = run_with_thigh_closure(
-            run.measurements(label), run.options_for(label, o),
-            trace=trace_base and label == run.base)
+        try:
+            ctx_s, trace_s = run_with_thigh_closure(
+                run.measurements(label), run.options_for(label, o),
+                trace=trace_base and label == run.base)
+        except ValueError as e:
+            # 逐码守卫/校验错误带码号前缀：屏幕整版恒为基码，无码号的
+            # 「袋贴与独立门襟重合…」会让用户拿基码视觉比对误导排查
+            # （2026-10-09 事故：基码 30 余量 +1.28 视觉无重合，炸的是
+            # 27 码）。展开层（from_spec）错误自带「码 'X'」前缀且发生在
+            # 本函数之前，此处不会双重前缀。
+            raise ValueError(f"码 {label}：{e}") from e
         contexts[label] = ctx_s
         if label == run.base:
             base_trace = trace_s

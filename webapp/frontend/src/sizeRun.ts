@@ -16,11 +16,11 @@
 // 视图切换不累积舍入。
 
 import {
-  MEASURE_KEYS, type GradeSteps, type MeasureKey, type SizeRunBandSpec,
-  type SizeRunSpec,
+  MEASURE_KEYS, OPTION_STEP_KEYS, type GradeSteps, type MeasureKey,
+  type SizeRunBandSpec, type SizeRunSpec,
 } from './types'
 
-/** 全 0 档差（新行/新表缺省）。 */
+/** 全 0 档差（新行/新表缺省）；选项档差键不带（undefined = 引擎自动）。 */
 export function emptySteps(): GradeSteps {
   return { waist: 0, hip: 0, knee: 0, hem: 0, front_rise: 0, back_rise: 0,
            outseam: 0, thigh: 0 }
@@ -46,11 +46,17 @@ function pickSteps(src: Record<string, unknown>): GradeSteps {
     const v = Number(src[k])
     out[k] = Number.isFinite(v) ? v : 0
   }
+  // 选项档差键：缺失/非数 = undefined（未显式 -> 引擎自动固定 0.5/码）
+  for (const k of OPTION_STEP_KEYS) {
+    const v = Number(src[k])
+    out[k] = Number.isFinite(v) ? v : undefined
+  }
   return out
 }
 
 function sameSteps(a: GradeSteps, b: GradeSteps): boolean {
   return MEASURE_KEYS.every((k) => a[k] === b[k])
+    && OPTION_STEP_KEYS.every((k) => a[k] === b[k])
 }
 
 /**
@@ -105,7 +111,11 @@ function gapsOf(t: GradeTable, round2 = false): GradeSteps[] {
   for (let i = 0; i < t.rows.length - 1; i++) {
     const src = t.rows[i >= t.baseIndex ? i + 1 : i].steps
     const s = pickSteps(src as unknown as Record<string, unknown>)
-    if (round2) for (const k of MEASURE_KEYS) s[k] = Math.round(s[k] * 100) / 100
+    if (round2) {
+      for (const k of MEASURE_KEYS) s[k] = Math.round(s[k] * 100) / 100
+      for (const k of OPTION_STEP_KEYS)
+        if (s[k] !== undefined) s[k] = Math.round(s[k]! * 100) / 100
+    }
     gaps.push(s)
   }
   return gaps
@@ -147,7 +157,8 @@ export function toGradeTable(spec: SizeRunSpec | null,
 /**
  * 编辑模型 -> canonical：码序 = 行序（trim），base = 行[baseIndex]，
  * enabled 恒 true。band 合并 = 极大等值档差连段（引擎只按 band_of(k) 查
- * k>=1 的步进，等值连段拆并展开不变）；**首码并入首段**（孤儿校验免疫，
+ * k>=1 的步进，等值连段拆并展开不变；比较含选项档差键——仅袋口位不同
+ * 也会切段，测量段语义不变）；**首码并入首段**（孤儿校验免疫，
  * band_of(首码) 从不被查询）；档差 round(2)；不含 sizes 键。
  */
 export function fromGradeTable(t: GradeTable): SizeRunSpec {
@@ -158,9 +169,14 @@ export function fromGradeTable(t: GradeTable): SizeRunSpec {
   while (i < gaps.length) {
     let j = i
     while (j + 1 < gaps.length && sameSteps(gaps[j + 1], gaps[i])) j += 1
-    // 连段 [i..j] 对应行 i+1..j+1；首段额外并入首码（行 0）
+    // 连段 [i..j] 对应行 i+1..j+1；首段额外并入首码（行 0）；选项档差键
+    // 剥 undefined（缺省不落 spec，引擎自动固定 0.5/码——保持「自动」
+    // 语义，显式值才快照）
     const start = band.length === 0 ? 0 : i + 1
-    band.push({ sizes: labels.slice(start, j + 2), ...gaps[i] })
+    const seg: SizeRunBandSpec = { sizes: labels.slice(start, j + 2), ...gaps[i] }
+    for (const k of OPTION_STEP_KEYS)
+      if (seg[k] === undefined) delete seg[k]
+    band.push(seg)
     i = j + 1
   }
   return {

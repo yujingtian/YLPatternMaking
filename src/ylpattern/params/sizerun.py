@@ -20,6 +20,12 @@ formulas**（「params 禁 import formulas」红线）。
   补全，否则报缺参清单；
 - **thigh 特例**：基码 thigh=0（未录入）时忽略一切 thigh 步进（全码 0，
   毗围不启用）；显式 thigh>0 可单码启用；
+- **选项档差**（2026-10-09 口径）：band 除 8 测量键外可带 OPTION_KEYS
+  （起步仅 front_pocket_p1_dist 袋口位）——显式给定用其值（0 = 不推），
+  缺省自动 = 固定 0.5cm/码（不派生自测量步进，腰档差 0 的段同样 +0.5；
+  小码下腰头弧随腰围收缩时袋口位同步内收，保住「袋贴前中缘 <-> 门襟」
+  间隙）；逐码经 SizeRun.options_for 叠加到基码选项，其余选项全码共享。
+  显式段 [size_run.sizes.X] 仍只认测量键（选项档差只走 band）；
 - 每码构造 Measurements **复用其全部交叉校验**，失败消息带码标签。
 
 总开关：`[size_run] enabled = false` 整段失效（load_size_run 返回
@@ -41,7 +47,19 @@ from .sizefile import load_size_file
 MEASURE_KEYS: tuple[str, ...] = ("waist", "hip", "knee", "hem", "front_rise",
                                  "back_rise", "outseam", "thigh")
 
+# 选项档差键（2026-10-09 口径）：band 可携带的选项步进白名单，起步仅
+# front_pocket_p1_dist（袋口位——身体比例量须随码联动；袋贴宽/门襟宽是
+# 工艺规格件不推）。缺省固定 0.5cm/码：下腰头弧随腰围档差逐码收缩，袋口位
+# 固定步内收 -> 「袋贴前中缘 <-> 门襟」间隙不被挤没（袋贴×独立门襟腰弧
+# 重合守卫不随推码在小码侧复发）；显式 0 = 不推（全码恒定旧行为）。
+OPTION_KEYS: tuple[str, ...] = ("front_pocket_p1_dist",)
+
 _SPEC_KEYS = ("base", "style", "order", "band", "sizes", "enabled")
+
+
+def _option_auto_steps() -> dict[str, float]:
+    """band 未显式给出的选项档差缺省：固定 0.5cm/码（不派生自测量步进）。"""
+    return {"front_pocket_p1_dist": 0.5}
 
 
 def _clean(d: dict) -> dict:
@@ -67,7 +85,8 @@ def _as_float(value, where: str) -> float:
 
 @dataclass(frozen=True)
 class SizeBand:
-    """档差段：sizes = 段内码序（TOML 声明序），8 字段 = 相邻码步进 cm。"""
+    """档差段：sizes = 段内码序（TOML 声明序），8 字段 = 相邻码步进 cm；
+    option_steps = 选项档差步进（OPTION_KEYS，显式值 + 缺省自动已物化）。"""
     sizes: tuple[str, ...]
     waist: float = 0.0
     hip: float = 0.0
@@ -77,13 +96,16 @@ class SizeBand:
     back_rise: float = 0.0
     outseam: float = 0.0
     thigh: float = 0.0
+    option_steps: dict[str, float] = dataclasses.field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class SizeEntry:
-    """单个尺码条目：码标签 + 该码完整尺寸单。"""
+    """单个尺码条目：码标签 + 该码完整尺寸单 + 选项档差累计偏移
+    （OPTION_KEYS 自基码双向累加，基码恒 0；构造后勿改）。"""
     label: str
     measurements: Measurements
+    option_deltas: dict[str, float] = dataclasses.field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -128,11 +150,16 @@ class SizeRun:
         return self.measurements(self.base)
 
     def options_for(self, label: str, o: PatternOptions) -> PatternOptions:
-        """逐码选项：只改 size_label，其余约 150 选项全码共享——跨码唯一
-        变量是 Measurements（"尺码表进、逐码重打版"路线的构造化保证）。"""
+        """逐码选项：size_label 换码 + 选项档差（OPTION_KEYS 自基码累计偏移）
+        叠加到传入基码选项，其余约 150 选项全码共享。dataclasses.replace
+        重跑 __post_init__，档差后越界值在此抛（run_size_run_groups 统一
+        补码号前缀）。"""
         if label not in self.labels:
             raise ValueError(f"尺码表中不存在码 '{label}'（现有：{list(self.labels)}）")
-        return dataclasses.replace(o, size_label=label)
+        e = next(e for e in self.entries if e.label == label)
+        kw = {k: getattr(o, k) + d
+              for k, d in e.option_deltas.items() if d}
+        return dataclasses.replace(o, size_label=label, **kw)
 
     @classmethod
     def from_spec(cls, base_m: Measurements, raw: dict, *,
@@ -191,13 +218,19 @@ def _bands_from(spec: dict) -> list[SizeBand]:
                 raise ValueError(f"码 '{s}' 在第 {seen[s]} 与第 {i + 1} 个"
                                  "档差段中重复（一码只能属于一个段）")
             seen[s] = i + 1
-        unknown = [k for k in d if k not in MEASURE_KEYS]
+        unknown = [k for k in d if k not in MEASURE_KEYS
+                   and k not in OPTION_KEYS]
         if unknown:
             raise ValueError(f"第 {i + 1} 个档差段含未知参数 {unknown}"
-                             f"（可用：{list(MEASURE_KEYS)}）")
-        bands.append(SizeBand(
-            sizes=tuple(sizes),
-            **{k: _as_float(v, f"第 {i + 1} 个档差段 {k}") for k, v in d.items()}))
+                             f"（可用：{list(MEASURE_KEYS) + list(OPTION_KEYS)}）")
+        where = f"第 {i + 1} 个档差段"
+        steps = {k: _as_float(v, f"{where} {k}")
+                 for k, v in d.items() if k in MEASURE_KEYS}
+        opt = {k: _as_float(v, f"{where} {k}")
+               for k, v in d.items() if k in OPTION_KEYS}
+        for k, auto in _option_auto_steps().items():
+            opt.setdefault(k, auto)          # 缺省自动固定档（显式 0 = 不推）
+        bands.append(SizeBand(sizes=tuple(sizes), option_steps=opt, **steps))
     return bands
 
 
@@ -212,7 +245,8 @@ def _explicit_from(spec: dict) -> dict[str, dict[str, float]]:
         unknown = [k for k in d if k not in MEASURE_KEYS]
         if unknown:
             raise ValueError(f"码 '{label}' 显式参数含未知键 {unknown}"
-                             f"（可用：{list(MEASURE_KEYS)}）")
+                             f"（可用：{list(MEASURE_KEYS)}；选项档差"
+                             f"（{list(OPTION_KEYS)}）只走档差段 band）")
         out[label] = {k: _as_float(v, f"码 '{label}' 显式参数 {k}")
                       for k, v in d.items()}
     return out
@@ -281,17 +315,26 @@ def _expand(base_m: Measurements, order: list[str], base: str,
             band_of[s] = b
     vals: dict[str, dict[str, float]] = {
         base: {k: float(getattr(base_m, k)) for k in MEASURE_KEYS}}
+    # 选项档差累计偏移（自基码双向累加，基码恒 0；与测量同一步进归属）
+    opt: dict[str, dict[str, float]] = {
+        base: {k: 0.0 for k in OPTION_KEYS}}
     bi = order.index(base)
     for k in range(bi, len(order) - 1):            # 自基码向前（大码方向）
         cur, nxt = order[k], order[k + 1]
         b = band_of.get(nxt)
         vals[nxt] = {key: vals[cur][key] + (getattr(b, key, 0.0) if b else 0.0)
                      for key in MEASURE_KEYS}
+        opt[nxt] = {key: opt[cur][key]
+                    + (b.option_steps.get(key, 0.0) if b else 0.0)
+                    for key in OPTION_KEYS}
     for k in range(bi, 0, -1):                     # 自基码向后（小码方向）
         prv, cur = order[k - 1], order[k]
         b = band_of.get(cur)
         vals[prv] = {key: vals[cur][key] - (getattr(b, key, 0.0) if b else 0.0)
                      for key in MEASURE_KEYS}
+        opt[prv] = {key: opt[cur][key]
+                    - (b.option_steps.get(key, 0.0) if b else 0.0)
+                    for key in OPTION_KEYS}
     if base_m.thigh == 0:
         # thigh 特例：基码未录入时忽略一切 thigh 步进（全码 0，毗围不启用）
         for v in vals.values():
@@ -309,7 +352,8 @@ def _expand(base_m: Measurements, order: list[str], base: str,
             m = Measurements(**vals[label])
         except (TypeError, ValueError) as e:
             raise ValueError(f"码 '{label}'：{e}") from e
-        entries.append(SizeEntry(label=label, measurements=m))
+        entries.append(SizeEntry(label=label, measurements=m,
+                                 option_deltas=opt[label]))
     return entries
 
 

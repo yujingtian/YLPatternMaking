@@ -126,8 +126,9 @@ def test_base_fallback():
 
 
 def test_options_for_only_changes_size_label():
-    """⑦ options_for 仅改 size_label，其余选项全码恒等。"""
-    raw = _spec(base="30", band=[{"sizes": ["30", "31"], "waist": 2.5}])
+    """⑦ options_for：选项档差显式 0 = 不推（其余选项全码恒等）。"""
+    raw = _spec(base="30", band=[{"sizes": ["30", "31"], "waist": 2.5,
+                                  "front_pocket_p1_dist": 0}])
     run = SizeRun.from_spec(M, raw)
     o = PatternOptions(delta=1.0, back_yoke=True)
     o31 = run.options_for("31", o)
@@ -135,6 +136,47 @@ def test_options_for_only_changes_size_label():
     for f in dataclasses.fields(PatternOptions):
         if f.name != "size_label":
             assert getattr(o31, f.name) == getattr(o, f.name)
+
+
+def test_option_band_auto_fixed_half_cm():
+    """⑩ 选项档差缺省自动（2026-10-09 口径）：袋口位固定 0.5cm/码自基码
+    双向累加（27~32 腰档差 2.5 -> 步进仍 0.5，不随腰围联动），其余选项
+    仍全码共享。"""
+    raw = _spec(base="30", order=["27", "28", "29", "30", "31", "32"],
+                band=[{"sizes": ["27", "28", "29", "30", "31", "32"],
+                       "waist": 2.5}])
+    run = SizeRun.from_spec(M, raw)
+    bi = run.labels.index("30")
+    for e in run.entries:
+        expect = (run.labels.index(e.label) - bi) * 0.5
+        assert e.option_deltas["front_pocket_p1_dist"] == pytest.approx(expect)
+    o = PatternOptions(front_pocket_p1_dist=8.5)
+    assert run.options_for("27", o).front_pocket_p1_dist == \
+        pytest.approx(8.5 - 3 * 0.5)
+    assert run.options_for("30", o).front_pocket_p1_dist == 8.5
+    assert run.options_for("32", o).front_pocket_p1_dist == \
+        pytest.approx(8.5 + 2 * 0.5)
+
+
+def test_option_band_explicit_override():
+    """⑪ 选项档差显式覆盖：band 给值用其值（0 = 不推，见测试 ⑦）。"""
+    raw = _spec(base="30", band=[{"sizes": ["29", "30", "31"], "waist": 2.5,
+                                  "front_pocket_p1_dist": 0.3}])
+    run = SizeRun.from_spec(M, raw)
+    o = PatternOptions(front_pocket_p1_dist=8.5)
+    assert run.options_for("31", o).front_pocket_p1_dist == \
+        pytest.approx(8.5 + 0.3)
+    assert run.options_for("29", o).front_pocket_p1_dist == \
+        pytest.approx(8.5 - 0.3)
+
+
+def test_option_band_auto_independent_of_waist_step():
+    """band 未给腰围步进 -> 袋口位自动档差仍固定 0.5（固定档不派生自测量）。"""
+    raw = _spec(base="30", band=[{"sizes": ["30", "31"], "hip": 2.5}])
+    run = SizeRun.from_spec(M, raw)
+    o = PatternOptions(front_pocket_p1_dist=8.5)
+    assert run.options_for("31", o).front_pocket_p1_dist == \
+        pytest.approx(8.5 + 0.5)
 
 
 @pytest.mark.parametrize("raw_section, match", [
@@ -153,6 +195,11 @@ def test_options_for_only_changes_size_label():
      "码 '31'"),
     # 档差段未知参数
     ({"band": [{"sizes": ["30"], "waist": 2.5, "chest": 1.0}]}, "未知参数"),
+    # 档差段未知选项键（选项档差白名单外，fly_width 属工艺规格件不推）
+    ({"band": [{"sizes": ["30"], "waist": 2.5, "fly_width": 0.5}]}, "未知参数"),
+    # 选项档差误写进显式段（只走档差段 band）
+    ({"band": [{"sizes": ["30", "31"], "waist": 2.5}],
+      "sizes": {"31": {"front_pocket_p1_dist": 8.0}}}, "只走档差段"),
     # 显式参数未知键
     ({"sizes": {"30": {"waist": 76, "bust": 90}}}, "未知键"),
     # style 非 ASCII

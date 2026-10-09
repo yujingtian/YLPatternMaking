@@ -43,7 +43,9 @@ python -m ylpattern.cli draft --size examples/size_female_165.toml \
 #   推板 DXF（多码，v1 2026-08）：Toolbar「推板 DXF」+ 推板设置抽屉（相邻码档差表，
 #   前端 sizeRun.ts 档差<->band 转换、首码并入首段免疫孤儿校验）-> /api/dxf?kind=size_run
 #   （引擎 api.size_run_from_dict/run_size_run_groups 内存核心）与 /api/toml 带 [size_run]
-#   段（直喂 CLI 复现）；转换金标 vitest：cd webapp/frontend && npm test（详见 §10.7）
+#   段（直喂 CLI 复现）；选项档差（2026-10-09）：band 可带 OPTION_KEYS（起步仅袋口位
+#   front_pocket_p1_dist），缺省自动固定 0.5/码、显式覆盖、显式 0=不推，
+#   逐码报错带「码 X：」前缀；转换金标 vitest：cd webapp/frontend && npm test（详见 §10.7）
 #   排料对接（2026-09-20 一期；2026-09-22 入口收口）：左栏「排料」按钮状态化单入口
 #   （空闲=取产物清单 console.table 打印后直达机器排料求解弹窗、在飞=「排料中」可点击
 #   回看进度、有会话=回看结果；单码 message 拦截）-> POST /api/nest 出带 g 码编号 DXF

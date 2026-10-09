@@ -21,7 +21,8 @@ const SPEC: SizeRunSpec = {
   band: [{ sizes: ['27', '28', '29', '30', '31', '32'], ...STEP }],
 }
 
-function steps(over: Partial<Record<MeasureKey, number>> = {}) {
+function steps(over: Partial<Record<MeasureKey, number>> &
+               Partial<Record<'front_pocket_p1_dist', number>> = {}) {
   return { ...emptySteps(), ...over }
 }
 
@@ -250,5 +251,48 @@ describe('insertRowAfter（插入行默认值预填）', () => {
     expect(t.rows[3].label).toBe('30')
     expect(t.rows[3].steps.waist).toBe(0)
     expect(fromGradeTable(t).base).toBe('30')
+  })
+})
+
+describe('选项档差键（袋口位 front_pocket_p1_dist，2026-10-09 口径）', () => {
+  // 语义：undefined = 未显式（引擎自动固定 0.5/码，band 不落键——保持
+  // 「自动」语义）；数字 = 显式档差（0 = 不推）。仅袋口位不同也
+  // 切段（测量段语义不变）。
+  it('未显式：canonical 不物化键，往返恒等（缺省自动）', () => {
+    const spec = fromGradeTable(toGradeTable(SPEC, '30'))
+    expect('front_pocket_p1_dist' in spec.band[0]).toBe(false)
+    expect(spec).toEqual(SPEC)
+    expect(defaultSteps().front_pocket_p1_dist).toBeUndefined()
+  })
+
+  it('显式档差：锚定投影/往返保留；与 undefined 相邻切段', () => {
+    // 手工演算：28/29/30 段 p1=0.3、31 段未显式；锚 30 投影 ->
+    //   行 28/29（锚上方）= 0.3、行 31（锚下方）= undefined；
+    //   导出 sameSteps 含 p1 -> 0.3 与 undefined 不等值切段，复现两段
+    const spec: SizeRunSpec = {
+      enabled: true, base: '30', style: 'T', order: ['28', '29', '30', '31'],
+      band: [{ sizes: ['28', '29', '30'],
+               ...steps({ waist: 2.5, front_pocket_p1_dist: 0.3 }) },
+             { sizes: ['31'], ...steps({ waist: 3 }) }],
+    }
+    const t = toGradeTable(spec, '30')
+    expect(t.rows[0].steps.front_pocket_p1_dist).toBe(0.3)
+    expect(t.rows[3].steps.front_pocket_p1_dist).toBeUndefined()
+    expect(fromGradeTable(t)).toEqual(spec)
+  })
+
+  it('normalizeSizeRun 保留显式袋口位档差（导入/存量）', () => {
+    const { spec } = normalizeSizeRun({
+      base: '30', order: ['30', '31'],
+      band: [{ sizes: ['30', '31'], waist: 2.5, front_pocket_p1_dist: 0.5 }],
+    })
+    expect(spec?.band[0].front_pocket_p1_dist).toBe(0.5)
+  })
+
+  it('插入行沿用袋口位档差（跟行走口径同测量键）', () => {
+    const t = insertRowAfter(table(
+      [['30', steps()],
+       ['31', steps({ waist: 2.5, front_pocket_p1_dist: 0.5 })]], 0), 0)
+    expect(t.rows[1].steps.front_pocket_p1_dist).toBe(0.5)
   })
 })

@@ -144,3 +144,84 @@ def test_examples_run_file_loads(tmp_path):
     # 基码 30 腰围 77、档差 2.5：27 码低三档 77-3*2.5、32 码高两档 77+2*2.5
     assert run.measurements("27").waist == pytest.approx(77.0 - 3 * 2.5)
     assert run.measurements("32").waist == pytest.approx(77.0 + 2 * 2.5)
+
+
+# ---- 选项档差（2026-10-09 口径）：袋口位自动固定 0.5cm/码 ----
+# 事故存档：弯腰头 27~32（腰档差 2.5）+ p1 8.5/袋贴 3.5/门襟 4——旧口径
+# 三键全码恒定，27 码（腰 58.5）下腰头弧缩到占宽合计 16.0 以下（用户真实
+# 全选项版 15.47、本最小复现 15.80），排料逐码重打版在第一个码即报
+# 「袋贴与独立门襟在腰弧上重合」，而屏幕整版恒为基码 30 视觉无重合。
+# 腰形两键（waist_balance/dart_width）取自用户真实尺寸单，余用默认。
+
+INCIDENT_TOML = """\
+[measurements]
+waist = 66
+hip = 92
+knee = 47
+hem = 44
+front_rise = 30
+back_rise = 40
+outseam = 95
+
+[options]
+size_label = "30"
+waistband_type = "curved"
+front_pocket = true
+front_pocket_facing = true
+fly = true
+fly_separate = true
+front_pocket_p1_dist = 8.5
+front_pocket_facing_width = 3.5
+fly_width = 4
+waist_balance = 1.85
+front_pocket_dart_width = 1
+
+[size_run]
+base = "30"
+style = "INCIDENT"
+
+[[size_run.band]]
+sizes = ["27", "28", "29", "30", "31", "32"]
+waist = 2.5
+hip = 2.5
+knee = 1.3
+hem = 1.0
+front_rise = 0.3
+back_rise = 0.5
+outseam = 1.2
+"""
+
+
+def _incident_run(tmp_path, band_extra=""):
+    f = tmp_path / "incident.toml"
+    f.write_text(INCIDENT_TOML + band_extra, encoding="utf-8")
+    from ylpattern.params import PatternOptions
+    o = PatternOptions.from_file(str(f))
+    return load_size_run(str(f), fallback_base=o.size_label), o
+
+
+def test_incident_sheet_all_codes_pass_with_auto_grade(tmp_path):
+    """事故金标：袋口位缺省自动固定 0.5cm/码——27 码 p1 = 8.5-1.5 = 7.0，
+    占宽合计 7.0+3.5+4.0 = 14.5 < 下腰头弧 15.80，六码全过（袋贴×门襟
+    守卫不随推码复发）。"""
+    from ylpattern.api import run_size_run_groups
+    run, o = _incident_run(tmp_path)
+    assert run.options_for("27", o).front_pocket_p1_dist == \
+        pytest.approx(8.5 - 3 * 0.5)
+    assert run.options_for("32", o).front_pocket_p1_dist == \
+        pytest.approx(8.5 + 2 * 0.5)
+    contexts, groups, _rows, _trace = run_size_run_groups(run, o)
+    assert list(contexts) == ["27", "28", "29", "30", "31", "32"]
+    assert all(len(pieces) > 0 for _, pieces in groups)
+
+
+def test_incident_error_carries_size_label(tmp_path):
+    """逐码守卫错误带码号前缀：显式 0 关掉自动推码（回到旧全码恒定行为）
+    -> 27 码重合，消息以「码 27：」开头——屏幕整版恒为基码，无码号的
+    重合报错会误导用户拿基码视觉比对（2026-10-09 事故根因之一）。"""
+    from ylpattern.api import run_size_run_groups
+    run, o = _incident_run(tmp_path,
+                           band_extra="front_pocket_p1_dist = 0\n")
+    with pytest.raises(ValueError,
+                       match=r"码 27：.*袋贴与独立门襟在腰弧上重合"):
+        run_size_run_groups(run, o)
