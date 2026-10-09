@@ -34,12 +34,14 @@ _M = dict(waist=68, hip=82, knee=44, hem=34, front_rise=25, back_rise=33,
           outseam=102, thigh=58)
 
 # 管线挂载配比：W74/H91（d=17≥10）全套派生键 L0 健康窗；深前腰长调节
-# 塌零配方 = fwd 3.1（fi0=0.35）。watch_pocket 随调版关：深腰长调节挪腰侧
+# 塌零配方 = fwd 3.9（fi0=4.25−3.9−0=0.35；2026-10-09 ③ 三档化 d=17 落
+# 不开省档 ΔW 0.8→0，fwd 3.1→3.9 重校保 fi0 不变）。watch_pocket 随调版关：
+# 深腰长调节挪腰侧
 # 几何会触发小表袋射线不相交（已知默认几何缺口，存档见决策日志），此处
 # 借调版态绕行、不修引擎
 _DESC2 = ("女款中腰小脚牛仔裤，腰围74 臀围91 膝围44 脚口34 前浪25 后浪33 "
           "裤长102 大腿围58")
-_SEED_COLLAPSE = {"front_waist_dart": (3.1, "调版：前腰长调节"),
+_SEED_COLLAPSE = {"front_waist_dart": (3.9, "调版：前腰长调节"),
                   "watch_pocket": (False, "调版：关小表袋")}
 
 
@@ -154,7 +156,7 @@ def test_rebalance_engine_reject_keeps_last(monkeypatch):
 
 def test_guard_lifts_through_pipeline():
     """管线挂载：L0 过后量 fi → 塌零步进抬回，derived/评分/报告三处落账。
-    W74/H91 全套派生键 L0 健康；调版深前腰长调节 3.1 → fi0=0.35 塌零 →
+    W74/H91 全套派生键 L0 健康；调版深前腰长调节 3.9 → fi0=0.35 塌零 →
     守卫一轮 1.00→1.25 抬回 0.60。"""
     result = extract_from_input(describe=_DESC2, provider=FakeVLM([]),
                                 seed_overrides=dict(_SEED_COLLAPSE))

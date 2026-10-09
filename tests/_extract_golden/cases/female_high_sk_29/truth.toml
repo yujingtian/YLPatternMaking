@@ -41,7 +41,7 @@ front_crotch_adjust = -0.75    # 来源：查表 conf 0.60 | 前小裆修正 fit
 crotch_drop_adjust = -0.35    # 来源：查表 conf 0.60 | 落裆推导.md §2.2：高弹 crotch −0.35、knee/hem 0.75
 knee_adjust = 0.75    # 来源：查表 conf 0.60 | 落裆推导.md §2.2：高弹 crotch −0.35、knee/hem 0.75
 hem_adjust = 0.75    # 来源：查表 conf 0.60 | 落裆推导.md §2.2：高弹 crotch −0.35、knee/hem 0.75
-front_pocket_dart_width = 0.8    # 来源：查表 conf 0.60 | K4 §1 袋口转省：常规中值 0.8
+front_pocket_dart_width = 0.0    # 来源：查表 conf 0.60 | K4 §1 袋口转省三档：臀腰差 17.0 < 20 不开省（强开反致前腹起空）
 front_pocket_p1_dist = 10    # 来源：查表 conf 0.60 | K5-a 腰围锚点插值：W=74 超上锚 74，封顶上锚（无实测锚，披露）
 front_pocket_p2_drop = 7.5    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：腰位联动 mid_high 档（低腰竖向空间小，袋口相应变浅）
 front_pocket_paring_n = 2    # 来源：查表 conf 0.60 | G 表（部件参数族模板 v1，K5 待收集）：常规 1.5~2.0 上缘

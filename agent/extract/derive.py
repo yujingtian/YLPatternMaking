@@ -312,11 +312,19 @@ def back_intake_abs(measurements: dict[str, float],
 # -- K4 余量排除法 --------------------------------------------------------------
 
 def pocket_dart_width(measurements: dict[str, float]) -> tuple[float, str]:
-    """③ 袋口转省：常规 0.8 中值、大差（d≥20）靠上带 1.0（极限 1.5，K4 §1）。"""
+    """③ 袋口转省三档（K4 §1，2026-10-09 细分）：d<20 → 0 不开省（余量小，
+    强开反致前腹起空，男裤/低腰/H 型落此档）；20≤d≤25 → 0.8 上带；
+    d>25 → 1.0 靠上带（极限 1.5）。落档按 raw 臀腰差，不折算弹力
+    （弹力折算口径未定，暂不做——用户口径 2026-10-09）。"""
     w, h = measurements.get("waist"), measurements.get("hip")
-    if w is not None and h is not None and h - w >= 20:
-        return 1.0, "K4 §1 袋口转省：臀腰差大靠上带 1.0（极限 1.5）"
-    return 0.8, "K4 §1 袋口转省：常规中值 0.8"
+    if w is None or h is None:
+        return 0.8, "K4 §1 袋口转省三档：腰/臀缺失按常规档 0.8"
+    d = h - w
+    if d < 20:
+        return 0.0, f"K4 §1 袋口转省三档：臀腰差 {d:.1f} < 20 不开省（强开反致前腹起空）"
+    if d <= 25:
+        return 0.8, f"K4 §1 袋口转省三档：臀腰差 {d:.1f} 在 20~25 常规档取 0.8"
+    return 1.0, f"K4 §1 袋口转省三档：臀腰差 {d:.1f} > 25 大差档 1.0（极限 1.5）"
 
 
 def side_seam_target(measurements: dict[str, float]) -> tuple[float, str]:
@@ -346,6 +354,7 @@ class DartPlan:
     dart_count: int
     dart_width: float
     evidence: str
+    c3_evidence: str = ""             # ③ 三档定位依据（发射 front_pocket_dart_width 用）
 
 
 def dart_balance(measurements: dict[str, float], axes: dict[str, str],
@@ -400,7 +409,7 @@ def dart_balance(measurements: dict[str, float], axes: dict[str, str],
         count, width = 2, min(2.5, shortfall / 2)
         ev += f"；双省 width={width:.2f}（缺额/2，每省 ≤2.5）"
     return DartPlan(r, channels, takeup, note if yoke_on else "", dart_on,
-                    count, width, ev)
+                    count, width, ev, ev3)
 
 
 def dart_length_linked(width: float) -> tuple[float, str]:
@@ -524,8 +533,8 @@ def derive_all(measurements: dict[str, float], merged: MergedView,
     # K4 省道组：③ 袋口转省 → 前口袋族；缺额 → 翻转 back_dart 开关 + 省 族
     plan = dart_balance(measurements, axes, switches["back_yoke"])
     if switches["front_pocket"]:
-        _, ev3 = pocket_dart_width(measurements)
-        put("front_pocket_dart_width", plan.channels["③袋口"], ev3)
+        put("front_pocket_dart_width", plan.channels["③袋口"],
+            plan.c3_evidence)
     if plan.dart_on:
         merged.switches["back_dart"] = KeyMeta(
             "back_dart", True, DERIVED, 0.7, plan.evidence)
